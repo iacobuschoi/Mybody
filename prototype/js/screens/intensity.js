@@ -66,18 +66,21 @@
 
       /* --- 안내: 강도 = 기간 --- */
       wrap.appendChild(h('div.note', { uid: 'P06-C02', uidLabel: '강도 설명' }, [
-        h('b', { text: '강도는 곧 기간입니다. ' }),
-        '같은 목표라도 얼마나 빨리 갈지에 따라 달성일이 달라집니다. ' +
-        '빠를수록 식단이 빡빡하고 근손실 위험이 올라갑니다.'
+        h('b', { text: '강도 = 기간입니다. ' }),
+        '빠를수록 식단이 빡빡해집니다.'
       ]));
 
       /* --- 기간 폭 안내 --- */
       if (cmp.spanNote) {
-        wrap.appendChild(h('div.note' + (cmp.spanNote.tight ? '.note--warn' : ''),
-          { uid: 'P06-C10', uidLabel: '기간 폭 안내' }, [
-          h('b', { text: cmp.spanWeeks[0] + '~' + cmp.spanWeeks[1] + '주' }),
-          ' · ' + cmp.spanNote.text
-        ]));
+        wrap.appendChild(UI.plainNote({
+          uid: 'P06-C10', label: '기간 폭 안내',
+          tone: cmp.spanNote.tight ? 'warn' : null,
+          title: cmp.spanWeeks[0] + '~' + cmp.spanWeeks[1] + '주',
+          text: cmp.spanNote.tight
+            ? '이 모드에서 고를 수 있는 폭이 좁습니다. 더 여유롭게 가려면 모드를 바꿔야 합니다.'
+            : '이 안에서 고르시면 됩니다.',
+          evidence: cmp.spanNote.tight ? cmp.spanNote.text : null
+        }));
       }
 
       /* --- 강도 카드 (같은 계획으로 수렴하면 한 장으로 합친다) --- */

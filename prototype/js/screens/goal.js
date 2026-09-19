@@ -316,11 +316,20 @@
               { text: manualModeId ? '직접 선택' : '자동 선택' })
           ]));
           if (m.aliasKo) card.appendChild(h('div.muted', { text: '다른 말로 · ' + m.aliasKo }));
-          card.appendChild(h('div', { style: { marginTop: '8px', fontSize: '13.5px' }, text: m.oneLiner }));
+          var pl = m.plain || {};
+          card.appendChild(h('div', { style: { marginTop: '8px', fontSize: '13.5px' },
+            text: pl.one || m.oneLiner }));
 
           if (!manualModeId && sel.reason) {
-            card.appendChild(h('div.note', { style: { marginTop: '10px' },
-              text: '왜 이 모드인가 — ' + sel.reason }));
+            // 선택 이유는 길어서 앞 한 문장만 보여주고 나머지는 접는다
+            var parts = String(sel.reason).split(/(?<=\.)\s+/);
+            var head = parts[0] || sel.reason;
+            var rest = parts.slice(1).join(' ');
+            card.appendChild(UI.plainNote({
+              uid: 'P05-S09', label: '모드 선택 이유',
+              title: '왜 이 모드인가', text: head,
+              evidence: rest || null
+            }));
           }
           if (sel.trendNote) {
             card.appendChild(h('div.note.note--warn', { text: sel.trendNote }));
@@ -345,32 +354,26 @@
           card.appendChild(kv('단백질', m.proteinPerFfmMin + '~' + m.proteinPerFfmMax + ' g/kg 제지방'));
           if (m.maxContinuousWeeks) card.appendChild(kv('연속 지속 한계', m.maxContinuousWeeks + '주'));
 
-          card.appendChild(h('div', { style: { marginTop: '10px' } }, [
-            h('div.section-title', { text: '이 모드가 맞는 사람' }),
-            h('div.muted', { text: MODES.forDisplay(m.whoFor) })
+          card.appendChild(h('div', { style: { marginTop: '12px', display: 'grid', gap: '6px' } }, [
+            h('div', [h('span.section-title', { style: { margin: '0 6px 0 0', display: 'inline' },
+                                                text: '맞는 사람' }),
+                      h('span.muted', { text: pl.who || MODES.forDisplay(m.whoFor) })]),
+            h('div', [h('span.section-title', { style: { margin: '0 6px 0 0', display: 'inline' },
+                                                text: '아닌 사람' }),
+                      h('span.muted', { text: pl.not || MODES.forDisplay(m.notFor) })])
           ]));
-          card.appendChild(h('div', { style: { marginTop: '8px' } }, [
-            h('div.section-title', { text: '이 모드가 아닌 사람' }),
-            h('div.muted', { text: MODES.forDisplay(m.notFor) })
-          ]));
-          var expected = MODES.forDisplay(m.expectedKo);
-          var risks = MODES.forDisplay(m.risksKo);
-          var training = MODES.forDisplay(m.trainingPolicyKo);
-          if (training) {
-            card.appendChild(h('div', { style: { marginTop: '8px' } }, [
-              h('div.section-title', { text: '이 모드의 운동' }),
-              h('div.muted', { text: training })
-            ]));
-          }
-          if (expected) {
-            card.appendChild(h('div.note', { style: { marginTop: '10px' }, text: '예상 — ' + expected }));
-          }
-          if (risks) {
-            card.appendChild(h('div.note.note--warn', { text: '주의 — ' + risks }));
-          }
-          if (m.exitCriteriaKo) {
-            card.appendChild(h('div.muted', { style: { marginTop: '8px' },
-              text: '끝내는 시점 — ' + MODES.forDisplay(m.exitCriteriaKo) }));
+          card.appendChild(UI.plainNote({
+            uid: 'P05-S10', label: '예상 결과',
+            title: '예상', text: pl.expect || MODES.forDisplay(m.expectedKo).slice(0, 90),
+            evidence: pl.evidence || null
+          }));
+          if (pl.risk || m.risksKo) {
+            card.appendChild(UI.plainNote({
+              uid: 'P05-S11', label: '주의', tone: 'warn',
+              title: '주의', text: pl.risk || MODES.forDisplay(m.risksKo).slice(0, 90),
+              evidence: MODES.forDisplay(m.risksKo) !== (pl.risk || '')
+                ? MODES.forDisplay(m.risksKo) : null
+            }));
           }
 
           card.appendChild(h('div.btn-row', { style: { marginTop: '12px' } }, [

@@ -290,8 +290,13 @@ function makeApi(db) {
         if (s.bfmTrend && p.dBfmKg != null) o.dBfmKg = p.dBfmKg;
         if (s.planProgress && p.progressPct != null) o.progressPct = p.progressPct;
         if (s.streak && p.checkedIn != null) o.checkedIn = p.checkedIn;
+        // absolute 는 "숫자로 보여준다"는 뜻이지 "항목을 하나 더 연다"는 뜻이 아닙니다.
+        // 켠 항목에만 붙습니다 — 체중만 켠 사람의 골격근/체지방이 여기로 새면 안 됩니다.
         if (s.absolute) {
-          for (const k of ['weightKg', 'smmKg', 'bfmKg', 'pbfPct']) if (p[k] != null) o[k] = p[k];
+          if (s.weightTrend && p.weightKg != null) o.weightKg = p.weightKg;
+          if (s.smmTrend && p.smmKg != null) o.smmKg = p.smmKg;
+          if (s.bfmTrend && p.bfmKg != null) o.bfmKg = p.bfmKg;
+          if (s.bfmTrend && p.pbfPct != null) o.pbfPct = p.pbfPct;
         }
         return o;
       });

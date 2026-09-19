@@ -292,11 +292,12 @@
           if (s.bfmTrend && p.dBfmKg != null) out.dBfmKg = p.dBfmKg;
           if (s.planProgress && p.progressPct != null) out.progressPct = p.progressPct;
           if (s.streak && p.checkedIn != null) out.checkedIn = p.checkedIn;
+          // 서버(server/db.js)와 같은 규칙: 켠 항목에만 숫자가 붙습니다
           if (s.absolute) {
-            if (p.weightKg != null) out.weightKg = p.weightKg;
-            if (p.smmKg != null) out.smmKg = p.smmKg;
-            if (p.bfmKg != null) out.bfmKg = p.bfmKg;
-            if (p.pbfPct != null) out.pbfPct = p.pbfPct;
+            if (s.weightTrend && p.weightKg != null) out.weightKg = p.weightKg;
+            if (s.smmTrend && p.smmKg != null) out.smmKg = p.smmKg;
+            if (s.bfmTrend && p.bfmKg != null) out.bfmKg = p.bfmKg;
+            if (s.bfmTrend && p.pbfPct != null) out.pbfPct = p.pbfPct;
           }
           return out;
         });

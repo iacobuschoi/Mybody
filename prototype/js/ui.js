@@ -131,6 +131,38 @@
   }
   function closeAllModals() { openModals.slice().forEach(function (b) { b.remove(); }); openModals = []; }
 
+  /**
+   * 짧은 말 + 접어둔 근거.
+   * 이 앱의 신뢰는 "숫자를 밝힌다"에서 나오는데, 그렇다고 화면을 논문으로
+   * 채우면 아무도 안 읽습니다. 평소엔 한 줄, 궁금하면 펼치게 합니다.
+   */
+  function plainNote(opts) {
+    var wrap = h('div.note' + (opts.tone ? '.note--' + opts.tone : ''),
+      { uid: opts.uid, uidLabel: opts.label });
+    if (opts.title) wrap.appendChild(h('b', { text: opts.title + ' ' }));
+    if (opts.text) append(wrap, opts.text);
+    if (opts.evidence) {
+      var open = false;
+      var body = h('div', { style: { display: 'none', marginTop: '8px', paddingTop: '8px',
+        borderTop: '1px solid color-mix(in srgb, currentColor 22%, transparent)',
+        fontSize: '12px', opacity: '.88' }, text: opts.evidence });
+      var btn = h('button', {
+        text: '근거 ▸',
+        style: { background: 'none', border: 'none', padding: '4px 0 0', cursor: 'pointer',
+                 font: 'inherit', fontSize: '11.5px', fontWeight: '700', opacity: '.75',
+                 color: 'inherit', textDecoration: 'underline', textUnderlineOffset: '2px' },
+        onClick: function () {
+          open = !open;
+          body.style.display = open ? '' : 'none';
+          btn.textContent = open ? '근거 ▾' : '근거 ▸';
+        }
+      });
+      wrap.appendChild(h('div', [btn]));
+      wrap.appendChild(body);
+    }
+    return wrap;
+  }
+
   /* --- 라인 차트 (SVG) ----------------------------------------------------- */
   /**
    * lineChart({ uid, series:[{key,label,color,points:[{x,y}],dashed}], height,
@@ -346,7 +378,7 @@
   global.MB_UI = {
     h: h, clear: clear, append: append,
     n0: n0, n1: n1, n2: n2, sign: sign, dateK: dateK, dateShort: dateShort, weeksToHuman: weeksToHuman,
-    openModal: openModal, closeAllModals: closeAllModals,
+    openModal: openModal, closeAllModals: closeAllModals, plainNote: plainNote,
     lineChart: lineChart, sparkline: sparkline, donut: donut, timeline: timeline
   };
 })(window);

@@ -316,6 +316,9 @@ function checkPlan(u, plan, week) {
 const TREND_KEYS = { weightTrend: 'dWeightKg', smmTrend: 'dSmmKg', bfmTrend: 'dBfmKg',
                      planProgress: 'progressPct', streak: 'checkedIn' };
 const ABS_KEYS = ['weightKg', 'smmKg', 'bfmKg', 'pbfPct'];
+// 실제 수치는 그 항목을 켰을 때만 나갈 수 있습니다 (absolute 는 표시 방식일 뿐)
+const ABS_OWNER = { weightKg: 'weightTrend', smmKg: 'smmTrend',
+                    bfmKg: 'bfmTrend', pbfPct: 'bfmTrend' };
 
 function checkLeak(viewer, owner, res, week) {
   if (!res.ok) return;
@@ -328,8 +331,12 @@ function checkLeak(viewer, owner, res, week) {
       }
     }
     for (const k of ABS_KEYS) {
-      if (row[k] !== undefined && !allowed.absolute) {
+      if (row[k] === undefined) continue;
+      if (!allowed.absolute) {
         fail('실제 수치가 샜다', k, { viewer: viewer.i, owner: owner.i, week, row });
+      } else if (!allowed[ABS_OWNER[k]]) {
+        fail('안 켠 항목이 실제 수치로 샜다', k + ' (' + ABS_OWNER[k] + ' 꺼짐)',
+             { viewer: viewer.i, owner: owner.i, week, row });
       }
     }
     for (const k of Object.keys(row)) {
