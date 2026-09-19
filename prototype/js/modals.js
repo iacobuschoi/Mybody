@@ -18,11 +18,11 @@
           h('li', { text: '형광등 반사·그림자 피하기' }),
           h('li', { text: '영수증형(감열지)은 빛바램이 심하니 바로 촬영' })
         ]),
-        h('div.note', { text: '프로토타입에서는 실제 카메라 대신 내장 샘플로 판독을 흉내 냅니다.' })
+        h('div.note', { text: '사진은 이 기기에만 저장됩니다. 찍고 나면 사진을 보면서 숫자 세 개만 옮겨 적으면 됩니다.' })
       ],
       actions: [
         { label: '취소', kind: 'ghost' },
-        { label: '샘플로 진행', kind: 'primary', onClick: function () { if (onPick) onPick(); } }
+        { label: '사진 고르기', kind: 'primary', onClick: function () { if (onPick) onPick(); } }
       ]
     });
   };
@@ -1121,6 +1121,63 @@
     });
     return L.join('\n');
   }
+
+  /* M45 사진 크게 보기 — 결과지 숫자는 작습니다. 폰 화면에서 37.9 와
+     97.9 를 가르려면 확대가 필요합니다. 브라우저 기본 확대는 모달 안에서
+     잘 안 먹어서, 눌러서 2.5배로 키우고 드래그로 훑게 했습니다. */
+  M.photoZoom = function (dataUrl) {
+    if (!dataUrl) return;
+    var scale = 1;
+    var box = h('div', {
+      style: { overflow: 'auto', maxHeight: '68vh', borderRadius: '10px',
+               background: 'var(--bg-2)', WebkitOverflowScrolling: 'touch' }
+    });
+    var img = h('img', {
+      src: dataUrl, alt: '올린 결과지',
+      style: { width: '100%', display: 'block', transformOrigin: '0 0', cursor: 'zoom-in' },
+      onClick: function () {
+        scale = scale === 1 ? 2.5 : 1;
+        img.style.width = (scale * 100) + '%';
+        img.style.cursor = scale === 1 ? 'zoom-in' : 'zoom-out';
+      }
+    });
+    box.appendChild(img);
+    UI.openModal({
+      uid: 'M45', title: '결과지',
+      sub: '눌러서 확대 · 끌어서 이동',
+      body: [box],
+      actions: [{ label: '닫기', kind: 'primary' }]
+    });
+  };
+
+  /* M46 자동 판독 켜기 — 건강 데이터를 기기 밖으로 내보내는 동의입니다.
+     무엇이 나가고, 어디로 가고, 무엇이 안 나가는지를 적습니다. "개인정보
+     처리방침에 동의" 같은 말로 뭉개지 않습니다 — 그런 문장은 아무도 안
+     읽고, 안 읽힌 동의는 동의가 아닙니다. */
+  M.enableOcr = function (onConfirm) {
+    var st = global.MB_SYNC ? global.MB_SYNC.status() : {};
+    UI.openModal({
+      uid: 'M46', title: '사진을 서버로 보냅니다',
+      sub: st.baseUrl || '내 서버',
+      body: [
+        h('div', { text: '자동 판독을 켜면, 판독 버튼을 누를 때마다 결과지 사진이 이 서버로 올라갑니다.' }),
+        h('ul', { style: { paddingLeft: '18px', margin: '10px 0' } }, [
+          h('li', { text: '올라가는 것: 결과지 사진 한 장 (줄여서 1MB 이하)' }),
+          h('li', { text: '서버가 하는 일: 사진에서 숫자를 읽어 초안으로 돌려줌' }),
+          h('li', { text: '안 올라가는 것: 누르지 않은 사진. 자동으로 올라가는 사진은 없습니다.' })
+        ]),
+        h('div.note', {
+          text: '돌려받은 숫자는 그대로 저장되지 않습니다. 결과지 안에서 검산이 맞는지 따진 뒤, ' +
+                '검수 화면에서 직접 보고 확정합니다. 지금처럼 직접 입력하는 길도 그대로 남습니다.' }),
+        h('div.muted', { style: { marginTop: '8px' },
+          text: '언제든 설정에서 다시 끌 수 있습니다. 끄면 그 뒤로는 한 장도 나가지 않습니다.' })
+      ],
+      actions: [
+        { label: '안 켤래요', kind: 'ghost' },
+        { label: '켜기', kind: 'primary', onClick: function () { if (onConfirm) onConfirm(); } }
+      ]
+    });
+  };
 
   global.MB_MODALS = M;
 })(window);

@@ -91,6 +91,65 @@
           ]));
         })();
 
+        /* ===== C08 사진 · 자동 판독 ======================================
+           결과지 사진과, 그 사진을 서버로 보낼지 말지. 건강 데이터를
+           기기 밖으로 내보내는 일이라 기본은 꺼짐이고, 켜는 것도 끄는
+           것도 여기 한 곳에서만 합니다. */
+        (function () {
+          var sync = global.MB_SYNC ? global.MB_SYNC.status() : { signedIn: false, configured: false };
+          var ocrOn = global.MB_SYNC && global.MB_SYNC.canOcr && global.MB_SYNC.canOcr();
+          var shots = global.MB_PHOTO ? Object.keys(global.MB_PHOTO.list()).length : 0;
+          var kb = global.MB_PHOTO ? Math.round(global.MB_PHOTO.usedBytes() / 1024) : 0;
+
+          var card = h('div.card', { uid: 'P12-C08', uidLabel: '사진 · 자동 판독' }, [
+            h('div.card__head', [
+              h('div.card__title', { text: '결과지 사진' }),
+              h('span.badge' + (ocrOn ? '.badge--accent' : ''),
+                { text: ocrOn ? '자동 판독 켜짐' : '이 기기에만' })
+            ]),
+            h('div.muted', { text: shots
+              ? '이 기기에 ' + shots + '장 · ' + kb + 'KB. 최근 ' +
+                (global.MB_PHOTO ? global.MB_PHOTO.KEEP : 6) + '장까지만 남깁니다.'
+              : '저장된 사진이 없습니다.' })
+          ]);
+
+          card.appendChild(chipField('P12-F06', '자동 판독',
+            [['off', '끄기 (직접 입력)'], ['on', '켜기 (서버로 보냄)']],
+            ocrOn ? 'on' : 'off',
+            function (v) {
+              if (v === 'on' && !sync.signedIn) {
+                global.MB_UID.toast('먼저 로그인해야 합니다 — 사진은 내 계정으로만 올라갑니다');
+                return;
+              }
+              if (v === 'on') {
+                global.MB_MODALS.enableOcr(function () {
+                  global.MB_SYNC.setOcr(true);
+                  A.refresh();
+                });
+                return;
+              }
+              global.MB_SYNC.setOcr(false);
+              A.refresh();
+            },
+            sync.signedIn
+              ? '켜면 사진이 ' + (sync.baseUrl || '내 서버') + ' 로 올라가 숫자 초안을 만들어 돌려줍니다. ' +
+                '꺼져 있어도 사진을 보면서 직접 넣을 수 있습니다.'
+              : '로그인해야 켤 수 있습니다. 사진은 내 계정으로만 올라갑니다.'));
+
+          if (shots) {
+            card.appendChild(h('button.btn.btn--sm', {
+              text: '저장된 사진 모두 지우기', uid: 'P12-B14', uidLabel: '사진 모두 지우기',
+              style: { marginTop: '4px' },
+              onClick: function () {
+                global.MB_PHOTO.clearAll();
+                global.MB_UID.toast('사진을 모두 지웠습니다 — 숫자 기록은 그대로입니다');
+                A.refresh();
+              }
+            }));
+          }
+          body.appendChild(card);
+        })();
+
         /* ===== C02 표시 ================================================ */
         var theme = set.theme || 'auto';
         var badgeSize = set.badgeSize || currentBadgeSize();

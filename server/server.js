@@ -13,6 +13,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { open, makeApi } = require('./db.js');
+const { runOcr: callOcr } = require('./ocr.js');
 
 const PORT = Number(process.env.PORT || 8080);
 const DB_FILE = process.env.DB || path.join(__dirname, 'mybody.db');
@@ -30,6 +31,12 @@ const ORIGIN = process.env.ORIGIN || '*';
  * 127.0.0.1 바인딩으로 막지 않는 이유: 주인이 "서버는 내 컴퓨터로 사용해"라고
  * 했고, 같은 와이파이의 폰이 못 들어오면 결국 되돌리게 됩니다. */
 const PAIR_SECRET = process.env.PAIR_SECRET || '';
+
+/* 2층 판독. 키가 없으면 /api/ocr 은 503 을 돌려주고, 앱은 0층(직접
+   입력)으로 조용히 남습니다 — 판독은 편의기능이지 바닥이 아닙니다. */
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
+const OCR_MODEL = process.env.OCR_MODEL || 'claude-opus-5';
+const OCR_PER_DAY = Number(process.env.OCR_PER_DAY || 40);
 
 function pairOk(given) {
   const got = Buffer.from(String(given || ''), 'utf8');
@@ -69,6 +76,24 @@ function rateLimited(ip) {
  * 턱없이 모자랍니다 — 분당 300번이면 흔한 비밀번호 목록을 하루에 다 돌립니다.
  * 아이디별로 따로 셉니다. IP 별로만 세면 여러 IP 로 한 계정을 때릴 수 있고,
  * 반대로 한 IP 뒤의 여러 사람이 서로를 막게 됩니다. */
+/* 사람당 하루 판독 횟수. 사진 한 장이 돈이 드는 요청이라, 버그로
+   같은 요청이 반복돼도 청구서가 터지지 않게 막아 둡니다. */
+const ocrHits = new Map();
+function ocrLimited(userId) {
+  const day = new Date().toISOString().slice(0, 10);
+  const key = userId + '|' + day;
+  const n = (ocrHits.get(key) || 0) + 1;
+  ocrHits.set(key, n);
+  if (ocrHits.size > 2000) {
+    for (const k of ocrHits.keys()) { if (!k.endsWith('|' + day)) ocrHits.delete(k); }
+  }
+  return n > OCR_PER_DAY;
+}
+
+async function runOcr(body) {
+  return callOcr(body, { apiKey: ANTHROPIC_KEY, model: OCR_MODEL });
+}
+
 const loginFails = new Map();
 const LOGIN = { max: 8, windowMs: 15 * 60_000 };
 
@@ -107,15 +132,29 @@ function send(res, status, body, headers = {}) {
   res.end(body);
 }
 
-function readBody(req) {
+/* 본문 읽기.
+ *
+ * 한도를 넘으면 소켓을 바로 끊지 않습니다. 끊으면 브라우저에는 413 이
+ * 아니라 "Failed to fetch" 가 뜨고, 그건 서버가 죽은 것과 구분이 안 됩니다.
+ * 대신 남은 데이터를 버리면서 끝까지 받아 주고, 응답으로 413 을 보냅니다.
+ * (그래도 무한정 받지는 않습니다 — HARD 를 넘으면 그때는 끊습니다.)
+ */
+function readBody(req, limit = 2_000_000) {
+  const HARD = limit * 4;
   return new Promise((resolve, reject) => {
-    let n = 0; const chunks = [];
+    let n = 0, over = false; const chunks = [];
     req.on('data', c => {
       n += c.length;
-      if (n > 2_000_000) { reject(Object.assign(new Error('본문이 너무 큽니다'), { status: 413 })); req.destroy(); return; }
+      if (n > HARD) {
+        if (!over) { over = true; reject(Object.assign(new Error('본문이 너무 큽니다'), { status: 413 })); }
+        req.destroy();
+        return;
+      }
+      if (n > limit) { over = true; chunks.length = 0; return; }
       chunks.push(c);
     });
     req.on('end', () => {
+      if (over) return reject(Object.assign(new Error('본문이 너무 큽니다'), { status: 413 }));
       if (!chunks.length) return resolve({});
       try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
       catch { reject(Object.assign(new Error('JSON 형식이 아닙니다'), { status: 400 })); }
@@ -235,6 +274,27 @@ async function handleApi(req, res, url) {
   if (p === '/sync/pull' && method === 'GET') {
     return send(res, 200, api.pull(me, url.searchParams.get('since') || '',
                                    intParam(url.searchParams.get('limit'), 500, 1, 2000)));
+  }
+
+  /* 2층 — 결과지 사진 판독 프록시.
+   *
+   * 왜 프록시인가: API 키를 정적 클라이언트에 넣을 수 없습니다. 키는
+   * 이 서버의 환경변수에만 있고, 브라우저는 자기 계정 토큰으로만
+   * 이 경로를 부릅니다.
+   *
+   * 사진 본문은 다른 요청보다 큽니다(base64 가 4/3 배). 그래서 한도를
+   * 따로 줍니다. photo.js 가 이미 900KB 아래로 줄여서 보냅니다.
+   */
+  if (p === '/ocr' && method === 'POST') {
+    if (!ANTHROPIC_KEY) {
+      return send(res, 503, { ok: false, reason: '이 서버에는 판독 키가 설정되지 않았습니다' });
+    }
+    if (ocrLimited(me)) {
+      return send(res, 429, { ok: false, reason: '판독 요청이 너무 잦습니다. 잠시 뒤에 다시 해 주세요' });
+    }
+    const b = await readBody(req, 8_000_000);
+    const out = await runOcr(b);
+    return send(res, out.status, out.body);
   }
 
   return send(res, 404, { ok: false, reason: '그런 경로가 없습니다' });

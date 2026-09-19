@@ -15,19 +15,22 @@
   ];
 
   /* 스캔 출처 표기.
-     upload.js 는 'ocr', review.js 는 'manual', 시드 데이터는 'sheet'(전체 결과지) /
+     upload.js 는 'manual-photo'(사진 보며 직접) 또는 'ocr'(서버 판독),
+     review.js 는 'manual', 시드 데이터는 'sheet'(전체 결과지) /
      'chart'(신체변화 그래프 복원) 를 쓴다. */
   function sourceLabel(src) {
     if (src === 'ocr') return '사진 판독';
+    if (src === 'manual-photo') return '사진 보고 입력';
     if (src === 'manual') return '직접 입력';
     if (src === 'sheet') return '결과지 전체';
     if (src === 'chart') return '그래프 복원';
     return '출처 미상';
   }
-  /* '직접입력'만 손으로 넣은 것이고, 나머지는 전부 결과지를 읽어 들인 것으로 본다. */
+  /* 사람이 숫자를 친 것(직접 입력 · 사진 보고 입력)과 기계가 읽은 것을
+     가릅니다. 사진이 있었는지가 아니라 숫자가 어디서 왔는지가 기준입니다. */
   function matchesFilter(scan, key) {
     if (key === 'all') return true;
-    if (key === 'manual') return scan.source === 'manual';
+    if (key === 'manual') return scan.source === 'manual' || scan.source === 'manual-photo';
     return scan.source !== 'manual';
   }
 

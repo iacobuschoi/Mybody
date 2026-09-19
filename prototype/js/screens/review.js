@@ -11,8 +11,10 @@
   var UI = global.MB_UI, S = global.MB_STORE, E = global.MB_ENGINE, A = global.MB_APP;
   var h = UI.h;
 
-  var CONF_HI = 0.85;      // 이상 → 초록
-  var CONF_MID = 0.60;     // 이상 → 노랑, 미만 → 빨강(확인 필요)
+  /* 예전에 여기 OCR 신뢰도 문턱(0.85 / 0.60)이 있었습니다. 지웠습니다.
+     그 점수는 글자를 얼마나 선명하게 봤는지였고, 그 숫자가 맞는지와는
+     거의 상관이 없었습니다 — 맞은 값 24.8 에 14점, 틀린 값 19.3 에 39점.
+     지금 화면에 뜨는 점은 crosscheck.js 의 검산 상태입니다. */
 
   /* --- 필드 정의 ---------------------------------------------------------- */
   /* range: [min, max] — 벗어나면 경고만 한다(저장은 막지 않는다)
@@ -76,23 +78,48 @@
       var src = loadSource(p, st);
       var mode = src.mode;          // 'ocr' | 'manual' | 'edit'
       var v = src.values;           // key -> number|null, measuredAt(string), device(string)
-      var conf = src.conf;          // key -> 0~1 | null
       var origin = src.origin;      // 편집 중인 원본 스캔 (없으면 null)
 
       var touched = {};             // 사람이 손댄 필드 = 확인된 필드
       var rows = {};                // key -> {input, dot, note, err}
       var groups = {};              // uid -> {open, body, badge, btn}
       var warnHost, stateHost, saveBtn, laterBtn;
+      /* 1층 검산 결과. revalidate() 가 매번 새로 계산합니다.
+         화면 곳곳(점 · 칸 밑 문구 · 배너)이 같은 하나를 봅니다 —
+         따로 계산하면 점은 초록인데 배너는 빨간 일이 생깁니다. */
+      var check = null;
+
+      /* 검산이 기댈 지난 측정. 편집 중인 스캔 자신은 빼야 합니다 —
+         자기 자신과 비교하면 변화량이 늘 0 이라 아무것도 못 잡습니다. */
+      var prevScan = (function () {
+        var list = (st.scans || []).filter(function (x) {
+          return !src.origin || x.id !== src.origin.id;
+        });
+        return list.length ? list[list.length - 1] : null;
+      })();
       var mounted = false;          // 첫 렌더가 끝났는지 (배지 재스캔 범위 결정용)
 
-      /* --- C01 원본 이미지 자리 ------------------------------------------- */
-      wrap.appendChild(h('div.card', { uid: 'P04-C01', uidLabel: '원본 결과지 미리보기 자리' }, [
+      /* --- C01 원본 결과지 -------------------------------------------------
+         사진이 있으면 띄웁니다. 검수의 요점은 "화면의 숫자와 결과지의
+         숫자가 같은가" 인데, 결과지를 다시 꺼내 봐야 한다면 검수를
+         건너뛰게 됩니다. 여기 있으면 눈만 움직이면 됩니다. */
+      var photo = src.photoId ? global.MB_PHOTO.get(src.photoId) : null;
+      wrap.appendChild(h('div.card', { uid: 'P04-C01', uidLabel: '원본 결과지' }, [
         h('div.card__head', [
           h('div.card__title', { text: '원본 결과지' }),
-          h('span.badge' + (mode === 'ocr' ? '.badge--accent' : ''), { text: modeBadge(mode) })
+          h('span.badge' + (mode === 'ocr' ? '.badge--accent' : ''), { text: modeBadge(src) })
         ]),
-        h('div.skeleton', { style: { height: '120px', marginBottom: '8px' } }),
-        h('div.muted', { text: '원본 미리보기 (프로토타입에서는 생략)' }),
+        photo
+          ? h('img', {
+              src: photo.dataUrl, alt: '올린 결과지',
+              uid: 'P04-B15', uidLabel: '사진 크게 보기',
+              style: { width: '100%', borderRadius: '10px', display: 'block',
+                       marginBottom: '8px', cursor: 'zoom-in', background: 'var(--bg-2)' },
+              onClick: function () { global.MB_MODALS.photoZoom(photo.dataUrl); }
+            })
+          : h('div.muted', { style: { marginBottom: '8px' },
+              text: '올린 사진이 없습니다. 결과지를 보면서 숫자를 대조해 주세요.' }),
+        photo ? h('div.muted', { text: '눌러서 크게 보기 · 이 사진은 이 기기에만 있습니다' }) : null,
         h('div.muted', { text: originLine(src) })
       ]));
 
@@ -289,6 +316,9 @@
       /* ==================================================================== */
 
       function revalidate() {
+        /* 0) 검산을 먼저 돌립니다. 아래 전부가 이 결과 하나를 봅니다. */
+        check = global.MB_CHECK.run(v, prof, prevScan);
+
         /* 1) 필드별 범위 경고 */
         ALL_FIELDS.forEach(function (f) {
           var r = rows[f.key];
@@ -306,14 +336,21 @@
           r.err.style.display = msg ? '' : 'none';
         });
 
-        /* 2) 자동 검증 배너 */
+        /* 2) 점 · 칸 밑 문구 — 검산 결과가 바뀌면 같이 바뀌어야 합니다 */
+        Object.keys(rows).forEach(function (k) {
+          var r = rows[k];
+          if (r && r.dot) r.dot.className = 'dot-conf ' + dotClass(k);
+          paintNote(k);
+        });
+
+        /* 3) 검산 배너 */
         drawWarnings();
 
-        /* 3) 그룹 헤더의 "확인 필요" 개수 */
+        /* 4) 그룹 헤더의 "확인 필요" 개수 */
         updateGroupBadge('P04-C04', DERIVED);
         updateGroupBadge('P04-C05', COMPOSITION);
 
-        /* 4) 필수 3종 + 저장 버튼 */
+        /* 5) 필수 3종 + 저장 버튼 */
         drawState();
 
         /* 다시 그린 조각에 배지를 다시 붙인다 (첫 렌더는 app.js가 통째로 스캔한다).
@@ -327,33 +364,86 @@
       function drawWarnings() {
         UI.clear(warnHost);
         warnHost.appendChild(h('div.card__head', [
-          h('div.card__title', { text: '자동 검증' }),
-          h('div.card__sub', { text: '숫자끼리 서로 맞는지 계산해 봤습니다' })
+          h('div.card__title', { text: '검산' }),
+          h('div.card__sub', { text: '결과지 안에서 숫자끼리 맞아떨어지는지 따져 봤습니다' })
         ]));
 
-        var W = computeWarnings();
-        if (W.length) {
-          W.forEach(function (w) {
-            warnHost.appendChild(h('div.note.note--' + (w.bad ? 'bad' : 'warn'),
-              { style: { marginBottom: '8px' } }, [
-              h('b', { text: w.title }),
-              h('div', { style: { marginTop: '4px' }, text: w.detail }),
-              h('button.btn.btn--sm', {
-                text: '계산값으로 맞추기', style: { marginTop: '8px' },
-                uid: 'P04-B07', uidLabel: '계산값으로 맞추기',
-                onClick: w.fix
+        var r = check;
+        if (!r) return;
+
+        /* 어긋난 검산 — 무엇과 무엇이 안 맞는지 식으로 보여 줍니다.
+           "확인해 주세요" 만 있으면 무엇을 확인하라는 건지 모릅니다. */
+        var broken = r.checks.filter(function (c) { return !c.ok; });
+        broken.forEach(function (c) {
+          var box = h('div.note.note--bad', { style: { marginBottom: '8px' } }, [
+            h('b', { text: c.label }),
+            h('div', { style: { marginTop: '4px' }, text: c.why })
+          ]);
+          if (c.fix) {
+            box.appendChild(h('button.btn.btn--sm', {
+              text: global.MB_CHECK.obj(fieldLabelOf(c.fix.field)) + ' ' + c.fix.value + ' 로 고치기',
+              style: { marginTop: '8px' },
+              uid: 'P04-B07', uidLabel: '계산값으로 맞추기',
+              onClick: function () { setValue(c.fix.field, c.fix.value); }
+            }));
+          }
+          warnHost.appendChild(box);
+        });
+
+        /* 자릿수 복구 제안 — 되돌렸을 때 검산이 전부 맞는 후보가 딱
+           하나일 때만 올라옵니다. 둘 이상이면 무엇이 맞는지 모르는
+           것이고, 그때 하나를 고르는 건 추측입니다. */
+        r.suggestions.forEach(function (sg) {
+          warnHost.appendChild(h('div.note.note--warn', { style: { marginBottom: '8px' } }, [
+            h('b', { text: '자릿수를 잘못 읽었을 수 있습니다' }),
+            h('div', { style: { marginTop: '4px' }, text: sg.why }),
+            h('button.btn.btn--sm', {
+              text: sg.from + ' → ' + sg.to + ' 로 고치기', style: { marginTop: '8px' },
+              uid: 'P04-B13', uidLabel: '복구 제안 적용',
+              onClick: function () { setValue(sg.field, sg.to); }
+            })
+          ]));
+        });
+
+        /* 범위·변화량 — 검산은 아니지만 같은 자리에서 말합니다 */
+        r.rangeIssues.concat(r.deltaIssues).forEach(function (i2) {
+          warnHost.appendChild(h('div.note.note--' + (i2.level === 'bad' ? 'bad' : 'warn'),
+            { style: { marginBottom: '8px' } }, [h('div', { text: i2.why })]));
+        });
+
+        /* 맞아떨어진 것들은 접어 둡니다. 다 맞았을 때 여덟 줄이 올라오면
+           정작 봐야 할 게 묻힙니다. */
+        var okChecks = r.checks.filter(function (c) { return c.ok; });
+        if (okChecks.length) {
+          var open = false;
+          var list = h('div', { style: { display: 'none', marginTop: '6px' } },
+            okChecks.map(function (c) {
+              return h('div.muted', { style: { fontSize: '12px', marginTop: '3px' },
+                text: '✓ ' + c.why });
+            }));
+          warnHost.appendChild(h('div.note' + (broken.length ? '' : '.note--ok'), [
+            h('div', { style: { display: 'flex', justifyContent: 'space-between',
+                                alignItems: 'center', gap: '8px' } }, [
+              h('b', { text: broken.length
+                ? '나머지 ' + okChecks.length + '개는 맞아떨어집니다'
+                : '검산 ' + okChecks.length + '개가 전부 맞아떨어집니다' }),
+              h('button.btn.btn--ghost.btn--sm', {
+                text: '자세히', uid: 'P04-B14', uidLabel: '검산 상세 펼치기',
+                onClick: function (e) {
+                  open = !open;
+                  list.style.display = open ? '' : 'none';
+                  e.currentTarget.textContent = open ? '접기' : '자세히';
+                }
               })
-            ]));
-          });
-        } else if (v.weightKg != null && v.bfmKg != null) {
-          warnHost.appendChild(h('div.note.note--ok',
-            { text: '숫자끼리 서로 맞습니다. 판독값과 계산값 사이에 모순이 없습니다.' }));
-        } else {
-          warnHost.appendChild(h('div.note',
-            { text: '체중과 체지방량이 들어오면 나머지 숫자와 맞는지 여기서 바로 검사합니다.' }));
+            ]),
+            list
+          ]));
+        } else if (!broken.length) {
+          warnHost.appendChild(h('div.note', {
+            text: '검산할 짝이 아직 없습니다. 체중 · 체지방량이 들어오면 여기서 바로 따집니다.' }));
         }
 
-        /* 확인 필요 항목 바로가기 — 못 읽은 값이 접힌 그룹 안에 숨지 않게 */
+        /* 손봐야 하는 칸 바로가기 — 접힌 그룹 안에 숨지 않게 */
         var lowKeys = ALL_FIELDS.filter(function (f) { return isLow(f.key); })
           .map(function (f) { return f.key; });
         if (mode !== 'manual' && lowKeys.length) {
@@ -361,9 +451,8 @@
             h('div.section-title', { text: lowWord() + ' ' + lowKeys.length + '개' }),
             h('div.chips', lowKeys.map(function (k) {
               var f = fieldDef(k);
-              var why = mode === 'ocr'
-                ? (v[k] == null ? ' · 못 읽음' : ' · 신뢰도 낮음')
-                : ' · 비어 있음';
+              var why = checkState(k) === 'conflict' ? ' · 어긋남'
+                      : (v[k] == null ? ' · 비어 있음' : '');
               return h('button.chip', {
                 text: f.label + why,
                 uid: 'P04-B09', uidLabel: '확인 필요 항목 바로가기',
@@ -373,86 +462,14 @@
           ]));
         }
 
-        if (mode === 'ocr') {
+        if (mode !== 'manual') {
+          /* 예전엔 여기에 "● 초록: 잘 읽음" 이라고 적혀 있었습니다.
+             OCR 신뢰도를 가리키는 말이었는데, 그 점수는 글자를 얼마나
+             선명하게 봤는지일 뿐 그 숫자가 맞는지가 아니었습니다.
+             (맞은 값 24.8 에 14점, 틀린 값 19.3 에 39점) */
           warnHost.appendChild(h('div.muted', { style: { marginTop: '10px' },
-            text: '● 신뢰도 — 초록: 잘 읽음 · 노랑: 보통 · 빨강: 확인 필요' }));
-        } else if (mode === 'edit') {
-          warnHost.appendChild(h('div.muted', { style: { marginTop: '10px' },
-            text: '● 초록: 값이 들어 있음 · 빨강: 아직 비어 있음 (판독한 기록이 아니라 저장된 기록입니다)' }));
+            text: '● 초록: 다른 칸과 맞아떨어짐 · 회색: 검산할 짝이 없음 · 빨강: 다른 칸과 어긋남' }));
         }
-      }
-
-      /** 판독값 vs 계산값 모순 — 모달이 아니라 화면 안에서 바로 지적한다 */
-      function computeWarnings() {
-        var W = [];
-        var w = v.weightKg, smm = v.smmKg, bfm = v.bfmKg;
-        var pbf = v.pbfPct, ffm = v.ffmKg, bmi = v.bmi;
-
-        // (1) 체지방률 ↔ 체지방량/체중
-        if (w != null && w > 0 && bfm != null && pbf != null) {
-          var calcPbf = bfm / w * 100;
-          if (Math.abs(pbf - calcPbf) > 2.0) {
-            W.push({
-              title: '체지방률이 계산값과 어긋납니다',
-              detail: '체지방량 ' + UI.n1(bfm) + 'kg ÷ 체중 ' + UI.n1(w) + 'kg = ' +
-                      UI.n1(calcPbf) + '% 인데, 입력된 체지방률은 ' + UI.n1(pbf) + '% 입니다 (' +
-                      UI.n1(Math.abs(pbf - calcPbf)) + '%p 차이).',
-              fix: function () { setValue('pbfPct', round(calcPbf, 1)); }
-            });
-          }
-        }
-
-        // (2) 제지방량 ↔ 체중 − 체지방량
-        if (w != null && bfm != null && ffm != null) {
-          var calcFfm = w - bfm;
-          if (Math.abs(ffm - calcFfm) > 1.0) {
-            W.push({
-              title: '제지방량이 계산값과 어긋납니다',
-              detail: '체중 ' + UI.n1(w) + 'kg − 체지방량 ' + UI.n1(bfm) + 'kg = ' +
-                      UI.n1(calcFfm) + 'kg 인데, 입력된 제지방량은 ' + UI.n1(ffm) + 'kg 입니다 (' +
-                      UI.n1(Math.abs(ffm - calcFfm)) + 'kg 차이).',
-              fix: function () { setValue('ffmKg', round(calcFfm, 1)); }
-            });
-          }
-        }
-
-        // (3) 골격근량 > 제지방량 — 있을 수 없는 값
-        if (smm != null && ffm != null && smm > ffm) {
-          W.push({
-            bad: true,
-            title: '골격근량이 제지방량보다 큽니다',
-            detail: '골격근량 ' + UI.n1(smm) + 'kg 은 제지방량 ' + UI.n1(ffm) +
-                    'kg 안에 포함되는 값이라 더 클 수 없습니다. 둘 중 하나를 잘못 읽었습니다.',
-            fix: function () {
-              if (v.weightKg != null && v.bfmKg != null) {
-                var recalc = round(v.weightKg - v.bfmKg, 1);
-                setValue('ffmKg', recalc);
-                if (v.smmKg != null && v.smmKg > recalc) {
-                  focusField('smmKg');
-                  global.MB_UID.toast('제지방량을 다시 계산해도 골격근량이 더 큽니다 — 골격근량을 결과지와 대조해 주세요');
-                }
-              } else {
-                focusField('smmKg');
-                global.MB_UID.toast('체중·체지방량이 있어야 제지방량을 계산할 수 있습니다');
-              }
-            }
-          });
-        }
-
-        // (4) BMI ↔ 체중 / 키²
-        if (w != null && bmi != null && heightM > 0) {
-          var calcBmi = w / (heightM * heightM);
-          if (Math.abs(bmi - calcBmi) > 1.0) {
-            W.push({
-              title: 'BMI가 계산값과 어긋납니다',
-              detail: '키 ' + UI.n0(prof.heightCm) + 'cm · 체중 ' + UI.n1(w) + 'kg 이면 BMI는 ' +
-                      UI.n1(calcBmi) + ' 인데, 입력된 BMI는 ' + UI.n1(bmi) + ' 입니다. ' +
-                      '프로필의 키가 ' + UI.n0(prof.heightCm) + 'cm가 맞는지도 확인해 주세요.',
-              fix: function () { setValue('bmi', round(calcBmi, 1)); }
-            });
-          }
-        }
-        return W;
       }
 
       function drawState() {
@@ -501,7 +518,6 @@
 
       function markTouched(key) {
         touched[key] = true;
-        conf[key] = 1;
         var r = rows[key];
         if (!r) return;
         r.dot.className = 'dot-conf ' + dotClass(key);
@@ -518,18 +534,22 @@
           r.note.textContent = mode === 'ocr' ? '직접 확인함' : '수정함';
           return;
         }
-        if (isLow(key)) {
-          /* 'ocr' 은 판독이 실패한 칸, 'edit' 은 애초에 안 들어 있던 칸 —
-             같은 빨간 점이라도 사실이 다르므로 말도 달라야 한다 */
-          if (mode === 'ocr') {
-            r.note.className = 'field__err';
-            r.note.textContent = v[key] == null
-              ? '확인 필요 — 판독하지 못했습니다. 결과지를 보고 직접 넣어 주세요.'
-              : '확인 필요 — 자신 있게 읽지 못한 값입니다.';
-          } else {
-            r.note.className = 'field__hint';
-            r.note.textContent = '비어 있음 — 결과지에 있으면 채워 주세요. 없어도 저장됩니다.';
-          }
+        var st2 = checkState(key);
+        if (st2 === 'conflict') {
+          r.note.className = 'field__err';
+          r.note.textContent = '이 칸이 결과지의 다른 칸과 어긋납니다 — 위의 검산을 보세요.';
+          return;
+        }
+        if (v[key] == null) {
+          r.note.className = 'field__hint';
+          r.note.textContent = mode === 'ocr'
+            ? '판독하지 못했습니다. 결과지에 있으면 넣어 주세요 — 없어도 저장됩니다.'
+            : '비어 있음 — 결과지에 있으면 채워 주세요. 없어도 저장됩니다.';
+          return;
+        }
+        if (st2 === 'verified') {
+          r.note.className = 'field__hint';
+          r.note.textContent = '검산됨 — 다른 칸과 맞아떨어집니다.';
           return;
         }
         r.note.className = '';
@@ -553,19 +573,31 @@
         r.input.focus();
       }
 
-      /* --- 신뢰도 ---------------------------------------------------------- */
-      function confOf(key) {
-        if (v[key] == null || v[key] === '') return 0;       // 값이 없으면 확인 필요
-        var c = conf[key];
-        if (c == null) return CONF_MID;                       // 판독 대상이 아니었던 값
-        return c;
+      /* 손봐야 하는 칸: 비어 있거나, 검산에서 다른 칸과 어긋난 칸.
+         예전엔 OCR 신뢰도로 골랐는데, 그 점수는 맞은 값 24.8 에 14점,
+         틀린 값 19.3 에 39점을 줬습니다. 글자를 선명하게 봤는지와
+         그 숫자가 맞는지는 거의 상관이 없습니다. */
+      function isLow(key) {
+        if (checkState(key) === 'conflict') return true;
+        if (mode === 'manual') return false;
+        // 빈 칸 전부를 "확인 필요" 로 올리면 목록이 열 줄이 됩니다.
+        // 없어도 계획이 나오는 칸은 비어 있어도 문제가 아닙니다.
+        return v[key] == null && CORE.some(function (f) { return f.key === key; });
       }
-      function isLow(key) { return mode !== 'manual' && confOf(key) < CONF_MID; }
-      /** 빨간 항목을 부르는 말 — 판독본이면 '확인 필요', 저장된 기록이면 '비어 있음' */
-      function lowWord() { return mode === 'ocr' ? '확인 필요' : '비어 있음'; }
+      /** 빨간 항목을 부르는 말 */
+      function lowWord() { return '확인 필요'; }
+
+      /** 이 칸이 검산에서 어떤 상태인가 — verified | conflict | unchecked */
+      function checkState(key) {
+        if (!check) return 'unchecked';
+        return check.fields[key] || 'unchecked';
+      }
+
       function dotClass(key) {
-        var c = confOf(key);
-        return c >= CONF_HI ? 'hi' : (c >= CONF_MID ? 'mid' : 'lo');
+        var st2 = checkState(key);
+        if (st2 === 'conflict') return 'ck-bad';
+        if (st2 === 'verified') return 'ck-ok';
+        return 'ck-none';
       }
 
       /* ==================================================================== */
@@ -630,7 +662,12 @@
           tbwL: v.tbwL,
           proteinKg: v.proteinKg,
           mineralKg: v.mineralKg,
-          source: origin ? (origin.source || 'manual') : (mode === 'ocr' ? 'ocr' : 'manual')
+          source: origin ? (origin.source || 'manual')
+                         : (src.source || (mode === 'ocr' ? 'ocr' : 'manual')),
+          /* 사진은 기록에 딸려 다닙니다 — 나중에 기록 화면에서 "그때
+             결과지가 어떻게 생겼더라" 를 다시 볼 수 있게. 사진 자체는
+             photo.js 의 저장소에 있고 여기엔 열쇠만 둡니다. */
+          photoId: src.photoId || (origin && origin.photoId) || null
         };
       }
 
@@ -650,6 +687,11 @@
         ALL_FIELDS.forEach(function (f) { if (f.key === key) found = f; });
         return found || { key: key, label: key };
       }
+
+      /** 검산이 가리키는 칸의 한국어 이름 (괄호 약어는 버튼에서 뺍니다) */
+      function fieldLabelOf(key) {
+        return String(fieldDef(key).label).replace(/\s*\(.*\)\s*$/, '');
+      }
     }
   });
 
@@ -665,7 +707,6 @@
    */
   function loadSource(p, st) {
     var values = blankValues();
-    var conf = {};
 
     if (p.scanId) {
       var scan = S.scanById(p.scanId);
@@ -673,16 +714,15 @@
         Object.keys(values).forEach(function (k) {
           if (scan[k] != null) values[k] = scan[k];
         });
-        Object.keys(values).forEach(function (k) { conf[k] = scan[k] == null ? null : 1; });
-        return { mode: 'edit', values: values, conf: conf, origin: scan,
+        return { mode: 'edit', values: values, origin: scan,
+                 photoId: scan.photoId || null,
                  rawMeasuredAt: scan.measuredAt, fileName: null, parseMs: null };
       }
     }
 
     if (p.manual) {
-      Object.keys(values).forEach(function (k) { conf[k] = null; });
       values.measuredAt = nowISO();
-      return { mode: 'manual', values: values, conf: conf, origin: null,
+      return { mode: 'manual', values: values, origin: null,
                rawMeasuredAt: values.measuredAt, fileName: null, parseMs: null };
     }
 
@@ -691,20 +731,21 @@
     if (draft) {
       Object.keys(values).forEach(function (k) {
         if (draft[k] != null) values[k] = draft[k];
-        conf[k] = draft.confidence && draft.confidence[k] != null ? draft.confidence[k] : null;
       });
-      conf.measuredAt = draft.confidence && draft.confidence.measuredAt != null
-        ? draft.confidence.measuredAt : null;
-      return { mode: 'ocr', values: values, conf: conf, origin: null,
+      return { mode: 'ocr', values: values, origin: null,
+               photoId: draft.photoId || null,
+               /* 같은 검수 화면을 쓰지만 숫자가 어디서 왔는지는 다릅니다.
+                  'manual-photo' = 사진을 보면서 사람이 옮겨 적음 (0층)
+                  'ocr'          = 서버가 읽어 준 초안 (2층) */
+               source: draft.source || 'ocr',
                rawMeasuredAt: draft.measuredAt,
                fileName: draft.ocr && draft.ocr.fileName,
                parseMs: draft.ocr && draft.ocr.parseMs };
     }
 
     // 아무 단서도 없이 들어온 경우 — 빈 폼으로 취급한다 (막다른 길 방지)
-    Object.keys(values).forEach(function (k) { conf[k] = null; });
     values.measuredAt = nowISO();
-    return { mode: 'manual', values: values, conf: conf, origin: null,
+    return { mode: 'manual', values: values, origin: null,
              rawMeasuredAt: values.measuredAt, fileName: null, parseMs: null };
   }
 
@@ -735,14 +776,18 @@
   /* 잡다한 도우미                                                             */
   /* ======================================================================== */
 
-  function modeBadge(mode) {
-    if (mode === 'ocr') return '사진 판독';
-    if (mode === 'edit') return '기록 수정';
-    return '직접 입력';
+  function modeBadge(src) {
+    if (src.mode === 'edit') return '기록 수정';
+    if (src.mode !== 'ocr') return '직접 입력';
+    // 0층과 2층은 같은 화면을 쓰지만 숫자의 출처가 다릅니다.
+    return src.source === 'manual-photo' ? '사진 보고 입력' : '사진 판독';
   }
 
   function originLine(src) {
     if (src.mode === 'ocr') {
+      if (src.source === 'manual-photo') {
+        return (src.fileName || '사진') + ' · 숫자는 직접 넣은 것입니다';
+      }
       return (src.fileName || '판독본') +
              (src.parseMs ? ' · 판독 ' + (Math.round(src.parseMs / 100) / 10) + '초' : '');
     }

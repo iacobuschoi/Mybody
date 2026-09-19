@@ -127,6 +127,22 @@
       ])
     ]);
 
+    /* 올린 사진이 남아 있으면 같이 보여 줍니다. "그때 결과지가 어떻게
+       생겼더라" 를 다시 볼 수 있어야, 나중에 숫자가 이상해 보일 때
+       원본과 대조할 수 있습니다. */
+    var ph = scan.photoId && global.MB_PHOTO ? global.MB_PHOTO.get(scan.photoId) : null;
+    if (ph) {
+      card.appendChild(h('img', {
+        src: ph.dataUrl, alt: '그때 올린 결과지',
+        uid: 'P11-B08', uidLabel: '결과지 사진 크게 보기',
+        style: { width: '100%', borderRadius: '10px', display: 'block',
+                 marginTop: '10px', cursor: 'zoom-in', background: 'var(--bg-2)' },
+        onClick: function () { global.MB_MODALS.photoZoom(ph.dataUrl); }
+      }));
+      card.appendChild(h('div.muted', { style: { marginTop: '6px' },
+        text: '눌러서 크게 보기 · 이 사진은 이 기기에만 있습니다' }));
+    }
+
     if (score != null) {
       card.appendChild(h('div.kv', [
         h('span.kv__k', { text: 'InBody 점수' }),
@@ -510,6 +526,7 @@
   /* history.js 와 같은 규칙 */
   function sourceLabel(src) {
     if (src === 'ocr') return '사진 판독';
+    if (src === 'manual-photo') return '사진 보고 입력';
     if (src === 'manual') return '직접 입력';
     if (src === 'sheet') return '결과지 전체';
     if (src === 'chart') return '그래프 복원';

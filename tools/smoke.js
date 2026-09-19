@@ -147,9 +147,10 @@ const UID_RE = /^(P\d{2}|M\d{2}|A\d{2})(-[A-Z]\d{2})?(#\d+)?$/;
       const s = document.querySelector('.screen.is-active');
       const main = document.getElementById('main');
       const txt = main.innerText;
-      const lo = main.querySelectorAll('.dot-conf.lo').length;
-      const mid = main.querySelectorAll('.dot-conf.mid').length;
-      const hi = main.querySelectorAll('.dot-conf.hi').length;
+      // 점의 뜻이 바뀌었습니다: OCR 신뢰도가 아니라 검산 상태입니다.
+      const bad = main.querySelectorAll('.dot-conf.ck-bad').length;
+      const none = main.querySelectorAll('.dot-conf.ck-none').length;
+      const ok = main.querySelectorAll('.dot-conf.ck-ok').length;
       const vals = {};
       main.querySelectorAll('input').forEach(i => {
         const u = i.getAttribute('data-uid'); if (u) vals[u] = i.value;
@@ -163,7 +164,7 @@ const UID_RE = /^(P\d{2}|M\d{2}|A\d{2})(-[A-Z]\d{2})?(#\d+)?$/;
         }
       });
       return { ran: true, screen: s ? s.getAttribute('data-uid') : null,
-               dots: { lo, mid, hi }, fieldErrs,
+               dots: { 모순: bad, 미검산: none, 검산됨: ok }, fieldErrs,
                flagsWhr: txt.indexOf('0.34') >= 0 || txt.indexOf('복부지방률') >= 0,
                warnCount: main.querySelectorAll('.note--warn, .note--bad').length,
                values: vals };

@@ -253,6 +253,63 @@
     } catch (e) {}
   }
 
+  /* --- 2층: 서버 판독 ------------------------------------------------------
+   *
+   * 사진을 서버로 보내고 숫자 초안을 받아 옵니다. 이 층은 꺼져 있는 게
+   * 기본입니다 — 건강 데이터를 기기 밖으로 내보내는 일이라, 켜는 것은
+   * 사용자가 직접 해야 합니다(설정 → 서버).
+   *
+   * 돌아온 값은 그대로 쓰지 않습니다. crosscheck.js 의 검산을 통과한
+   * 것만 초록으로 표시되고, 어긋나면 그 칸을 짚어 줍니다. 그리고 어느
+   * 쪽이든 검수 화면은 거칩니다. 2층은 타자를 줄여 줄 뿐, 확정하지
+   * 않습니다.
+   *
+   * 크기: server.js 가 본문 2,000,000 바이트에서 소켓을 끊습니다.
+   * base64 는 4/3 배로 부푸니 실질 한도가 1.4MB 남짓이고, 넘으면
+   * 브라우저에는 413 이 아니라 "Failed to fetch" 가 뜹니다. 그래서
+   * /api/ocr 은 서버에서 따로 큰 한도를 갖고, 클라이언트도 보내기 전에
+   * 크기를 확인합니다. photo.js 가 이미 900KB 아래로 줄여 놓습니다.
+   * ------------------------------------------------------------------------ */
+
+  var OCR_MAX = 6 * 1024 * 1024;     // 데이터 URL 길이 기준
+
+  /** 2층을 쓸 수 있는 상태인가 — 로그인 + 사용자가 켬 */
+  function canOcr() {
+    return !!(cfg.token && cfg.ocrEnabled);
+  }
+
+  /** 설정 화면에서 켜고 끕니다 */
+  function setOcr(on) {
+    cfg.ocrEnabled = !!on;
+    saveCfg(cfg); emit();
+    return canOcr();
+  }
+
+  /**
+   * @param {string} dataUrl  photo.js 가 줄여 놓은 JPEG 데이터 URL
+   * @param {function(err, fields)} cb
+   */
+  function ocr(dataUrl, cb) {
+    cb = cb || function () {};
+    if (!canOcr()) return cb(new Error('자동 판독이 꺼져 있습니다'));
+    if (!dataUrl || dataUrl.indexOf('data:image/') !== 0) {
+      return cb(new Error('사진이 아닙니다'));
+    }
+    if (dataUrl.length > OCR_MAX) {
+      return cb(new Error('사진이 너무 큽니다'));
+    }
+    var comma = dataUrl.indexOf(',');
+    var mime = dataUrl.slice(5, dataUrl.indexOf(';'));
+    api('/ocr', { method: 'POST', body: {
+      mediaType: mime, data: dataUrl.slice(comma + 1)
+    } }).then(function (r) {
+      cb(null, (r && r.fields) || {});
+    }).catch(function (e) {
+      lastError = e.message; emit();
+      cb(e);
+    });
+  }
+
   global.MB_SYNC = {
     status: status, onChange: onChange, configure: configure,
     signUp: signUp, signIn: signIn, signOut: signOut, changePassword: changePassword,
@@ -260,6 +317,7 @@
     deleteAccount: function () { return api('/me', { method: 'DELETE' }); },
     enqueue: enqueue, flush: flush, pull: pull, boot: boot,
     sendRequest: sendRequest,
+    canOcr: canOcr, setOcr: setOcr, ocr: ocr,
     _api: api
   };
 })(window);
