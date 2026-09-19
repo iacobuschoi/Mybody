@@ -135,10 +135,21 @@
             ]));
           });
         }
-        card.appendChild(h('button.btn.btn--sm.btn--block', { text: '+ ' + meal + ' 추가',
-          style: { marginTop: '8px' },
-          uid: 'P18-B0' + (4 + mi), uidLabel: meal + ' 추가',
-          onClick: function () { A.go('P19', { meal: meal, date: date }); } }));
+        var last = S.lastMealLike(meal, date);
+        card.appendChild(h('div.btn-row', { style: { marginTop: '8px' } }, [
+          h('button.btn.btn--sm', { text: '+ 추가',
+            uid: 'P18-B0' + (4 + mi), uidLabel: meal + ' 추가',
+            onClick: function () { A.go('P19', { meal: meal, date: date }); } }),
+          last ? h('button.btn.btn--sm', {
+            text: '지난번과 같이',
+            title: UI.dateK(last.date) + ' ' + meal,
+            uid: 'P18-B3' + mi, uidLabel: meal + ' 지난번과 같이',
+            onClick: function () {
+              S.copyMeal(last, date, meal);
+              global.MB_UID.toast(UI.dateShort(last.date) + ' ' + meal + '을 그대로 가져왔습니다');
+              A.refresh();
+            } }) : null
+        ]));
         wrap.appendChild(card);
       });
 
@@ -153,6 +164,25 @@
               uid: 'P18-B20#' + (i + 1), uidLabel: '최근 항목 추가',
               onClick: function () { quickAdd(it, date); } });
           }))
+        ]));
+      }
+
+      /* --- 어제와 동일 --- */
+      var yest = S.yesterdayLogs(date);
+      if (yest.length && !logs.length) {
+        var yTot = S.sumItems(yest.reduce(function (a, l) { return a.concat(l.items || []); }, []));
+        wrap.appendChild(h('div.card.card--flat', { uid: 'P18-C09', uidLabel: '어제와 동일' }, [
+          h('div.card__head', [h('div.card__title', { text: '어제와 같이 드셨나요?' }),
+                               h('div.card__sub', { text: yTot.kcal + 'kcal · 단백질 ' + yTot.p + 'g' })]),
+          h('div.muted', { text: '같은 음식을 같은 값으로 재사용하면 주마다 기록 편향이 흔들리지 않습니다. ' +
+                                 '계획 재조정이 그만큼 정확해집니다.' }),
+          h('button.btn.btn--sm.btn--block', { text: '어제 것 그대로 가져오기',
+            style: { marginTop: '8px' }, uid: 'P18-B30', uidLabel: '어제 것 복사',
+            onClick: function () {
+              yest.forEach(function (l) { S.copyMeal(l, date, l.meal); });
+              global.MB_UID.toast('어제 기록 ' + yest.length + '건을 가져왔습니다');
+              A.refresh();
+            } })
         ]));
       }
 
@@ -358,6 +388,7 @@
         body.appendChild(h('div.note.note--warn', { uid: 'P20-C01', uidLabel: '정확도 고지' }, [
           h('b', { text: '사진은 "무엇"에 강하고 "얼마나"에 약합니다. ' }),
           '연구에서 사진 기반 양 추정의 평균 오차는 24% 정도였고, 가끔 두 배까지 틀립니다. ' +
+          '특히 국·찌개·볶음은 기름과 건더기가 사진에 안 보여서 적게 잡힙니다. ' +
           '그래서 이 앱은 음식만 사진으로 찾고, 양은 항상 직접 확인하게 합니다.'
         ]));
         body.appendChild(h('div.card', { uid: 'P20-C02', uidLabel: '사진 올리기' }, [

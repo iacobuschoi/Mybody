@@ -218,6 +218,36 @@
     }
     return out;
   }
+  /**
+   * 특정 끼니를 통째로 복사한다.
+   * 이 앱의 재조정 루프는 기록된 칼로리를 읽지 않고 실측 체중만 본다.
+   * 그래서 중요한 건 절대 정확도가 아니라 **편향이 흔들리지 않는 것**이다.
+   * 같은 음식을 같은 추정치로 재사용하면 주마다 편향이 흔들리지 않는다 —
+   * 모델을 키우는 것보다 이 한 탭이 루프에 훨씬 이롭다.
+   */
+  function lastMealLike(meal, beforeDate) {
+    var before = beforeDate || dayKey();
+    var logs = (state.foodLogs || [])
+      .filter(function (x) { return x.meal === meal && x.date < before && (x.items || []).length; })
+      .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
+    return logs[0] || null;
+  }
+  function copyMeal(sourceLog, toDate, meal) {
+    if (!sourceLog) return null;
+    return addFoodLog({
+      date: toDate || dayKey(),
+      meal: meal || sourceLog.meal,
+      items: JSON.parse(JSON.stringify(sourceLog.items || [])),
+      source: 'repeat'
+    });
+  }
+  /** 어제 먹은 것 전부 */
+  function yesterdayLogs(fromDate) {
+    var d = new Date((fromDate || dayKey()) + 'T00:00:00');
+    d.setDate(d.getDate() - 1);
+    return logsForDate(dayKey(d));
+  }
+
   function toggleFavorite(name) {
     state.foodFavorites = state.foodFavorites || [];
     var i = state.foodFavorites.indexOf(name);
@@ -243,6 +273,7 @@
     dayKey: dayKey, addFoodLog: addFoodLog, removeFoodLog: removeFoodLog,
     logsForDate: logsForDate, dayTotals: dayTotals, sumItems: sumItems,
     loggedDates: loggedDates, recentFoods: recentFoods,
+    lastMealLike: lastMealLike, copyMeal: copyMeal, yesterdayLogs: yesterdayLogs,
     toggleFavorite: toggleFavorite, isFavorite: isFavorite,
     exportJSON: exportJSON, importJSON: importJSON, blank: blank
   };
