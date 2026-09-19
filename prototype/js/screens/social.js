@@ -25,8 +25,14 @@
               onClick: function () { global.MB_MODALS.serverAddress(function () { A.refresh(); }); } })
           ])
         ]));
-        wrap.appendChild(h('div.note', { uid: 'P14-C02', uidLabel: '프로토타입 안내',
-          text: '프로토타입이라 실제 인증은 하지 않습니다. 누르면 바로 계정이 생깁니다.' }));
+        /* 예전 문구는 "프로토타입이라 실제 인증은 하지 않습니다. 누르면 바로
+           계정이 생깁니다" 였습니다. 서버가 scrypt 로 진짜 인증을 하게 된
+           뒤로 거짓이 됐습니다. 보안에 대해 실제보다 허술하게 말하는 것도
+           실제보다 튼튼하게 말하는 것만큼 나쁩니다 — 둘 다 사용자가 자기
+           위험을 잘못 재게 만듭니다. */
+        wrap.appendChild(h('div.note', { uid: 'P14-C02', uidLabel: '계정 안내',
+          text: '이 서버가 계정을 직접 관리합니다. 가입에는 서버 주인에게 받은 가입 코드가 필요하고, ' +
+                '비밀번호는 해시로만 저장됩니다. 잊으면 되돌릴 방법이 없습니다 — 메일을 보내지 않습니다.' }));
         // 예전 문구는 "자동으로 보이지 않습니다"였는데 blankShare() 가 streak: true 로
         // 시작하므로 거짓이었습니다. 프라이버시 앱에서 프라이버시 문구가 틀리면
         // 나머지 설명도 전부 못 믿게 됩니다.
@@ -68,9 +74,29 @@
         h('div.kv', { style: { marginTop: '8px' } },
           [h('span.kv__k', { text: '이 기기 기록' }),
            h('span.kv__v', { text: S.get().scans.length + '건' })]),
-        h('div.note', { style: { marginTop: '10px' },
-          text: '프로토타입에서는 실제로 올라가지 않습니다. 화면과 권한 규칙만 진짜입니다.' })
+        /* 예전 문구는 "프로토타입에서는 실제로 올라가지 않습니다" 였습니다.
+           sync.js 가 들어오면서 거짓이 됐고, 같은 카드 네 줄 위의 "그다음
+           계정으로 올라갑니다" 와 정면으로 모순이었습니다. 프라이버시 문구가
+           스스로 모순되면 나머지 설명도 전부 못 믿게 됩니다. */
+        syncLine()
       ]));
+
+      /** 지금 이 기기가 서버와 어떤 상태인지 — 짐작이 아니라 실제 상태를 읽습니다. */
+      function syncLine() {
+        var st = global.MB_SYNC ? global.MB_SYNC.status() : null;
+        if (!st || !st.configured) {
+          return h('div.note.note--warn', { style: { marginTop: '10px' },
+            text: '서버 주소가 설정되지 않아 아직 아무것도 올라가지 않았습니다. 기록은 이 기기에만 있습니다.' });
+        }
+        if (st.pending) {
+          return h('div.note.note--warn', { style: { marginTop: '10px' },
+            text: '아직 못 올린 변경이 ' + st.pending + '건 있습니다' +
+                  (st.online ? ' — 곧 올라갑니다.' : ' — 인터넷이 연결되면 올라갑니다.') });
+        }
+        return h('div.note.note--ok', { style: { marginTop: '10px' },
+          text: '측정 기록이 ' + st.baseUrl + ' 로 올라가 있습니다. 사진은 올라가지 않습니다 — ' +
+                '설정에서 자동 판독을 켜고 판독을 누를 때만 나갑니다.' });
+      }
 
       wrap.appendChild(h('div.card', { uid: 'P14-C05', uidLabel: '계정 삭제' }, [
         h('div.card__title', { text: '계정 삭제' }),
