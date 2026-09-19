@@ -98,10 +98,16 @@
         var dday = E.daysUntil(projected);
         var baseDelta = E.daysUntil(base.targetDate, projected);   // 양수 = 원래보다 당겨짐
 
+        /* 목표가 시작과 같으면(유지 목표, 또는 근육만 늘리는 목표) 갈 거리가
+           0 입니다. 나누면 NaN 이 되고, clamp 도 NaN 을 그대로 통과시켜서
+           도넛에 "NaN%" 가 찍혔습니다. 갈 거리가 없으면 이미 도착한
+           것이므로 100 입니다. */
         var startBfm = plan.trajectory[0].bfmKg, targetBfm = st.goal.bfmKg;
-        var doneFat = clamp((startBfm - d.bfmKg) / (startBfm - targetBfm) * 100);
+        var fatSpan = startBfm - targetBfm;
+        var doneFat = Math.abs(fatSpan) < 0.05
+          ? 100 : clamp((startBfm - d.bfmKg) / fatSpan * 100);
         var startSmm = plan.trajectory[0].smmKg, targetSmm = st.goal.smmKg;
-        var doneSmm = targetSmm > startSmm
+        var doneSmm = targetSmm - startSmm > 0.05
           ? clamp((d.smmKg - startSmm) / (targetSmm - startSmm) * 100) : 100;
         var overall = Math.round((doneFat + doneSmm) / 2);
 
@@ -223,14 +229,38 @@
             var under = Math.abs(got) < row[2];
 
             /* 막대가 재는 것: 이 기간의 계획분을 얼마나 채웠나.
-               계획이 "그대로 두기"였다면 채울 분량이 없으니, 오차 안에
-               머문 것을 100으로 읽습니다. 계획이 이 기간을 안 덮으면
-               분모 자체가 없어서 막대를 비워 둡니다 — 0%가 아니라
-               "잴 수 없음"입니다. 아래 한 줄이 그 말을 합니다. */
-            var pct;
-            if (want === null) pct = 0;
-            else if (Math.abs(want) < 0.05) pct = under ? 100 : 0;
-            else pct = Math.round(got / want * 100);
+               계획이 이 기간을 안 덮으면 분모 자체가 없어서 비워 둡니다 —
+               0%가 아니라 "잴 수 없음"입니다.
+
+               그런데 분모가 있어도 말할 수 없는 경우가 있습니다.
+               잰 변화가 인바디 오차보다 작으면, 실제 변화는 got 하나가
+               아니라 [got − 문턱, got + 문턱] 어딘가입니다. 계획 −0.9kg
+               에 −0.4kg 를 재고 44% 라고 찍으면, 잴 수 없는 것에 숫자를
+               붙이는 것입니다. 그 숫자를 보고 사용자는 "덜 했다" 고
+               결론짓고 행동을 바꿉니다 — 근거가 없는데도요.
+
+               그래서 이때는 채우지 않고 구간을 빗금으로 표시합니다.
+               "이 사이 어딘가" 가 우리가 아는 전부입니다. */
+            var pct = null, band = null;
+            if (want === null) {
+              pct = 0;
+            } else if (Math.abs(want) < 0.05) {
+              // 계획이 "그대로 두기". 채울 분량이 없으니 오차 안에 머문 것이 달성입니다.
+              pct = under ? 100 : 0;
+            } else if (under) {
+              var lo = clamp((got - row[2]) / want * 100);
+              var hi = clamp((got + row[2]) / want * 100);
+              band = { lo: Math.min(lo, hi), hi: Math.max(lo, hi) };
+            } else {
+              pct = Math.round(got / want * 100);
+            }
+
+            var bar = h('div.bar.bar--' + row[3] + (band ? '.bar--range' : ''), {
+              style: { opacity: want === null ? '.3' : '1' } },
+              band
+                ? [h('div.bar__band', { style: { left: band.lo + '%',
+                    width: Math.max(2, band.hi - band.lo) + '%' } })]
+                : [h('div.bar__fill', { style: { width: clamp(pct) + '%' } })]);
 
             gbody.appendChild(h('div', { style: { marginBottom: '8px' } }, [
               h('div', { style: { display: 'flex', justifyContent: 'space-between',
@@ -241,14 +271,12 @@
                   text: UI.n1(win.from[row[1]]) + 'kg → ' + UI.n1(win.to[row[1]]) + 'kg  ' +
                         '(' + UI.sign(got) + (under ? '*' : '') + ')' })
               ]),
-              h('div.bar.bar--' + row[3], {
-                style: { opacity: want === null ? '.3' : '1' } }, [
-                h('div.bar__fill', { style: { width: clamp(pct) + '%',
-                  opacity: under ? '.35' : '1' } })
-              ]),
+              bar,
               want === null ? null
                 : h('div.muted', { style: { fontSize: '11px', marginTop: '2px' },
-                    text: Math.abs(want) < 0.05 ? '계획 유지' : '계획 ' + UI.sign(want) + 'kg' })
+                    text: Math.abs(want) < 0.05 ? '계획 유지'
+                        : ('계획 ' + UI.sign(want) + 'kg' +
+                           (band ? ' · 달성률은 이 오차 안에서 정할 수 없습니다' : '')) })
             ]));
           });
 
@@ -258,7 +286,8 @@
           }
           gbody.appendChild(h('div.muted', { style: { marginTop: '8px' },
             text: '별표(*)는 두 측정의 차이가 인바디 오차 안이라는 뜻입니다. ' +
-                  '그 항목은 변했는지 아닌지 이 두 번의 측정으로는 알 수 없습니다.' }));
+                  '그 항목은 변했는지 아닌지 이 두 번의 측정으로는 알 수 없습니다. ' +
+                  '막대의 빗금은 "실제 달성률이 이 사이 어딘가" 라는 뜻입니다.' }));
         }
 
         /** 기간 머리 — 실제로 잰 구간을 먼저 적습니다. "이번주"라고 적혀 있어도. */
@@ -381,7 +410,9 @@
     }
   });
 
-  function clamp(x) { return Math.max(0, Math.min(100, x)); }
+  /* NaN 을 0 으로 받습니다. Math.max/min 은 NaN 을 그대로 통과시켜서,
+     0 으로 나눈 값이 화면까지 "NaN%" 로 흘러갔습니다. */
+  function clamp(x) { return isFinite(x) ? Math.max(0, Math.min(100, x)) : 0; }
 
   /** 왜 계획을 다시 세우라고 하는지 */
   function explainDrift(drift, base, plan, projected) {

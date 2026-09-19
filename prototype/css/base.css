@@ -320,6 +320,22 @@ kbd { font-family: ui-monospace, monospace; font-size:.85em; background:var(--su
 .bar__fill { height:100%; background: var(--accent); border-radius:999px; transition: width .3s; }
 .bar--fat .bar__fill { background: var(--fat); }
 .bar--muscle .bar__fill { background: var(--muscle); }
+.bar--weight .bar__fill { background: var(--text-2); }
+
+/* 구간 막대 — 값 하나가 아니라 "이 사이 어딘가" 를 나타냅니다.
+   측정 오차보다 작은 변화는 몇 퍼센트인지 말할 수 없습니다. 0% 도
+   44% 도 아니고, 구간입니다. 채우는 대신 빗금 띠를 그 구간에 놓습니다 —
+   가득 찬 막대와 눈에 띄게 달라야 "잴 수 없음" 으로 읽힙니다. */
+.bar__band {
+  position:absolute; top:0; bottom:0; border-radius:999px; opacity:.55;
+  background: repeating-linear-gradient(135deg,
+    var(--text-3) 0 3px, transparent 3px 6px);
+}
+.bar--fat .bar__band { background: repeating-linear-gradient(135deg,
+  var(--fat) 0 3px, transparent 3px 6px); }
+.bar--muscle .bar__band { background: repeating-linear-gradient(135deg,
+  var(--muscle) 0 3px, transparent 3px 6px); }
+.bar--range { position:relative; }
 
 .dot-conf { width:7px; height:7px; border-radius:50%; flex:none; display:inline-block; }
 .dot-conf.hi { background: var(--ok); } .dot-conf.mid { background: var(--warn); } .dot-conf.lo { background: var(--bad); }
