@@ -37,7 +37,8 @@
            위험을 잘못 재게 만듭니다. */
         wrap.appendChild(h('div.note', { uid: 'P14-C02', uidLabel: '계정 안내',
           text: '이 서버가 계정을 직접 관리합니다. 가입에는 서버 주인에게 받은 가입 코드가 필요하고, ' +
-                '비밀번호는 해시로만 저장됩니다. 잊으면 되돌릴 방법이 없습니다 — 메일을 보내지 않습니다.' }));
+                '비밀번호는 해시로만 저장됩니다. 메일은 보내지 않습니다 — 대신 가입할 때 복구 코드를 ' +
+                '한 번 보여주니, 비밀번호를 잊으면 그 코드로 돌아옵니다.' }));
         // 예전 문구는 "자동으로 보이지 않습니다"였는데 blankShare() 가 streak: true 로
         // 시작하므로 거짓이었습니다. 프라이버시 앱에서 프라이버시 문구가 틀리면
         // 나머지 설명도 전부 못 믿게 됩니다.
@@ -68,9 +69,21 @@
               done.then(function () { global.MB_UID.toast('로그아웃했습니다'); A.refresh(); });
             } }),
           h('button.btn.btn--sm', { text: '비밀번호 변경', uid: 'P14-B07', uidLabel: '비밀번호 변경',
-            onClick: function () { global.MB_MODALS.changePassword(); } })
+            onClick: function () { global.MB_MODALS.changePassword(); } }),
+          /* 서버에 로그인한 계정에만 복구 코드가 있습니다. 서버 없이
+             이 기기에만 있는 계정에는 되찾을 것이 없습니다 — 버튼을
+             보여 주면 눌렀을 때 "로그인이 필요합니다" 만 나옵니다. */
+          serverSignedIn() ? h('button.btn.btn--sm', { text: '복구 코드 새로 받기',
+            uid: 'P14-B08', uidLabel: '복구 코드 새로 받기',
+            onClick: function () { global.MB_MODALS.newRecoveryCode(); } }) : null
         ])
       ]));
+
+      if (serverSignedIn()) {
+        wrap.appendChild(h('div.note', { uid: 'P14-C07', uidLabel: '복구 코드 안내',
+          text: '비밀번호를 잊었을 때 돌아올 길은 가입할 때 받은 복구 코드뿐입니다. ' +
+                '적어 둔 곳이 기억나지 않으면 지금 새로 받아 두세요 — 옛 코드는 그때 못 쓰게 됩니다.' }));
+      }
 
       wrap.appendChild(h('div.card', { uid: 'P14-C04', uidLabel: '동기화 상태' }, [
         h('div.card__title', { text: '동기화' }),
@@ -111,6 +124,12 @@
           uid: 'P14-B06', uidLabel: '계정 삭제',
           onClick: function () { global.MB_MODALS.deleteAccount(function () { A.refresh(); }); } })
       ]));
+
+      /** 목(mock) 계정이 아니라 진짜 서버에 로그인해 있는가 */
+      function serverSignedIn() {
+        var st = global.MB_SYNC ? global.MB_SYNC.status() : null;
+        return !!(st && st.signedIn);
+      }
 
       function nameInput(user) {
         var i = h('input.input', { value: user.displayName, maxlength: '20',

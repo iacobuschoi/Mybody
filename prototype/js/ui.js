@@ -80,12 +80,15 @@
     var backdrop = h('div.modal-backdrop');
     var modal = h('div.modal', { uid: opts.uid, uidLabel: opts.title, role: 'dialog', 'aria-modal': 'true' });
 
+    /* closeButton: false 면 ✕ 를 아예 안 답니다.
+       한 번만 보여주는 것(복구 코드)을 실수로 닫아 잃어버리지 않게 —
+       그런 화면에서는 아래 버튼이 유일한 출구여야 합니다. */
     var head = h('div.modal__head', [
       h('div', [
         h('div.modal__title', { text: opts.title }),
         opts.sub ? h('div.card__sub', { text: opts.sub }) : null
       ]),
-      h('button.btn.btn--ghost.btn--sm', {
+      opts.closeButton === false ? null : h('button.btn.btn--ghost.btn--sm', {
         text: '✕', 'aria-label': '닫기',
         uid: opts.uid + '-B99', uidLabel: '닫기',
         onClick: function () { close(); }

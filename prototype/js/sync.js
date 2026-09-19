@@ -136,6 +136,24 @@
       .then(function (r) { cfg.token = r.token; saveCfg(cfg); emit(); return r; });
   }
 
+  /* 복구 코드로 비밀번호를 새로 정합니다 — 로그인 전에 쓰는 길입니다.
+     서버가 다른 기기의 세션을 전부 끊고 새 코드를 하나 줍니다.
+     성공하면 이 기기는 바로 로그인 상태가 됩니다. */
+  function recover(o) {
+    return api('/auth/recover', { method: 'POST', body: {
+      handle: o.handle, code: o.code, password: o.password
+    } }).then(function (r) {
+      cfg.token = r.token; cfg.handle = r.user.handle; saveCfg(cfg);
+      emit();
+      return pull().then(function () { return r; });
+    });
+  }
+
+  /* 코드를 잃어버렸을 때 새로 받습니다. 옛 코드는 그 자리에서 죽습니다. */
+  function newRecoveryCode(o) {
+    return api('/auth/recovery-code', { method: 'POST', body: { password: o.password } });
+  }
+
   /* --- 쓰기 큐 ----------------------------------------------------------
    * 로컬에 먼저 반영하고 서버로 밀어 보냅니다.
    * 4xx(영구 실패)는 큐에서 빼고 기록합니다 — 계속 재시도하면 큐가 영원히 막힙니다.
@@ -356,6 +374,7 @@
   global.MB_SYNC = {
     status: status, onChange: onChange, configure: configure,
     signUp: signUp, signIn: signIn, signOut: signOut, changePassword: changePassword,
+    recover: recover, newRecoveryCode: newRecoveryCode,
     signOutAll: function () { return api('/auth/signout-all', { method: 'POST' }); },
     deleteAccount: function () { return api('/me', { method: 'DELETE' }); },
     enqueue: enqueue, flush: flush, pull: pull, boot: boot,

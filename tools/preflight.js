@@ -78,7 +78,12 @@ function staticChecks() {
     '어디에도 보내지 않습니다',
     '네트워크 요청이 하나도 없습니다',
     '기기를 바꿔도 기록이 남',
-    '전부 이 기기 안에만 저장됩니다'
+    '전부 이 기기 안에만 저장됩니다',
+    /* 복구 코드가 생긴 뒤로 거짓입니다. 실제보다 허술하게 말하는 것도
+       튼튼하게 말하는 것만큼 나쁩니다 — 둘 다 자기 위험을 잘못 재게
+       만듭니다. 여기서는 "못 돌아온다" 고 믿은 사람이 계정을 지우고
+       다시 만듭니다. 친구 관계와 주간 기록을 같이 버리면서. */
+    '되돌릴 방법이 없습니다'
   ];
   /* 무엇을 봐주고 무엇을 잡을지가 이 검사의 전부입니다.
      너무 느슨하면 거짓말이 새고, 너무 빡빡하면(처음이 그랬습니다) 자기
@@ -136,8 +141,20 @@ function staticChecks() {
                   : '작업 트리가 깨끗합니다' });
 
   // (5) 알고 올리는 것들
-  out.push({ id: '비밀번호 찾기', level: 'WARN', ok: false,
-    detail: '없습니다. 잊으면 서버 주인이 DB 에서 지우고 다시 만들어야 합니다' });
+  /* 복구 코드가 실제로 붙어 있는지 눈으로 확인합니다. 문구만 고치고
+     기능을 안 붙인 채 배포하면, 사용자는 "코드로 돌아올 수 있다" 고
+     믿은 채 비밀번호를 잊습니다. */
+  {
+    const dbSrc = read('server/db.js');
+    const srvSrc = read('server/server.js');
+    const uiSrc = read('prototype/js/modals.js');
+    const wired = /recoverPassword/.test(dbSrc) && /\/auth\/recover/.test(srvSrc)
+                  && /M\.recoveryCode/.test(uiSrc);
+    out.push({ id: '비밀번호 찾기', level: 'WARN', ok: wired,
+      detail: wired
+        ? '복구 코드로 돌아올 수 있습니다. 코드까지 잃으면 서버 주인이 DB 를 손봐야 합니다'
+        : '없습니다. 잊으면 서버 주인이 DB 에서 지우고 다시 만들어야 합니다' });
+  }
   out.push({ id: '상시 접속', level: 'WARN', ok: false,
     detail: '컴퓨터가 꺼지면 친구도 못 봅니다' });
   out.push({ id: '사진 백업', level: 'WARN', ok: false,

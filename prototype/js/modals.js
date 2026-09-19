@@ -620,16 +620,17 @@
    * 하나 늘어나는데, 이 서버는 비밀번호 재발송을 하지 않으므로 할 일이 없습니다.
    * ==================================================================== */
   M.signIn = function (onDone) {
-    var mode = 'in';          // 'in' = 로그인, 'up' = 가입
+    var mode = 'in';          // 'in' = 로그인, 'up' = 가입, 'lost' = 비밀번호 잊음
     var body = h('div');
-    var handle, pw, pw2, pair, name, msg, busy = false;
+    var handle, pw, pw2, pair, name, rcode, msg, busy = false;
 
     function draw() {
       body.textContent = '';
       msg = h('div.field__err', { style: { display: 'none' } });
 
       body.appendChild(h('div.chips', { style: { marginBottom: '12px' } }, [
-        chip('로그인', 'in', 'M29-B10'), chip('처음이에요', 'up', 'M29-B11')
+        chip('로그인', 'in', 'M29-B10'), chip('처음이에요', 'up', 'M29-B11'),
+        chip('비밀번호 잊음', 'lost', 'M29-B12')
       ]));
 
       body.appendChild(field('아이디', handle = h('input.input', {
@@ -637,13 +638,24 @@
         autocapitalize: 'none', autocorrect: 'off',
         placeholder: '영문·숫자 3~32자' })));
 
-      body.appendChild(field('비밀번호', pw = h('input.input', {
-        uid: 'M29-F02', uidLabel: '비밀번호', type: 'password',
+      if (mode === 'lost') {
+        body.appendChild(field('복구 코드', rcode = h('input.input', {
+          uid: 'M29-F06', uidLabel: '복구 코드',
+          autocapitalize: 'characters', autocorrect: 'off', spellcheck: 'false',
+          style: { fontFamily: 'ui-monospace, monospace', letterSpacing: '.06em' },
+          placeholder: 'XXXX-XXXX-XXXX-XXXX' })));
+      }
+
+      body.appendChild(field(mode === 'lost' ? '새 비밀번호' : '비밀번호', pw = h('input.input', {
+        uid: 'M29-F02', uidLabel: mode === 'lost' ? '새 비밀번호' : '비밀번호', type: 'password',
         placeholder: '8자 이상' })));
 
+      if (mode === 'up' || mode === 'lost') {
+        body.appendChild(field(mode === 'lost' ? '새 비밀번호 확인' : '비밀번호 확인',
+          pw2 = h('input.input', {
+            uid: 'M29-F03', uidLabel: '비밀번호 확인', type: 'password' })));
+      }
       if (mode === 'up') {
-        body.appendChild(field('비밀번호 확인', pw2 = h('input.input', {
-          uid: 'M29-F03', uidLabel: '비밀번호 확인', type: 'password' })));
         body.appendChild(field('표시 이름 (선택)', name = h('input.input', {
           uid: 'M29-F04', uidLabel: '표시 이름', maxlength: '20',
           placeholder: '친구에게 보이는 이름' })));
@@ -655,8 +667,16 @@
       }
 
       body.appendChild(msg);
-      body.appendChild(h('div.muted', { style: { marginTop: '10px' },
-        text: '비밀번호를 잊으면 되돌릴 방법이 없습니다 — 이 서버는 메일을 보내지 않습니다.' }));
+      if (mode === 'lost') {
+        body.appendChild(h('div.muted', { style: { marginTop: '10px' },
+          text: '가입할 때 적어 둔 코드입니다. 되찾으면 다른 기기는 모두 로그아웃되고, ' +
+                '코드는 새것으로 바뀝니다. 코드까지 잃었다면 서버 주인에게 말해야 합니다.' }));
+      } else {
+        body.appendChild(h('div.muted', { style: { marginTop: '10px' },
+          text: mode === 'up'
+            ? '가입하면 복구 코드를 한 번 보여줍니다. 비밀번호를 잊었을 때 돌아올 유일한 길이니 꼭 적어 두세요 — 이 서버는 메일을 보내지 않습니다.'
+            : '비밀번호를 잊었다면 위의 “비밀번호 잊음” 으로 가세요. 가입할 때 받은 복구 코드가 필요합니다.' }));
+      }
     }
 
     function field(label, input) {
@@ -684,21 +704,41 @@
             var h1 = (handle.value || '').trim().toLowerCase();
             var p1 = pw.value || '';
             if (!h1) { fail('아이디를 넣어주세요'); return true; }
-            if (p1.length < 8) { fail('비밀번호는 8자 이상이어야 합니다'); return true; }
-            if (mode === 'up' && p1 !== (pw2.value || '')) { fail('비밀번호가 서로 다릅니다'); return true; }
+            if (mode === 'lost' && !(rcode.value || '').trim()) {
+              fail('복구 코드를 넣어주세요'); return true;
+            }
+            if (p1.length < 8) {
+              fail((mode === 'lost' ? '새 ' : '') + '비밀번호는 8자 이상이어야 합니다'); return true;
+            }
+            if (mode !== 'in' && p1 !== (pw2.value || '')) { fail('비밀번호가 서로 다릅니다'); return true; }
 
             busy = true; msg.textContent = '확인 중...'; msg.style.display = '';
             var work = mode === 'up'
               ? S.signUp({ handle: h1, password: p1,
                            displayName: (name.value || '').trim() || h1,
                            pairSecret: (pair.value || '').trim() })
-              : S.signIn({ handle: h1, password: p1 });
+              : (mode === 'lost'
+                  ? S.recover({ handle: h1, code: rcode.value, password: p1 })
+                  : S.signIn({ handle: h1, password: p1 }));
 
             work.then(function (r) {
               global.MB_STORE.publishWeekly();
+              close();
+              /* 가입과 되찾기는 코드를 새로 줍니다. 로그인 토스트로 덮어
+                 버리면 그 한 번을 놓칩니다 — 코드 화면을 먼저 띄우고,
+                 그걸 닫을 때 화면을 새로 그립니다. */
+              if (r.recoveryCode) {
+                M.recoveryCode(r.recoveryCode, {
+                  fresh: mode !== 'up',
+                  onDone: function () {
+                    global.MB_UID.toast(r.user.displayName + '으로 로그인했습니다');
+                    if (onDone) onDone();
+                  }
+                });
+                return;
+              }
               global.MB_UID.toast(r.user.displayName + '으로 로그인했습니다');
               if (onDone) onDone();
-              close();
             }).catch(function (e) { fail(e.message); });
             return true;
           } }
@@ -1239,6 +1279,150 @@
       actions: [
         { label: '설정 열기', onClick: function () { global.MB_APP.go('P12'); } },
         { label: '알겠습니다', kind: 'primary' }
+      ]
+    });
+  };
+
+  /* ======================================================================
+   * M49 복구 코드 — 한 번만 보여줍니다
+   *
+   * 이 서버는 메일을 보내지 않습니다. 그래서 비밀번호를 잊었을 때 돌아올
+   * 길은 이 코드 하나뿐이고, 서버에는 해시만 남으므로 우리도 다시 꺼내
+   * 줄 수 없습니다. 화면이 그 사실을 흐리게 말하면 사용자는 "나중에 어디서
+   * 볼 수 있겠지" 하고 넘깁니다 — 그리고 그 나중은 없습니다.
+   *
+   * 그래서 여기만 규칙을 달리 합니다
+   *   · ✕ 를 안 답니다. 실수로 닫아서 잃는 길을 없앱니다.
+   *   · 바깥을 눌러도, Esc 를 눌러도 안 닫힙니다.
+   *   · "적어 뒀습니다" 를 누르기 전에는 나가는 버튼이 안 눌립니다.
+   *
+   * 한 번 더 귀찮게 하는 값어치가 있는 자리입니다. 이걸 놓치면 계정을
+   * 통째로 다시 만들어야 하고, 그러면 친구 관계와 주간 기록이 같이
+   * 사라집니다.
+   * ==================================================================== */
+  M.recoveryCode = function (code, opts) {
+    opts = opts || {};
+    var wrote = false, done, hint;
+
+    var codeEl = h('div', {
+      text: code,
+      style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+               fontSize: '20px', fontWeight: '800', letterSpacing: '.08em',
+               textAlign: 'center', padding: '14px 8px', marginTop: '4px',
+               borderRadius: '10px', userSelect: 'all',
+               background: 'color-mix(in srgb, currentColor 7%, transparent)' }
+    });
+
+    var copyBtn = h('button.btn.btn--sm', {
+      text: '복사', uid: 'M49-B10', uidLabel: '복사',
+      onClick: function () {
+        var ok = false;
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(code); ok = true;
+          }
+        } catch (e) {}
+        if (!ok) {
+          /* 클립보드가 막힌 브라우저(비보안 출처 등)가 있습니다.
+             "복사됐습니다" 라고 거짓말하면 사용자는 붙여넣기만 믿고
+             코드를 잃습니다. 안 되면 안 된다고 말합니다. */
+          try {
+            var r = document.createRange();
+            r.selectNodeContents(codeEl);
+            var sel = window.getSelection();
+            sel.removeAllRanges(); sel.addRange(r);
+            ok = true;
+          } catch (e2) {}
+          global.MB_UID.toast(ok ? '길게 눌러 복사하세요' : '복사가 안 됩니다 — 직접 적어 주세요');
+          return;
+        }
+        global.MB_UID.toast('복사했습니다');
+      }
+    });
+
+    var wroteBtn = h('button.chip', {
+      text: '적어 뒀습니다', uid: 'M49-B11', uidLabel: '적어 뒀습니다',
+      onClick: function () {
+        wrote = !wrote;
+        wroteBtn.className = 'chip' + (wrote ? ' is-on' : '');
+        if (done) done.disabled = !wrote;
+        if (hint) hint.style.display = wrote ? 'none' : '';
+      }
+    });
+
+    /* 제목은 고정입니다. 번호 목록(docs/UID-REGISTRY.md)은 소스에서
+       읽어 만드는데, 제목이 변수면 그 번호가 이름 없이 남습니다. */
+    var m = UI.openModal({
+      uid: 'M49', title: '복구 코드',
+      sub: (opts.fresh ? '새 코드입니다 · ' : '') + '지금 한 번만 보여집니다',
+      dismissable: false,
+      closeButton: false,
+      body: [
+        h('div.note.note--warn', {
+          text: '비밀번호를 잊었을 때 돌아올 수 있는 유일한 길입니다. ' +
+                '서버에는 이 코드가 남지 않으니 우리도 다시 알려줄 수 없습니다.' }),
+        codeEl,
+        h('div.btn-row', { style: { marginTop: '8px' } }, [copyBtn, wroteBtn]),
+        h('div.muted', { style: { marginTop: '12px' },
+          text: '종이에 적어 지갑에 넣거나, 비밀번호 관리 앱에 저장해 두세요. ' +
+                '스크린샷은 폰을 잃으면 같이 사라집니다.' }),
+        hint = h('div.muted', { style: { marginTop: '6px' },
+          text: '적어 뒀다고 눌러야 닫을 수 있습니다.' })
+      ],
+      actions: [
+        { label: '다 적었습니다', kind: 'primary', uid: 'M49-B01', uidLabel: '다 적었습니다',
+          onClick: function () {
+            if (!wrote) return true;        // 모달을 닫지 않습니다
+            if (opts.onDone) opts.onDone();
+          } }
+      ]
+    });
+
+    /* 버튼은 openModal 이 만듭니다. 그래서 돌려받은 el 안에서 찾습니다 —
+       document 전체를 뒤지면 같은 번호의 옛 모달이 남아 있을 때 엉뚱한
+       버튼을 잠급니다. */
+    done = m.el.querySelector('[data-uid="M49-B01"]');
+    if (done) done.disabled = true;
+  };
+
+  /* M50 복구 코드 새로 받기 — 코드를 잃어버렸을 때.
+     비밀번호를 다시 묻습니다: 잠깐 열린 폰을 집어든 사람이 코드를
+     뽑아 가면, 그 사람은 나중에 언제든 계정을 가져갈 수 있습니다. */
+  M.newRecoveryCode = function (onDone) {
+    var pw, msg, busy = false;
+    UI.openModal({
+      uid: 'M50', title: '복구 코드 새로 받기',
+      sub: '옛 코드는 그 자리에서 못 쓰게 됩니다',
+      body: [
+        h('div.muted', { text: '적어 둔 코드를 잃어버렸다면 여기서 새로 받으세요. ' +
+                               '본인인지 확인하려고 비밀번호를 한 번 더 묻습니다.' }),
+        h('div.field', { style: { marginTop: '10px' } }, [
+          h('div.field__label', { text: '비밀번호' }),
+          pw = h('input.input', { uid: 'M50-F01', uidLabel: '비밀번호', type: 'password' })
+        ]),
+        msg = h('div.field__err', { style: { display: 'none' } })
+      ],
+      actions: [
+        { label: '취소', kind: 'ghost' },
+        { label: '새 코드 받기', kind: 'primary', onClick: function (close) {
+            if (busy) return true;
+            var S = global.MB_SYNC;
+            if (!S || !S.status().signedIn) {
+              msg.textContent = '로그인이 필요합니다'; msg.style.display = ''; return true;
+            }
+            if (!(pw.value || '')) {
+              msg.textContent = '비밀번호를 넣어주세요'; msg.style.display = ''; return true;
+            }
+            busy = true; msg.textContent = '확인 중...'; msg.style.display = '';
+            S.newRecoveryCode({ password: pw.value }).then(function (r) {
+              close();
+              M.recoveryCode(r.recoveryCode, { fresh: true, onDone: onDone });
+            }).catch(function (e) {
+              busy = false;
+              msg.textContent = e.message; msg.style.display = '';
+            });
+            return true;
+          } }
       ]
     });
   };

@@ -144,7 +144,125 @@ async function main() {
   ok('나린이 켠 항목이 가영 화면에 나타남', !!row && ('dBfmKg' in row), row);
   ok('안 켠 항목은 여전히 없음', !!row && !('dWeightKg' in row) && !('weightKg' in row), row);
 
-  console.log('\n[6] 오프라인에서도 앱이 멈추지 않는가');
+  /* --------------------------------------------------------------------
+   * [6] 비밀번호를 잊은 사람이 실제로 돌아오는가 — 화면을 눌러서
+   *
+   * 서버 쪽은 test-hardening 이 봅니다. 여기서 봐야 하는 것은 화면입니다:
+   * 복구 코드가 가입 직후 눈앞에 뜨는가, 실수로 닫아 잃을 수 없는가,
+   * "비밀번호 잊음" 길이 실제로 계정을 되돌려 주는가.
+   *
+   * 여기를 화면 없이 API 로만 확인하면, 코드가 서버에서 잘 만들어지는데
+   * 사용자는 그걸 한 번도 못 보는 상태로도 전부 통과합니다.
+   * ------------------------------------------------------------------ */
+  console.log('\n[6] 비밀번호를 잊으면 돌아올 수 있는가 (화면)');
+  {
+    const C = await device(browser, '다솜폰');
+    const click = (d, uid) => d.page.click(`[data-uid="${uid}"]`);
+    const fill  = (d, uid, v) => d.page.fill(`[data-uid="${uid}"]`, v);
+    const seen  = (d, uid) => d.page.locator(`[data-uid="${uid}"]`).count().then(n => n > 0);
+
+    await ev(C, () => window.MB_APP.go('P14'));
+    await C.page.waitForTimeout(200);
+    await click(C, 'P14-B01');                       // 로그인 / 가입
+    await click(C, 'M29-B11');                       // 처음이에요
+    await fill(C, 'M29-F01', 'dasom');
+    await fill(C, 'M29-F02', 'dasom-password-1');
+    await fill(C, 'M29-F03', 'dasom-password-1');
+    await fill(C, 'M29-F04', '다솜');
+    await fill(C, 'M29-F05', PAIR);
+    await click(C, 'M29-B02');                       // 계속
+    await C.page.waitForSelector('[data-uid="M49"]', { timeout: 8000 }).catch(() => {});
+    ok('가입하면 복구 코드가 눈앞에 뜬다', await seen(C, 'M49'));
+
+    const code1 = (await ev(C, () => {
+      const m = document.querySelector('[data-uid="M49"]');
+      const t = m ? m.innerText.match(/[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}/) : null;
+      return t ? t[0] : null;
+    })) || '';
+    ok('코드가 화면에 읽을 수 있게 적혀 있다', /^[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){3}$/.test(code1), code1);
+
+    // 실수로 닫아서 잃는 길이 없어야 합니다
+    ok('✕ 가 없다', !(await seen(C, 'M49-B99')));
+    await C.page.keyboard.press('Escape');
+    await C.page.waitForTimeout(150);
+    ok('Esc 로 안 닫힌다', await seen(C, 'M49'));
+    /* 눌러 보는 대신 "눌리지 않는 상태인가" 를 봅니다. 꺼진 버튼은
+       브라우저가 click 이벤트를 아예 안 보내므로, 눌러서 확인하려 들면
+       테스트가 30초를 기다리다 죽습니다. */
+    ok('적어 두기 전에는 닫기 버튼이 꺼져 있다',
+       await C.page.locator('[data-uid="M49-B01"]').isDisabled());
+    await click(C, 'M49-B11');                       // 적어 뒀습니다
+    ok('적어 뒀다고 하면 켜진다',
+       await C.page.locator('[data-uid="M49-B01"]').isEnabled());
+    await click(C, 'M49-B01');
+    await C.page.waitForTimeout(250);
+    ok('적어 뒀다고 하면 닫힌다', !(await seen(C, 'M49')));
+
+    // 이제 비밀번호를 잊습니다
+    await ev(C, () => window.MB_SYNC.signOut());
+    await C.page.waitForTimeout(400);
+    await ev(C, () => window.MB_APP.go('P14'));
+    await C.page.waitForTimeout(200);
+    await click(C, 'P14-B01');
+    await click(C, 'M29-B12');                       // 비밀번호 잊음
+    ok('복구 코드 칸이 나온다', await seen(C, 'M29-F06'));
+
+    await fill(C, 'M29-F01', 'dasom');
+    await fill(C, 'M29-F06', 'AAAA-BBBB-CCCC-DDDD');
+    await fill(C, 'M29-F02', 'dasom-password-2');
+    await fill(C, 'M29-F03', 'dasom-password-2');
+    await click(C, 'M29-B02');
+    await C.page.waitForTimeout(900);
+    const errText = await ev(C, () => {
+      const e = document.querySelector('[data-uid="M29"] .field__err');
+      return e ? e.textContent : '';
+    });
+    ok('틀린 코드는 화면에서도 거부된다', /맞지 않습니다/.test(errText), errText);
+
+    // 사람이 옮겨 적은 모양 그대로 (소문자)
+    await fill(C, 'M29-F06', code1.toLowerCase());
+    await click(C, 'M29-B02');
+    await C.page.waitForSelector('[data-uid="M49"]', { timeout: 8000 }).catch(() => {});
+    ok('맞는 코드로 되찾으면 새 코드가 뜬다', await seen(C, 'M49'));
+    const code2 = (await ev(C, () => {
+      const m = document.querySelector('[data-uid="M49"]');
+      const t = m ? m.innerText.match(/[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}/) : null;
+      return t ? t[0] : null;
+    })) || '';
+    ok('새 코드는 옛 코드와 다르다', !!code2 && code2 !== code1, { code1, code2 });
+    await click(C, 'M49-B11');
+    await click(C, 'M49-B01');
+    await C.page.waitForTimeout(300);
+
+    ok('되찾은 뒤 로그인 상태다', await ev(C, () => window.MB_SYNC.status().signedIn));
+    const relog = await ev(C, () => window.MB_SYNC.signIn({ handle: 'dasom', password: 'dasom-password-2' })
+      .then(r => r.user.displayName).catch(e => ({ err: e.message })));
+    ok('새 비밀번호로 다시 들어가진다', relog === '다솜', relog);
+
+    // 계정 화면에서 코드를 새로 받는 길
+    await ev(C, () => window.MB_APP.go('P14'));
+    await C.page.waitForTimeout(250);
+    ok('계정 화면에 코드 새로 받기가 있다', await seen(C, 'P14-B08'));
+    await click(C, 'P14-B08');
+    await fill(C, 'M50-F01', 'dasom-password-2');
+    await click(C, 'M50-B02');
+    await C.page.waitForSelector('[data-uid="M49"]', { timeout: 8000 }).catch(() => {});
+    ok('비밀번호를 대면 새 코드가 나온다', await seen(C, 'M49'));
+    const code3 = (await ev(C, () => {
+      const m = document.querySelector('[data-uid="M49"]');
+      const t = m ? m.innerText.match(/[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}/) : null;
+      return t ? t[0] : null;
+    })) || '';
+    ok('또 다른 코드가 나온다', !!code3 && code3 !== code2 && code3 !== code1, { code2, code3 });
+    await click(C, 'M49-B11');
+    await click(C, 'M49-B01');
+    await C.page.waitForTimeout(200);
+
+    C.errs.forEach(e => A.errs.push(e));
+    await C.ctx.close();
+  }
+
+  console.log('\n[7] 오프라인에서도 앱이 멈추지 않는가');
   await A.ctx.setOffline(true);
   const offlineOk = await ev(A, () => {
     try { window.MB_APP.go('P15'); return document.querySelector('#main').innerText.length > 30; }
@@ -159,7 +277,7 @@ async function main() {
   await A.page.waitForTimeout(900);
   ok('온라인이 되면 큐가 비워짐', (await ev(A, () => window.MB_SYNC.status().pending)) === 0);
 
-  console.log('\n[7] 로그아웃하면 이 기기에 남의 흔적이 없는가');
+  console.log('\n[8] 로그아웃하면 이 기기에 남의 흔적이 없는가');
   await ev(A, () => window.MB_SYNC.signOut());
   await A.page.waitForTimeout(400);
   const after = await ev(A, () => ({
@@ -175,7 +293,7 @@ async function main() {
   const EXPECTED = /status of (400|401|429)|ERR_INTERNET_DISCONNECTED/;
   const allErrs = [...new Set([...A.errs, ...B.errs])];
   const real = allErrs.filter(e => !EXPECTED.test(e));
-  console.log('\n[8] JS 오류');
+  console.log('\n[9] JS 오류');
   ok('예상 못 한 오류 0건', real.length === 0, real.slice(0, 4));
   console.log('    (예상된 오류 ' + (allErrs.length - real.length) + '건은 제외 — 일부러 실패시킨 요청들)');
 
