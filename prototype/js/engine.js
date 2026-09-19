@@ -531,19 +531,24 @@
     var fastest = reachable.filter(function (c) { return c.weeks === minWeeks; })[0];
     var maxWeeks = Math.max.apply(null, reachable.map(function (c) { return c.weeks; }));
 
+    // 이 모드에서 실제로 갈 수 있는 "가장 느린" 계획.
+    // 고정 배수(1.4x / 2.0x)로 목표를 잡으면 모드가 a 하한을 걸어 둔 경우 중·하가
+    // 둘 다 하한에 붙어 같은 계획이 된다. 그래서 목표 기간을 "갈 수 있는 범위" 안으로 접는다.
+    var gentlePool = reachable.filter(function (c) { return c.a <= fastest.a; });
+    if (!gentlePool.length) gentlePool = reachable;
+    var slowest = gentlePool.reduce(function (b, c) { return c.weeks > b.weeks ? c : b; }, gentlePool[0]);
+    var slowWeeks = Math.min(slowest.weeks, Math.round(minWeeks * 2.0));
+    var TARGET = {
+      high: minWeeks,
+      mid: Math.round((minWeeks + slowWeeks) / 2),
+      low: slowWeeks
+    };
+
     var results = LEVEL_SPEC.map(function (spec) {
-      var targetWeeks = Math.round(minWeeks * spec.durationMult);
-      var chosen;
-      if (spec.durationMult === 1.0) {
-        chosen = fastest;
-      } else {
-        // 상보다 여유로운 구간(a ≤ fastest.a)에서 목표 기간에 가장 가까운 점
-        var pool = reachable.filter(function (c) { return c.a <= fastest.a; });
-        if (!pool.length) pool = reachable;
-        chosen = pool.reduce(function (best, c) {
-          return Math.abs(c.weeks - targetWeeks) < Math.abs(best.weeks - targetWeeks) ? c : best;
-        }, pool[0]);
-      }
+      var targetWeeks = TARGET[spec.key];
+      var chosen = (spec.key === 'high') ? fastest : gentlePool.reduce(function (best, c) {
+        return Math.abs(c.weeks - targetWeeks) < Math.abs(best.weeks - targetWeeks) ? c : best;
+      }, gentlePool[0]);
       var sim = chosen.sim;
       var macros = macrosFor(sim, cur, profile);
       var training = resolveTraining(profile, sim.params, goalInfo);
@@ -640,6 +645,8 @@
       current: cur, goal: goal, goalInfo: goalInfo, mode: modeDef || null,
       startDate: toISODate(start),
       minWeeks: minWeeks, maxWeeks: maxWeeks,
+      spanWeeks: [minWeeks, slowest.weeks],
+      spanNote: spanNote(minWeeks, slowest.weeks, modeDef),
       curve: curve.map(function (c) { return { a: c.a, weeks: c.weeks }; }),
       results: results, recommended: recommended, warnings: warnings,
       bottleneckNote: bottleneckNote(results, goalInfo)
@@ -824,6 +831,26 @@
     else                                        { verdict='unrealistic';  badge='🔴'; message=deadlineWeeks + '주 안에는 어렵습니다. 정직하게 약 ' + sim.weeks + '주가 필요합니다.'; }
 
     return { verdict: verdict, badge: badge, message: message, blockers: blockers, weeks: sim.weeks };
+  }
+
+  /**
+   * 이 모드에서 고를 수 있는 기간 폭이 왜 이만큼인지 설명한다.
+   * 좁으면 좁은 이유를 말해야지, 세 장의 카드로 넓은 척하면 안 된다.
+   */
+  function spanNote(minW, maxW, modeDef) {
+    var spread = maxW - minW;
+    var ratio = minW > 0 ? maxW / minW : 1;
+    if (!modeDef) {
+      return { spread: spread, tight: ratio < 1.35,
+               text: '이 목표는 ' + minW + '~' + maxW + '주 사이에서 고를 수 있습니다.' };
+    }
+    var text = '「' + modeDef.nameKo + '」 안에서는 이 목표가 ' + minW + '~' + maxW + '주입니다.';
+    if (ratio < 1.35) {
+      text += ' 폭이 좁은 이유는 두 가지입니다 — 아래로는 이 모드가 허용하는 가장 느린 속도(공격성 ' +
+              modeDef.aMin + ')에 이미 닿았고, 위로는 체지방이 하루에 안전하게 내놓을 수 있는 ' +
+              '에너지 상한에 걸립니다. 더 여유롭게 가고 싶으면 강도가 아니라 모드를 바꿔야 합니다.';
+    }
+    return { spread: spread, tight: ratio < 1.35, text: text };
   }
 
   function bottleneckNote(results, goalInfo) {

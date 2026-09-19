@@ -5,7 +5,7 @@
   var h = UI.h;
 
   /* 화면을 떠났다 와도 보던 탭/기간은 유지한다 */
-  var activeTab = 0;      // 0 체중 · 1 골격근량 · 2 체지방량 · 3 체지방률
+  var activeTab = 0;      // 0 전체 · 1 체중 · 2 골격근량 · 3 체지방량 · 4 체지방률
   /* 기본값이 '전체'면 계획(수십 주)이 x축을 다 먹어 측정 3건이 왼쪽 끝에 뭉친다.
      '12주'가 실측과 계획을 반반으로 보여주는 가장 읽기 쉬운 창이다. */
   var period = '12';      // '4' | '12' | 'all'
@@ -55,13 +55,15 @@
         { key: 'pbfPct',   label: '체지방률', short: '체지방률', unit: '%',  color: 'var(--fat)',
           goal: goal ? (goal.bfmKg / goal.weightKg * 100) : null }
       ];
-      var met = METRICS[activeTab] || METRICS[0];
+      var isAll = activeTab === 0;
+      var met = METRICS[activeTab - 1] || METRICS[0];
 
-      /* --- C01 지표 탭 --- */
+      /* --- C01 지표 탭 (0번은 세 지표를 한 번에) --- */
+      var TAB_LABELS = ['전체'].concat(METRICS.map(function (m) { return m.short; }));
       wrap.appendChild(h('div.tabs', { uid: 'P09-C01', uidLabel: '지표 탭' },
-        METRICS.map(function (m, i) {
+        TAB_LABELS.map(function (label, i) {
           return h('button.tabs__item' + (activeTab === i ? '.is-active' : ''), {
-            text: m.label, uid: 'P09-T0' + (i + 1), uidLabel: m.label + ' 탭',
+            text: label, uid: 'P09-T0' + (i + 1), uidLabel: label + ' 탭',
             onClick: function () { activeTab = i; A.refresh(); }
           });
         })));
@@ -81,7 +83,11 @@
       ]));
 
       /* --- C06 메인 차트 --- */
-      wrap.appendChild(chartCard(met));
+      if (isAll) {
+        wrap.appendChild(combinedCard(METRICS, pts, firstDate));
+      } else {
+        wrap.appendChild(chartCard(met));
+      }
 
       /* --- C03 델타 표 --- */
       wrap.appendChild(deltaCard(METRICS));
@@ -96,6 +102,75 @@
       /* ====================================================================
        * C06 — 차트
        * ================================================================= */
+      /* --- 전체 보기: 시작 대비 변화율을 한 축에 겹친다 ---------------------
+       * 단위가 서로 달라(체중 86 / 근육 38 / 지방 20 kg) 실제값을 한 축에 그리면
+       * 선이 전부 눌린다. 시작값 대비 %변화로 바꾸면 근육은 위로 지방은 아래로
+       * 갈라지는 모양이 그대로 보인다 — 리컴프가 되고 있는지가 한 장에 드러난다. */
+      function combinedCard(metrics, points, baseDate) {
+        var card = h('div.card', { uid: 'P09-C07', uidLabel: '전체 지표 한눈에' });
+        card.appendChild(h('div.card__head', [
+          h('div.card__title', { text: '세 지표 한 번에' }),
+          h('div.card__sub', { text: '시작 대비 변화율' })
+        ]));
+
+        var three = metrics.slice(0, 3);          // 체중 · 골격근량 · 체지방량
+        var b0 = points[0];
+        var series = three.map(function (m) {
+          var b = b0[m.key];
+          return {
+            key: m.key, label: m.short, color: m.color, dots: points.length <= 12,
+            points: points.map(function (p) {
+              return { x: p.week, y: b ? ((p[m.key] - b) / b * 100) : 0 };
+            })
+          };
+        });
+        card.appendChild(UI.lineChart({
+          uid: 'P09-G05', label: '시작 대비 변화율', height: 168,
+          series: series,
+          goal: [{ y: 0, color: 'var(--text-3)', label: '시작' }],
+          xTickFmt: function (v) { return UI.dateShort(E.addWeeks(baseDate, v)); }
+        }));
+
+        var lastP = points[points.length - 1];
+        card.appendChild(h('div.stats', { style: { marginTop: '12px' } },
+          three.map(function (m) {
+            var d = lastP[m.key] - b0[m.key];
+            var good = m.higherIsBetter ? d > 0 : d < 0;
+            return h('div.stat', [
+              h('div.stat__k', { text: m.short }),
+              h('div', [h('span.stat__v', { style: { color: m.color }, text: UI.n1(lastP[m.key]) }),
+                        h('span.stat__u', { text: m.unit })]),
+              h('div.stat__d', {
+                style: { color: Math.abs(d) < 0.05 ? 'var(--text-3)'
+                              : (good ? 'var(--ok)' : 'var(--bad)') },
+                text: UI.sign(d) + m.unit })
+            ]);
+          })));
+
+        var dS = lastP.smmKg - b0.smmKg, dF = lastP.bfmKg - b0.bfmKg;
+        var N = global.MB_MODES ? global.MB_MODES.NOISE : { smm: 0.6, bfm: 1.0 };
+        var v;
+        if (dS > N.smm && dF < -N.bfm) {
+          v = { cls: '--ok', text: '근육은 늘고 지방은 줄었습니다. 체중계 숫자만 봤다면 놓쳤을 변화입니다.' };
+        } else if (dF < -N.bfm && Math.abs(dS) <= N.smm) {
+          v = { cls: '', text: '지방이 줄고 근육은 지켜졌습니다. 감량 구간에서는 이게 성공입니다.' };
+        } else if (dS > N.smm && dF > N.bfm) {
+          v = { cls: '--warn', text: '근육과 지방이 함께 늘었습니다. 증량 중이라면 정상이고, 아니라면 섭취를 줄일 때입니다.' };
+        } else if (dS < -N.smm) {
+          v = { cls: '--bad', text: '근육이 줄었습니다. 적자가 깊거나 단백질이 모자란 신호입니다.' };
+        } else {
+          v = { cls: '', text: '아직 측정 오차를 넘는 변화가 없습니다. 판정하려면 4주 이상 간격이 필요합니다.' };
+        }
+        card.appendChild(h('div.note' + (v.cls ? '.note' + v.cls : ''),
+          { style: { marginTop: '12px' }, text: v.text }));
+
+        card.appendChild(h('div.muted', { style: { marginTop: '8px' },
+          text: '지표마다 단위가 달라 실제값을 한 축에 겹치면 선이 눌립니다. ' +
+                '그래서 시작값 대비 몇 % 움직였는지로 바꿔 겹쳤습니다. ' +
+                '실제 값은 위 숫자와 각 지표 탭에서 봅니다.' }));
+        return card;
+      }
+
       function chartCard(m) {
         var latestX = last.week;
 

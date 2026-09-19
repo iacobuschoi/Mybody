@@ -71,10 +71,32 @@
         '빠를수록 식단이 빡빡하고 근손실 위험이 올라갑니다.'
       ]));
 
-      /* --- 강도 카드 3장 --- */
-      cmp.results.forEach(function (r, i) {
-        wrap.appendChild(levelCard(r, i, cmp, scan, prof));
+      /* --- 기간 폭 안내 --- */
+      if (cmp.spanNote) {
+        wrap.appendChild(h('div.note' + (cmp.spanNote.tight ? '.note--warn' : ''),
+          { uid: 'P06-C10', uidLabel: '기간 폭 안내' }, [
+          h('b', { text: cmp.spanWeeks[0] + '~' + cmp.spanWeeks[1] + '주' }),
+          ' · ' + cmp.spanNote.text
+        ]));
+      }
+
+      /* --- 강도 카드 (같은 계획으로 수렴하면 한 장으로 합친다) --- */
+      var groups = [];
+      cmp.results.forEach(function (r) {
+        var g = null;
+        for (var i = 0; i < groups.length; i++) {
+          if (Math.abs(groups[i].rep.a - r.a) < 0.005 && groups[i].rep.weeks === r.weeks) { g = groups[i]; break; }
+        }
+        if (g) { g.levels.push(r); } else { groups.push({ rep: r, levels: [r] }); }
       });
+      groups.forEach(function (g, i) {
+        wrap.appendChild(levelCard(g.rep, i, cmp, scan, prof, g.levels));
+      });
+      if (groups.length < cmp.results.length) {
+        wrap.appendChild(h('div.note', { uid: 'P06-C11', uidLabel: '강도 병합 안내',
+          text: '같은 계획이 되는 강도는 한 장으로 합쳤습니다. 카드 수가 줄었다고 선택지가 사라진 게 아니라, ' +
+                '이 목표에서는 그 둘이 실제로 같은 계획이라는 뜻입니다.' }));
+      }
 
       /* --- G01 3안 비교 차트 --- */
       wrap.appendChild(h('div.card', { uid: 'P06-C06', uidLabel: '3안 비교 차트' }, [
@@ -115,8 +137,9 @@
   });
 
   /* ------------------------------------------------------------------ */
-  function levelCard(r, i, cmp, scan, prof) {
-    var isRec = cmp.recommended === r.level;
+  function levelCard(r, i, cmp, scan, prof, levels) {
+    levels = levels || [r];
+    var isRec = levels.some(function (x) { return cmp.recommended === x.level; });
     var n = i + 1;
     var uid = 'P06-C0' + (2 + n);      // C03 / C04 / C05
     var dday = E.daysUntil(r.targetDate);
@@ -128,9 +151,11 @@
     card.appendChild(h('div.card__head', [
       h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
         h('span', { style: { fontSize: '22px', fontWeight: '900',
-          color: COLORS[r.level], letterSpacing: '-.03em' }, text: r.label }),
+          color: COLORS[r.level], letterSpacing: '-.03em' },
+          text: levels.map(function (x) { return x.label; }).join('·') }),
         h('div', [
-          h('div.card__title', { text: r.title }),
+          h('div.card__title', { text: levels.length > 1
+            ? levels.map(function (x) { return x.title; }).join(' = ') : r.title }),
           h('div.card__sub', { text: r.blurb })
         ])
       ]),
