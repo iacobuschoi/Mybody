@@ -214,11 +214,21 @@
         if (!(p.ffmKg > 0) || !(p.smmKg > 0)) return null;
         var expect = p.smmKg / p.ffmKg * v.ffmKg;
         // 기본 1.2kg + 한 달마다 0.25kg. k 는 훈련으로 아주 천천히 오릅니다.
-        var tol = Math.min(3.0, 1.2 + (ctx.gapDays / 30) * 0.25);
+        /* 간격을 모르면 가장 너그러운 허용치를 씁니다.
+           언제 잰 건지 모르면 몸이 얼마나 변할 수 있었는지도 모릅니다.
+           그렇다고 검사를 통째로 끄면, k 검산이 잡으라고 있는 자릿수
+           오독(37.9 → 73.9)까지 같이 놓칩니다. 그건 6개월이 지나도
+           일어날 수 없는 값이라 느슨한 허용치로도 잡힙니다.
+           간격이 0인 경우(같은 시각 두 측정)는 반대로 제일 빡빡해야
+           맞지만, 바닥을 1.2kg 로 둡니다 — 그 아래는 사람 몸의 차이가
+           아니라 판독 오류입니다. */
+        var tol = ctx.gapKnown
+          ? Math.min(3.0, 1.2 + (ctx.gapDays / 30) * 0.25)
+          : 3.0;
         var gap = Math.abs(v.smmKg - expect);
         return {
           ok: gap <= tol,
-          why: '지난 측정(' + gapWord(ctx.gapDays) + ')의 비율로 보면 ' +
+          why: '지난 측정(' + (ctx.gapKnown ? gapWord(ctx.signedDays) : '날짜 모름') + ')의 비율로 보면 ' +
                fmt(expect) + 'kg 근처, 이번 판독은 ' + fmt(v.smmKg) + 'kg' +
                (gap <= tol ? '' : ' (' + fmt(gap) + 'kg 차이)'),
           fix: gap <= tol ? null : { field: 'smmKg', value: r1(expect) }
@@ -277,15 +287,24 @@
       heightM: profile.heightCm > 0 ? profile.heightCm / 100 : 0,
       sex: profile.sex || null,
       prev: prevScan ? fill(prevScan) : null,
-      gapDays: 0
+      gapDays: 0,
+      signedDays: 0,
+      gapKnown: false
     };
     if (prevScan && scan.measuredAt && prevScan.measuredAt) {
       var g = (Date.parse(scan.measuredAt) - Date.parse(prevScan.measuredAt)) / 86400000;
-      ctx.gapDays = isFinite(g) ? Math.abs(g) : 0;
+      /* 부호를 버리면 안 됩니다. 예전에는 Math.abs 를 써서, 지난 기록을
+         나중에 채워 넣는 경우(backfill)에 "지난 측정 80일 전" 이라고
+         했습니다 — 실제로는 80일 뒤 측정이었습니다. */
+      ctx.gapKnown = isFinite(g);
+      ctx.signedDays = ctx.gapKnown ? g : 0;
+      ctx.gapDays = Math.abs(ctx.signedDays);
     }
-    // 간격을 모르면 k 검산의 허용치를 정할 수 없습니다. 0 으로 두면
-    // 가장 빡빡한 허용치라 멀쩡한 값이 모순으로 찍힙니다.
-    if (ctx.prev && !(ctx.gapDays > 0)) ctx.prev = null;
+    /* 두 측정의 시각이 완전히 같아도 검산을 끕니다 — 였습니다.
+       그런데 시각이 같은 두 측정은 정확히 "같은 결과지를 두 번 넣었거나
+       남의 결과지" 인 경우라, 검사가 제일 필요한 자리입니다. 끄는 대신
+       허용치에 바닥을 둡니다(아래 tol 과 weeks). */
+    if (ctx.prev && !isFinite(ctx.gapDays)) ctx.prev = null;
 
     var checks = [], fields = {}, counts = { pass: 0, fail: 0, skip: 0 };
 
@@ -295,8 +314,13 @@
       checks.push({ id: rule.id, label: rule.label, ok: r.ok, why: r.why,
                     fields: rule.fields.slice(), fix: usableFix(rule, r.fix, v) });
       if (r.ok) counts.pass++; else counts.fail++;
+      /* 결과지에 인쇄된 칸만 상태를 받습니다.
+         제지방은 보통 인쇄되지 않아서 체중 − 체지방으로 만들어 씁니다.
+         그런데 그건 우리가 한 산수지 확인이 아닙니다. 비어 있는 칸에
+         초록 "검산됨" 점이 찍히면, 사용자는 넣지도 않은 값이 확인됐다고
+         읽습니다. 파생값은 계산에는 쓰되 상태는 안 붙입니다. */
       rule.fields.forEach(function (f) {
-        if (v[f] == null) return;
+        if (v[f] == null || !v._printed[f]) return;
         if (!r.ok) fields[f] = 'conflict';
         else if (fields[f] !== 'conflict') fields[f] = 'verified';
       });
@@ -335,8 +359,10 @@
 
     /* 스캔 간 변화량 — 하루 만에 골격근 3kg 이 붙지는 않습니다 */
     var deltaIssues = [];
-    if (ctx.prev && ctx.gapDays > 0) {
-      var weeks = Math.max(ctx.gapDays / 7, 0.15);     // 하루 미만도 최소치를 둡니다
+    /* 변화량 검사는 "주당 얼마" 가 기준이라, 며칠이 지났는지 모르면
+       아무 말도 할 수 없습니다. k 검산과 달리 여기서는 건너뜁니다. */
+    if (ctx.prev && ctx.gapKnown) {
+      var weeks = Math.max(ctx.gapDays / 7, 0.15);     // 같은 날이어도 최소치를 둡니다
       Object.keys(DELTA).forEach(function (k) {
         var a = ctx.prev[k], b = v[k];
         if (a == null || b == null) return;
@@ -432,16 +458,18 @@
     return w + (((c - 0xAC00) % 28) ? '을' : '를');
   }
 
-  /** "19일 만에" / "같은 날에" */
+  /** "19일 만에" / "같은 날에" (간격은 크기만 쓰므로 절댓값) */
   function spanWord(days) {
-    var d = Math.round(days);
+    var d = Math.round(Math.abs(days));
     return d >= 1 ? d + '일 만에' : '같은 날에';
   }
 
-  /** "19일 전" / "같은 날" — 0일 전이라는 말은 없습니다. */
-  function gapWord(days) {
-    var d = Math.round(days);
-    return d >= 1 ? d + '일 전' : '같은 날';
+  /** "19일 전" / "80일 뒤" / "같은 날" — 부호가 방향입니다. */
+  function gapWord(signed) {
+    var d = Math.round(signed);
+    if (d >= 1) return d + '일 전';
+    if (d <= -1) return Math.abs(d) + '일 뒤';
+    return '같은 날';
   }
 
   /** 한 칸을 바꿔 끼우고 검산이 몇 개 깨지는지 — 복구 제안이 쓰는 저울 */

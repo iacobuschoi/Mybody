@@ -403,21 +403,41 @@
         // 진행 표시는 앞 단계까지만 올려 두고, 마지막 칸은 응답이 채웁니다.
         for (var i = 1; i < STEPS.length; i++) tick(i, true);
 
+        /* 어느 사진에 대한 요청인지 기억해 둡니다.
+           판독은 몇 초 걸리고, 그 사이에 사용자는 취소를 누르거나 ·
+           사진을 빼거나 · 다른 사진으로 바꿀 수 있습니다. 예전에는
+           화면이 P03 인지만 보고 그대로 적용했습니다:
+             취소했는데 몇 초 뒤 값이 들어오고,
+             사진을 뺐으면 shot 이 null 인데 drawShot 이 shot.dataUrl 을
+             읽어 화면이 하얘지고,
+             사진을 바꿨으면 이전 사진의 숫자가 새 사진 위에 덮였습니다.
+           보낸 사진과 지금 사진이 같을 때만 받습니다. */
+        var forShot = shot.id;
+
         global.MB_SYNC.ocr(shot.dataUrl, function (err, fields) {
           clearTimers();
           if (A.current !== 'P03' || !body.isConnected) return;
+          if (!shot || shot.id !== forShot) return;   // 빼거나 바꿨습니다
+          if (mode !== 'parsing') return;             // 취소했습니다
+
           if (err) {
             mode = 'shot'; draw();
-            global.MB_UID.toast('자동 판독에 실패했습니다 — 직접 넣으시면 됩니다');
+            global.MB_UID.toast(err.notInBody
+              ? '인바디 결과지로 보이지 않습니다 — 직접 넣으시면 됩니다'
+              : '자동 판독에 실패했습니다 — 직접 넣으시면 됩니다');
             return;
           }
+          var read = 0;
           QUICK.forEach(function (f) {
-            if (fields[f.key] != null) quick[f.key] = fields[f.key];
+            if (fields[f.key] != null) { quick[f.key] = fields[f.key]; read++; }
           });
           if (fields.measuredAt) quickAt = String(fields.measuredAt).slice(0, 10);
           serverExtra = fields;
           mode = 'shot'; draw();
-          global.MB_UID.toast('판독했습니다 — 사진과 대조해 주세요');
+          // 한 칸도 못 읽었으면 "판독했습니다" 는 거짓말입니다.
+          global.MB_UID.toast(read
+            ? '판독했습니다 — 사진과 대조해 주세요'
+            : '핵심 세 칸을 읽지 못했습니다 — 직접 넣어 주세요');
         });
       }
 

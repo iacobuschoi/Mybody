@@ -242,7 +242,19 @@
     if (isNaN(dt.getTime())) return null;
     // 미래 사진은 시계가 틀린 것입니다 — 믿지 않습니다.
     if (dt.getTime() > Date.now() + 86400000) return null;
-    return dt.toISOString();
+
+    /* EXIF 의 시각에는 시간대가 없습니다. 카메라가 있던 곳의 벽시계
+       시각일 뿐입니다. 그걸 toISOString() 으로 바꾸면 UTC 로 밀리고,
+       한국에서 아침 7시 36분에 찍은 사진이 2026-09-18 이 됩니다 —
+       하루 전입니다.
+       인바디는 아침에 재는 것이 정석이라, 제대로 재는 사람일수록
+       모든 측정이 하루씩 밀립니다. 그러면 "지난 측정과 며칠 차이"
+       와 주간 창이 전부 어긋납니다.
+       그래서 시간대를 붙이지 않은 현지 시각 그대로 돌려줍니다.
+       앱의 다른 곳(quickISO)도 같은 모양을 씁니다. */
+    function two(x) { return String(x).padStart(2, '0'); }
+    return y + '-' + two(mo) + '-' + two(d) + 'T' +
+           two(+m[4]) + ':' + two(+m[5]) + ':' + two(+m[6]);
   }
 
   global.MB_PHOTO = {

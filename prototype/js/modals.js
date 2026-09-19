@@ -334,7 +334,7 @@
     UI.openModal({
       uid: 'M18', title: '모든 데이터를 지울까요?',
       body: [
-        h('div.note.note--bad', { text: '측정 기록, 목표, 플랜, 체크인이 전부 삭제되며 되돌릴 수 없습니다.' }),
+        h('div.note.note--bad', { text: '측정 기록, 목표, 플랜, 체크인, 결과지 사진이 전부 삭제되며 되돌릴 수 없습니다.' }),
         h('p', { text: '확인을 위해 아래에 "초기화" 라고 입력해 주세요.' }),
         input = h('input.input', { placeholder: '초기화' })
       ],
@@ -355,7 +355,8 @@
   M.deleteScan = function (scan, onDone) {
     UI.openModal({
       uid: 'M19', title: '이 측정을 삭제할까요?',
-      body: h('div', { text: UI.dateK(scan.measuredAt) + ' 측정이 삭제되고 추이 그래프가 바뀝니다.' }),
+      body: h('div', { text: UI.dateK(scan.measuredAt) + ' 측정이 삭제되고 추이 그래프가 바뀝니다.' +
+        (scan.photoId ? ' 이 측정에 딸린 결과지 사진도 같이 지워집니다.' : '') }),
       actions: [
         { label: '취소', kind: 'ghost' },
         { label: '삭제', kind: 'danger', onClick: function () {

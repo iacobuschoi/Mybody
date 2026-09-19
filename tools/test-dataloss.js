@@ -20,7 +20,11 @@
  * 3. 그때 사진보다 숫자를 지킨다
  *    사진은 다시 찍을 수 있지만 지나간 측정일의 숫자는 못 되찾습니다.
  *
- * 4. 고치던 값을 두고 나가면 말없이 버린다
+ * 4. 지운 측정의 사진이 기기에 남는다
+ *    결과지 사진에는 보통 이름 · 나이 · 성별이 같이 인쇄돼 있습니다.
+ *    "전부 지웠다" 고 믿고 폰을 넘긴 사람에게는 그게 전부입니다.
+ *
+ * 5. 고치던 값을 두고 나가면 말없이 버린다
  *    "저장하지 않고 나갈까요?" 모달(M23)이 만들어져 있었는데 부르는 곳이
  *    한 군데도 없었습니다. 나가는 길이 탭바 · 뒤로가기 · 화면 안 버튼으로
  *    여러 개라, 라우터에서 한 번 막습니다.
@@ -181,7 +185,32 @@ const ok=(n,c,d)=>{if(c){pass++;console.log('  ✓',n);}else{fail++;console.log(
   const after = await pg.evaluate(()=>({screen:window.MB_APP.current, modal:!!document.querySelector('.modal')}));
   ok('저장 뒤 바로 나간다 (M23 안 뜸)', after.screen!=='P04' || !after.modal, after);
 
-  console.log('\n[10] JS 오류');
+  console.log('\n[10] 지운 측정의 사진이 기기에 안 남는다');
+  const r = await pg.evaluate(()=>{
+    localStorage.clear(); window.MB_STORE.seed();
+    const st=window.MB_STORE.get();
+    const P=window.MB_PHOTO;
+    // 스캔 두 개에 사진을 하나씩 붙입니다
+    P.save('ph-a','data:image/gif;base64,R0lGODlhAQABAAAAACw=',{w:1,h:1,name:'a'});
+    P.save('ph-b','data:image/gif;base64,R0lGODlhAQABAAAAACw=',{w:1,h:1,name:'b'});
+    st.scans[0].photoId='ph-a';
+    st.scans[1].photoId='ph-b';
+    st.scans[2].photoId='ph-b';   // 같은 사진을 둘이 가리킴
+    window.MB_STORE.save();
+    const before=Object.keys(P.list()).length;
+    window.MB_STORE.removeScan(st.scans[0].id);
+    const afterA=Object.keys(P.list());
+    window.MB_STORE.removeScan(window.MB_STORE.get().scans[0].id);   // ph-b 를 가리키는 것 하나
+    const afterB=Object.keys(P.list());
+    window.MB_STORE.reset();
+    const afterReset=Object.keys(P.list()).length;
+    return {before, afterA, afterB, afterReset};
+  });
+  ok('측정을 지우면 딸린 사진도 지워진다', !r.afterA.includes('ph-a'), r);
+  ok('다른 측정이 쓰는 사진은 남는다', r.afterB.includes('ph-b'), r);
+  ok('전체 초기화가 사진까지 지운다', r.afterReset===0, r);
+
+  console.log('\n[11] JS 오류');
   ok('오류 0건', errs.length===0, errs);
 
   console.log(`\n통과 ${pass} / 실패 ${fail}`);

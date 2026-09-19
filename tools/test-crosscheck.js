@@ -147,10 +147,49 @@ console.log('\n[5] 남의 결과지 / 시간 뒤틀림');
 {
   // 측정 간격을 모르면 k 검산을 건너뜁니다 — 0일로 치면 허용치가 최소가 돼
   // 멀쩡한 값이 모순으로 찍힙니다.
+  /* 날짜를 모를 때 검산을 통째로 끄면, k 검산이 잡으라고 있는 자릿수
+     오독까지 같이 놓칩니다. 대신 가장 너그러운 허용치로 돌립니다 —
+     6개월이 지나도 일어날 수 없는 값은 그래도 걸립니다. */
   const s = Object.assign({}, S3); delete s.measuredAt;
   const r = C.run(s, PROF, S2);
-  t('측정일이 없으면 k 검산을 건너뛴다', !r.checks.some(c => c.id === 'CK'));
+  t('측정일이 없어도 k 검산은 돈다', r.checks.some(c => c.id === 'CK'));
+  t('멀쩡한 값은 통과한다', r.counts.fail === 0,
+    r.checks.filter(c => !c.ok).map(c => c.id + ': ' + c.why).join(' | '));
+  t('날짜를 모른다고 말한다', r.checks.some(c => c.id === 'CK' && /날짜 모름/.test(c.why)));
+  const s2 = Object.assign({}, S3, { smmKg: 73.9 }); delete s2.measuredAt;
+  const r2 = C.run(s2, PROF, S2);
+  t('그래도 자릿수 오독(37.9 → 73.9)은 잡는다', r2.fields.smmKg === 'conflict');
+  t('변화량 검사는 건너뛴다 (주당 속도라 날짜가 필요)', r.deltaIssues.length === 0);
   t('그래도 나머지 검산은 돈다', r.counts.pass >= 6);
+}
+
+console.log('\n[5-2] 시간 방향과 파생값');
+{
+  /* 지난 기록을 나중에 채워 넣으면(backfill) prev 가 더 나중 측정입니다.
+     예전에는 Math.abs 를 써서 "지난 측정 80일 전" 이라고 했습니다 —
+     실제로는 80일 뒤였습니다. */
+  const r = C.run(S1, PROF, S3);
+  const ck = r.checks.find(c => c.id === 'CK');
+  t('나중 측정을 prev 로 주면 "뒤" 라고 말한다', !!ck && /일 뒤/.test(ck.why), ck && ck.why);
+  t('"전" 이라고 하지 않는다', !!ck && !/일 전/.test(ck.why), ck && ck.why);
+}
+{
+  /* 제지방은 보통 인쇄되지 않아서 체중 − 체지방으로 만들어 씁니다.
+     그건 우리가 한 산수지 확인이 아닙니다. 비어 있는 칸에 초록
+     "검산됨" 점이 찍히면 넣지도 않은 값이 확인됐다고 읽힙니다. */
+  const partial = { measuredAt: '2026-09-19T11:09:00', weightKg: 86.7, smmKg: 37.9, bfmKg: 20.0 };
+  const r = C.run(partial, PROF, null);
+  t('인쇄 안 된 제지방에 검산됨이 안 찍힌다', r.fields.ffmKg !== 'verified', r.fields);
+  t('인쇄된 골격근에는 찍힌다', r.fields.smmKg === 'verified', r.fields);
+}
+{
+  /* 시각이 완전히 같은 두 측정은 "같은 결과지를 두 번" 이거나 "남의
+     결과지" 입니다. 검사가 제일 필요한 자리인데 예전에는 꺼졌습니다. */
+  const twin = Object.assign({}, S3, { smmKg: 43.0, weightKg: 92.0, bfmKg: 22.0, ffmKg: 70.0 });
+  const r = C.run(twin, PROF, S3);
+  t('같은 시각 두 측정도 k 검산이 돈다', r.checks.some(c => c.id === 'CK'));
+  t('값이 다르면 잡아낸다', r.counts.fail > 0 || r.deltaIssues.some(i => i.level === 'bad'),
+    JSON.stringify({fail:r.counts.fail, delta:r.deltaIssues.length}));
 }
 
 console.log('\n[6] 부분 데이터에서도 안 터진다');

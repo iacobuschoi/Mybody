@@ -409,7 +409,21 @@ async function bootApi() {
 
   /* --- 파괴적인 버튼 — 자기 상태에서 따로 ------------------------------- */
   console.log('\n=== 파괴적인 동작 ===');
-  if (!apiBase) await bootApi();
+  /* 앞 단계에서 서버가 죽었을 수 있습니다. 살아 있는지 확인하고,
+     아니면 다시 띄웁니다. 죽은 채로 진행하면 로그인이 실패하고
+     P14 · P15 버튼이 화면에 안 나와서 "없음" 으로 넘어갑니다 —
+     검사했다고 착각하게 됩니다. */
+  let apiAlive = false;
+  if (apiBase) {
+    try { apiAlive = (await fetch(apiBase + '/health')).ok; } catch { apiAlive = false; }
+  }
+  if (!apiAlive) {
+    if (apiProc) { try { apiProc.kill(); } catch {} apiProc = null; }
+    apiBase = null;
+    await bootApi();
+  }
+  if (!apiBase) found('검사못함', '파괴적 동작', '서버가 안 떠서 계정·친구 쪽 버튼을 못 봤습니다');
+
   for (const uid of DESTRUCTIVE) {
     const sid = uid.slice(0, 3);
     await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
@@ -431,12 +445,20 @@ async function bootApi() {
     // 계정·친구 쪽 버튼은 로그인해야 화면에 나옵니다
     if (apiBase && /^P1[456]$/.test(sid)) {
       await page.evaluate(b => window.MB_SYNC.configure(b), apiBase);
-      await page.evaluate(async () => {
-        await window.MB_SYNC.signUp({
-          handle: 'destroyer', password: 'destroy-password-1',
-          displayName: '삭제검증', pairSecret: 'sweep-pair-secret'
-        }).catch(() => window.MB_SYNC.signIn({ handle: 'destroyer', password: 'destroy-password-1' }));
+      const signedIn = await page.evaluate(async () => {
+        try {
+          await window.MB_SYNC.signUp({
+            handle: 'destroyer', password: 'destroy-password-1',
+            displayName: '삭제검증', pairSecret: 'sweep-pair-secret'
+          }).catch(() => window.MB_SYNC.signIn({ handle: 'destroyer', password: 'destroy-password-1' }));
+          return window.MB_SYNC.status().signedIn;
+        } catch (e) { return false; }
       });
+      if (!signedIn) {
+        found('검사못함', sid + '/' + uid, '로그인이 안 돼서 이 버튼을 못 눌렀습니다');
+        console.log(`  ${uid} — 로그인 실패 — 판정 안 함`);
+        continue;
+      }
       await page.waitForTimeout(600);
       if (uid === 'P15-B32') {
         // 데모 친구 버튼은 개발 빌드 전용이고, 로그인 상태에서는 pull() 이

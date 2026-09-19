@@ -113,7 +113,15 @@
   function set(patch) { Object.assign(state, patch); save(); return state; }
   function onChange(fn) { listeners.push(fn); }
 
-  function reset() { state = blank(); save(); }
+  function reset() {
+    /* "모든 데이터를 지울까요?" 에 사진이 안 들어 있었습니다.
+       측정 · 목표 · 플랜은 지워지는데 결과지 사진은 기기에 남았습니다.
+       사진에는 보통 이름 · 나이 · 성별이 같이 인쇄돼 있습니다 — 전부
+       지웠다고 믿고 폰을 넘긴 사람에게는 그게 전부입니다. */
+    if (global.MB_PHOTO) { try { global.MB_PHOTO.clearAll(); } catch (e) {} }
+    state = blank();
+    save();
+  }
 
   /** 오너의 실제 인바디 데이터로 채운다 (프로토타입 검증용 한 방 버튼) */
   function seed() {
@@ -144,7 +152,17 @@
     save();
   }
   function removeScan(id) {
+    /* 딸린 사진도 같이 지웁니다.
+       예전에는 측정만 지우고 사진을 두고 왔습니다. 사용자는 "이 측정을
+       지웠다" 고 생각하는데 결과지 사진은 기기에 남아 있었고, 어디서도
+       보이지 않으니 지울 방법도 없었습니다. 사진 칸(최근 6장)만 계속
+       차지했고요. 다른 측정이 같은 사진을 가리키고 있으면 남겨 둡니다. */
+    var gone = state.scans.filter(function (s) { return s.id === id; })[0];
     state.scans = state.scans.filter(function (s) { return s.id !== id; });
+    if (gone && gone.photoId && global.MB_PHOTO) {
+      var stillUsed = state.scans.some(function (s) { return s.photoId === gone.photoId; });
+      if (!stillUsed) { try { global.MB_PHOTO.remove(gone.photoId); } catch (e) {} }
+    }
     save();
   }
   function scanById(id) { return state.scans.find(function (s) { return s.id === id; }) || null; }
