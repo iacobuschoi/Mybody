@@ -135,6 +135,39 @@ console.log('\n[4-2] 망가진 칸에서 나온 고침 제안은 내보내지 �
     JSON.stringify(r.checks.filter(c => !c.ok).map(c => c.id + ' fix=' + JSON.stringify(c.fix))));
 }
 
+console.log('\n[4-3] 어느 칸이 틀렸는지 모르면 고치라고 하지 않는다');
+{
+  /* 체지방량만 23.0 으로 잘못 넣으면 C1 과 C2 가 같이 깨진다.
+     예전에는 "제지방을 63.7 로" 와 "체지방률을 26.5% 로" 를 같이
+     내놨다 — 둘 다 제대로 읽은 칸이고, 누르면 틀린 칸이 둘이 된다.
+     체중과 체지방량 중 어느 쪽이 틀렸는지는 이 둘만으로는 모른다. */
+  const s = { measuredAt: '2026-09-19T11:09:00', weightKg: 86.7, smmKg: 37.9,
+              bfmKg: 23.0, pbfPct: 23.1, ffmKg: 66.7 };
+  const r = C.run(s, PROF, null);
+  t('범인을 못 고르면 고침을 안 내놓는다', r.checks.filter(c => c.fix).length === 0,
+    r.checks.filter(c => c.fix).map(c => c.id + ':' + JSON.stringify(c.fix)));
+  t('대신 관련된 칸들을 알려준다', !!r.involved && r.involved.length > 1, r.involved);
+  t('어긋났다는 말은 한다', r.counts.fail > 0);
+}
+{
+  // BMI 가 인쇄돼 있으면 체중이 증인을 얻어 체지방량이 범인으로 좁혀진다
+  const s = { measuredAt: '2026-09-19T11:09:00', weightKg: 86.7, smmKg: 37.9,
+              bfmKg: 23.0, pbfPct: 23.1, ffmKg: 66.7, bmi: 26.5 };
+  const r = C.run(s, PROF, null);
+  t('증인이 있으면 범인을 지목한다', r.suspect === 'bfmKg', r.suspect);
+  t('범인 칸만 고치라고 한다',
+    r.checks.filter(c => c.fix).every(c => c.fix.field === 'bfmKg'),
+    r.checks.filter(c => c.fix).map(c => c.fix.field));
+}
+{
+  /* 범위 검사는 증인이 될 수 없다. 제지방을 60.0 으로 넣으면 골격근/제지방
+     이 63% 라 C6 이 통과하는데, 그건 폭이 45~65% 라 틀린 값도 들어오기
+     때문이다. 그걸 면죄부로 쓰면 범인을 놓친다. */
+  const s = Object.assign({}, S3, { ffmKg: 60.0 });
+  const r = C.run(s, PROF, S2);
+  t('범위 검사 통과는 면죄부가 아니다', r.suspect === 'ffmKg', r.suspect);
+}
+
 console.log('\n[5] 남의 결과지 / 시간 뒤틀림');
 {
   // 다른 사람 결과지를 잘못 올린 경우: 하루 만에 골격근 5kg

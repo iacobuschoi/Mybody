@@ -51,11 +51,29 @@
 
   /* 스캔 사이의 변화량 상한(주당). 몸은 이보다 빨리 안 변합니다 —
      이만큼 튀었으면 판독 오류이거나 남의 결과지입니다. */
+  /* 바닥은 앱의 오차 상수에서 끌어냅니다. 베껴 쓰면 어긋납니다 —
+     실제로 골격근 바닥이 0.8kg 로 박혀 있었는데, 앱이 "구분할 수 없다"
+     고 보는 문턱은 0.6 × √2 = 0.849kg 이었습니다. 구분할 수 없다고
+     말하는 차이에 대고 "빠른 편입니다" 라고 경고한 셈입니다.
+     앱이 자기 모순을 말하면 사용자는 둘 중 아무 말이나 믿게 됩니다. */
+  function noise() {
+    return (global.MB_MODES && global.MB_MODES.NOISE) || { weight: 1.0, smm: 0.6, bfm: 1.0 };
+  }
+  function floorOf(key) {
+    var N = noise();
+    // 두 측정의 차이라 오차가 두 번 들어옵니다 (√2)
+    if (key === 'weightKg') return N.weight * Math.SQRT2;
+    if (key === 'smmKg') return N.smm * Math.SQRT2;
+    if (key === 'bfmKg') return N.bfm * Math.SQRT2;
+    // 체지방률은 체중과 체지방에서 나오므로 따로 재지 않고 넉넉히 둡니다
+    return 2.0;
+  }
+
   var DELTA = {
-    weightKg: { warn: 2.0, bad: 5.0, floorWarn: 1.5, label: '체중', unit: 'kg' },
-    smmKg:    { warn: 0.5, bad: 2.0, floorWarn: 0.8, label: '골격근량', unit: 'kg' },
-    bfmKg:    { warn: 1.5, bad: 4.0, floorWarn: 1.5, label: '체지방량', unit: 'kg' },
-    pbfPct:   { warn: 2.0, bad: 6.0, floorWarn: 2.0, label: '체지방률', unit: '%p' }
+    weightKg: { warn: 2.0, bad: 5.0, label: '체중', unit: 'kg' },
+    smmKg:    { warn: 0.5, bad: 2.0, label: '골격근량', unit: 'kg' },
+    bfmKg:    { warn: 1.5, bad: 4.0, label: '체지방량', unit: 'kg' },
+    pbfPct:   { warn: 2.0, bad: 6.0, label: '체지방률', unit: '%p' }
   };
 
   function n(x) { return (typeof x === 'number' && isFinite(x)) ? x : null; }
@@ -90,7 +108,7 @@
   /* ------------------------------------------------------------------ */
   var RULES = [
     {
-      id: 'C1', label: '제지방 = 체중 − 체지방',
+      id: 'C1', tight: true, label: '제지방 = 체중 − 체지방',
       fields: ['ffmKg', 'weightKg', 'bfmKg'],
       run: function (v) {
         if (!v._printed.ffmKg || v.weightKg == null || v.bfmKg == null) return null;
@@ -105,7 +123,7 @@
       }
     },
     {
-      id: 'C2', label: '체지방률 = 체지방 ÷ 체중',
+      id: 'C2', tight: true, label: '체지방률 = 체지방 ÷ 체중',
       fields: ['pbfPct', 'bfmKg', 'weightKg'],
       run: function (v) {
         if (!v._printed.pbfPct || !v._printed.bfmKg || !(v.weightKg > 0)) return null;
@@ -120,7 +138,7 @@
       }
     },
     {
-      id: 'C3', label: 'BMI = 체중 ÷ 키²',
+      id: 'C3', tight: true, label: 'BMI = 체중 ÷ 키²',
       fields: ['bmi', 'weightKg'],
       run: function (v, ctx) {
         if (!v._printed.bmi || v.weightKg == null || !(ctx.heightM > 0)) return null;
@@ -135,7 +153,7 @@
       }
     },
     {
-      id: 'C4', label: '체수분 + 단백질 + 무기질 + 체지방 = 체중',
+      id: 'C4', tight: true, label: '체수분 + 단백질 + 무기질 + 체지방 = 체중',
       fields: ['tbwL', 'proteinKg', 'mineralKg', 'bfmKg', 'weightKg'],
       run: function (v) {
         if (v.tbwL == null || v.proteinKg == null || v.mineralKg == null ||
@@ -152,7 +170,7 @@
       }
     },
     {
-      id: 'C5', label: '체수분 ≈ 제지방의 73%',
+      id: 'C5', tight: false, label: '체수분 ≈ 제지방의 73%',
       fields: ['tbwL', 'ffmKg'],
       run: function (v) {
         if (v.tbwL == null || !(v.ffmKg > 0)) return null;
@@ -166,7 +184,7 @@
       }
     },
     {
-      id: 'C6', label: '골격근은 제지방 안에 있다',
+      id: 'C6', tight: false, label: '골격근은 제지방 안에 있다',
       fields: ['smmKg', 'ffmKg'],
       run: function (v) {
         if (v.smmKg == null || !(v.ffmKg > 0)) return null;
@@ -181,7 +199,7 @@
       }
     },
     {
-      id: 'C9', label: '기초대사량 ≈ 370 + 21.6 × 제지방',
+      id: 'C9', tight: false, label: '기초대사량 ≈ 370 + 21.6 × 제지방',
       fields: ['bmrKcal', 'ffmKg'],
       run: function (v) {
         if (v.bmrKcal == null || !(v.ffmKg > 0)) return null;
@@ -196,7 +214,7 @@
       }
     },
     {
-      id: 'CK', label: '골격근 비율이 지난 측정과 이어진다',
+      id: 'CK', tight: false, label: '골격근 비율이 지난 측정과 이어진다',
       fields: ['smmKg'],
       /* 골격근량은 결과지 안에 짝이 없습니다. 다른 값은 서로 검산되는데
          골격근만 홀로 서 있어서, 한 자리를 잘못 읽어도 등식이 하나도
@@ -308,11 +326,22 @@
 
     var checks = [], fields = {}, counts = { pass: 0, fail: 0, skip: 0 };
 
+    /* 1차: 판정만 모읍니다. 어느 칸이 틀렸는지는 전체를 봐야 압니다. */
+    var raw = [];
     RULES.forEach(function (rule) {
       var r = rule.run(v, ctx);
       if (!r) { counts.skip++; return; }
+      raw.push({ rule: rule, r: r });
+    });
+    var suspect = blame(raw.map(function (x) {
+      return { ok: x.r.ok, tight: x.rule.tight, fields: x.rule.fields };
+    }), v);
+
+    raw.forEach(function (x) {
+      var rule = x.rule, r = x.r;
       checks.push({ id: rule.id, label: rule.label, ok: r.ok, why: r.why,
-                    fields: rule.fields.slice(), fix: usableFix(rule, r.fix, v) });
+                    fields: rule.fields.slice(), fix: usableFix(rule, r.fix, v, suspect),
+                    suspect: suspect });
       if (r.ok) counts.pass++; else counts.fail++;
       /* 결과지에 인쇄된 칸만 상태를 받습니다.
          제지방은 보통 인쇄되지 않아서 체중 − 체지방으로 만들어 씁니다.
@@ -368,8 +397,9 @@
         if (a == null || b == null) return;
         var d = b - a, ad = Math.abs(d);
         var D = DELTA[k];
-        var warnAt = Math.max(D.floorWarn, D.warn * weeks);
-        var badAt = Math.max(D.floorWarn * 2.5, D.bad * weeks);
+        var fl = floorOf(k);
+        var warnAt = Math.max(fl, D.warn * weeks);
+        var badAt = Math.max(fl * 2.5, D.bad * weeks);
         if (ad > badAt) {
           deltaIssues.push({ field: k, level: 'bad',
             why: D.label + '이 ' + spanWord(ctx.gapDays) + ' ' +
@@ -408,7 +438,24 @@
                : (rangeIssues.length || deltaIssues.length) ? 'review'
                : counts.pass > 0 ? 'ok' : 'review';
 
+    /* 용의자를 못 고른 채 등식이 깨졌으면, 관련된 칸들을 알려 줍니다.
+       "이 중 하나가 틀렸는데 결과지만으로는 어느 것인지 모릅니다" 가
+       우리가 아는 전부이고, 그걸 그대로 말하는 편이 낫습니다. */
+    var involved = null;
+    if (!suspect && counts.fail > 0) {
+      var seen2 = {}, list2 = [];
+      checks.forEach(function (c) {
+        if (c.ok) return;
+        c.fields.forEach(function (f) {
+          if (v[f] == null || !v._printed[f] || seen2[f]) return;
+          seen2[f] = 1; list2.push(f);
+        });
+      });
+      if (list2.length > 1) involved = list2;
+    }
+
     return { checks: checks, fields: fields, counts: counts, status: status,
+             suspect: suspect, involved: involved,
              rangeIssues: rangeIssues, deltaIssues: deltaIssues, suggestions: suggestions };
   }
 
@@ -426,8 +473,15 @@
    * 둘 중 하나라도 아니면 제안하지 않습니다. 경고는 그대로 뜹니다 —
    * 무엇이 어긋났는지는 말해 주되, 고치는 방향은 짐작하지 않습니다.
    */
-  function usableFix(rule, fix, v) {
+  function usableFix(rule, fix, v, suspect) {
     if (!fix) return null;
+    /* 용의자가 정해졌을 때만 고침을 내놓습니다.
+       용의자가 없다는 것은 "어느 칸이 틀렸는지 이 결과지만으로는 모른다"
+       는 뜻입니다. 예를 들어 체중과 체지방량 중 하나가 틀렸는데 BMI 나
+       체수분이 인쇄돼 있지 않으면, 둘을 가를 증인이 없습니다. 그때 아무
+       칸이나 고치라고 하면 맞던 것을 틀린 것에 맞추게 됩니다.
+       모르면 안 고칩니다 — 무엇이 어긋났는지는 그대로 말해 줍니다. */
+    if (fix.field !== suspect) return null;
     var R = RANGE[fix.field];
     if (R && (fix.value < R.hard[0] || fix.value > R.hard[1])) return null;
     var sane = rule.fields.every(function (f) {
@@ -438,6 +492,47 @@
       return !F || (x >= F.hard[0] && x <= F.hard[1]);
     });
     return sane ? fix : null;
+  }
+
+  /* 어느 칸이 틀렸는지 찾아내기.
+   *
+   * 등식 하나가 깨졌을 때 "이 칸을 이 값으로" 라고 말하려면, 먼저
+   * 어느 칸이 틀렸는지 알아야 합니다. 등식만 보고는 모릅니다 —
+   * 제지방 = 체중 − 체지방 이 안 맞으면 셋 중 아무거나 틀린 것입니다.
+   *
+   * 실제로 이래서 나쁜 일이 났습니다. 체지방량만 23.0 으로 잘못 넣었더니
+   * 화면이 "제지방을 63.7 로" 와 "체지방률을 26.5% 로" 를 같이 내놨습니다.
+   * 둘 다 제대로 읽은 칸이고, 누르면 틀린 칸이 하나에서 둘이 됩니다.
+   *
+   * 다른 등식을 증인으로 씁니다.
+   *   · 깨진 식에만 나오고 맞은 식에는 안 나오는 칸 = 용의자
+   *   · 맞은 식에 한 번이라도 나오면 다른 칸이 그 값을 뒷받침하는 것
+   * 용의자가 하나로 좁혀지고, 깨진 식들이 그 칸의 값에 대해 같은 답을
+   * 내놓을 때만 고침을 제안합니다. 답이 갈리면 아무 말도 안 합니다 —
+   * 모르는 것을 아는 척하지 않습니다.
+   */
+  function blame(checks, v) {
+    var broke = {}, ok = {};
+    checks.forEach(function (c) {
+      c.fields.forEach(function (f) {
+        if (v[f] == null) return;
+        /* 통과한 검사가 면죄부가 되려면 그 검사가 값을 좁게 묶어야
+           합니다. 등식(제지방 = 체중 − 체지방)은 한 값만 허용하니
+           증인이 됩니다. 범위 검사(골격근/제지방이 45~65%)는 폭이
+           넓어서, 틀린 값도 그 안에 들어옵니다.
+           실제로 제지방을 66.7 대신 60.0 으로 넣었더니 C6 이 통과해서
+           제지방이 면죄부를 받고, 범인을 못 찾았습니다. */
+        if (c.ok) { if (c.tight) ok[f] = (ok[f] || 0) + 1; }
+        else broke[f] = (broke[f] || 0) + 1;
+      });
+    });
+    var best = null, bestN = 0, tie = false;
+    Object.keys(broke).forEach(function (f) {
+      if (ok[f]) return;                       // 다른 식이 이 칸을 뒷받침합니다
+      if (broke[f] > bestN) { best = f; bestN = broke[f]; tie = false; }
+      else if (broke[f] === bestN) { tie = true; }
+    });
+    return tie ? null : best;
   }
 
   function isBad(x) { return x.level === 'bad'; }

@@ -401,6 +401,25 @@
           warnHost.appendChild(box);
         });
 
+        /* 어느 칸이 틀렸는지 못 고른 경우.
+           등식은 깨졌는데 관련된 칸들 중 무엇이 범인인지 결과지만으로는
+           알 수 없을 때입니다(체중과 체지방량 중 하나인데 BMI 가 안
+           인쇄된 경우 등). 아무 칸이나 고치라고 하면 맞던 것을 틀린
+           것에 맞추게 되므로, 무엇을 모르는지만 말합니다. */
+        if (r.involved) {
+          warnHost.appendChild(h('div.note.note--warn', { style: { marginBottom: '8px' } }, [
+            h('b', { text: '어느 칸이 틀렸는지는 결과지만으로 알 수 없습니다' }),
+            h('div', { style: { marginTop: '4px' },
+              text: r.involved.map(fieldLabelOf).join(' · ') + ' 중 하나가 어긋납니다. ' +
+                    '결과지를 보고 이 칸들을 직접 대조해 주세요.' }),
+            h('div.chips', { style: { marginTop: '8px' } }, r.involved.map(function (k) {
+              return h('button.chip', { text: fieldLabelOf(k),
+                uid: 'P04-B16', uidLabel: '어긋난 칸으로 이동',
+                onClick: function () { focusField(k); } });
+            }))
+          ]));
+        }
+
         /* 자릿수 복구 제안 — 되돌렸을 때 검산이 전부 맞는 후보가 딱
            하나일 때만 올라옵니다. 둘 이상이면 무엇이 맞는지 모르는
            것이고, 그때 하나를 고르는 건 추측입니다. */
@@ -540,11 +559,13 @@
         var r = rows[key];
         if (!r || !r.note) return;
         if (mode === 'manual') { r.note.className = ''; r.note.textContent = ''; return; }
-        if (touched[key]) {
-          r.note.className = 'field__hint';
-          r.note.textContent = mode === 'ocr' ? '직접 확인함' : '수정함';
-          return;
-        }
+
+        /* 모순이 "직접 확인함" 보다 먼저입니다.
+           예전에는 손댄 칸이면 무조건 "직접 확인함" 을 찍고 끝냈습니다.
+           그래서 값을 고쳐서 오히려 다른 칸과 어긋나게 만들어 놓고도,
+           그 칸 밑에는 "직접 확인함" 이 적혀 있었습니다. 손댔다는 것과
+           맞다는 것은 다릅니다 — 확인했다는 표시가 틀린 값 위에 붙으면
+           사용자는 그 칸을 다시 안 봅니다. */
         var st2 = checkState(key);
         if (st2 === 'conflict') {
           r.note.className = 'field__err';
@@ -556,6 +577,13 @@
           r.note.textContent = mode === 'ocr'
             ? '판독하지 못했습니다. 결과지에 있으면 넣어 주세요 — 없어도 저장됩니다.'
             : '비어 있음 — 결과지에 있으면 채워 주세요. 없어도 저장됩니다.';
+          return;
+        }
+        if (touched[key]) {
+          r.note.className = 'field__hint';
+          r.note.textContent = st2 === 'verified'
+            ? (mode === 'ocr' ? '직접 확인함 · 검산됨' : '수정함 · 검산됨')
+            : (mode === 'ocr' ? '직접 확인함' : '수정함');
           return;
         }
         if (st2 === 'verified') {
