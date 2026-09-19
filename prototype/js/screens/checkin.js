@@ -369,7 +369,7 @@
             onClick: function () {
               global.MB_MODALS.adjust(advice, function () {
                 var delta = applyAdvice(plan, advice);
-                S.set({ plan: plan });
+                S.setPlan(plan);
                 // 바꿀 수치가 없는 판정(예상 범위·순응도 문제)에서는 갱신했다고 말하지 않는다
                 global.MB_UID.toast(delta !== 0
                   ? '플랜이 갱신되었습니다' + (plan.macros ? ' · 하루 ' + UI.n0(plan.macros.intakeKcal) + 'kcal' : '')
@@ -549,7 +549,7 @@
         var cmp = E.compareLevels(sc, prof, st2.goal, todayISO(), st2.goal.deadlineWeeks || null);
         var np = E.buildPlan(cmp, level, sc, prof);
         if (!np) { global.MB_UID.toast('그 강도로는 목표에 도달하는 계획이 나오지 않습니다'); return; }
-        S.set({ plan: np });
+        S.setPlan(np);
         global.MB_UID.toast('강도 ' + np.label + ' 플랜으로 바꿨습니다 · 목표일 ' + UI.dateK(np.targetDate));
         A.refresh();
       }

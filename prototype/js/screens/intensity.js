@@ -224,7 +224,7 @@
 
   function choose(r, cmp, scan, prof) {
     var plan = E.buildPlan(cmp, r.level, scan, prof);
-    S.set({ plan: plan });
+    S.setPlan(plan);
     global.MB_UID.toast('플랜이 만들어졌습니다 · 목표일 ' + UI.dateK(plan.targetDate));
     A.go('P07');
   }

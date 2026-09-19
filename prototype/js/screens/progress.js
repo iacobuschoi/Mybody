@@ -106,11 +106,22 @@
        * 단위가 서로 달라(체중 86 / 근육 38 / 지방 20 kg) 실제값을 한 축에 그리면
        * 선이 전부 눌린다. 시작값 대비 %변화로 바꾸면 근육은 위로 지방은 아래로
        * 갈라지는 모양이 그대로 보인다 — 리컴프가 되고 있는지가 한 장에 드러난다. */
-      function combinedCard(metrics, points, baseDate) {
+      function combinedCard(metrics, allPoints, baseDate) {
+        // 기간 필터는 지표 탭과 같은 규칙을 쓴다 — 최근 측정을 가운데 두고 앞뒤 N주
+        var latestX = allPoints[allPoints.length - 1].week;
+        var points = allPoints;
+        if (period !== 'all') {
+          var span = parseFloat(period);
+          var from = Math.max(0, latestX - span);
+          points = allPoints.filter(function (p) { return p.week >= from - 0.01; });
+          if (points.length < 2) points = allPoints.slice(-2);   // 최소 두 점은 있어야 선이 그려진다
+        }
+
         var card = h('div.card', { uid: 'P09-C07', uidLabel: '전체 지표 한눈에' });
         card.appendChild(h('div.card__head', [
           h('div.card__title', { text: '세 지표 한 번에' }),
-          h('div.card__sub', { text: '시작 대비 변화율' })
+          h('div.card__sub', { text: period === 'all' ? '첫 측정 대비 변화율'
+            : '최근 ' + period + '주, 구간 시작 대비 변화율' })
         ]));
 
         var three = metrics.slice(0, 3);          // 체중 · 골격근량 · 체지방량
@@ -164,10 +175,16 @@
         card.appendChild(h('div.note' + (v.cls ? '.note' + v.cls : ''),
           { style: { marginTop: '12px' }, text: v.text }));
 
+        if (points.length < 2) {
+          card.appendChild(h('div.muted', { style: { marginTop: '6px' },
+            text: '이 기간에 측정이 ' + points.length + '건뿐입니다. 기간을 넓혀보세요.' }));
+        } else if (period !== 'all' && points.length < allPoints.length) {
+          card.appendChild(h('div.muted', { style: { marginTop: '6px' },
+            text: '이 구간 측정 ' + points.length + '건 (전체 ' + allPoints.length + '건). ' +
+                  '기준점은 ' + UI.dateShort(points[0].measuredAt) + ' 측정입니다.' }));
+        }
         card.appendChild(h('div.muted', { style: { marginTop: '8px' },
-          text: '지표마다 단위가 달라 실제값을 한 축에 겹치면 선이 눌립니다. ' +
-                '그래서 시작값 대비 몇 % 움직였는지로 바꿔 겹쳤습니다. ' +
-                '실제 값은 위 숫자와 각 지표 탭에서 봅니다.' }));
+          text: '단위가 달라 한 축에 그대로 겹치면 선이 눌립니다. 그래서 몇 % 움직였는지로 바꿨습니다.' }));
         return card;
       }
 
@@ -182,7 +199,21 @@
             return { x: planOffset + t.week, y: t[m.key] };
           });
         }
-        var planEndX = planPts.length ? planPts[planPts.length - 1].x : latestX;
+        /* 원래 계획 — 갱신된 계획과 다르면 옅게 같이 그린다.
+           "계획보다 빠른가 느린가"는 비교 대상이 화면에 있어야 보인다. */
+        var basePts = [];
+        var baseline = S.get().baselinePlan;
+        var baseDiffers = baseline && plan && baseline.targetDate !== plan.targetDate;
+        if (baseDiffers && baseline.trajectory && baseline.trajectory.length) {
+          var baseOffset = weeksBetween(firstDate, dayOf(baseline.startDate));
+          basePts = baseline.trajectory.map(function (t) {
+            return { x: baseOffset + t.week, y: t[m.key] };
+          });
+        }
+        var planEndX = Math.max(
+          planPts.length ? planPts[planPts.length - 1].x : latestX,
+          basePts.length ? basePts[basePts.length - 1].x : latestX
+        );
 
         /* 창(window) 잡기 — 4주·12주는 "지금"을 가운데 두고 앞뒤로 본다 */
         var xFrom, xTo;
@@ -202,6 +233,13 @@
         var planned = planPts.filter(inWin);
 
         var series = [{ key: 'actual', label: '실측', color: m.color, points: measured }];
+        if (basePts.length) {
+          var baseWin = basePts.filter(inWin);
+          if (baseWin.length > 1) {
+            series.push({ key: 'baseline', label: '원래 계획', color: 'var(--text-3)',
+                          dashed: true, dots: false, width: 1.2, points: baseWin });
+          }
+        }
         if (planned.length >= 2) {
           series.push({ key: 'plan', label: '계획', color: 'var(--accent)',
                         dashed: true, dots: false, points: planned });

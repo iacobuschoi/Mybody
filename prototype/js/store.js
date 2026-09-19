@@ -13,8 +13,10 @@
       profile: null,
       scans: [],
       goal: null,
+      goalHistory: [],
       comparison: null,
       plan: null,
+      baselinePlan: null,
       checkins: [],
       settings: { theme: 'auto', units: 'metric', checkinEveryWeeks: 1, defaultLevel: 'mid' },
       onboarded: false,
@@ -81,6 +83,64 @@
   }
   function scanById(id) { return state.scans.find(function (s) { return s.id === id; }) || null; }
 
+  /**
+   * 목표를 바꾼다. 이전 목표는 이력에 남긴다.
+   * 목표를 바꿀 때마다 이전 값이 사라지면 "내가 뭘 목표로 했었지"를 알 수 없고,
+   * 추이 화면의 목표선이 언제 왜 움직였는지도 설명할 수 없다.
+   */
+  function setGoal(goal, reason) {
+    if (state.goal) {
+      state.goalHistory = state.goalHistory || [];
+      state.goalHistory.push({
+        goal: JSON.parse(JSON.stringify(state.goal)),
+        setAt: state.goal.setAt || null,
+        replacedAt: new Date().toISOString(),
+        reason: reason || null,
+        planLevel: state.plan ? state.plan.level : null,
+        planTargetDate: state.plan ? state.plan.targetDate : null
+      });
+      if (state.goalHistory.length > 30) state.goalHistory.shift();
+    }
+    var next = JSON.parse(JSON.stringify(goal));
+    next.setAt = new Date().toISOString();
+    state.goal = next;
+    save();
+    return next;
+  }
+
+  function sameGoal(a, b) {
+    if (!a || !b) return false;
+    function near(x, y) { return Math.abs((x || 0) - (y || 0)) < 0.05; }
+    return near(a.weightKg, b.weightKg) && near(a.smmKg, b.smmKg) && near(a.bfmKg, b.bfmKg);
+  }
+
+  /**
+   * 플랜을 저장한다. 목표가 그대로인 채 다시 만든 것이면 "원래 계획"은 건드리지 않는다.
+   * 계획을 갱신할 때마다 원본이 사라지면 "계획보다 빠른가 느린가"를 영영 말할 수 없다.
+   */
+  function setPlan(plan) {
+    var freshGoal = !state.baselinePlan || !sameGoal(state.baselinePlan.goal, plan.goal);
+    state.plan = plan;
+    if (freshGoal) {
+      state.baselinePlan = JSON.parse(JSON.stringify(plan));
+      state.baselinePlan.isBaseline = true;
+    }
+    save();
+    return plan;
+  }
+
+  /** 지금 플랜이 지금 목표로 만들어진 것인가 */
+  function planMatchesGoal() {
+    if (!state.plan || !state.goal) return true;
+    var g = state.plan.goal;
+    if (!g) return false;
+    function near(a, b) { return Math.abs((a || 0) - (b || 0)) < 0.05; }
+    return near(g.weightKg, state.goal.weightKg) &&
+           near(g.smmKg, state.goal.smmKg) &&
+           near(g.bfmKg, state.goal.bfmKg) &&
+           (g.modeId || null) === (state.goal.modeId || null);
+  }
+
   function exportJSON() { return JSON.stringify(state, null, 2); }
   function importJSON(text) {
     var parsed = JSON.parse(text);
@@ -93,6 +153,7 @@
     load: load, save: save, get: get, set: set, reset: reset, seed: seed,
     onChange: onChange, latestScan: latestScan, sortedScans: sortedScans,
     addScan: addScan, removeScan: removeScan, scanById: scanById,
+    setGoal: setGoal, setPlan: setPlan, planMatchesGoal: planMatchesGoal, sameGoal: sameGoal,
     exportJSON: exportJSON, importJSON: importJSON, blank: blank
   };
 })(window);

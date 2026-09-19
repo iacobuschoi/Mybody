@@ -8,6 +8,9 @@
     title: '목표 설정', label: '목표 설정',
     render: function (wrap, ctx) {
       var st = S.get();
+      var isEdit = !!st.goal;
+      this.title = isEdit ? '목표 변경' : '목표 설정';
+      var baseGoal = st.goal ? JSON.parse(JSON.stringify(st.goal)) : null;
       var scan = A.requireScan(wrap, ctx, 'P05');
       if (!scan) return;
       var prof = st.profile || global.MB_DATA.SEED_PROFILE;
@@ -182,6 +185,35 @@
 
         body.appendChild(gauge);
 
+        /* --- C05 변경 전후 비교 (이미 목표가 있을 때만) --- */
+        if (isEdit && baseGoal) {
+          var changed = Math.abs(baseGoal.weightKg - g.weightKg) >= 0.05 ||
+                        Math.abs(baseGoal.smmKg - g.smmKg) >= 0.05 ||
+                        Math.abs(baseGoal.bfmKg - g.bfmKg) >= 0.05;
+          var diff = h('div.card.card--flat', { uid: 'P05-C05', uidLabel: '목표 변경 전후' }, [
+            h('div.card__head', [
+              h('div.card__title', { text: '이전 목표와 비교' }),
+              h('span.badge' + (changed ? '.badge--accent' : ''), { text: changed ? '바뀜' : '그대로' })
+            ]),
+            diffRow('체중', baseGoal.weightKg, g.weightKg, 'kg'),
+            diffRow('골격근량', baseGoal.smmKg, g.smmKg, 'kg'),
+            diffRow('체지방량', baseGoal.bfmKg, g.bfmKg, 'kg')
+          ]);
+          if (changed && st.plan) {
+            diff.appendChild(h('div.note.note--warn', { style: { marginTop: '10px' },
+              text: '지금 플랜은 이전 목표로 만든 것입니다. 저장하면 다시 만듭니다.' }));
+          }
+          if (st.goalHistory && st.goalHistory.length) {
+            diff.appendChild(h('button.btn.btn--ghost.btn--sm', {
+              text: '지난 목표 ' + st.goalHistory.length + '개 보기',
+              style: { marginTop: '10px' },
+              uid: 'P05-B08', uidLabel: '목표 이력 보기',
+              onClick: function () { showHistory(st.goalHistory); }
+            }));
+          }
+          body.appendChild(diff);
+        }
+
         /* --- C04 몸 만들기 모드 (자동 선택) --- */
         var sel = selEarly;
         body.appendChild(modeCard(sel));
@@ -193,8 +225,10 @@
               g = recommendGoal(cur, scan, prof); draw();
               global.MB_UID.toast('인바디 적정체중 기준으로 채웠습니다');
             } }),
-          h('button.btn.btn--primary', { text: '강도 고르기 →', uid: 'P05-B05',
-            uidLabel: '강도 고르기', disabled: sel.refused || undefined, onClick: next })
+          h('button.btn.btn--primary', {
+            text: isEdit ? '목표 바꾸기 →' : '강도 고르기 →',
+            uid: 'P05-B05', uidLabel: isEdit ? '목표 바꾸기' : '강도 고르기',
+            disabled: sel.refused || undefined, onClick: next })
         ]));
 
         body.appendChild(h('div.muted', { style: { marginTop: '10px', textAlign: 'center' },
@@ -216,8 +250,38 @@
           g.deadlineWeeks = deadlineWeeks;
           g.modeId = sel.modeId || null;
           g.manualModeId = manualModeId;
-          S.set({ goal: g });
-          A.go('P06');
+
+          var hadPlan = st.plan;
+          if (!isEdit || !baseGoal) {          // 처음 설정
+            S.setGoal(g, 'first');
+            A.go('P06');
+            return;
+          }
+
+          global.MB_MODALS.changeGoal({
+            oldGoal: baseGoal, newGoal: g, plan: hadPlan,
+            onPickLevel: function () {
+              S.setGoal(g, 'changed');
+              A.go('P06');
+            },
+            onKeepLevel: function () {
+              // 같은 강도로 플랜만 다시 만든다 — 강도를 또 고르게 하지 않는다
+              S.setGoal(g, 'changed');
+              try {
+                var modeDef = (g.modeId && global.MB_MODES) ? global.MB_MODES.byId(g.modeId) : null;
+                var cmp = E.compareLevels(scan, prof, g, todayISO(), deadlineWeeks, modeDef);
+                var level = hadPlan.level;
+                if (!cmp.results.some(function (r) { return r.level === level; })) level = 'mid';
+                var plan = E.buildPlan(cmp, level, scan, prof);
+                S.setPlan(plan);
+                global.MB_UID.toast('플랜을 다시 만들었습니다 · ' + UI.dateK(plan.targetDate));
+                A.go('P07');
+              } catch (err) {
+                global.MB_UID.toast('플랜을 다시 만들지 못했습니다. 강도를 골라주세요.');
+                A.go('P06');
+              }
+            }
+          });
         }
 
         /* --- 모드 카드 --- */
@@ -355,6 +419,54 @@
   });
 
   var MODES = global.MB_MODES;
+
+  function diffRow(label, a, b, unit) {
+    var d = b - a, same = Math.abs(d) < 0.05;
+    return h('div.kv', [
+      h('span.kv__k', { text: label }),
+      h('span.kv__v', [
+        h('span', { style: { color: 'var(--text-3)' }, text: UI.n1(a) + unit }),
+        ' → ',
+        h('span', { style: { color: same ? 'inherit' : 'var(--accent)' }, text: UI.n1(b) + unit }),
+        same ? null : h('span', { style: { fontSize: '11.5px', fontWeight: '600',
+          marginLeft: '6px', color: 'var(--text-3)' }, text: '(' + UI.sign(d) + unit + ')' })
+      ])
+    ]);
+  }
+
+  /** 지난 목표들 — 언제 무엇을 목표로 했고 왜 바꿨는지 */
+  function showHistory(history) {
+    UI.openModal({
+      uid: 'M35', title: '지난 목표',
+      sub: history.length + '번 바꿨습니다',
+      body: history.slice().reverse().map(function (hst, i) {
+        var g = hst.goal;
+        return h('div.card.card--flat', { style: { marginBottom: '8px' } }, [
+          h('div.card__head', [
+            h('div.card__sub', { text: UI.dateK(hst.replacedAt) + ' 까지' }),
+            hst.planLevel ? h('span.badge', { text: hst.planLevel === 'high' ? '상'
+              : (hst.planLevel === 'mid' ? '중' : '하') }) : null
+          ]),
+          h('div.stats', [
+            miniStat('체중', g.weightKg, 'kg'),
+            miniStat('골격근', g.smmKg, 'kg'),
+            miniStat('체지방', g.bfmKg, 'kg')
+          ]),
+          hst.planTargetDate ? h('div.muted', { style: { marginTop: '6px' },
+            text: '당시 목표일 ' + UI.dateK(hst.planTargetDate) }) : null
+        ]);
+      }),
+      actions: [{ label: '닫기', kind: 'primary' }]
+    });
+  }
+
+  function miniStat(label, v, u) {
+    return h('div.stat', [
+      h('div.stat__k', { text: label }),
+      h('div', [h('span.stat__v', { style: { fontSize: '15px' }, text: UI.n1(v) }),
+                h('span.stat__u', { text: u })])
+    ]);
+  }
 
   function kv(k, v) {
     return h('div.kv', [h('span.kv__k', { text: k }), h('span.kv__v', { text: v })]);

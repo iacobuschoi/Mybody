@@ -208,7 +208,7 @@
             if (!scan || !st.goal) return;
             var cmp = E.compareLevels(scan, prof, st.goal, todayISO(), st.goal.deadlineWeeks || null);
             var plan = E.buildPlan(cmp, st.plan ? st.plan.level : 'mid', scan, prof);
-            S.set({ plan: plan });
+            S.setPlan(plan);
             global.MB_UID.toast('플랜을 다시 만들었습니다');
             global.MB_APP.refresh();
           } }
@@ -458,6 +458,64 @@
       actions: [
         { label: '다시 고르기', kind: 'ghost' },
         { label: '그래도 진행', kind: 'primary', onClick: onConfirm }
+      ]
+    });
+  };
+
+  /* M33 목표 변경 확인 — 지금 플랜을 어떻게 할지 고르게 한다 */
+  M.changeGoal = function (opts) {
+    var oldG = opts.oldGoal, newG = opts.newGoal, plan = opts.plan;
+    function row(label, a, b, unit) {
+      var d = b - a;
+      return h('div.kv', [
+        h('span.kv__k', { text: label }),
+        h('span.kv__v', [
+          UI.n1(a) + unit + ' → ',
+          h('span', { style: { color: 'var(--accent)' }, text: UI.n1(b) + unit }),
+          h('span', { style: { color: 'var(--text-3)', fontWeight: '600', marginLeft: '6px',
+                               fontSize: '11.5px' },
+                      text: Math.abs(d) < 0.05 ? '그대로' : '(' + UI.sign(d) + unit + ')' })
+        ])
+      ]);
+    }
+    UI.openModal({
+      uid: 'M33', title: '목표를 바꿀까요?',
+      sub: plan ? '지금 플랜은 이전 목표로 만든 것입니다' : null,
+      body: [
+        row('체중', oldG.weightKg, newG.weightKg, 'kg'),
+        row('골격근량', oldG.smmKg, newG.smmKg, 'kg'),
+        row('체지방량', oldG.bfmKg, newG.bfmKg, 'kg'),
+        plan ? h('div.note', { style: { marginTop: '12px' } }, [
+          h('b', { text: '지금 플랜: ' }),
+          plan.label + ' 강도 · ' + UI.dateK(plan.targetDate) + ' 목표'
+        ]) : null,
+        h('div.muted', { style: { marginTop: '8px' },
+          text: '측정 기록과 체크인은 그대로 남습니다. 이전 목표도 기록에 남습니다.' })
+      ],
+      actions: [
+        { label: '취소', kind: 'ghost' },
+        plan ? { label: '강도 유지', uid: 'M33-B02',
+                 onClick: function () { opts.onKeepLevel(); } } : null,
+        { label: plan ? '강도 다시 고르기' : '계속', kind: 'primary', uid: 'M33-B03',
+          onClick: function () { opts.onPickLevel(); } }
+      ].filter(Boolean)
+    });
+  };
+
+  /* M34 목표 달성 — 다음 단계를 고르게 한다 */
+  M.goalReached = function (opts) {
+    UI.openModal({
+      uid: 'M34', title: '목표에 도달했습니다',
+      sub: opts.summary,
+      body: [
+        h('div.note.note--ok', { text: '여기서 멈추면 되돌아오기 쉽습니다. 다음을 정해두는 편이 낫습니다.' }),
+        h('div.muted', { style: { marginTop: '8px' },
+          text: '감량을 마쳤다면 바로 다음 감량으로 넘어가지 말고, 2~4주 유지로 한 번 쉬어가는 것이 좋습니다.' })
+      ],
+      actions: [
+        { label: '나중에', kind: 'ghost' },
+        { label: '유지로 전환', uid: 'M34-B02', onClick: function () { opts.onMaintain(); } },
+        { label: '새 목표 정하기', kind: 'primary', uid: 'M34-B03', onClick: function () { opts.onNewGoal(); } }
       ]
     });
   };

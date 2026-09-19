@@ -44,6 +44,21 @@
         ])
       ]));
 
+      if (!S.planMatchesGoal()) {
+        wrap.appendChild(h('div.note.note--warn', { uid: 'P07-C18', uidLabel: '목표 불일치 경고' }, [
+          h('b', { text: '목표가 바뀌었습니다. ' }),
+          '이 플랜은 이전 목표로 만든 것입니다.',
+          h('div.btn-row', { style: { marginTop: '10px' } }, [
+            h('button.btn.btn--sm.btn--primary', { text: '같은 강도로 다시 만들기',
+              uid: 'P07-B06', uidLabel: '같은 강도로 재생성',
+              onClick: function () { rebuildSameLevel(); } }),
+            h('button.btn.btn--sm', { text: '강도 다시 고르기',
+              uid: 'P07-B07', uidLabel: '강도 다시 고르기',
+              onClick: function () { A.go('P06'); } })
+          ])
+        ]));
+      }
+
       if (plan.capWarning) {
         wrap.appendChild(h('div.note.note--warn', { uid: 'P07-C02', uidLabel: '지속 한계 경고',
           text: '⚠️ ' + plan.capWarning }));
@@ -68,6 +83,27 @@
       if (activeTab === 2) renderDiet(wrap, plan);
     }
   });
+
+  /** 강도는 그대로 두고 지금 목표로 플랜만 다시 만든다 */
+  function rebuildSameLevel() {
+    var st = S.get(), scan = S.latestScan();
+    var prof = st.profile || global.MB_DATA.SEED_PROFILE;
+    if (!scan || !st.goal) return;
+    try {
+      var modeDef = (st.goal.modeId && global.MB_MODES) ? global.MB_MODES.byId(st.goal.modeId) : null;
+      var cmp = E.compareLevels(scan, prof, st.goal, E.toISODate(new Date()),
+                                st.goal.deadlineWeeks || null, modeDef);
+      var level = st.plan ? st.plan.level : 'mid';
+      if (!cmp.results.some(function (r) { return r.level === level; })) level = 'mid';
+      var plan = E.buildPlan(cmp, level, scan, prof);
+      S.setPlan(plan);
+      global.MB_UID.toast('플랜을 다시 만들었습니다 · ' + UI.dateK(plan.targetDate));
+      A.refresh();
+    } catch (e) {
+      global.MB_UID.toast('다시 만들지 못했습니다. 강도를 골라주세요.');
+      A.go('P06');
+    }
+  }
 
   /* ================= 요약 탭 ================= */
   function renderSummary(wrap, plan, goal, st) {

@@ -257,6 +257,64 @@
     return svg;
   }
 
+  /**
+   * 타임라인 막대 — 시작 · 오늘 · 목표일(들)을 한 줄로.
+   * 날짜 두 개를 표로 나열하면 "당겨졌다/밀렸다"가 머리로 계산해야 보인다.
+   * 같은 축에 찍으면 눈으로 바로 보인다.
+   */
+  function timeline(opts) {
+    var startISO = opts.start, todayISO = opts.today;
+    var marks = (opts.marks || []).filter(function (m) { return m && m.date; });
+    if (!marks.length) return h('div');
+    var t0 = new Date(startISO + 'T00:00:00').getTime();
+    var now = new Date(todayISO + 'T00:00:00').getTime();
+    var ends = marks.map(function (m) { return new Date(m.date + 'T00:00:00').getTime(); });
+    var t1 = Math.max.apply(null, ends.concat([now]));
+    var span = Math.max(1, t1 - t0);
+    function pct(t) { return Math.max(0, Math.min(100, (t - t0) / span * 100)); }
+
+    var W = 320, H = 46, padX = 6;
+    var NS = 'http://www.w3.org/2000/svg';
+    function el(tag, a) {
+      var e = document.createElementNS(NS, tag);
+      Object.keys(a || {}).forEach(function (k) { e.setAttribute(k, a[k]); });
+      return e;
+    }
+    var svg = el('svg', { viewBox: '0 0 ' + W + ' ' + H, width: '100%', height: H,
+                          preserveAspectRatio: 'none', role: 'img' });
+    function x(p) { return padX + p / 100 * (W - padX * 2); }
+    var baseY = 26;
+
+    svg.appendChild(el('rect', { x: padX, y: baseY - 3, width: W - padX * 2, height: 6, rx: 3,
+                                 fill: 'currentColor', 'fill-opacity': .10 }));
+    svg.appendChild(el('rect', { x: padX, y: baseY - 3, width: Math.max(2, x(pct(now)) - padX),
+                                 height: 6, rx: 3, fill: 'var(--accent)', 'fill-opacity': .55 }));
+
+    marks.forEach(function (m) {
+      var mx = x(pct(new Date(m.date + 'T00:00:00').getTime()));
+      svg.appendChild(el('line', { x1: mx, x2: mx, y1: baseY - 10, y2: baseY + 10,
+                                   stroke: m.color || 'currentColor', 'stroke-width': 2,
+                                   'stroke-dasharray': m.dashed ? '3 2' : null }));
+      var tx = el('text', { x: mx, y: m.below ? baseY + 20 : baseY - 14, 'font-size': 8.5,
+                            'font-weight': 700, fill: m.color || 'currentColor',
+                            'text-anchor': mx > W * 0.8 ? 'end' : (mx < W * 0.2 ? 'start' : 'middle') });
+      tx.textContent = m.label;
+      svg.appendChild(tx);
+    });
+
+    var todayX = x(pct(now));
+    svg.appendChild(el('circle', { cx: todayX, cy: baseY, r: 4,
+                                   fill: 'var(--accent)', stroke: 'var(--surface)', 'stroke-width': 2 }));
+    var tl = el('text', { x: todayX, y: baseY + 20, 'font-size': 8.5, 'font-weight': 700,
+                          fill: 'var(--accent)',
+                          'text-anchor': todayX > W * 0.8 ? 'end' : (todayX < W * 0.2 ? 'start' : 'middle') });
+    tl.textContent = '오늘';
+    svg.appendChild(tl);
+
+    return h('div', { uid: opts.uid, uidLabel: opts.label || '타임라인',
+                      style: { color: 'var(--text)' } }, [svg]);
+  }
+
   /** 도넛 진행률 */
   function donut(pct, color, size) {
     var S = size || 56, r = (S - 7) / 2, c = 2 * Math.PI * r;
@@ -289,6 +347,6 @@
     h: h, clear: clear, append: append,
     n0: n0, n1: n1, n2: n2, sign: sign, dateK: dateK, dateShort: dateShort, weeksToHuman: weeksToHuman,
     openModal: openModal, closeAllModals: closeAllModals,
-    lineChart: lineChart, sparkline: sparkline, donut: donut
+    lineChart: lineChart, sparkline: sparkline, donut: donut, timeline: timeline
   };
 })(window);

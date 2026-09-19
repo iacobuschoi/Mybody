@@ -870,6 +870,12 @@
     return {
       level: level,
       mode: comparison.mode || null,
+      goal: {
+        weightKg: comparison.goal.weightKg,
+        smmKg: comparison.goal.smmKg,
+        bfmKg: comparison.goal.bfmKg,
+        modeId: comparison.goal.modeId || null
+      },
       label: r.label,
       title: r.title,
       weeks: r.weeks,
@@ -906,6 +912,92 @@
                  pbfPct: last.pbfPct, final: true });
     } else { out[out.length - 1].final = true; }
     return out;
+  }
+
+  /**
+   * 계획 대비 지금 어디쯤인가.
+   * "계획보다 2주 빠릅니다" 처럼 사람이 바로 이해하는 단위로 돌려준다.
+   * kg 차이만 말하면 그게 빠른 건지 느린 건지 판단을 사용자에게 떠넘기게 된다.
+   */
+  function planDrift(plan, scans, profile) {
+    if (!plan || !scans || scans.length < 1) return null;
+    var latest = scans[scans.length - 1];
+    var cur = derive(latest, profile);
+    var start = new Date(plan.startDate + 'T00:00:00');
+    var now = new Date(String(latest.measuredAt).slice(0, 10) + 'T00:00:00');
+    var weeksElapsed = (now - start) / (86400000 * 7);
+    if (weeksElapsed < 0) weeksElapsed = 0;
+
+    var traj = plan.trajectory || [];
+    if (traj.length < 2) return null;
+
+    function at(week) {
+      var w = Math.max(0, Math.min(traj.length - 1, week));
+      var lo = Math.floor(w), hi = Math.min(traj.length - 1, lo + 1), f = w - lo;
+      function mix(k) { return traj[lo][k] + (traj[hi][k] - traj[lo][k]) * f; }
+      return { weightKg: mix('weightKg'), smmKg: mix('smmKg'), bfmKg: mix('bfmKg') };
+    }
+    var expected = at(weeksElapsed);
+
+    // 실제 체지방량이 계획상 몇 주차에 해당하는가 → 그 차이가 곧 빠름/느림
+    var isCut = traj[traj.length - 1].bfmKg < traj[0].bfmKg;
+    var matchWeek = null;
+    for (var i = 0; i < traj.length; i++) {
+      var hit = isCut ? (traj[i].bfmKg <= cur.bfmKg) : (traj[i].bfmKg >= cur.bfmKg);
+      if (hit) { matchWeek = i; break; }
+    }
+    if (matchWeek === null) matchWeek = isCut ? 0 : traj.length - 1;
+    var weeksAhead = matchWeek - weeksElapsed;
+
+    var NF = global.MB_MODES ? global.MB_MODES.NOISE : { weight: 1.0, smm: 0.6, bfm: 1.0 };
+    var gapBfm = cur.bfmKg - expected.bfmKg;          // 음수 = 계획보다 적게 남음 = 앞섬
+    var gapWeight = cur.weightKg - expected.weightKg;
+    var gapSmm = cur.smmKg - expected.smmKg;
+
+    var status, headline;
+    var absAhead = Math.abs(weeksAhead);
+    if (Math.abs(gapBfm) < NF.bfm) {
+      status = 'onTrack';
+      headline = '계획대로 가고 있습니다.';
+    } else if (weeksAhead > 0) {
+      status = 'ahead';
+      headline = '계획보다 ' + Math.round(absAhead) + '주 빠릅니다.';
+    } else {
+      status = absAhead >= 4 ? 'off' : 'behind';
+      headline = '계획보다 ' + Math.round(absAhead) + '주 느립니다.';
+    }
+
+    // 지금 속도가 아니라 지금 몸 상태에서 남은 거리를 다시 계산한 날짜
+    var projectedDate = null, dayDelta = null;
+    try {
+      var goal = plan.goal;
+      if (goal) {
+        var modeDef = (goal.modeId && global.MB_MODES) ? global.MB_MODES.byId(goal.modeId) : null;
+        var cmp = compareLevels(latest, profile, goal, toISODate(now),
+                                null, modeDef);
+        var same = cmp.results.filter(function (r) { return r.level === plan.level; })[0];
+        if (same && same.targetDate) {
+          projectedDate = same.targetDate;
+          dayDelta = daysUntil(plan.targetDate, projectedDate);   // 양수 = 당겨짐
+        }
+      }
+    } catch (e) { /* 재계산 실패는 치명적이지 않다 */ }
+
+    var recommend = (status === 'off') ||
+                    (status === 'behind' && absAhead >= 3) ||
+                    (dayDelta !== null && Math.abs(dayDelta) >= 21);
+
+    return {
+      weeksElapsed: Math.round(weeksElapsed * 10) / 10,
+      expected: { weightKg: r1(expected.weightKg), smmKg: r2(expected.smmKg), bfmKg: r2(expected.bfmKg) },
+      actual: { weightKg: cur.weightKg, smmKg: cur.smmKg, bfmKg: cur.bfmKg },
+      gapWeightKg: r1(gapWeight), gapSmmKg: r2(gapSmm), gapBfmKg: r2(gapBfm),
+      weeksAhead: Math.round(weeksAhead * 10) / 10,
+      status: status, headline: headline,
+      projectedDate: projectedDate, dayDelta: dayDelta,
+      recommendChange: recommend,
+      noise: NF
+    };
   }
 
   /** 주간 체크인 → 재조정 제안 */
@@ -972,7 +1064,7 @@
     PAL: PAL, MUSCLE_BASE: MUSCLE_BASE, LEVEL_SPEC: LEVEL_SPEC,
     CUT_RANGE: CUT_RANGE, BULK_RANGE: BULK_RANGE, paramsAt: paramsAt,
     derive: derive, classifyGoal: classifyGoal, compareLevels: compareLevels,
-    buildPlan: buildPlan, checkinAdvice: checkinAdvice,
+    buildPlan: buildPlan, checkinAdvice: checkinAdvice, planDrift: planDrift,
     macrosFor: macrosFor, workoutFor: workoutFor, dietFor: dietFor, resolveTraining: resolveTraining,
     baseSmmRatePerWeek: baseSmmRatePerWeek,
     addWeeks: addWeeks, toISODate: toISODate, daysUntil: daysUntil, r1: r1
