@@ -1,0 +1,839 @@
+/* =============================================================================
+ * engine.js — 플래닝 엔진
+ *
+ * 핵심 설계:
+ *  - 강도(상/중/하)는 난이도 라벨이 아니라 "얼마나 빨리 갈 것인가" = 기간이다.
+ *  - 기간은 나눗셈 한 방이 아니라 주차별 시뮬레이션으로 구한다.
+ *    (체중이 줄면 TDEE가 줄고, 체지방이 줄면 동원 가능한 에너지 상한도 줄기 때문)
+ *  - 근성장 속도는 생리적 상한이 있고, 적자가 클수록 더 떨어진다.
+ *    그래서 "빨리 깎으면 근육 목표는 오히려 늦어지는" 역설이 실제로 발생한다.
+ *    엔진은 이걸 숨기지 않고 전략 비교(동시진행 vs 분할)로 노출한다.
+ * ========================================================================== */
+(function (global) {
+  'use strict';
+
+  var KCAL_PER_KG_FAT = 7700;   // 지방 1kg당 에너지
+  var MAX_WEEKS = 208;          // 시뮬레이션 상한 (4년)
+
+  var PAL = {
+    sedentary:  { mult: 1.20, label: '좌식 (거의 앉아서 생활)' },
+    light:      { mult: 1.375, label: '가벼움 (주 1~3회 운동)' },
+    moderate:   { mult: 1.55, label: '보통 (주 3~5회 운동)' },
+    active:     { mult: 1.725, label: '활동적 (주 6~7회 운동)' },
+    veryActive: { mult: 1.90, label: '매우 활동적 (육체노동/2회 운동)' }
+  };
+
+  // 훈련연령별 최대 제지방 증가율 (%BW/월, 남성 기준 · 중앙값)
+  var MUSCLE_BASE = {
+    novice:       { pct: 1.25, label: '입문 (6개월 미만)' },
+    intermediate: { pct: 0.75, label: '중급 (6개월~3년)' },
+    advanced:     { pct: 0.375, label: '숙련 (3년 이상)' },
+    elite:        { pct: 0.175, label: '상급 정체기 (5년+)' }
+  };
+
+  // 칼로리 수지 상황별 근성장 배율
+  var MUSCLE_SITUATION = {
+    surplus:  { novice: 1.00, intermediate: 1.00, advanced: 1.00, elite: 1.00 },
+    maintain: { novice: 0.50, intermediate: 0.50, advanced: 0.50, elite: 0.50 },
+    recomp:   { novice: 0.70, intermediate: 0.35, advanced: 0.15, elite: 0.10 }, // 적자 ≤15%
+    cut:      { novice: 0.30, intermediate: 0.05, advanced: 0.00, elite: 0.00 }  // 적자 >15%
+  };
+
+  /* 강도는 이제 이산 3단계가 아니라 연속 변수 a ∈ [0,1] 이다.
+   * a=0  : 가장 여유로운(느린) 계획   a=1 : 가장 공격적인(빠른) 계획
+   * 상/중/하는 "a값 3개"가 아니라 "기간 3개"이고, 각 기간에 필요한 a를 역산한다. */
+  var CUT_RANGE = {
+    ratePct:       [0.0015, 0.0090],  // 주당 체중 변화율 (%BW)
+    deficitPct:    [0.050,  0.275],   // TDEE 대비 적자
+    proteinPerFFM: [2.0,    2.8],     // g/kg FFM — 적자에서는 단백질을 낮출 이유가 없다
+    fatPerKg:      [0.95,   0.60],    // g/kg BW
+    days:          [3,      6],
+    sessionMin:    [40,     85],
+    cardioMin:     [60,     240],
+    setsPerMuscle: [8,      20],
+    deloadEvery:   [10,     4]
+  };
+  var BULK_RANGE = {
+    surplusPct:    [0.040,  0.175],
+    leanFraction:  [0.75,   0.40],    // 늘어난 체중 중 제지방 비율
+    proteinPerFFM: [1.9,    2.2],
+    fatPctKcal:    [0.30,   0.22],
+    days:          [3,      6],
+    sessionMin:    [45,     80],
+    cardioMin:     [90,     75],
+    setsPerMuscle: [10,     22],
+    deloadEvery:   [10,     4]
+  };
+
+  function lerp(range, a) { return range[0] + (range[1] - range[0]) * a; }
+
+  function paramsAt(a, mode) {
+    a = Math.max(0, Math.min(1, a));
+    var R = mode === 'bulk' ? BULK_RANGE : CUT_RANGE;
+    var p = { a: a, mode: mode };
+    Object.keys(R).forEach(function (k) {
+      var v = lerp(R[k], a);
+      p[k] = (k === 'days' || k === 'sessionMin' || k === 'cardioMin' ||
+              k === 'setsPerMuscle' || k === 'deloadEvery') ? Math.round(v) : v;
+    });
+    p.difficulty = a < 0.34 ? 1 : (a < 0.7 ? 2 : 3);
+    p.difficultyLabel = ['', '★☆☆ 낮음', '★★☆ 보통', '★★★ 높음'][p.difficulty];
+    p.cheatMealsPerWeek = a < 0.34 ? 2 : (a < 0.7 ? 1 : 0);
+    p.tracking = a < 0.34 ? '단백질만 대충 기록'
+               : (a < 0.7 ? '칼로리 + 단백질 기록' : '4대 매크로 전부 + 주 4회 체중');
+    // 감량에서 공격적인 구간은 연속 지속 한계가 있다
+    p.maxContinuousWeeks = mode === 'cut' ? (a >= 0.7 ? 12 : (a >= 0.45 ? 20 : null)) : null;
+    p.muscleLossRisk = mode === 'cut'
+      ? (a >= 0.7 ? '중간~높음' : (a >= 0.45 ? '낮음' : '매우 낮음'))
+      : '해당 없음';
+    return p;
+  }
+
+  // 상/중/하 = 기간 배수. 상은 엔진이 찾은 최단, 중/하는 그 배수만큼 여유롭게.
+  var LEVEL_SPEC = [
+    { key: 'high', label: '상', title: '최단',   durationMult: 1.0,
+      blurb: '가능한 가장 빠르게. 식단 제약이 가장 빡빡합니다.' },
+    { key: 'mid',  label: '중', title: '표준',   durationMult: 1.4,
+      blurb: '여유를 조금 두고. 근육 보존과 지속성의 균형점입니다.' },
+    { key: 'low',  label: '하', title: '여유',   durationMult: 2.0,
+      blurb: '생활을 크게 바꾸지 않고. 중도 포기 확률이 가장 낮습니다.' }
+  ];
+
+  /* ---------------------------------------------------------------------- */
+  /* 1. 파생값                                                                */
+  /* ---------------------------------------------------------------------- */
+
+  function derive(scan, profile) {
+    var w = scan.weightKg;
+    var bfm = scan.bfmKg != null ? scan.bfmKg : (w * (scan.pbfPct / 100));
+    var ffm = scan.ffmKg != null ? scan.ffmKg : (w - bfm);
+    var smm = scan.smmKg;
+    var h = profile.heightCm / 100;
+    // 인바디 BMR은 Katch-McArdle과 사실상 동일(검증됨) → 있으면 그대로 신뢰
+    var bmrKatch = 370 + 21.6 * ffm;
+    var bmrMifflin = profile.sex === 'male'
+      ? (10 * w + 6.25 * profile.heightCm - 5 * profile.age + 5)
+      : (10 * w + 6.25 * profile.heightCm - 5 * profile.age - 161);
+    var bmr = scan.bmrKcal || bmrKatch;
+    var pal = (PAL[profile.activityLevel] || PAL.moderate).mult;
+
+    return {
+      weightKg: r1(w),
+      smmKg: r1(smm),
+      bfmKg: r1(bfm),
+      ffmKg: r1(ffm),
+      pbfPct: r1(bfm / w * 100),
+      bmi: r1(w / (h * h)),
+      smmToFfm: smm / ffm,            // 개인별 SMM/FFM 비율 (오너는 ≈0.568)
+      bmrKcal: Math.round(bmr),
+      bmrKatch: Math.round(bmrKatch),
+      bmrMifflin: Math.round(bmrMifflin),
+      bmrSource: scan.bmrKcal ? 'InBody 인쇄값' : 'Katch-McArdle 계산값',
+      pal: pal,
+      tdeeKcal: Math.round(bmr * pal)
+    };
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* 2. 목표 분류 + 정합성                                                    */
+  /* ---------------------------------------------------------------------- */
+
+  function classifyGoal(cur, goal) {
+    var dW = goal.weightKg - cur.weightKg;
+    var dSMM = goal.smmKg - cur.smmKg;
+    var dBFM = goal.bfmKg - cur.bfmKg;
+
+    // 체중 = 제지방 + 체지방. 사용자가 세 값을 다 입력하면 과결정(over-determined)이라
+    // 서로 안 맞을 수 있다. 얼마나 안 맞는지 계산해서 UI가 알려준다.
+    var impliedFfm = goal.smmKg / cur.smmToFfm;
+    var impliedWeight = impliedFfm + goal.bfmKg;
+    var mismatchKg = goal.weightKg - impliedWeight;
+
+    var NOISE = 0.3; // 측정 노이즈 바닥 (kg)
+    var wantsFatLoss = dBFM < -NOISE;
+    var wantsFatGain = dBFM > NOISE;
+    var wantsMuscle  = dSMM > NOISE;
+    var losesMuscle  = dSMM < -NOISE;
+
+    var type, typeLabel;
+    if (wantsFatLoss && wantsMuscle)      { type = 'recomp';   typeLabel = '리컴프 (지방↓ + 근육↑ 동시)'; }
+    else if (wantsFatLoss)                { type = 'cut';      typeLabel = '감량'; }
+    else if (wantsMuscle && !wantsFatLoss){ type = 'bulk';     typeLabel = '증량'; }
+    else if (wantsFatGain && losesMuscle) { type = 'contrary'; typeLabel = '방향이 반대인 목표'; }
+    else                                  { type = 'maintain'; typeLabel = '유지'; }
+
+    return {
+      type: type, typeLabel: typeLabel,
+      dWeightKg: r1(dW), dSmmKg: r1(dSMM), dBfmKg: r1(dBFM),
+      targetPbfPct: r1(goal.bfmKg / goal.weightKg * 100),
+      impliedWeightKg: r1(impliedWeight),
+      mismatchKg: r1(mismatchKg),
+      isConsistent: Math.abs(mismatchKg) <= 1.0
+    };
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* 3. 속도 모델                                                             */
+  /* ---------------------------------------------------------------------- */
+
+  function ageFactor(age) {
+    if (age >= 50) return 0.65;
+    if (age >= 40) return 0.80;
+    if (age < 18)  return 0.90;
+    return 1.00;
+  }
+
+  // 주당 SMM 증가 상한 (kg/주) — 최적 조건에서의 생리적 천장
+  function baseSmmRatePerWeek(weightKg, profile, smmToFfm) {
+    var base = (MUSCLE_BASE[profile.trainingAge] || MUSCLE_BASE.intermediate).pct;
+    var sexFactor = profile.sex === 'male' ? 1.0 : 0.5;
+    var ffmPerMonth = weightKg * (base / 100) * sexFactor;
+    var smmPerMonth = ffmPerMonth * smmToFfm;
+    var rate = smmPerMonth / 4.345 * ageFactor(profile.age);
+    if (profile.hadPriorPeak) rate *= 2.5;   // 머슬메모리
+    return rate;
+  }
+
+  function muscleSituation(deficitRatio) {
+    if (deficitRatio < -0.02) return 'surplus';
+    if (Math.abs(deficitRatio) <= 0.05) return 'maintain';
+    if (deficitRatio <= 0.15) return 'recomp';
+    return 'cut';
+  }
+
+  function kcalFloor(profile, bmr) {
+    return Math.max(Math.round(bmr * 1.1), profile.sex === 'male' ? 1500 : 1200);
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* 4. 주차별 시뮬레이션                                                     */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * 한 주를 전진시킨다.
+   * phase: 'cut' | 'bulk' | 'maintain'
+   */
+  function stepWeek(st, phase, params, profile, k) {
+    var ffm = st.smmKg / k;
+    var w = ffm + st.bfmKg;
+    var bmr = 370 + 21.6 * ffm;
+    var pal = (PAL[profile.activityLevel] || PAL.moderate).mult;
+    var tdee = bmr * pal;
+
+    var intake, deficit, fatDelta = 0, smmDelta = 0, capped = false, floored = false;
+
+    if (phase === 'cut') {
+      var want = params.deficitPct * tdee;
+      var cap = 31 * st.bfmKg;              // 체지방 동원 상한 (kcal/day)
+      deficit = Math.min(want, cap);
+      if (deficit < want - 1) capped = true;
+      intake = tdee - deficit;
+      var floor = kcalFloor(profile, bmr);
+      if (intake < floor) { intake = floor; deficit = tdee - intake; floored = true; }
+      var fatFromKcal = deficit * 7 / KCAL_PER_KG_FAT;
+      var fatFromRate = params.ratePct * w;
+      fatDelta = -Math.min(fatFromKcal, fatFromRate);
+    } else if (phase === 'bulk') {
+      var surplus = params.surplusPct * tdee;
+      intake = tdee + surplus;
+      deficit = -surplus;
+      smmDelta = baseSmmRatePerWeek(w, profile, k);
+      var ffmGain = smmDelta / k;
+      var totalGain = ffmGain / params.leanFraction;
+      fatDelta = Math.max(0, totalGain - ffmGain);
+    } else { // maintain
+      intake = tdee;
+      deficit = 0;
+    }
+
+    if (phase !== 'bulk') {
+      var situation = muscleSituation(deficit / tdee);
+      var mult = MUSCLE_SITUATION[situation][profile.trainingAge] != null
+        ? MUSCLE_SITUATION[situation][profile.trainingAge]
+        : MUSCLE_SITUATION[situation].intermediate;
+      smmDelta = baseSmmRatePerWeek(w, profile, k) * mult;
+    }
+
+    var next = {
+      smmKg: st.smmKg + smmDelta,
+      bfmKg: Math.max(0.5, st.bfmKg + fatDelta)
+    };
+    next.ffmKg = next.smmKg / k;
+    next.weightKg = next.ffmKg + next.bfmKg;
+
+    return {
+      state: next,
+      tdee: Math.round(tdee),
+      bmr: Math.round(bmr),
+      intake: Math.round(intake),
+      deficit: Math.round(deficit),
+      capped: capped,
+      floored: floored,
+      fatDelta: fatDelta,
+      smmDelta: smmDelta
+    };
+  }
+
+  function snapshot(st, week, phase, meta) {
+    return {
+      week: week, phase: phase,
+      weightKg: r1(st.weightKg), smmKg: r2(st.smmKg),
+      bfmKg: r2(st.bfmKg), ffmKg: r1(st.ffmKg),
+      pbfPct: r1(st.bfmKg / st.weightKg * 100),
+      intake: meta ? meta.intake : null,
+      tdee: meta ? meta.tdee : null,
+      deficit: meta ? meta.deficit : null
+    };
+  }
+
+  /**
+   * 전략 A — 동시 진행 (리컴프 / 단순감량 / 단순증량)
+   */
+  function simulateSimultaneous(cur, goal, profile, a, goalInfo) {
+    var k = cur.smmToFfm;
+    var isCutting = goalInfo.dBfmKg < -0.3;
+    var mode = isCutting ? 'cut' : (goalInfo.dSmmKg > 0.3 ? 'bulk' : 'maintain');
+    var params = paramsAt(a, mode === 'bulk' ? 'bulk' : 'cut');
+    var phase = mode;
+
+    var st = { smmKg: cur.smmKg, bfmKg: cur.bfmKg, ffmKg: cur.ffmKg, weightKg: cur.weightKg };
+    var traj = [snapshot(st, 0, phase, null)];
+    var fatWeek = goalInfo.dBfmKg >= -0.3 ? 0 : null;
+    var smmWeek = goalInfo.dSmmKg <= 0.3 ? 0 : null;
+    var anyCapped = false, anyFloored = false, cutWeeks = 0;
+
+    for (var wk = 1; wk <= MAX_WEEKS; wk++) {
+      var r = stepWeek(st, phase, params, profile, k);
+      st = r.state;
+      if (phase === 'cut') cutWeeks++;
+      if (r.capped) anyCapped = true;
+      if (r.floored) anyFloored = true;
+      traj.push(snapshot(st, wk, phase, r));
+
+      if (fatWeek === null && st.bfmKg <= goal.bfmKg + 0.05) fatWeek = wk;
+      if (smmWeek === null && st.smmKg >= goal.smmKg - 0.005) smmWeek = wk;
+      if (fatWeek !== null && smmWeek !== null) break;
+      // 목표 체지방 도달 후에는 더 깎지 않고 유지로 전환
+      if (phase === 'cut' && fatWeek !== null && smmWeek === null) phase = 'maintain';
+    }
+
+    var reached = fatWeek !== null && smmWeek !== null;
+    var weeks = reached ? Math.max(fatWeek, smmWeek) : null;
+    var bottleneck = !reached ? 'unreachable'
+      : (smmWeek > fatWeek ? 'muscle' : (fatWeek > smmWeek ? 'fat' : 'both'));
+
+    return {
+      strategy: 'simultaneous',
+      strategyLabel: '동시 진행',
+      strategyDesc: isCutting && goalInfo.dSmmKg > 0.3
+        ? '체지방을 줄이면서 동시에 근육을 늘립니다 (리컴프)'
+        : (isCutting ? '체지방 감량에 집중합니다' : '근육 증가에 집중합니다'),
+      a: a, params: params, mode: mode,
+      weeks: weeks, reached: reached,
+      fatWeek: fatWeek, smmWeek: smmWeek,
+      bottleneck: bottleneck,
+      trajectory: traj,
+      capped: anyCapped, floored: anyFloored,
+      continuousCutWeeks: cutWeeks,
+      phases: [{ name: mode === 'cut' ? '감량' : (mode === 'bulk' ? '증량' : '유지'),
+                 from: 0, to: weeks, phase: mode }]
+    };
+  }
+
+  /**
+   * 전략 B — 분할 (감량 → 유지 2주 → 증량 → 미니컷)
+   * 근육 목표가 병목일 때 동시 진행보다 빠를 수 있다.
+   */
+  function simulateSplit(cur, goal, profile, a, goalInfo) {
+    var k = cur.smmToFfm;
+    var cutP = paramsAt(a, 'cut');
+    var bulkP = paramsAt(a, 'bulk');
+    var st = { smmKg: cur.smmKg, bfmKg: cur.bfmKg, ffmKg: cur.ffmKg, weightKg: cur.weightKg };
+    var traj = [snapshot(st, 0, 'cut', null)];
+    var wk = 0, guard = 0;
+    var phaseMarks = [];
+    var anyCapped = false, anyFloored = false, longestCut = 0;
+
+    function run(phase, params, stop, label, maxLen) {
+      var start = wk, len = 0;
+      while (guard++ < MAX_WEEKS && (maxLen == null || len < maxLen)) {
+        if (stop(st)) break;
+        var r = stepWeek(st, phase, params, profile, k);
+        st = r.state; wk++; len++;
+        if (r.capped) anyCapped = true;
+        if (r.floored) anyFloored = true;
+        traj.push(snapshot(st, wk, phase, r));
+      }
+      if (len > 0) {
+        phaseMarks.push({ name: label, from: start, to: wk, phase: phase, weeks: len });
+        if (phase === 'cut') longestCut = Math.max(longestCut, len);
+      }
+    }
+
+    run('cut', cutP, function (s) { return s.bfmKg <= goal.bfmKg + 0.05; }, '1단계 · 감량', null);
+    run('maintain', cutP, function () { return false; }, '2단계 · 유지 (대사 회복)', 2);
+    run('bulk', bulkP, function (s) { return s.smmKg >= goal.smmKg - 0.005; }, '3단계 · 증량', null);
+    run('cut', cutP, function (s) { return s.bfmKg <= goal.bfmKg + 0.05; }, '4단계 · 미니컷', null);
+
+    var reached = st.bfmKg <= goal.bfmKg + 0.1 && st.smmKg >= goal.smmKg - 0.02;
+    return {
+      strategy: 'split',
+      strategyLabel: '분할 (감량 → 증량)',
+      strategyDesc: '먼저 체지방을 빼고, 유지기를 거쳐 근육을 올린 뒤, 붙은 지방을 다시 정리합니다',
+      a: a, params: cutP, bulkParams: bulkP, mode: 'split',
+      weeks: reached ? wk : null, reached: reached,
+      bottleneck: 'sequence',
+      trajectory: traj,
+      capped: anyCapped, floored: anyFloored,
+      continuousCutWeeks: longestCut,
+      phases: phaseMarks
+    };
+  }
+
+  /** 주어진 공격성 a에서 더 빠른 전략을 고른다 */
+  function bestAt(cur, goal, profile, a, goalInfo) {
+    var sim = simulateSimultaneous(cur, goal, profile, a, goalInfo);
+    if (goalInfo.type !== 'recomp') { sim.alternative = null; return sim; }
+    var split = simulateSplit(cur, goal, profile, a, goalInfo);
+    var best, alt;
+    if (split.reached && (!sim.reached || split.weeks < sim.weeks)) { best = split; alt = sim; }
+    else { best = sim; alt = split; }
+    best.alternative = alt.reached
+      ? { strategy: alt.strategy, strategyLabel: alt.strategyLabel, weeks: alt.weeks }
+      : null;
+    return best;
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* 5. 강도 = 기간 — 역산                                                    */
+  /* ---------------------------------------------------------------------- */
+
+  var A_GRID = (function () { var g = []; for (var i = 0; i <= 50; i++) g.push(i / 50); return g; })();
+
+  /**
+   * a를 0→1로 훑어 (공격성, 소요기간) 곡선을 만든다.
+   * 이 곡선이 단조가 아니라는 게 핵심이다 — 너무 공격적이면 근육이 안 늘어
+   * 오히려 기간이 늘어난다. 그 지점을 찾아서 사용자에게 보여준다.
+   */
+  function scanCurve(cur, goal, profile, goalInfo) {
+    return A_GRID.map(function (a) {
+      var sim = bestAt(cur, goal, profile, a, goalInfo);
+      return { a: a, weeks: sim.reached ? sim.weeks : null, sim: sim };
+    });
+  }
+
+  /**
+   * 세 강도(상=최단 / 중=×1.4 / 하=×2.0)를 계산한다.
+   * - 상: 곡선의 최소 기간 지점 (동률이면 더 편한 a를 고른다)
+   * - 중/하: 목표 기간에 가장 가까운, 상보다 여유로운 a
+   */
+  function compareLevels(scan, profile, goal, startDateISO, deadlineWeeks) {
+    var cur = derive(scan, profile);
+    var goalInfo = classifyGoal(cur, goal);
+    var start = startDateISO ? new Date(startDateISO) : new Date();
+    var curve = scanCurve(cur, goal, profile, goalInfo);
+    var reachable = curve.filter(function (c) { return c.weeks != null; });
+
+    if (!reachable.length) {
+      return {
+        current: cur, goal: goal, goalInfo: goalInfo, curve: curve,
+        startDate: toISODate(start), results: [], recommended: null,
+        warnings: ['어떤 강도로도 4년 안에 목표에 도달하지 않습니다. 목표치를 조정해 주세요.'],
+        bottleneckNote: null, impossible: true
+      };
+    }
+
+    var minWeeks = Math.min.apply(null, reachable.map(function (c) { return c.weeks; }));
+    // 동률이면 가장 여유로운(a 작은) 쪽 — 같은 기간이면 쉬운 게 낫다
+    var fastest = reachable.filter(function (c) { return c.weeks === minWeeks; })[0];
+    var maxWeeks = Math.max.apply(null, reachable.map(function (c) { return c.weeks; }));
+
+    var results = LEVEL_SPEC.map(function (spec) {
+      var targetWeeks = Math.round(minWeeks * spec.durationMult);
+      var chosen;
+      if (spec.durationMult === 1.0) {
+        chosen = fastest;
+      } else {
+        // 상보다 여유로운 구간(a ≤ fastest.a)에서 목표 기간에 가장 가까운 점
+        var pool = reachable.filter(function (c) { return c.a <= fastest.a; });
+        if (!pool.length) pool = reachable;
+        chosen = pool.reduce(function (best, c) {
+          return Math.abs(c.weeks - targetWeeks) < Math.abs(best.weeks - targetWeeks) ? c : best;
+        }, pool[0]);
+      }
+      var sim = chosen.sim;
+      var macros = macrosFor(sim, cur, profile);
+      var feas = feasibility(sim, goalInfo, cur, profile, deadlineWeeks);
+      return {
+        level: spec.key, label: spec.label, title: spec.title, blurb: spec.blurb,
+        targetWeeks: targetWeeks,
+        weeks: sim.weeks,
+        months: r1(sim.weeks / 4.345),
+        targetDate: addWeeks(start, sim.weeks),
+        a: chosen.a,
+        sim: sim, macros: macros, feasibility: feas,
+        difficulty: sim.params.difficulty,
+        difficultyLabel: sim.params.difficultyLabel,
+        daysPerWeek: sim.params.days,
+        sessionMin: sim.params.sessionMin,
+        cardioMin: sim.params.cardioMin,
+        setsPerMuscle: sim.params.setsPerMuscle,
+        cheatMeals: sim.params.cheatMealsPerWeek,
+        tracking: sim.params.tracking,
+        muscleLossRisk: sim.params.muscleLossRisk,
+        weeklyRateKg: avgWeeklyRate(sim.trajectory, 8),
+        weeklyRatePct: r2(Math.abs(avgWeeklyRate(sim.trajectory, 8)) / cur.weightKg * 100),
+        weeklyFatKg: avgWeeklyFat(sim.trajectory, 8),
+        weeklySmmKg: avgWeeklySmm(sim.trajectory, 8)
+      };
+    });
+
+    // 중복 제거: 세 강도가 같은 a로 수렴하면 표시로 알린다
+    var warnings = [];
+    var uniqueA = {};
+    results.forEach(function (r) { uniqueA[r.a] = (uniqueA[r.a] || 0) + 1; });
+    if (Object.keys(uniqueA).length < 3) {
+      warnings.push('일부 강도가 같은 계획으로 수렴했습니다. 목표 변화량이 작아 속도를 더 낮출 여지가 없다는 뜻입니다.');
+    }
+
+    // 역설 탐지
+    var aggressive = curve[curve.length - 1];
+    if (aggressive.weeks != null && aggressive.weeks > minWeeks * 1.1) {
+      warnings.push('가장 공격적인 계획(a=1.0)은 ' + aggressive.weeks + '주로, 최단(' + minWeeks +
+        '주)보다 오히려 깁니다. 적자가 크면 근육이 거의 늘지 않아서입니다 — 근육 목표가 있을 때는 무작정 빡세게가 답이 아닙니다.');
+    }
+
+    results.forEach(function (r) {
+      if (r.sim.params.maxContinuousWeeks && r.sim.continuousCutWeeks > r.sim.params.maxContinuousWeeks) {
+        r.capWarning = '이 강도의 감량은 연속 ' + r.sim.params.maxContinuousWeeks +
+          '주가 한계인데 계획상 ' + r.sim.continuousCutWeeks + '주 연속입니다. 중간에 2주 유지기를 넣으세요.';
+      }
+      if (r.sim.capped) {
+        r.capNote = '체지방이 줄면서 안전하게 동원 가능한 에너지 상한에 걸려, 후반부에는 계획보다 적자가 자동으로 작아집니다.';
+      }
+      if (r.sim.floored) {
+        r.floorNote = '계산상 섭취량이 최소 섭취 기준 아래로 내려가 바닥값으로 올렸습니다.';
+      }
+    });
+
+    // 추천: 기간 차이가 15% 이내면 더 쉬운 쪽
+    var ok = results.filter(function (r) { return r.sim.reached; });
+    var recommended = null;
+    if (ok.length) {
+      var best = ok.slice().sort(function (x, y) { return x.weeks - y.weeks; })[0];
+      var near = ok.filter(function (r) { return r.weeks <= best.weeks * 1.15; });
+      near.sort(function (x, y) { return x.difficulty - y.difficulty; });
+      recommended = near[0].level;
+    }
+
+    return {
+      current: cur, goal: goal, goalInfo: goalInfo,
+      startDate: toISODate(start),
+      minWeeks: minWeeks, maxWeeks: maxWeeks,
+      curve: curve.map(function (c) { return { a: c.a, weeks: c.weeks }; }),
+      results: results, recommended: recommended, warnings: warnings,
+      bottleneckNote: bottleneckNote(results, goalInfo)
+    };
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* 6. 매크로 / 운동 / 식단                                                  */
+  /* ---------------------------------------------------------------------- */
+
+  function macrosFor(sim, cur, profile) {
+    // 계획 1주차 기준으로 제시한다. 체크인마다 재계산되는 값이다.
+    var t = sim.trajectory[1] || sim.trajectory[0];
+    var intake = t.intake || cur.tdeeKcal;
+    var ffm = t.ffmKg, bw = t.weightKg;
+    var firstPhase = (sim.phases[0] && sim.phases[0].phase) || 'cut';
+    var isBulk = firstPhase === 'bulk';
+    var p = isBulk ? (sim.bulkParams || paramsAt(sim.a, 'bulk')) : sim.params;
+
+    // 체중 기준 하한도 함께 건다 (근육 목표가 있을 때 단백질이 모자라면 계획 자체가 무의미)
+    var proteinG = Math.round(Math.max(ffm * p.proteinPerFFM, bw * 1.6));
+    var fatG = isBulk ? Math.round(intake * p.fatPctKcal / 9) : Math.round(bw * p.fatPerKg);
+    var carbKcal = intake - proteinG * 4 - fatG * 9;
+    if (carbKcal < 200) {                     // 탄수 바닥 — 지방부터 줄인다
+      var need = 200 - carbKcal;
+      fatG = Math.max(Math.round(bw * 0.4), fatG - Math.ceil(need / 9));
+      carbKcal = intake - proteinG * 4 - fatG * 9;
+    }
+    var carbG = Math.max(50, Math.round(carbKcal / 4));
+
+    return {
+      intakeKcal: Math.round(intake),
+      tdeeKcal: t.tdee || cur.tdeeKcal,
+      deficitKcal: t.deficit || 0,
+      proteinG: proteinG, carbG: carbG, fatG: fatG,
+      proteinPerFFM: r1(p.proteinPerFFM),
+      proteinPerBW: r1(proteinG / bw),
+      pctProtein: Math.round(proteinG * 4 / intake * 100),
+      pctCarb: Math.round(carbG * 4 / intake * 100),
+      pctFat: Math.round(fatG * 9 / intake * 100)
+    };
+  }
+
+  var SPLITS = {
+    3: { name: '전신 3분할',   days: ['전신 A', '휴식', '전신 B', '휴식', '전신 C', '휴식', '휴식'] },
+    4: { name: '상하체 4분할', days: ['상체 A', '하체 A', '휴식', '상체 B', '하체 B', '휴식', '휴식'] },
+    5: { name: 'PPL + 상하체', days: ['가슴·어깨·삼두', '등·이두', '하체', '휴식', '상체 전체', '하체·코어', '휴식'] },
+    6: { name: 'PPL 2회전',    days: ['푸시 A', '풀 A', '레그 A', '푸시 B', '풀 B', '레그 B', '휴식'] }
+  };
+
+  function workoutFor(sim, cur, profile, scan) {
+    var p = sim.params;
+    var days = Math.min(6, Math.max(3, profile.daysPerWeek || p.days));
+    var split = SPLITS[days] || SPLITS[4];
+    var E = global.MB_DATA.EXERCISES;
+
+    // 인바디 부위별 분석 → 종목 편향 (인바디를 실제로 쓰고 있다는 체감 포인트)
+    var bias = [];
+    if (scan && scan.segmentalLean) {
+      var L = scan.segmentalLean;
+      if (L.rightArm === '표준이하' || L.leftArm === '표준이하') bias.push('팔 근육 표준 이하 → 팔 보조 볼륨 주 +2세트');
+      if (L.trunk === '표준이하') bias.push('몸통 근육 표준 이하 → 코어·척추기립근 보강');
+      if (L.rightLeg === '표준이하' || L.leftLeg === '표준이하') bias.push('하체 근육 표준 이하 → 하체 볼륨 주 +3세트');
+      if (L.rightArm !== L.leftArm) bias.push('좌우 팔 불균형 → 원암(편측) 종목 우선');
+      if (L.rightLeg !== L.leftLeg) bias.push('좌우 다리 불균형 → 불가리안 스플릿스쿼트 필수');
+    }
+    if (scan && scan.segmentalFat) {
+      var F = scan.segmentalFat;
+      if (F.trunk === '표준이상') bias.push('몸통 지방 표준 이상 → 내장지방 우선, Z2 유산소 비중 ↑');
+      if (F.rightArm === '표준이상' && F.rightLeg === '표준') bias.push('상체에 지방이 몰린 패턴 → 상체 볼륨보다 전신 에너지 소모 우선');
+    }
+    if (!bias.length) bias.push('부위별 분석상 뚜렷한 약점 없음 → 균형 프로그램');
+
+    function pick(group, n) {
+      var pool = E[group] || [];
+      return pool.slice(0, Math.min(n, pool.length));
+    }
+
+    var sessions = split.days.map(function (label, i) {
+      if (label === '휴식') return { day: i, label: label, rest: true, exercises: [] };
+      var groups;
+      if (/전신/.test(label))           groups = [['quads',1],['back',1],['chest',1],['shoulder',1],['core',1]];
+      else if (/상체/.test(label))      groups = [['chest',2],['back',2],['shoulder',1],['arms',2]];
+      else if (/하체|레그/.test(label)) groups = [['quads',2],['hamsGlutes',2],['core',1]];
+      else if (/푸시|가슴/.test(label)) groups = [['chest',2],['shoulder',2],['arms',1]];
+      else if (/풀|등/.test(label))     groups = [['back',3],['arms',1]];
+      else                              groups = [['chest',1],['back',1],['quads',1],['core',1]];
+
+      var ex = [];
+      groups.forEach(function (g) {
+        pick(g[0], g[1]).forEach(function (item) {
+          var isCompound = /스쿼트|데드|벤치|프레스|로우|풀업|딥스/.test(item.name);
+          ex.push({
+            name: item.name, equip: item.equip, note: item.note, group: g[0],
+            sets: isCompound ? (p.difficulty >= 3 ? 4 : 3) : 3,
+            reps: isCompound ? '5-8' : '10-15',
+            restSec: isCompound ? 150 : 75,
+            rpe: p.difficulty >= 3 ? '8-9' : (p.difficulty === 2 ? '7-8' : '6-8')
+          });
+        });
+      });
+      return { day: i, label: label, rest: false, exercises: ex, minutes: p.sessionMin };
+    });
+
+    return {
+      splitName: split.name,
+      daysPerWeek: days,
+      sessionMinutes: p.sessionMin,
+      setsPerMuscle: p.setsPerMuscle,
+      cardioMinPerWeek: p.cardioMin,
+      cardioPlan: p.cardioMin >= 180 ? 'Z2 저강도 40분 × 4회 + HIIT 15분 × 2회'
+                : (p.cardioMin >= 120 ? 'Z2 저강도 45분 × 3회' : 'Z2 저강도 40분 × 2회'),
+      deloadEvery: p.deloadEvery,
+      progression: '더블 프로그레션 — 목표 반복 상단에 도달하면 다음 세션에 중량 2.5~5kg 증가',
+      inbodyBias: bias,
+      sessions: sessions
+    };
+  }
+
+  function dietFor(macros, profile) {
+    var meals = profile.mealsPerDay === 2 ? 2 : (profile.mealsPerDay === 4 ? 4 : 3);
+    var names   = meals === 2 ? ['점심','저녁'] : (meals === 4 ? ['아침','점심','간식','저녁'] : ['아침','점심','저녁']);
+    var weights = meals === 2 ? [0.5,0.5]      : (meals === 4 ? [0.25,0.30,0.15,0.30]      : [0.30,0.35,0.35]);
+    var F = global.MB_DATA.FOODS;
+    function byTag(t) { return F.filter(function (x) { return x.tags.indexOf(t) >= 0; }); }
+    var proteins = byTag('protein'), carbs = byTag('carb'), sides = byTag('side'), soups = byTag('soup');
+
+    var mealPlan = names.map(function (n, i) {
+      var kcal    = Math.round(macros.intakeKcal * weights[i]);
+      var protein = Math.round(macros.proteinG  * weights[i]);
+      var carb    = Math.round(macros.carbG     * weights[i]);
+      var fat     = Math.round(macros.fatG      * weights[i]);
+      var pf = proteins[i % proteins.length];
+      var cf = carbs[i % carbs.length];
+      var sf = sides[i % sides.length];
+      var soup = soups[i % soups.length];
+      var riceG = Math.round(carb / (cf.c || 60) * 100);
+      var meatG = Math.round(protein / (pf.p || 20) * 100);
+      return {
+        name: n, kcal: kcal, proteinG: protein, carbG: carb, fatG: fat,
+        options: [
+          { label: '한식 A', items: [cf.name + ' 약 ' + riceG + 'g', pf.name + ' ' + meatG + 'g', soup.name + ' (국물 남기기)', sf.name] },
+          { label: '간편 B', items: ['유청단백 1스쿱', '고구마 150g', '삶은계란 2개', '샐러드채소 100g'] }
+        ]
+      };
+    });
+
+    return {
+      mealsPerDay: meals,
+      meals: mealPlan,
+      proteinPerMeal: Math.round(macros.proteinG / meals),
+      hydrationL: 2.5,
+      eatingOut: global.MB_DATA.EATING_OUT,
+      notes: [
+        '단백질은 끼니당 30~40g씩 고르게 나누는 편이 근단백 합성에 유리합니다.',
+        '한식은 국·찌개의 나트륨이 높아 체중계 숫자를 며칠씩 흔듭니다. 국물은 남기세요.',
+        '체중은 수분·나트륨 때문에 하루 ±1kg 흔들립니다. 하루 값이 아니라 주 평균으로 보세요.'
+      ]
+    };
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* 7. 실현가능성 / 안전장치                                                 */
+  /* ---------------------------------------------------------------------- */
+
+  function feasibility(sim, goalInfo, cur, profile, deadlineWeeks) {
+    var blockers = [];
+    var essentialFat = profile.sex === 'male' ? 8 : 15;
+    if (goalInfo.targetPbfPct < essentialFat) {
+      blockers.push('목표 체지방률 ' + goalInfo.targetPbfPct + '%는 필수지방(' + essentialFat + '%) 아래입니다.');
+    }
+    if (!sim.reached) blockers.push('이 설정으로는 4년 안에도 목표에 도달하지 않습니다.');
+
+    var verdict, badge, message;
+    if (blockers.length)                        { verdict='blocked';      badge='⛔'; message=blockers[0]; }
+    else if (!deadlineWeeks)                    { verdict='ok';           badge='🟢'; message='이 강도로 약 ' + sim.weeks + '주 걸립니다.'; }
+    else if (sim.weeks <= deadlineWeeks)        { verdict='ok';           badge='🟢'; message='희망하신 ' + deadlineWeeks + '주 안에 가능합니다 (예상 ' + sim.weeks + '주).'; }
+    else if (sim.weeks <= deadlineWeeks * 1.5)  { verdict='tough';        badge='🟡'; message='가능은 하지만 ' + sim.weeks + '주가 필요합니다 (희망보다 ' + (sim.weeks - deadlineWeeks) + '주 김).'; }
+    else                                        { verdict='unrealistic';  badge='🔴'; message=deadlineWeeks + '주 안에는 어렵습니다. 정직하게 약 ' + sim.weeks + '주가 필요합니다.'; }
+
+    return { verdict: verdict, badge: badge, message: message, blockers: blockers, weeks: sim.weeks };
+  }
+
+  function bottleneckNote(results, goalInfo) {
+    var r = results.find(function (x) { return x.sim.reached; });
+    if (!r) return null;
+    var b = r.sim.bottleneck;
+    if (b === 'muscle') return { key: 'muscle', text: '병목은 근육 목표입니다. 체지방은 훨씬 먼저 도달하지만, 근육은 생리적 속도 상한 때문에 기다려야 합니다.' };
+    if (b === 'fat')    return { key: 'fat',    text: '병목은 체지방 목표입니다. 근육 목표는 먼저 달성됩니다.' };
+    if (b === 'sequence') return { key: 'sequence', text: '감량과 증량을 순서대로 나누는 전략이 더 빠릅니다. 동시에 하면 근육 증가가 거의 멈추기 때문입니다.' };
+    return { key: 'both', text: '체지방과 근육 목표가 비슷한 시점에 도달합니다.' };
+  }
+
+  /** 선택된 강도로 최종 플랜 조립 */
+  function buildPlan(comparison, level, scan, profile) {
+    var r = comparison.results.find(function (x) { return x.level === level; });
+    if (!r) return null;
+    return {
+      level: level,
+      label: r.label,
+      title: r.title,
+      weeks: r.weeks,
+      targetDate: r.targetDate,
+      startDate: comparison.startDate,
+      strategy: r.sim.strategy,
+      strategyLabel: r.sim.strategyLabel,
+      strategyDesc: r.sim.strategyDesc,
+      phases: r.sim.phases,
+      trajectory: r.sim.trajectory,
+      bottleneck: comparison.bottleneckNote,
+      macros: r.macros,
+      workout: workoutFor(r.sim, comparison.current, profile, scan),
+      diet: dietFor(r.macros, profile),
+      feasibility: r.feasibility,
+      capWarning: r.capWarning || null,
+      milestones: milestonesFrom(r.sim.trajectory, comparison.startDate)
+    };
+  }
+
+  function milestonesFrom(traj, startISO) {
+    var out = [], start = new Date(startISO);
+    for (var i = 4; i < traj.length; i += 4) {
+      var t = traj[i];
+      out.push({
+        week: t.week, date: addWeeks(start, t.week),
+        weightKg: t.weightKg, smmKg: t.smmKg, bfmKg: t.bfmKg, pbfPct: t.pbfPct
+      });
+    }
+    var last = traj[traj.length - 1];
+    if (!out.length || out[out.length - 1].week !== last.week) {
+      out.push({ week: last.week, date: addWeeks(start, last.week),
+                 weightKg: last.weightKg, smmKg: last.smmKg, bfmKg: last.bfmKg,
+                 pbfPct: last.pbfPct, final: true });
+    } else { out[out.length - 1].final = true; }
+    return out;
+  }
+
+  /** 주간 체크인 → 재조정 제안 */
+  function checkinAdvice(plan, expected, actual, adherence) {
+    var dExp = expected.weightKg - actual.weightKg;   // 예상 감소량
+    var dAct = expected.prevWeightKg - actual.weightKg;
+    var gap = dAct - dExp;
+    var suggestions = [];
+
+    if (adherence && adherence.dietPct < 70) {
+      suggestions.push({ kind: 'adherence', title: '칼로리는 그대로 두고 순응도부터',
+        detail: '식단 준수도가 ' + adherence.dietPct + '%입니다. 계획이 틀린 게 아니라 실행이 덜 된 상태라 칼로리를 더 줄이면 역효과입니다.' });
+      return { status: 'adherence', suggestions: suggestions };
+    }
+    if (Math.abs(gap) < 0.15) {
+      suggestions.push({ kind: 'hold', title: '계획 유지', detail: '예상 범위 안입니다. 바꾸지 마세요.' });
+      return { status: 'onTrack', suggestions: suggestions };
+    }
+    if (gap < -0.15) {  // 덜 빠짐
+      suggestions.push({ kind: 'kcal', title: '하루 150kcal 줄이기', detail: '2주 연속 정체일 때만 적용하세요.' });
+      suggestions.push({ kind: 'cardio', title: '유산소 주 1회 추가', detail: '칼로리를 더 줄이는 것보다 근육 보존에 유리합니다.' });
+      return { status: 'slow', suggestions: suggestions };
+    }
+    suggestions.push({ kind: 'kcal', title: '하루 150kcal 늘리기', detail: '너무 빠르면 근손실 위험이 올라갑니다.' });
+    return { status: 'fast', suggestions: suggestions };
+  }
+
+  /* --- 유틸 -------------------------------------------------------------- */
+  function avgWeeklyRate(traj, n) {
+    var end = Math.min(n, traj.length - 1);
+    if (end < 1) return 0;
+    return r2((traj[end].weightKg - traj[0].weightKg) / end);
+  }
+  function avgWeeklyFat(traj, n) {
+    var end = Math.min(n, traj.length - 1);
+    if (end < 1) return 0;
+    return r2((traj[end].bfmKg - traj[0].bfmKg) / end);
+  }
+  function avgWeeklySmm(traj, n) {
+    var end = Math.min(n, traj.length - 1);
+    if (end < 1) return 0;
+    return Math.round((traj[end].smmKg - traj[0].smmKg) / end * 1000) / 1000;
+  }
+  function r1(x) { return Math.round(x * 10) / 10; }
+  function r2(x) { return Math.round(x * 100) / 100; }
+  function addWeeks(d, w) {
+    var n = new Date(d.getTime());
+    n.setDate(n.getDate() + Math.round(w * 7));
+    return toISODate(n);
+  }
+  function toISODate(d) {
+    var dt = (typeof d === 'string') ? new Date(d) : d;
+    var m = String(dt.getMonth() + 1).padStart(2, '0');
+    var day = String(dt.getDate()).padStart(2, '0');
+    return dt.getFullYear() + '-' + m + '-' + day;
+  }
+  function daysUntil(iso, fromISO) {
+    var a = new Date(iso + 'T00:00:00');
+    var b = fromISO ? new Date(fromISO + 'T00:00:00') : new Date();
+    return Math.round((a - b) / 86400000);
+  }
+
+  global.MB_ENGINE = {
+    PAL: PAL, MUSCLE_BASE: MUSCLE_BASE, LEVEL_SPEC: LEVEL_SPEC,
+    CUT_RANGE: CUT_RANGE, BULK_RANGE: BULK_RANGE, paramsAt: paramsAt,
+    derive: derive, classifyGoal: classifyGoal, compareLevels: compareLevels,
+    buildPlan: buildPlan, checkinAdvice: checkinAdvice,
+    macrosFor: macrosFor, workoutFor: workoutFor, dietFor: dietFor,
+    baseSmmRatePerWeek: baseSmmRatePerWeek,
+    addWeeks: addWeeks, toISODate: toISODate, daysUntil: daysUntil, r1: r1
+  };
+})(window);

@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Mybody — 인바디 기반 운동·식단 플래너 (프로토타입)</title>
+<meta name="description" content="인바디 결과지에서 현재 상태를 읽고, 목표와 실현 강도에 따라 언제 달성 가능한지와 그때까지의 운동·식단 계획을 보여주는 개인용 앱 프로토타입">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💪</text></svg>">
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/uid.css">
+</head>
+<body>
+
+<noscript>
+  <div style="padding:24px;font-family:sans-serif">이 프로토타입은 JavaScript가 필요합니다.</div>
+</noscript>
+
+<!-- 데이터 · 엔진 -->
+<script src="js/data.js"></script>
+<script src="js/engine.js"></script>
+<!-- 인프라 -->
+<script src="js/store.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/uid.js"></script>
+<script src="js/modals.js"></script>
+<script src="js/app.js"></script>
+<!-- 화면 (각자 MB_APP.register 로 자기 자신을 등록한다) -->
+<script src="js/screens/onboarding.js"></script>
+<script src="js/screens/home.js"></script>
+<script src="js/screens/upload.js"></script>
+<script src="js/screens/review.js"></script>
+<script src="js/screens/goal.js"></script>
+<script src="js/screens/intensity.js"></script>
+<script src="js/screens/plan.js"></script>
+<script src="js/screens/checkin.js"></script>
+<script src="js/screens/progress.js"></script>
+<script src="js/screens/history.js"></script>
+<script src="js/screens/scandetail.js"></script>
+<script src="js/screens/settings.js"></script>
+<script src="js/screens/idindex.js"></script>
+
+<script>
+  (function () {
+    try {
+      var st = window.MB_STORE.load();
+      var th = st.settings && st.settings.theme;
+      if (th && th !== 'auto') document.documentElement.dataset.theme = th;
+    } catch (e) {}
+    window.MB_APP.boot();
+  })();
+</script>
+</body>
+</html>
