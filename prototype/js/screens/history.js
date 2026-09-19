@@ -124,12 +124,13 @@
       wrap.appendChild(h('div.card.card--flat', { uid: 'P10-C03', uidLabel: '정렬·필터 바' }, [
         h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                             gap: '8px', flexWrap: 'wrap' } }, [
-          h('div.chips', FILTERS.map(function (f) {
-            return h('button.chip' + (filterKey === f.key ? '.is-on' : ''), {
-              text: f.label + ' ' + counts[f.key], uid: 'P10-B02', uidLabel: '출처 필터',
-              onClick: function () { filterKey = f.key; A.refresh(); }
-            });
-          })),
+          h('div.chips', { uid: 'P10-B02', uidLabel: '출처 필터' },
+            FILTERS.map(function (f) {
+              return h('button.chip' + (filterKey === f.key ? '.is-on' : ''), {
+                text: f.label + ' ' + counts[f.key],
+                onClick: function () { filterKey = f.key; A.refresh(); }
+              });
+            })),
           h('button.btn.btn--sm', {
             text: sortDesc ? '최신순 ↓' : '오래된순 ↑', uid: 'P10-B01', uidLabel: '정렬 토글',
             onClick: function () { sortDesc = !sortDesc; A.refresh(); }
@@ -161,10 +162,10 @@
         ]));
       }
 
-      shown.forEach(function (r) {
+      shown.forEach(function (r, i) {
         var idx = rows.indexOf(r);
         var prev = idx > 0 ? rows[idx - 1] : null;
-        list.appendChild(scanRow(r, prev));
+        list.appendChild(scanRow(r, prev, i));
       });
 
       wrap.appendChild(list);
@@ -172,13 +173,14 @@
   });
 
   /* --- 행 ---------------------------------------------------------------- */
-  function scanRow(r, prev) {
+  function scanRow(r, prev, index) {
     var s = r.scan, d = r.d, p = prev ? prev.d : null;
+    var n = (index == null ? 1 : index + 1);
 
     function open() { A.go('P11', { scanId: s.id }); }
 
     return h('div.card', {
-      uid: 'P10-L02', uidLabel: '측정 기록 행',
+      uid: 'P10-L02#' + n, uidLabel: '측정 기록 행 ' + n,
       role: 'button', tabindex: '0',
       style: { cursor: 'pointer' },
       onClick: open,
@@ -194,7 +196,7 @@
         h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flex: 'none' } }, [
           s.partial ? h('span.badge.badge--warn', { text: '부분 데이터' }) : null,
           h('button.btn.btn--danger.btn--sm', {
-            text: '삭제', uid: 'P10-B05', uidLabel: '이 측정 삭제',
+            text: '삭제', uid: 'P10-B05#' + n, uidLabel: '이 측정 삭제 ' + n,
             onClick: function (e) {
               e.stopPropagation();
               global.MB_MODALS.deleteScan(s, function () { A.refresh(); });

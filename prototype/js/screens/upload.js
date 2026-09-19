@@ -62,7 +62,11 @@
           if (last) body.appendChild(recentCard(last));
         }
 
-        if (global.MB_UID) global.MB_UID.scan(body);
+        /* 첫 렌더 때 body 는 아직 document 에 붙기 전이다.
+           그때 배지를 달면 ensureAnchor() 의 getComputedStyle 이 빈 값을 돌려줘
+           .uid-anchored 가 안 붙고 카드 배지가 엉뚱한 곳에 뜬다.
+           그 경우는 app.js 가 마운트 후 scan(main) 으로 처리하니 여기서는 건너뛴다. */
+        if (global.MB_UID && body.isConnected) global.MB_UID.scan(body);
       }
 
       /* --- idle ----------------------------------------------------------- */
@@ -228,6 +232,9 @@
 
       function tick(n) {
         timers.push(setTimeout(function () {
+          /* 판독 중에 탭바·뒤로가기로 화면을 떠났으면 조용히 멈춘다.
+             안 그러면 몇 초 뒤 보고 있던 화면에서 P04 로 끌려간다. */
+          if (A.current !== 'P03' || !body.isConnected) { clearTimers(); return; }
           step = n;
           if (n < STEPS.length) draw(); else finish();
         }, STEP_MS * n));

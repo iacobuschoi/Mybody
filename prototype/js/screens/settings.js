@@ -242,9 +242,9 @@
   function chipField(uid, label, options, current, onPick, hint) {
     return h('div.field', [
       h('div.field__label', { text: label }),
-      h('div.chips', options.map(function (o) {
+      h('div.chips', { uid: uid, uidLabel: label + ' 선택' }, options.map(function (o) {
         return h('button.chip' + (o[0] === current ? '.is-on' : ''), {
-          text: o[1], uid: uid, uidLabel: label + ' 선택',
+          text: o[1],
           onClick: function () { onPick(o[0]); }
         });
       })),

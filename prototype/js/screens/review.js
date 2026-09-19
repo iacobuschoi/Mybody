@@ -316,11 +316,12 @@
         /* 4) 필수 3종 + 저장 버튼 */
         drawState();
 
-        /* 새로 만든 조각에만 배지를 다시 붙인다 (첫 렌더는 app.js가 통째로 스캔한다) */
-        if (mounted && global.MB_UID) {
-          global.MB_UID.scan(warnHost);
-          global.MB_UID.scan(stateHost);
-        }
+        /* 다시 그린 조각에 배지를 다시 붙인다 (첫 렌더는 app.js가 통째로 스캔한다).
+           warnHost가 아니라 wrap 기준으로 훑는다 — UI.clear(warnHost) 는
+           uid.js가 warnHost(P04-C02) 안에 넣어둔 자기 배지까지 같이 지우는데,
+           scan(warnHost) 는 자손만 보기 때문에 그 배지가 다시 생기지 않는다.
+           이미 배지가 붙은 요소는 attachBadge 가 곧바로 반환하므로 비용은 거의 없다. */
+        if (mounted && global.MB_UID) global.MB_UID.scan(wrap);
       }
 
       function drawWarnings() {
@@ -357,11 +358,14 @@
           .map(function (f) { return f.key; });
         if (mode !== 'manual' && lowKeys.length) {
           warnHost.appendChild(h('div', { style: { marginTop: '10px' } }, [
-            h('div.section-title', { text: '확인 필요 ' + lowKeys.length + '개' }),
+            h('div.section-title', { text: lowWord() + ' ' + lowKeys.length + '개' }),
             h('div.chips', lowKeys.map(function (k) {
               var f = fieldDef(k);
+              var why = mode === 'ocr'
+                ? (v[k] == null ? ' · 못 읽음' : ' · 신뢰도 낮음')
+                : ' · 비어 있음';
               return h('button.chip', {
-                text: f.label + (v[k] == null ? ' · 못 읽음' : ' · 신뢰도 낮음'),
+                text: f.label + why,
                 uid: 'P04-B09', uidLabel: '확인 필요 항목 바로가기',
                 onClick: function () { focusField(k); }
               });
@@ -369,9 +373,12 @@
           ]));
         }
 
-        if (mode !== 'manual') {
+        if (mode === 'ocr') {
           warnHost.appendChild(h('div.muted', { style: { marginTop: '10px' },
             text: '● 신뢰도 — 초록: 잘 읽음 · 노랑: 보통 · 빨강: 확인 필요' }));
+        } else if (mode === 'edit') {
+          warnHost.appendChild(h('div.muted', { style: { marginTop: '10px' },
+            text: '● 초록: 값이 들어 있음 · 빨강: 아직 비어 있음 (판독한 기록이 아니라 저장된 기록입니다)' }));
         }
       }
 
@@ -476,7 +483,8 @@
         var n = list.filter(function (f) { return isLow(f.key); }).length;
         if (mode === 'manual' || n === 0) { g.badge.style.display = 'none'; return; }
         g.badge.style.display = '';
-        g.badge.textContent = '확인 필요 ' + n;
+        g.badge.className = 'badge ' + (mode === 'ocr' ? 'badge--bad' : 'badge--warn');
+        g.badge.textContent = lowWord() + ' ' + n;
       }
 
       /* ==================================================================== */
@@ -507,14 +515,21 @@
         if (mode === 'manual') { r.note.className = ''; r.note.textContent = ''; return; }
         if (touched[key]) {
           r.note.className = 'field__hint';
-          r.note.textContent = '직접 확인함';
+          r.note.textContent = mode === 'ocr' ? '직접 확인함' : '수정함';
           return;
         }
         if (isLow(key)) {
-          r.note.className = 'field__err';
-          r.note.textContent = v[key] == null
-            ? '확인 필요 — 판독하지 못했습니다. 결과지를 보고 직접 넣어 주세요.'
-            : '확인 필요 — 자신 있게 읽지 못한 값입니다.';
+          /* 'ocr' 은 판독이 실패한 칸, 'edit' 은 애초에 안 들어 있던 칸 —
+             같은 빨간 점이라도 사실이 다르므로 말도 달라야 한다 */
+          if (mode === 'ocr') {
+            r.note.className = 'field__err';
+            r.note.textContent = v[key] == null
+              ? '확인 필요 — 판독하지 못했습니다. 결과지를 보고 직접 넣어 주세요.'
+              : '확인 필요 — 자신 있게 읽지 못한 값입니다.';
+          } else {
+            r.note.className = 'field__hint';
+            r.note.textContent = '비어 있음 — 결과지에 있으면 채워 주세요. 없어도 저장됩니다.';
+          }
           return;
         }
         r.note.className = '';
@@ -546,6 +561,8 @@
         return c;
       }
       function isLow(key) { return mode !== 'manual' && confOf(key) < CONF_MID; }
+      /** 빨간 항목을 부르는 말 — 판독본이면 '확인 필요', 저장된 기록이면 '비어 있음' */
+      function lowWord() { return mode === 'ocr' ? '확인 필요' : '비어 있음'; }
       function dotClass(key) {
         var c = confOf(key);
         return c >= CONF_HI ? 'hi' : (c >= CONF_MID ? 'mid' : 'lo');

@@ -253,10 +253,14 @@
       }
       var verdict = judgeNum(cur.v, range, f.dir);
 
-      var diffText = '—';
+      var diffText = '—', diffCalc = false;
       if (compareOn && prev) {
         var before = fieldValue(prev, pd, f.key);
-        if (cur.v != null && before.v != null) diffText = fmtSigned(cur.v - before.v, f.dec);
+        if (cur.v != null && before.v != null) {
+          diffText = fmtSigned(cur.v - before.v, f.dec);
+          /* 한쪽이라도 계산값이면 인쇄값끼리의 차이가 아니다 — 그렇게 표시한다 */
+          diffCalc = cur.calc || before.calc;
+        }
       }
 
       var valueText = cur.v == null
@@ -278,8 +282,10 @@
                 text: (fromGeneral ? '*' : '') + rangeText(range, f.dec) })
             : (f.dir ? h('span.muted', { text: '판정 기준 없음' }) : null)
         ]),
-        compareOn ? h('td.num', { style: diffText === '—' ? { color: 'var(--text-3)' } : null,
-                                  text: diffText }) : null
+        compareOn ? h('td.num', { style: diffText === '—' ? { color: 'var(--text-3)' } : null }, [
+          h('div', { text: diffText }),
+          diffCalc ? h('div.muted', { style: { fontSize: '11px' }, text: '계산값 비교' }) : null
+        ]) : null
       ]);
     }));
 

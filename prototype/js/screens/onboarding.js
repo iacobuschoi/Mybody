@@ -7,6 +7,7 @@
   /* 단계 · 입력값은 화면 밖(클로저)에 둔다 — A.refresh()로 다시 그려도 유지된다 */
   var step = 0;          // 0 | 1 | 2
   var draft = null;
+  var draftFrom = null;  // 초안을 만들 때 저장소에 있던 프로필 (초기화·시드로 바뀌면 다시 만든다)
 
   var STEPS = [
     { t: '기본 정보',   d: '칼로리 계산의 기준이 되는 값입니다' },
@@ -81,13 +82,23 @@
     title: '프로필', label: '온보딩 · 프로필', hideTabs: true,
     render: function (wrap, ctx) {
       var st = S.get();
-      if (!draft) draft = newDraft(st);
+      /* 저장된 프로필이 밖에서 바뀌었다면(전체 초기화·시드 주입) 초안을 다시 만든다.
+         사용자의 입력은 draft에만 쌓이므로 편집 중에 덮어써지지 않는다 */
+      var profileKey = JSON.stringify(st.profile || null);
+      if (!draft || draftFrom !== profileKey) {
+        draft = newDraft(st);
+        draftFrom = profileKey;
+        step = 0;
+      }
       var d = draft;
       var scan = S.latestScan();
 
-      /* 인바디가 이미 있으면 활동/경력 선택지에 실제 숫자를 붙여 보여준다 */
+      /* 인바디가 이미 있으면 활동/경력 선택지에 실제 숫자를 붙여 보여준다.
+         나이·키를 고치면 값이 달라지므로 draw()마다 다시 계산한다 */
       var bmr = null, weightKg = null;
-      if (scan) {
+      function recompute() {
+        bmr = null; weightKg = null;
+        if (!scan) return;
         try {
           var der = E.derive(scan, Object.assign({}, toProfile(d), {
             age: d.age || 30, heightCm: d.heightCm || 175
@@ -107,9 +118,9 @@
       function draw() {
         UI.clear(body);
         errNodes = {}; errBox = null; errBoxText = null; advanceBtn = null;
+        recompute();
 
         var errs = validate(d);
-        var ok = errs.length === 0;
 
         /* --- C01 진행 표시 --- */
         body.appendChild(h('div.card.card--flat', { uid: 'P01-C01', uidLabel: '진행 표시' }, [
@@ -172,7 +183,7 @@
             onClick: function () {
               global.MB_MODALS.skipOnboarding(function () {
                 S.set({ profile: skipProfile(), onboarded: true });
-                draft = null; step = 0;
+                draft = null; draftFrom = null; step = 0;
                 global.MB_MODALS.disclaimer();
                 A.go('P03');
               });
@@ -182,7 +193,7 @@
             text: '내 실제 인바디로 바로 시작', uid: 'P01-B05', uidLabel: '실제 인바디로 바로 시작',
             onClick: function () {
               S.seed();
-              draft = null; step = 0;
+              draft = null; draftFrom = null; step = 0;
               global.MB_UID.toast('실제 인바디 3건과 프로필을 불러왔습니다');
               A.go('P02');
             }
@@ -207,9 +218,9 @@
         /* F01 성별 */
         card.appendChild(h('div.field', [
           h('div.field__label', { text: '성별' }),
-          h('div.chips', SEX.map(function (o) {
+          h('div.chips', { uid: 'P01-F01', uidLabel: '성별 선택' }, SEX.map(function (o) {
             return h('button.chip' + (d.sex === o[0] ? '.is-on' : ''), {
-              text: o[1], uid: 'P01-F01', uidLabel: '성별 선택',
+              text: o[1],
               onClick: function () { d.sex = o[0]; draw(); }
             });
           })),
@@ -239,12 +250,11 @@
         var palKeys = ['sedentary', 'light', 'moderate', 'active', 'veryActive'];
         card.appendChild(h('div.field', [
           h('div.field__label', { text: '활동 수준' }),
-          h('div.radio-cards', palKeys.map(function (k) {
+          h('div.radio-cards', { uid: 'P01-F04', uidLabel: '활동 수준 선택' }, palKeys.map(function (k) {
             var p = E.PAL[k];
             var desc = '활동대사량 × ' + p.mult.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
             if (bmr) desc += ' · 하루 약 ' + comma(bmr * p.mult) + ' kcal';
             return h('label.radio-card' + (d.activityLevel === k ? '.is-on' : ''), {
-              uid: 'P01-F04', uidLabel: '활동 수준 선택',
               onClick: function () { d.activityLevel = k; draw(); }
             }, [
               h('div', [
@@ -262,12 +272,11 @@
         var mbKeys = ['novice', 'intermediate', 'advanced', 'elite'];
         card.appendChild(h('div.field', [
           h('div.field__label', { text: '운동 경력' }),
-          h('div.radio-cards', mbKeys.map(function (k) {
+          h('div.radio-cards', { uid: 'P01-F05', uidLabel: '운동 경력 선택' }, mbKeys.map(function (k) {
             var m = E.MUSCLE_BASE[k];
             var desc = '근육 증가 한계 약 체중의 ' + m.pct + '%/월';
             if (weightKg) desc += ' (' + UI.n1(weightKg) + 'kg 기준 월 ' + UI.n1(weightKg * m.pct / 100) + 'kg)';
             return h('label.radio-card' + (d.trainingAge === k ? '.is-on' : ''), {
-              uid: 'P01-F05', uidLabel: '운동 경력 선택',
               onClick: function () { d.trainingAge = k; draw(); }
             }, [
               h('div', [
@@ -304,9 +313,9 @@
         /* F07 회당 가능 시간 */
         card.appendChild(h('div.field', [
           h('div.field__label', { text: '회당 가능 시간' }),
-          h('div.chips', SESSION_MIN.map(function (m) {
+          h('div.chips', { uid: 'P01-F07', uidLabel: '회당 가능 시간 선택' }, SESSION_MIN.map(function (m) {
             return h('button.chip' + (d.sessionMinutes === m ? '.is-on' : ''), {
-              text: m + '분', uid: 'P01-F07', uidLabel: '회당 가능 시간 선택',
+              text: m + '분',
               onClick: function () { d.sessionMinutes = m; draw(); }
             });
           })),
@@ -327,9 +336,9 @@
         /* F08 운동 환경 */
         card.appendChild(h('div.field', [
           h('div.field__label', { text: '운동 환경' }),
-          h('div.chips', ENVIRONMENT.map(function (o) {
+          h('div.chips', { uid: 'P01-F08', uidLabel: '운동 환경 선택' }, ENVIRONMENT.map(function (o) {
             return h('button.chip' + (d.environment === o[0] ? '.is-on' : ''), {
-              text: o[1], uid: 'P01-F08', uidLabel: '운동 환경 선택',
+              text: o[1],
               onClick: function () { d.environment = o[0]; draw(); }
             });
           })),
@@ -352,10 +361,10 @@
         var none = d.dietFlags.length === 0;
         card.appendChild(h('div.field', [
           h('div.field__label', { text: '식단 제약 (복수 선택)' }),
-          h('div.chips', DIET_FLAGS.map(function (o) {
+          h('div.chips', { uid: 'P01-F10', uidLabel: '식단 제약 선택' }, DIET_FLAGS.map(function (o) {
             var on = d.dietFlags.indexOf(o[0]) >= 0;
             return h('button.chip' + (on ? '.is-on' : ''), {
-              text: o[1], uid: 'P01-F10', uidLabel: '식단 제약 선택',
+              text: o[1],
               onClick: function () {
                 if (on) d.dietFlags = d.dietFlags.filter(function (x) { return x !== o[0]; });
                 else d.dietFlags = d.dietFlags.concat([o[0]]);
@@ -364,7 +373,7 @@
             });
           }).concat([
             h('button.chip' + (none ? '.is-on' : ''), {
-              text: '없음', uid: 'P01-F10', uidLabel: '식단 제약 없음',
+              text: '없음',
               onClick: function () { d.dietFlags = []; draw(); }
             })
           ])),
@@ -374,9 +383,9 @@
         /* F11 식사 횟수 */
         card.appendChild(h('div.field', [
           h('div.field__label', { text: '하루 식사 횟수' }),
-          h('div.chips', MEALS.map(function (o) {
+          h('div.chips', { uid: 'P01-F11', uidLabel: '식사 횟수 선택' }, MEALS.map(function (o) {
             return h('button.chip' + (d.mealsPerDay === o[0] ? '.is-on' : ''), {
-              text: o[1], uid: 'P01-F11', uidLabel: '식사 횟수 선택',
+              text: o[1],
               onClick: function () { d.mealsPerDay = o[0]; draw(); }
             });
           })),
@@ -437,7 +446,7 @@
       function complete() {
         if (validate(d).length) { step = 0; draw(); return; }
         S.set({ profile: toProfile(d), onboarded: true });
-        draft = null; step = 0;
+        draft = null; draftFrom = null; step = 0;
         global.MB_MODALS.disclaimer();
         A.go('P03');
       }

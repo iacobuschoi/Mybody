@@ -89,7 +89,7 @@
         card.appendChild(h('div.card__head', [
           h('div.card__title', { text: '이번 주 측정' }),
           h('div.card__sub', { text: lastMeasuredISO
-            ? '마지막 측정 ' + UI.dateK(lastMeasuredISO) + ' · ' + daysSince(lastMeasuredISO) + '일 전'
+            ? '마지막 측정 ' + UI.dateK(lastMeasuredISO) + ' · ' + agoText(lastMeasuredISO)
             : '아직 기록이 없습니다' })
         ]));
 
@@ -160,7 +160,8 @@
         var d = daysSince(lastMeasuredISO);
         if (d >= 3) return null;
         return h('div.note.note--warn', { uid: 'P08-S01', uidLabel: '측정 간격 경고 상태' }, [
-          h('b', { text: '마지막 측정에서 ' + d + '일밖에 지나지 않았습니다' }),
+          h('b', { text: d === 0 ? '오늘 이미 측정한 기록이 있습니다'
+                                 : '마지막 측정에서 ' + d + '일밖에 지나지 않았습니다' }),
           h('div', { text: '이 간격에서는 실제 체성분 변화보다 수분 변동이 훨씬 큽니다. ' +
                            '최소 3일, 가능하면 7일 간격을 권합니다. 그래도 기록은 그대로 진행할 수 있습니다.' })
         ]);
@@ -204,24 +205,26 @@
         /* F03 식단 준수도 */
         card.appendChild(h('div.field', [
           h('div.field__label', { text: '식단 준수도' }),
-          h('div.chips', DIET_LEVELS.map(function (o) {
-            return h('button.chip' + (draft.dietKey === o.key ? '.is-on' : ''), {
-              text: o.label + ' · ' + o.pct + '%', uid: 'P08-F03', uidLabel: '식단 준수도 선택',
-              onClick: function () { draft.dietKey = o.key; draft.dietPct = o.pct; draw(); }
-            });
-          })),
+          h('div.chips', { uid: 'P08-F03', uidLabel: '식단 준수도 선택' },
+            DIET_LEVELS.map(function (o) {
+              return h('button.chip' + (draft.dietKey === o.key ? '.is-on' : ''), {
+                text: o.label + ' · ' + o.pct + '%',
+                onClick: function () { draft.dietKey = o.key; draft.dietPct = o.pct; draw(); }
+              });
+            })),
           h('div.field__hint', { text: dietHint(draft.dietKey) })
         ]));
 
         /* F04 컨디션 · 수면 */
         card.appendChild(h('div.field', [
           h('div.field__label', { text: '컨디션 · 수면' }),
-          h('div.chips', CONDITIONS.map(function (o) {
-            return h('button.chip' + (draft.condition === o.key ? '.is-on' : ''), {
-              text: o.label, uid: 'P08-F04', uidLabel: '컨디션·수면 선택',
-              onClick: function () { draft.condition = o.key; draw(); }
-            });
-          })),
+          h('div.chips', { uid: 'P08-F04', uidLabel: '컨디션·수면 선택' },
+            CONDITIONS.map(function (o) {
+              return h('button.chip' + (draft.condition === o.key ? '.is-on' : ''), {
+                text: o.label,
+                onClick: function () { draft.condition = o.key; draw(); }
+              });
+            })),
           h('div.field__hint', { text: '수면이 부족한 주에는 수분이 붙어 체중이 올라가기 쉽습니다. 해석할 때 참고합니다.' })
         ]));
 
@@ -633,6 +636,10 @@
   }
   function weeksElapsed(startISO) {
     return (new Date().getTime() - toDate(startISO).getTime()) / 604800000;
+  }
+  function agoText(iso) {
+    var d = daysSince(iso);
+    return d === 0 ? '오늘' : d + '일 전';
   }
   function daysSince(iso) {
     return Math.max(0, Math.floor((new Date().getTime() - toDate(iso).getTime()) / 86400000));
