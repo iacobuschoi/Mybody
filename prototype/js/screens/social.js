@@ -426,7 +426,7 @@
 
       function loggedOut(w) {
         // 탭을 숨기거나 다른 화면으로 튕기지 않습니다. 왜 비었는지 여기서 설명합니다.
-        w.appendChild(h('div.card', { uid: 'P15-S90', uidLabel: '로그인 안내' }, [
+        w.appendChild(h('div.card', { uid: 'P15-S02', uidLabel: '로그인 안내' }, [
           h('div.card__title', { text: '🔑 친구 기능은 계정이 있어야 합니다' }),
           h('div.muted', { style: { marginTop: '6px' },
             text: '로그인해도 몸에 대한 숫자는 자동으로 나가지 않습니다. 친구를 맺으면 이번 주에 기록을 했는지 여부만 기본으로 나가고, 나머지는 친구마다 직접 켜야 합니다.' }),
@@ -478,7 +478,7 @@
       var me = B().currentUser();
       if (!me) {
         // 튕기지 않습니다. 왜 비었는지 여기서 설명하고 돌아갈 길만 줍니다.
-        wrap.appendChild(h('div.empty', { uid: 'P16-S90', uidLabel: '로그인 필요' }, [
+        wrap.appendChild(h('div.empty', { uid: 'P16-S03', uidLabel: '로그인 필요' }, [
           h('div.empty__ico', { text: '🔑' }),
           h('div.empty__t', { text: '로그인이 필요합니다' }),
           h('div.empty__d', { text: '친구 기능은 계정이 있어야 씁니다.' }),

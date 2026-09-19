@@ -262,6 +262,36 @@ const UID_RE = /^(P\d{2}|M\d{2}|A\d{2})(-[A-Z]\d{2})?(#\d+)?$/;
   } else console.log('\n소셜 화면 문제 없음');
 
 
+  /* --- 다시 그려도 배지가 남는가 ---------------------------------------
+   * app.js 는 화면을 바꿀 때 한 번 scan(main) 을 부릅니다. 화면 안에서
+   * draw() 로 본문을 갈아 끼우는 곳들(목표 설정 · 인바디 넣기 · 식단 ·
+   * 검수)에서는 배지가 통째로 날아갔습니다. 몇몇 화면은 자기가 scan 을
+   * 다시 불렀는데, 그건 "새 화면마다 기억해야 하는 규칙" 이라 언젠가
+   * 빠집니다 — P05 에서 실제로 빠져 있었고 21개가 1개로 줄었습니다.
+   * 지금은 uid.js 가 본문을 지켜봅니다. 그게 계속 도는지 확인합니다. */
+  const badgeRows = [];
+  for (const [sid, uid] of [['P05', 'P05-B01'], ['P03', 'P03-B02'],
+                            ['P18', 'P18-B09'], ['P04', 'P04-F01']]) {
+    await page.evaluate(s2 => window.MB_APP.go(s2), sid);
+    await page.waitForTimeout(400);
+    const before = await page.evaluate(() => document.querySelectorAll('#main .uid-badge').length);
+    await page.evaluate(u => {
+      const e = document.querySelector('#main [data-uid="' + u + '"]');
+      if (!e) return;
+      if (e.tagName === 'INPUT') { e.value = '42'; e.dispatchEvent(new Event('input', { bubbles: true })); }
+      else e.click();
+    }, uid);
+    await page.waitForTimeout(600);
+    const after = await page.evaluate(() => document.querySelectorAll('#main .uid-badge').length);
+    badgeRows.push({ sid, before, after, ok: after > 0 && after >= Math.min(before, 3) });
+    await page.keyboard.press('Escape').catch(() => {});
+  }
+  const badgeBad = badgeRows.filter(r => !r.ok);
+  console.log('\n=== 다시 그린 뒤 배지 ===');
+  badgeRows.forEach(r => console.log(`  ${r.ok ? '✓' : '✗'} ${r.sid} ${r.before} → ${r.after}`));
+  if (badgeBad.length) uidProblems.push('다시 그린 뒤 배지가 사라짐: ' +
+    badgeBad.map(r => r.sid + ' ' + r.before + '→' + r.after).join(', '));
+
   await browser.close();
   server.close();
 

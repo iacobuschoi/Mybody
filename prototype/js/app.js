@@ -194,10 +194,21 @@
   function refresh() { render(); }
 
   /* --- 가드: 데이터 없을 때 안내 -------------------------------------------- */
+  /* 앱 셸이 화면 대신 그려 주는 빈 상태들.
+   *
+   * 번호를 -S01 / -B90 으로 붙이고 있었습니다. 그런데 그건 화면들이
+   * 자기 빈 상태에 흔히 쓰는 번호라 부딪혔습니다 — P06 은 여기서
+   * 만드는 "스캔 없음"(P06-S01, P06-B90)과 자기가 만드는 "목표
+   * 없음"(같은 번호)을 둘 다 갖고 있었습니다. 같은 번호가 두 가지를
+   * 가리키면 거기 달아 둔 피드백 메모가 엉뚱한 버튼으로 갑니다.
+   *
+   * 그래서 90번대로 옮깁니다 — "앱 셸이 만든 것" 자리입니다.
+   * 화면이 손으로 90번대를 고르는 일은 없습니다.
+   * tools/uid-registry.js 가 그 규칙을 지킵니다. */
   function requireScan(wrap, ctx, uidPrefix) {
     var scan = S.latestScan();
     if (scan) return scan;
-    wrap.appendChild(UI.h('div.empty', { uid: uidPrefix + '-S01', uidLabel: '스캔 없음 빈 상태' }, [
+    wrap.appendChild(UI.h('div.empty', { uid: uidPrefix + '-S90', uidLabel: '스캔 없음 빈 상태' }, [
       UI.h('div.empty__ico', { text: '📄' }),
       UI.h('div.empty__t', { text: '아직 인바디 기록이 없습니다' }),
       UI.h('div.empty__d', { text: '결과지 사진을 올리면 여기서부터 시작됩니다.' }),
@@ -210,7 +221,7 @@
   function requirePlan(wrap, ctx, uidPrefix) {
     var st = S.get();
     if (st.plan) return st.plan;
-    wrap.appendChild(UI.h('div.empty', { uid: uidPrefix + '-S02', uidLabel: '플랜 없음 빈 상태' }, [
+    wrap.appendChild(UI.h('div.empty', { uid: uidPrefix + '-S91', uidLabel: '플랜 없음 빈 상태' }, [
       UI.h('div.empty__ico', { text: '🗺️' }),
       UI.h('div.empty__t', { text: '아직 플랜이 없습니다' }),
       UI.h('div.empty__d', { text: '목표를 정하고 강도를 고르면 플랜이 만들어집니다.' }),

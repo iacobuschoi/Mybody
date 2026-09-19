@@ -73,6 +73,24 @@ for (const f of files) {
   }
 }
 
+/* 90번대는 앱 셸 자리입니다.
+ *
+ * app.js 의 requireScan / requirePlan 이 화면마다 빈 상태를 대신 그리면서
+ * <화면>-S90 · -B90 · -S91 · -B91 을 붙입니다. 화면이 같은 번호를 손으로
+ * 또 쓰면, 그 화면에서는 같은 번호가 두 가지를 가리키게 됩니다.
+ *
+ * 실제로 P06 이 그랬습니다. requireScan 이 만드는 "인바디 올리기"(P06-B90)
+ * 와 화면이 만드는 "목표 설정하기"(같은 번호)가 공존했고, 한쪽에 남긴
+ * 메모가 다른 쪽 버튼에 붙었습니다.
+ *
+ * 이건 문자열을 이어 붙여 만드는 번호라 소스만 읽어서는 안 보입니다.
+ * 그래서 규칙으로 막습니다 — 90번대는 손으로 쓰지 않습니다. */
+const SHELL_BAND = /-(S9[01]|B9[01])$/;
+const shellClash = [];
+for (const [uid, info] of found) {
+  if (SHELL_BAND.test(uid)) shellClash.push(uid + '  (' + (info.label || '라벨 없음') + ')  ' + info.file);
+}
+
 // 실행 중 수집한 목록이 있으면 라벨을 보강한다
 const runtime = path.join(__dirname, '.shots', 'uids.json');
 if (fs.existsSync(runtime)) {
@@ -118,6 +136,15 @@ const SCREEN_NAMES = {
     });
     console.error('\n빈 번호를 쓰세요. 번호를 재사용하면 그 번호에 달린');
     console.error('피드백 메모가 엉뚱한 요소를 가리킵니다.');
+    process.exit(1);
+  }
+
+  if (shellClash.length) {
+    console.error('90번대는 앱 셸(requireScan · requirePlan)이 쓰는 자리입니다:\n');
+    shellClash.forEach(x => console.error('  ' + x));
+    console.error('\n앱 셸은 화면마다 <화면>-S90 · -B90 · -S91 · -B91 을 만들어 붙입니다.');
+    console.error('문자열을 이어 붙여 만들기 때문에 소스만 읽어서는 안 보입니다 —');
+    console.error('그래서 규칙으로 막습니다. 다른 번호를 쓰세요.');
     process.exit(1);
   }
 }

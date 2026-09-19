@@ -441,10 +441,43 @@
   }
 
   /* --- 부팅 -------------------------------------------------------------- */
+  /* 화면이 자기 본문을 다시 그리면 배지가 사라집니다.
+   *
+   * app.js 는 화면을 바꿀 때 한 번 scan(main) 을 부릅니다. 그런데 화면
+   * 안에서 draw() 로 본문을 갈아 끼우는 곳이 여럿이라(목표 설정 ·
+   * 인바디 넣기 · 음식 사진 · 검수), 거기서 배지가 통째로 날아갔습니다.
+   * 몇몇 화면은 자기가 scan 을 다시 부르고 있었는데, 그건 "새 화면을
+   * 만들 때마다 기억해야 하는 규칙" 이라 언젠가 빠집니다 — 실제로
+   * P05 에서 빠져 있었습니다.
+   *
+   * 화면마다 고치는 대신 본문을 지켜봅니다. 이미 배지가 붙은 요소는
+   * attachBadge 가 곧바로 돌아오므로 다시 훑는 비용은 거의 없습니다.
+   * 배지를 다는 것 자체가 DOM 변경이라, 스스로를 다시 부르지 않게
+   * 한 번 끊었다가 다시 붙입니다. */
+  var watcher = null;
+  function watchMain() {
+    if (!TOOLS || typeof MutationObserver === 'undefined') return;
+    var main = document.getElementById('main');
+    if (!main) return;
+    var queued = false;
+    watcher = new MutationObserver(function () {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(function () {
+        queued = false;
+        watcher.disconnect();
+        try { scan(main); } catch (e) {}
+        watcher.observe(main, { childList: true, subtree: true });
+      });
+    });
+    watcher.observe(main, { childList: true, subtree: true });
+  }
+
   function init() {
     loadPrefs(); loadNotes();
     if (!TOOLS) return;          // 도크도 단축키도 배포 빌드에는 없습니다
     buildDock();
+    watchMain();
     document.addEventListener('click', onCaptureClick, true);
     document.addEventListener('keydown', onKeydown);
     window.addEventListener('hashchange', function () {

@@ -18,7 +18,10 @@
           h('div.empty__t', { text: '먼저 목표를 정해주세요' }),
           h('div.empty__d', { text: '이 화면은 "목표까지 얼마나 빠르게 갈까" 를 고르는 곳입니다. ' +
                                     '목표가 있어야 고를 것이 생깁니다.' }),
-          h('button.btn.btn--primary', { text: '목표 설정하기', uid: 'P06-B90',
+          /* B90 은 앱 셸이 requireScan 에서 "인바디 올리기" 로 쓰는
+             번호라 비켜 갑니다. 같은 번호가 두 가지를 가리키면 메모가
+             엉뚱한 버튼에 붙습니다. */
+          h('button.btn.btn--primary', { text: '목표 설정하기', uid: 'P06-B03',
             uidLabel: '목표 설정하기', onClick: function () { A.go('P05'); } })
         ]));
         return;
