@@ -17,7 +17,10 @@
       /* --- C01 헤더: 목표 달성일 --- */
       wrap.appendChild(h('div.card.card--accent', { uid: 'P07-C01', uidLabel: '플랜 헤더 · 목표 달성일' }, [
         h('div.card__head', [
-          h('span.badge.badge--accent', { text: '강도 ' + plan.label + ' · ' + plan.title }),
+          h('div', { style: { display: 'flex', gap: '5px', flexWrap: 'wrap' } }, [
+            plan.mode ? h('span.badge.badge--accent', { text: plan.mode.nameKo }) : null,
+            h('span.badge', { text: '강도 ' + plan.label + ' · ' + plan.title })
+          ]),
           h('span.badge', { text: plan.strategyLabel })
         ]),
         h('div', { style: { textAlign: 'center', padding: '8px 0' } }, [
@@ -29,6 +32,8 @@
           h('div.muted', { text: UI.dateK(plan.startDate) + ' 시작 · ' + UI.weeksToHuman(plan.weeks) })
         ]),
         h('div.muted', { style: { textAlign: 'center' }, text: plan.strategyDesc }),
+        plan.mode ? h('div.muted', { style: { textAlign: 'center', marginTop: '4px' },
+          text: plan.mode.oneLiner }) : null,
         h('div.btn-row', { style: { marginTop: '12px' } }, [
           h('button.btn.btn--sm', { text: '강도 바꾸기', uid: 'P07-B01', uidLabel: '강도 바꾸기',
             onClick: function () { A.go('P06'); } }),

@@ -22,7 +22,9 @@
         return;
       }
       var prof = st.profile || global.MB_DATA.SEED_PROFILE;
-      var cmp = E.compareLevels(scan, prof, st.goal, todayISO(), st.goal.deadlineWeeks || null);
+      var modeDef = (st.goal.modeId && global.MB_MODES) ? global.MB_MODES.byId(st.goal.modeId) : null;
+      var cmp = E.compareLevels(scan, prof, st.goal, todayISO(),
+                                st.goal.deadlineWeeks || null, modeDef);
       S.set({ comparison: null }); // 매번 새로 계산 (저장하면 용량만 커짐)
 
       /* --- C01 목표 요약 --- */
@@ -43,6 +45,23 @@
         wrap.appendChild(h('div.note.note--bad', { uid: 'P06-S02', uidLabel: '도달 불가',
           text: cmp.warnings[0] || '이 목표에는 도달할 수 없습니다.' }));
         return;
+      }
+
+      /* --- 모드 리본 --- */
+      if (modeDef) {
+        wrap.appendChild(h('div.card.card--flat', { uid: 'P06-C09', uidLabel: '선택된 모드 리본' }, [
+          h('div.card__head', [
+            h('div', [
+              h('div.card__sub', { text: '모드' }),
+              h('div', { style: { fontSize: '16px', fontWeight: '800' }, text: modeDef.nameKo })
+            ]),
+            h('button.btn.btn--ghost.btn--sm', { text: '바꾸기', uid: 'P06-B02',
+              uidLabel: '모드 바꾸기', onClick: function () { A.go('P05'); } })
+          ]),
+          h('div.muted', { text: modeDef.oneLiner }),
+          h('div.muted', { style: { marginTop: '6px' },
+            text: '이 모드 안에서 얼마나 빨리 갈지를 아래에서 고릅니다. 모드가 식단 강도 범위와 단백질 하한을 이미 묶어 두었습니다.' })
+        ]));
       }
 
       /* --- 안내: 강도 = 기간 --- */

@@ -17,6 +17,8 @@
       var g = st.goal ? Object.assign({}, st.goal) : recommendGoal(cur, scan, prof);
       var linked = true;        // 체중 = 제지방 + 체지방 연동
       var deadlineWeeks = st.goal && st.goal.deadlineWeeks ? st.goal.deadlineWeeks : null;
+      var manualModeId = st.goal && st.goal.manualModeId ? st.goal.manualModeId : null;
+      var showAllModes = false;
 
       var body = h('div');
       wrap.appendChild(body);
@@ -177,6 +179,10 @@
 
         body.appendChild(gauge);
 
+        /* --- C04 몸 만들기 모드 (자동 선택) --- */
+        var sel = selectMode(cur, g, prof, scan, deadlineWeeks, manualModeId);
+        body.appendChild(modeCard(sel));
+
         /* --- 액션 --- */
         body.appendChild(h('div.btn-row', { style: { marginTop: '4px' } }, [
           h('button.btn', { text: '추천 목표로', uid: 'P05-B04', uidLabel: '추천 목표 채우기',
@@ -185,7 +191,7 @@
               global.MB_UID.toast('인바디 적정체중 기준으로 채웠습니다');
             } }),
           h('button.btn.btn--primary', { text: '강도 고르기 →', uid: 'P05-B05',
-            uidLabel: '강도 고르기', onClick: next })
+            uidLabel: '강도 고르기', disabled: sel.refused || undefined, onClick: next })
         ]));
 
         body.appendChild(h('div.muted', { style: { marginTop: '10px', textAlign: 'center' },
@@ -205,8 +211,119 @@
         }
         function commit() {
           g.deadlineWeeks = deadlineWeeks;
+          g.modeId = sel.modeId || null;
+          g.manualModeId = manualModeId;
           S.set({ goal: g });
           A.go('P06');
+        }
+
+        /* --- 모드 카드 --- */
+        function modeCard(sel) {
+          var card = h('div.card.card--accent', { uid: 'P05-C04', uidLabel: '몸 만들기 모드' });
+
+          if (sel.refused) {
+            card.appendChild(h('div.card__head', [
+              h('div.card__title', { text: '이 목표로는 계획을 만들 수 없습니다' }),
+              h('span.badge.badge--bad', { text: '중단' })
+            ]));
+            card.appendChild(h('div.note.note--bad', { uid: 'P05-S07', uidLabel: '목표 거부 안내',
+              text: sel.message }));
+            return card;
+          }
+
+          var m = sel.mode;
+          card.appendChild(h('div.card__head', [
+            h('div', [
+              h('div.card__sub', { text: manualModeId ? '직접 고른 모드' : '입력하신 변화량에 맞는 모드' }),
+              h('div', { style: { fontSize: '19px', fontWeight: '900', letterSpacing: '-.02em' },
+                         text: m.nameKo })
+            ]),
+            h('span.badge' + (manualModeId ? '' : '.badge--accent'),
+              { text: manualModeId ? '직접 선택' : '자동 선택' })
+          ]));
+          if (m.aliasKo) card.appendChild(h('div.muted', { text: '다른 말로 · ' + m.aliasKo }));
+          card.appendChild(h('div', { style: { marginTop: '8px', fontSize: '13.5px' }, text: m.oneLiner }));
+
+          if (!manualModeId && sel.reason) {
+            card.appendChild(h('div.note', { style: { marginTop: '10px' },
+              text: '왜 이 모드인가 — ' + sel.reason }));
+          }
+          if (sel.trendNote) {
+            card.appendChild(h('div.note.note--warn', { text: sel.trendNote }));
+          }
+          var sub = [];
+          if (sel.subNoise) {
+            if (sel.subNoise.smm) sub.push('근육');
+            if (sel.subNoise.bfm) sub.push('체지방');
+            if (sel.subNoise.weight) sub.push('체중');
+          }
+          if (sub.length) {
+            card.appendChild(h('div.note.note--warn', {
+              text: sub.join('·') + ' 변화량이 인바디 측정 오차(체중 ±' + MODES.NOISE.weight +
+                    'kg · 근육 ±' + MODES.NOISE.smm + 'kg · 지방 ±' + MODES.NOISE.bfm +
+                    'kg) 안쪽입니다. 기계가 구분하지 못하는 크기라 목표로 삼기 어렵습니다.' }));
+          }
+
+          card.appendChild(h('hr.sep'));
+          card.appendChild(kv('방향', ({ deficit: '적자 (덜 먹기)', surplus: '잉여 (더 먹기)',
+            maintenance: '유지', mixed: '거의 유지하며 구성만 바꾸기' })[m.direction] || m.direction));
+          card.appendChild(kv('보통 걸리는 기간', m.typicalWeeksMin + '~' + m.typicalWeeksMax + '주'));
+          card.appendChild(kv('단백질', m.proteinPerFfmMin + '~' + m.proteinPerFfmMax + ' g/kg 제지방'));
+          if (m.maxContinuousWeeks) card.appendChild(kv('연속 지속 한계', m.maxContinuousWeeks + '주'));
+
+          card.appendChild(h('div', { style: { marginTop: '10px' } }, [
+            h('div.section-title', { text: '이 모드가 맞는 사람' }),
+            h('div.muted', { text: m.whoFor })
+          ]));
+          card.appendChild(h('div', { style: { marginTop: '8px' } }, [
+            h('div.section-title', { text: '이 모드가 아닌 사람' }),
+            h('div.muted', { text: m.notFor })
+          ]));
+          if (m.expectedKo) {
+            card.appendChild(h('div.note', { style: { marginTop: '10px' },
+              text: '예상 — ' + m.expectedKo }));
+          }
+          if (m.risksKo) {
+            card.appendChild(h('div.note.note--warn', { text: '주의 — ' + m.risksKo }));
+          }
+
+          card.appendChild(h('div.btn-row', { style: { marginTop: '12px' } }, [
+            h('button.btn.btn--sm', {
+              text: showAllModes ? '모드 목록 접기' : '다른 모드 보기',
+              uid: 'P05-B06', uidLabel: '모드 목록 토글',
+              onClick: function () { showAllModes = !showAllModes; draw(); }
+            }),
+            manualModeId ? h('button.btn.btn--sm', {
+              text: '자동 선택으로', uid: 'P05-B07', uidLabel: '자동 선택으로 되돌리기',
+              onClick: function () { manualModeId = null; draw(); }
+            }) : null
+          ]));
+
+          if (showAllModes) {
+            var list = h('div', { uid: 'P05-L01', uidLabel: '모드 목록', style: { marginTop: '10px' } });
+            MODES.MODES.forEach(function (x) {
+              var isOn = x.id === sel.modeId;
+              var why = MODES.whyNot(x, sel.input);
+              list.appendChild(h('div.radio-card' + (isOn ? '.is-on' : ''), {
+                style: { marginBottom: '6px' },
+                onClick: function () {
+                  manualModeId = (x.id === sel.modeId && !manualModeId) ? null : x.id;
+                  showAllModes = false; draw();
+                }
+              }, [
+                h('div', { style: { flex: '1' } }, [
+                  h('div.radio-card__t', { text: x.nameKo + (isOn ? ' · 선택됨' : '') }),
+                  h('div.radio-card__d', { text: x.oneLiner }),
+                  why ? h('div.radio-card__d', {
+                    style: { color: 'var(--warn)', marginTop: '4px' }, text: '⚠ ' + why }) : null
+                ])
+              ]));
+            });
+            card.appendChild(list);
+            card.appendChild(h('div.muted', { style: { marginTop: '6px' },
+              text: '직접 고르면 앱이 말리더라도 그 모드로 계획을 만듭니다. 경고는 그대로 남습니다.' }));
+          }
+          return card;
         }
       }
 
@@ -221,6 +338,40 @@
       }
     }
   });
+
+  var MODES = global.MB_MODES;
+
+  function kv(k, v) {
+    return h('div.kv', [h('span.kv__k', { text: k }), h('span.kv__v', { text: v })]);
+  }
+
+  /** 입력 변화량 → 모드 자동 선택 (직접 고른 게 있으면 그걸 쓴다) */
+  function selectMode(cur, g, prof, scan, deadlineWeeks, manualModeId) {
+    var gi = E.classifyGoal(cur, g);
+    var scans = S.sortedScans();
+    var trend = null;
+    if (scans.length >= 2) {
+      var a = E.derive(scans[0], prof), b = E.derive(scans[scans.length - 1], prof);
+      var days = (new Date(scans[scans.length - 1].measuredAt) - new Date(scans[0].measuredAt)) / 86400000;
+      trend = { weeksSpan: days / 7, dWeightKg: b.weightKg - a.weightKg,
+                dSmmKg: b.smmKg - a.smmKg, dBfmKg: b.bfmKg - a.bfmKg };
+    }
+    var input = {
+      dWeightKg: gi.dWeightKg, dSmmKg: gi.dSmmKg, dBfmKg: gi.dBfmKg,
+      curWeightKg: cur.weightKg, curSmmKg: cur.smmKg, curBfmKg: cur.bfmKg,
+      curPbfPct: cur.pbfPct, curBmi: cur.bmi,
+      sex: prof.sex, age: prof.age, trainingAge: prof.trainingAge,
+      hadPriorPeak: !!prof.hadPriorPeak, deadlineWeeks: deadlineWeeks || null,
+      recentTrend: trend
+    };
+    var r = MODES.select(input);
+    r.input = input;
+    if (!r.refused && manualModeId) {
+      var m = MODES.byId(manualModeId);
+      if (m) { r.mode = m; r.modeId = m.id; r.manual = true; }
+    }
+    return r;
+  }
 
   /* --- 추천 목표: 인바디 적정체중 + 체지방률 15% 기준 --- */
   function recommendGoal(cur, scan, prof) {

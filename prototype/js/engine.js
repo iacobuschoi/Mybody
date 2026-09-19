@@ -67,7 +67,12 @@
 
   function lerp(range, a) { return range[0] + (range[1] - range[0]) * a; }
 
-  function paramsAt(a, mode) {
+  /**
+   * @param a       공격성 0..1
+   * @param mode    'cut' | 'bulk'
+   * @param con     선택된 몸만들기 모드의 제약 {aMin,aMax,proteinPerFfmMin,proteinPerFfmMax} | null
+   */
+  function paramsAt(a, mode, con) {
     a = Math.max(0, Math.min(1, a));
     var R = mode === 'bulk' ? BULK_RANGE : CUT_RANGE;
     var p = { a: a, mode: mode };
@@ -86,6 +91,12 @@
     p.muscleLossRisk = mode === 'cut'
       ? (a >= 0.7 ? '중간~높음' : (a >= 0.45 ? '낮음' : '매우 낮음'))
       : '해당 없음';
+    // 모드가 단백질 하한·상한을 따로 정하면 그 범위 안에서 다시 보간한다
+    if (con && con.proteinPerFfmMin != null && con.proteinPerFfmMax != null) {
+      var span = (con.aMax != null && con.aMax > con.aMin) ? (con.aMax - con.aMin) : 1;
+      var t = Math.max(0, Math.min(1, (a - (con.aMin || 0)) / span));
+      p.proteinPerFFM = con.proteinPerFfmMin + (con.proteinPerFfmMax - con.proteinPerFfmMin) * t;
+    }
     return p;
   }
 
@@ -149,11 +160,12 @@
     var impliedWeight = impliedFfm + goal.bfmKg;
     var mismatchKg = goal.weightKg - impliedWeight;
 
-    var NOISE = 0.3; // 측정 노이즈 바닥 (kg)
-    var wantsFatLoss = dBFM < -NOISE;
-    var wantsFatGain = dBFM > NOISE;
-    var wantsMuscle  = dSMM > NOISE;
-    var losesMuscle  = dSMM < -NOISE;
+    // 측정 노이즈 바닥. modes.js 가 있으면 거기 값을 쓴다 (인바디 실사용 변동 기준).
+    var NF = global.MB_MODES ? global.MB_MODES.NOISE : { weight: 1.0, smm: 0.6, bfm: 1.0 };
+    var wantsFatLoss = dBFM < -NF.bfm;
+    var wantsFatGain = dBFM > NF.bfm;
+    var wantsMuscle  = dSMM > NF.smm;
+    var losesMuscle  = dSMM < -NF.smm;
 
     var type, typeLabel;
     if (wantsFatLoss && wantsMuscle)      { type = 'recomp';   typeLabel = '리컴프 (지방↓ + 근육↑ 동시)'; }
@@ -168,7 +180,13 @@
       targetPbfPct: r1(goal.bfmKg / goal.weightKg * 100),
       impliedWeightKg: r1(impliedWeight),
       mismatchKg: r1(mismatchKg),
-      isConsistent: Math.abs(mismatchKg) <= 1.0
+      isConsistent: Math.abs(mismatchKg) <= 1.0,
+      noise: NF,
+      subNoise: {
+        weight: Math.abs(dW) < NF.weight,
+        smm: Math.abs(dSMM) < NF.smm,
+        bfm: Math.abs(dBFM) < NF.bfm
+      }
     };
   }
 
@@ -313,11 +331,11 @@
   /**
    * 전략 A — 동시 진행 (리컴프 / 단순감량 / 단순증량)
    */
-  function simulateSimultaneous(cur, goal, profile, a, goalInfo) {
+  function simulateSimultaneous(cur, goal, profile, a, goalInfo, con) {
     var k = cur.smmToFfm;
     var isCutting = goalInfo.dBfmKg < -0.3;
     var mode = isCutting ? 'cut' : (goalInfo.dSmmKg > 0.3 ? 'bulk' : 'maintain');
-    var params = paramsAt(a, mode === 'bulk' ? 'bulk' : 'cut');
+    var params = paramsAt(a, mode === 'bulk' ? 'bulk' : 'cut', con);
     var phase = mode;
 
     var st = { smmKg: cur.smmKg, bfmKg: cur.bfmKg, ffmKg: cur.ffmKg, weightKg: cur.weightKg };
@@ -368,10 +386,10 @@
    * 전략 B — 분할 (감량 → 유지 2주 → 증량 → 미니컷)
    * 근육 목표가 병목일 때 동시 진행보다 빠를 수 있다.
    */
-  function simulateSplit(cur, goal, profile, a, goalInfo) {
+  function simulateSplit(cur, goal, profile, a, goalInfo, con) {
     var k = cur.smmToFfm;
-    var cutP = paramsAt(a, 'cut');
-    var bulkP = paramsAt(a, 'bulk');
+    var cutP = paramsAt(a, 'cut', con);
+    var bulkP = paramsAt(a, 'bulk', con);
     var st = { smmKg: cur.smmKg, bfmKg: cur.bfmKg, ffmKg: cur.ffmKg, weightKg: cur.weightKg };
     var traj = [snapshot(st, 0, 'cut', null)];
     var wk = 0, guard = 0;
@@ -415,10 +433,13 @@
   }
 
   /** 주어진 공격성 a에서 더 빠른 전략을 고른다 */
-  function bestAt(cur, goal, profile, a, goalInfo) {
-    var sim = simulateSimultaneous(cur, goal, profile, a, goalInfo);
-    if (goalInfo.type !== 'recomp') { sim.alternative = null; return sim; }
-    var split = simulateSplit(cur, goal, profile, a, goalInfo);
+  function bestAt(cur, goal, profile, a, goalInfo, con) {
+    var force = con && con.strategy && con.strategy !== 'auto' ? con.strategy : null;
+    var sim = simulateSimultaneous(cur, goal, profile, a, goalInfo, con);
+    if (force === 'simultaneous') { sim.alternative = null; return sim; }
+    if (goalInfo.type !== 'recomp' && force !== 'split') { sim.alternative = null; return sim; }
+    var split = simulateSplit(cur, goal, profile, a, goalInfo, con);
+    if (force === 'split' && split.reached) { split.alternative = null; return split; }
     var best, alt;
     if (split.reached && (!sim.reached || split.weeks < sim.weeks)) { best = split; alt = sim; }
     else { best = sim; alt = split; }
@@ -439,9 +460,13 @@
    * 이 곡선이 단조가 아니라는 게 핵심이다 — 너무 공격적이면 근육이 안 늘어
    * 오히려 기간이 늘어난다. 그 지점을 찾아서 사용자에게 보여준다.
    */
-  function scanCurve(cur, goal, profile, goalInfo) {
-    return A_GRID.map(function (a) {
-      var sim = bestAt(cur, goal, profile, a, goalInfo);
+  function scanCurve(cur, goal, profile, goalInfo, con) {
+    var lo = con && con.aMin != null ? con.aMin : 0;
+    var hi = con && con.aMax != null ? con.aMax : 1;
+    if (hi <= lo) hi = Math.min(1, lo + 0.05);
+    return A_GRID.map(function (t) {
+      var a = lo + (hi - lo) * t;
+      var sim = bestAt(cur, goal, profile, a, goalInfo, con);
       return { a: a, weeks: sim.reached ? sim.weeks : null, sim: sim };
     });
   }
@@ -451,16 +476,20 @@
    * - 상: 곡선의 최소 기간 지점 (동률이면 더 편한 a를 고른다)
    * - 중/하: 목표 기간에 가장 가까운, 상보다 여유로운 a
    */
-  function compareLevels(scan, profile, goal, startDateISO, deadlineWeeks) {
+  function compareLevels(scan, profile, goal, startDateISO, deadlineWeeks, modeDef) {
     var cur = derive(scan, profile);
     var goalInfo = classifyGoal(cur, goal);
     var start = startDateISO ? new Date(startDateISO) : new Date();
-    var curve = scanCurve(cur, goal, profile, goalInfo);
+    var con = modeDef ? {
+      aMin: modeDef.aMin, aMax: modeDef.aMax, strategy: modeDef.strategy,
+      proteinPerFfmMin: modeDef.proteinPerFfmMin, proteinPerFfmMax: modeDef.proteinPerFfmMax
+    } : null;
+    var curve = scanCurve(cur, goal, profile, goalInfo, con);
     var reachable = curve.filter(function (c) { return c.weeks != null; });
 
     if (!reachable.length) {
       return {
-        current: cur, goal: goal, goalInfo: goalInfo, curve: curve,
+        current: cur, goal: goal, goalInfo: goalInfo, curve: curve, mode: modeDef || null,
         startDate: toISODate(start), results: [], recommended: null,
         warnings: ['어떤 강도로도 4년 안에 목표에 도달하지 않습니다. 목표치를 조정해 주세요.'],
         bottleneckNote: null, impossible: true
@@ -553,7 +582,7 @@
     }
 
     return {
-      current: cur, goal: goal, goalInfo: goalInfo,
+      current: cur, goal: goal, goalInfo: goalInfo, mode: modeDef || null,
       startDate: toISODate(start),
       minWeeks: minWeeks, maxWeeks: maxWeeks,
       curve: curve.map(function (c) { return { a: c.a, weeks: c.weeks }; }),
@@ -758,6 +787,7 @@
     if (!r) return null;
     return {
       level: level,
+      mode: comparison.mode || null,
       label: r.label,
       title: r.title,
       weeks: r.weeks,
