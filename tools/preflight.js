@@ -64,22 +64,43 @@ function staticChecks() {
     detail: 'prototype/js/build.js 는 release: false 여야 합니다 (배포본은 빌드가 만듭니다)' });
 
   // (2) 거짓 개인정보 문구. 한 번 고치고 또 생겼던 종류라 못으로 박아 둡니다.
+  /* 한 번 고치고 또 생긴 문구들입니다. 코드에 못으로 박아 둡니다.
+     전부 "지금은 거짓" 이거나 "상태에 따라 거짓" 인 고정 문자열입니다. */
   const LIES = [
     '서버로 전송되지 않습니다',
     '실제로 올라가지 않습니다',
     '실제 인증은 하지 않습니다',
-    '기기 밖으로 나가지 않습니다'
+    '기기 밖으로 나가지 않습니다',
+    '어디에도 보내지 않습니다',
+    '네트워크 요청이 하나도 없습니다',
+    '기기를 바꿔도 기록이 남',
+    '전부 이 기기 안에만 저장됩니다'
   ];
+  /* 무엇을 봐주고 무엇을 잡을지가 이 검사의 전부입니다.
+     너무 느슨하면 거짓말이 새고, 너무 빡빡하면(처음이 그랬습니다) 자기
+     주석과 정상적인 조건 분기까지 빨갛게 찍어서 아무도 안 보게 됩니다.
+
+     봐주는 것
+       · 주석 — 한 줄이든 블록이든. "예전엔 이랬다" 는 기록입니다.
+       · 상태를 보고 고른 가지 — 위 몇 줄 안에 signedIn / canOcr /
+         configured 같은 판단이 있으면, 그 문장은 그 상태에서 참입니다.
+     잡는 것
+       · 그 외 전부. 조건 없이 박힌 문장. */
   const files = walk(path.join(ROOT, 'prototype', 'js')).filter(f => f.endsWith('.js'));
+  const GUARDS = /signedIn|canOcr\(\)|\.configured|MB_BUILD|status\(\)/;
   const hits = [];
   files.forEach(f => {
-    const t = fs.readFileSync(f, 'utf8');
+    const raw = fs.readFileSync(f, 'utf8');
+    // 블록 주석을 같은 줄 수만큼의 빈 줄로 바꿔 둡니다 (줄 번호가 안 밀리게)
+    const stripped = raw.replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, ' '));
+    const lines = stripped.split('\n');
     LIES.forEach(lie => {
-      // 주석에 적힌 "예전엔 이랬다" 는 기록이라 봐줍니다
-      t.split('\n').forEach((line, i) => {
-        if (line.includes(lie) && !/^\s*(\*|\/\/|\/\*)/.test(line) && !line.includes('예전')) {
-          hits.push(path.relative(ROOT, f) + ':' + (i + 1) + ' — "' + lie + '"');
-        }
+      lines.forEach((line, i) => {
+        if (!line.includes(lie)) return;
+        if (/^\s*\/\//.test(line)) return;
+        const near = lines.slice(Math.max(0, i - 6), i + 2).join('\n');
+        if (GUARDS.test(near)) return;
+        hits.push(path.relative(ROOT, f) + ':' + (i + 1) + ' — "' + lie + '"');
       });
     });
   });

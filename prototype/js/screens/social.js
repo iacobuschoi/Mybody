@@ -14,8 +14,13 @@
       if (!me) {
         wrap.appendChild(h('div.card', { uid: 'P14-C06', uidLabel: '로그인 카드' }, [
           h('div.card__title', { text: '로그인' }),
+          /* "기기를 바꿔도 기록이 남습니다" 라고 적혀 있었습니다. 거짓입니다.
+             서버로 가는 것은 친구에게 보일 주간 요약과 친구 관계뿐이고,
+             측정 기록은 한 번도 안 올라갑니다. 로그인을 백업이라고 믿게
+             두면 정작 필요한 순간에 없습니다. */
           h('div.muted', { style: { marginTop: '6px' },
-            text: '기기를 바꿔도 기록이 남습니다. 친구와 함께 하려면 필요합니다.' }),
+            text: '친구와 함께 하려면 필요합니다. 기록 백업은 아니에요 — ' +
+                  '측정 기록은 이 기기에만 남습니다.' }),
           h('div.btn-row.btn-row--stack', { style: { marginTop: '14px' } }, [
             h('button.btn.btn--primary.btn--block', { text: '로그인 / 가입',
               uid: 'P14-B01', uidLabel: '로그인',
