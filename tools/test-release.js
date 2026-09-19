@@ -139,10 +139,19 @@ const DEV_UIDS = ['P02-B02', 'P03-B03', 'P03-B09', 'P12-C05', 'P12-B07', 'P12-B0
   ok('theme-color', await page.evaluate(() => !!document.querySelector('meta[name="theme-color"]')));
 
   console.log('\n[6] 서비스워커 · 오프라인');
+  /* navigator.serviceWorker.ready 는 등록이 없으면 거부되지 않고 그냥
+     영원히 안 끝납니다. .catch() 를 붙여도 소용없어서 검증이 통째로
+     멈춰 있었습니다. 기다릴 시간을 정해 두고, 안 오면 "안 옴" 이라고
+     말하게 합니다 — 검사가 멈추는 것과 실패하는 것은 다릅니다. */
   const reg = await page.evaluate(async () => {
     if (!('serviceWorker' in navigator)) return 'no-sw-api';
-    const r = await navigator.serviceWorker.ready.catch(() => null);
-    return r ? (r.active ? 'active' : 'registered') : 'none';
+    const timeout = new Promise(r => setTimeout(() => r('timeout'), 10000));
+    const got = await Promise.race([navigator.serviceWorker.ready, timeout]);
+    if (got === 'timeout') {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      return 'timeout(등록 ' + regs.length + '건)';
+    }
+    return got.active ? 'active' : 'registered';
   });
   ok('서비스워커가 활성화된다', reg === 'active', reg);
   const cached = await page.evaluate(async () => {
@@ -179,15 +188,26 @@ const DEV_UIDS = ['P02-B02', 'P03-B03', 'P03-B09', 'P12-C05', 'P12-B07', 'P12-B0
   await p2.evaluate(() => { localStorage.clear(); window.MB_STORE.seed(); });
   await p2.reload({ waitUntil: 'load' });
   await p2.waitForTimeout(600);
+  /* "글자 수가 적으면 빈 화면" 으로 재다가 멀쩡한 화면을 빨갛게 찍었습니다.
+     P06 의 "먼저 목표를 정해주세요 + 목표 설정하기 버튼" 은 23자인데,
+     왜 비었는지 말하고 나갈 길도 주는 좋은 빈 상태입니다.
+     중요한 건 길이가 아니라 (가) 무슨 일인지 말해주는가 (나) 나갈 길이
+     있는가 입니다. */
   const screens = await p2.evaluate(() => window.MB_APP.screenIds);
   const empties = [];
   for (const s of screens) {
     await p2.evaluate(x => window.MB_APP.go(x), s);
     await p2.waitForTimeout(220);
-    const n = await p2.evaluate(() => ((document.getElementById('main') || {}).innerText || '').trim().length);
-    if (n < 30) empties.push(s + ':' + n);
+    const r = await p2.evaluate(() => {
+      const m = document.getElementById('main') || {};
+      const txt = (m.innerText || '').trim();
+      const out = m.querySelector ? m.querySelector('button, a, .chip, input') : null;
+      const nav = document.querySelector('.tabbar, [data-uid^="P00-N"]');
+      return { chars: txt.length, escape: !!(out || nav) };
+    });
+    if (r.chars < 12 || !r.escape) empties.push(s + ':' + r.chars + (r.escape ? '' : '/나갈길없음'));
   }
-  ok(`화면 ${screens.length}개가 전부 내용을 그린다`, empties.length === 0, empties);
+  ok(`화면 ${screens.length}개가 전부 말을 하고 나갈 길이 있다`, empties.length === 0, empties);
   ok('앱 전체에서 JS 오류 0건', appErrs.length === 0, appErrs.slice(0, 3));
 
   console.log(`\n통과 ${pass} / 실패 ${fail}`);

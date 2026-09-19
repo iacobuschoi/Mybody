@@ -27,7 +27,9 @@
  * ========================================================================== */
 'use strict';
 const { chromium } = require('playwright');
+const { spawn } = require('child_process');
 const http = require('http');
+const os = require('os');
 const fs = require('fs');
 const path = require('path');
 
@@ -119,6 +121,62 @@ const STATES = {
       await page.waitForTimeout(600);
     }
   },
+  /* 로그인 상태. 서버가 있어야만 만들 수 있습니다.
+     이걸 안 돌면 P14(계정) · P15(친구) · P16(친구 한 사람) 이 전부
+     로그아웃 화면만 검사됩니다 — 정작 그 화면들의 본 모습은 한 번도
+     안 보는 것입니다. 계정 삭제 버튼도 마찬가지고요. */
+  /* 로그인 · 친구 있음. 서버가 있어야만 만들 수 있습니다.
+     이걸 안 돌면 P14(계정) · P15(친구) · P16(친구 한 사람) 이 전부
+     로그아웃 화면만 검사됩니다 — 정작 그 화면들의 본 모습은 한 번도
+     안 보는 것입니다. 계정 삭제 버튼도 마찬가지고요.
+
+     "데모 친구" 버튼으로 때우려다 실패했습니다. 데모 친구는 이 기기에만
+     있는데, 로그인 상태에서는 boot() 의 pull() 이 서버 기준으로 친구
+     목록을 덮어써서 조용히 사라집니다. 그래서 계정을 둘 만들어 서로
+     수락시킵니다 — 실제 사용자가 겪는 경로 그대로입니다. */
+  signedIn: {
+    label: '로그인 · 친구 있음 (서버 필요)',
+    needsServer: true,
+    setup: () => { localStorage.clear(); window.MB_STORE.seed(); },
+    afterBoot: async (page, api) => {
+      const PW = 'sweep-password-1';
+      const PAIR = 'sweep-pair-secret';
+      const post = (p, body, tok) => fetch(api + '/api' + p, {
+        method: 'POST',
+        headers: Object.assign({ 'content-type': 'application/json' },
+                               tok ? { authorization: 'Bearer ' + tok } : {}),
+        body: JSON.stringify(body)
+      }).then(r => r.json().catch(() => ({})));
+
+      // 상대편 계정은 브라우저를 안 거치고 HTTP 로 만듭니다
+      let buddy = await post('/auth/signup',
+        { handle: 'buddy', password: PW, displayName: '친구', pairSecret: PAIR });
+      if (!buddy.token) buddy = await post('/auth/signin', { handle: 'buddy', password: PW });
+      const buddyTok = buddy.token;
+      const buddyMe = await fetch(api + '/api/me', { headers: { authorization: 'Bearer ' + buddyTok } })
+        .then(r => r.json()).catch(() => ({}));
+      const buddyCode = buddyMe.user && buddyMe.user.inviteCode;
+
+      // 이쪽은 앱이 하는 대로 브라우저에서
+      await page.evaluate(b => window.MB_SYNC.configure(b), api);
+      const me = await page.evaluate(async ([pw, pair]) => {
+        const r = await window.MB_SYNC.signUp({
+          handle: 'sweeper', password: pw, displayName: '검증', pairSecret: pair
+        }).catch(() => window.MB_SYNC.signIn({ handle: 'sweeper', password: pw }));
+        return r && r.user ? r.user.id : null;
+      }, [PW, PAIR]);
+      await page.waitForTimeout(400);
+
+      if (buddyCode && me) {
+        await page.evaluate(c => window.MB_SYNC.sendRequest(c), buddyCode);
+        await page.waitForTimeout(300);
+        await post('/friends/accept', { userId: me }, buddyTok);
+        await page.evaluate(() => window.MB_SYNC.pull());
+        await page.waitForTimeout(500);
+      }
+    }
+  },
+
   corrupt: {
     label: '저장소가 깨진 상태',
     setup: () => {
@@ -140,6 +198,27 @@ function found(kind, where, detail, extra) {
 const wanted = (process.env.STATES || '').split(',').filter(Boolean);
 const onlyScreens = (process.env.ONLY || '').split(',').filter(Boolean);
 
+/* 앱 서버(자가호스팅) — signedIn 상태에서만 씁니다. */
+let apiProc = null, apiBase = null;
+async function bootApi() {
+  const port = 8900 + Math.floor(process.pid % 400);
+  const db = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mb-sweep-')), 'sweep.db');
+  apiProc = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'server.js')], {
+    env: Object.assign({}, process.env, {
+      PORT: String(port), DB: db, PAIR_SECRET: 'sweep-pair-secret'
+    }),
+    stdio: 'ignore'
+  });
+  const base = `http://localhost:${port}`;
+  const until = Date.now() + 8000;
+  while (Date.now() < until) {
+    try { if ((await fetch(base + '/health')).ok) { apiBase = base; return base; } } catch {}
+    await new Promise(r => setTimeout(r, 120));
+  }
+  apiProc.kill(); apiProc = null;
+  return null;
+}
+
 (async () => {
   await new Promise(r => server.listen(PORT, r));
   PORT = server.address().port;
@@ -154,6 +233,14 @@ const onlyScreens = (process.env.ONLY || '').split(',').filter(Boolean);
 
   for (const [key, state] of Object.entries(STATES)) {
     if (wanted.length && !wanted.includes(key)) continue;
+    if (state.needsServer && !apiBase) {
+      const b = await bootApi();
+      if (!b) {
+        console.log(`\n=== ${key} — 서버를 띄우지 못해 건너뜀 ===`);
+        found('검사못함', key, '서버가 안 떠서 로그인 상태를 한 번도 못 봤습니다');
+        continue;
+      }
+    }
     console.log(`\n=== ${key} · ${state.label} ===`);
 
     await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
@@ -162,7 +249,7 @@ const onlyScreens = (process.env.ONLY || '').split(',').filter(Boolean);
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(450);
     errors = [];
-    if (state.afterBoot) await state.afterBoot(page);
+    if (state.afterBoot) await state.afterBoot(page, apiBase);
 
     // 이 상태를 그대로 복원할 수 있게 떠 둡니다 — 클릭마다 여기로 되돌립니다.
     const snapshot = await page.evaluate(() => {
@@ -322,6 +409,7 @@ const onlyScreens = (process.env.ONLY || '').split(',').filter(Boolean);
 
   /* --- 파괴적인 버튼 — 자기 상태에서 따로 ------------------------------- */
   console.log('\n=== 파괴적인 동작 ===');
+  if (!apiBase) await bootApi();
   for (const uid of DESTRUCTIVE) {
     const sid = uid.slice(0, 3);
     await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
@@ -340,6 +428,23 @@ const onlyScreens = (process.env.ONLY || '').split(',').filter(Boolean);
     });
     await page.reload({ waitUntil: 'load' });
     await page.waitForTimeout(400);
+    // 계정·친구 쪽 버튼은 로그인해야 화면에 나옵니다
+    if (apiBase && /^P1[456]$/.test(sid)) {
+      await page.evaluate(b => window.MB_SYNC.configure(b), apiBase);
+      await page.evaluate(async () => {
+        await window.MB_SYNC.signUp({
+          handle: 'destroyer', password: 'destroy-password-1',
+          displayName: '삭제검증', pairSecret: 'sweep-pair-secret'
+        }).catch(() => window.MB_SYNC.signIn({ handle: 'destroyer', password: 'destroy-password-1' }));
+      });
+      await page.waitForTimeout(600);
+      if (uid === 'P15-B32') {
+        // 데모 친구 버튼은 개발 빌드 전용이고, 로그인 상태에서는 pull() 이
+        // 덮어써서 남지도 않습니다. 여기서는 그냥 건너뜁니다.
+        console.log('  P15-B32 — 데모 친구는 개발 빌드 전용 — 판정 안 함');
+        continue;
+      }
+    }
     errors = [];
     const at = await goTo(page, sid);
     if (!at.ok) { console.log(`  ${uid} — ${sid} 에 못 감`); continue; }
@@ -383,14 +488,30 @@ const onlyScreens = (process.env.ONLY || '').split(',').filter(Boolean);
   console.log(hard ? `\n실패 — 고쳐야 할 것 ${hard}건` : '\n통과');
 
   await browser.close(); server.close();
+  if (apiProc) apiProc.kill();
   process.exit(hard ? 1 : 0);
-})().catch(e => { console.error(e); server.close(); process.exit(1); });
+})().catch(e => { console.error(e); server.close(); if (apiProc) apiProc.kill(); process.exit(1); });
 
 /* --- 조각 ---------------------------------------------------------------- */
 
+/* 어떤 화면은 인자가 있어야 본 모습이 나옵니다.
+   P16 은 친구 id, P11 은 측정 id 가 없으면 "그런 것 없습니다" 빈 화면만
+   보여줍니다. 인자 없이 열어 놓고 "통과" 라고 하면, 정작 사람이 실제로
+   보는 화면은 한 번도 안 본 것입니다. 인자는 지금 저장된 데이터에서
+   뽑습니다 — 지어내면 그것대로 없는 화면을 보게 됩니다. */
 async function goTo(page, sid) {
   const at = await page.evaluate((s) => {
-    try { window.MB_APP.go(s); } catch (e) { return 'THREW:' + e.message; }
+    var p = null;
+    try {
+      var st = window.MB_STORE.get();
+      if (s === 'P16') {
+        var f = window.MB_BACKEND && window.MB_BACKEND.listFriends();
+        if (f && f.accepted && f.accepted.length) p = { friendId: f.accepted[0].id };
+      } else if (s === 'P11' || s === 'P04') {
+        if (st.scans && st.scans.length) p = { scanId: st.scans[st.scans.length - 1].id };
+      }
+    } catch (e) {}
+    try { window.MB_APP.go(s, p); } catch (e) { return 'THREW:' + e.message; }
     return window.MB_APP.current;
   }, sid);
   await page.waitForTimeout(260);

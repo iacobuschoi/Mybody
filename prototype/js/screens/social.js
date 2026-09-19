@@ -289,8 +289,11 @@
           text: '전화번호나 이메일로는 찾을 수 없습니다. 코드를 직접 알려준 사람만 추가됩니다.' })
       ]));
 
-      /* --- 데모 친구 (프로토타입 전용) --- */
-      if (!f.accepted.length) {
+      /* --- 데모 친구 (개발 빌드 전용) ---
+         이 친구는 이 기기 안에만 있고 서버에는 없습니다. 화면이 어떻게
+         보이는지 확인하려고 만든 것이라, 쓰는 사람 화면에 있으면 자기
+         친구 목록에 진짜가 섞인 건지 알 방법이 없습니다. */
+      if (!f.accepted.length && global.MB_BUILD.tools) {
         wrap.appendChild(h('div.note', { uid: 'P15-C26', uidLabel: '데모 친구 안내' }, [
           h('div', { text: '데모 친구를 만들어 친구 화면이 어떻게 보이는지 볼 수 있습니다. 실제 서버에는 없습니다.' }),
           h('button.btn.btn--ghost.btn--sm', { text: '데모 친구 만들기', style: { marginTop: '8px' },

@@ -130,9 +130,23 @@ html = html.replace('</body>', SW + '\n</body>');
 fs.writeFileSync(path.join(OUT, 'index.html'), html);
 
 /* --- 4. 서비스워커의 파일 목록 --------------------------------------------- */
-const shell = ['./', 'index.html', 'manifest.webmanifest']
-  .concat(all.filter(f => /\.(js|css|png|svg|webmanifest)$/.test(f) && f !== 'sw.js')
-             .map(f => './' + f));
+/* 껍데기 목록.
+ *
+ * cache.addAll() 은 같은 URL 이 두 번 들어 있으면 통째로 거부합니다.
+ * 처음엔 앞에 'index.html', 'manifest.webmanifest' 를 손으로 넣고 뒤에
+ * 파일 목록을 './' 를 붙여 이어 붙였는데, './index.html' 과 'index.html'
+ * 은 같은 주소라 중복이 됐습니다. 설치가 조용히 실패했고 — 등록은
+ * 성공한 것처럼 보이는데 잠시 뒤 사라졌습니다. 캐시는 만들어진 채로
+ * 비어 있었고요.
+ *
+ * 그래서 전부 './' 로 맞춘 뒤 중복을 걷어냅니다. 아래 점검에서 중복이
+ * 남아 있으면 빌드를 실패시킵니다. */
+const shell = [...new Set(
+  ['./'].concat(
+    all.filter(f => /\.(html|js|css|png|svg|webmanifest)$/.test(f) && f !== 'sw.js')
+       .map(f => './' + f)
+  )
+)];
 const sw = fs.readFileSync(path.join(SRC, 'sw.js'), 'utf8')
   .replace('__BUILD_VERSION__', V)
   .replace('__SHELL_FILES__', JSON.stringify(shell, null, 2));
@@ -152,6 +166,13 @@ if (html.includes('uid.css')) problems.push('index.html 이 아직 uid.css 를 �
 shell.filter(f => f !== './').forEach(f => {
   const rel = f.replace(/^\.\//, '');
   if (!outFiles.includes(rel)) problems.push('껍데기 목록에 없는 파일: ' + rel);
+});
+// 중복도 마찬가지입니다 — addAll() 이 거부합니다
+const seenShell = new Set();
+shell.forEach(f => {
+  const u = new URL(f, 'http://x/').pathname;
+  if (seenShell.has(u)) problems.push('껍데기 목록에 같은 주소가 두 번: ' + f);
+  seenShell.add(u);
 });
 const bytes = outFiles.reduce((n, f) => n + fs.statSync(path.join(OUT, f)).size, 0);
 

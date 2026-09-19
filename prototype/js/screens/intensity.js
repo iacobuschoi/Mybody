@@ -16,6 +16,8 @@
         wrap.appendChild(h('div.empty', { uid: 'P06-S01', uidLabel: '목표 없음' }, [
           h('div.empty__ico', { text: '🎯' }),
           h('div.empty__t', { text: '먼저 목표를 정해주세요' }),
+          h('div.empty__d', { text: '이 화면은 "목표까지 얼마나 빠르게 갈까" 를 고르는 곳입니다. ' +
+                                    '목표가 있어야 고를 것이 생깁니다.' }),
           h('button.btn.btn--primary', { text: '목표 설정하기', uid: 'P06-B90',
             uidLabel: '목표 설정하기', onClick: function () { A.go('P05'); } })
         ]));
