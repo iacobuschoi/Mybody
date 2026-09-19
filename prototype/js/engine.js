@@ -514,6 +514,12 @@
       aMin: modeDef.aMin, aMax: modeDef.aMax, strategy: modeDef.strategy,
       proteinPerFfmMin: modeDef.proteinPerFfmMin, proteinPerFfmMax: modeDef.proteinPerFfmMax
     } : null;
+    /* 유지 목표는 "언제 도달하나"가 아니라 "얼마나 유지하나"다.
+       궤적을 평평하게 깔고 기간을 준다. 이게 없으면 기간 0, 목표일=오늘이 된다. */
+    if (goalInfo.type === 'maintain') {
+      return maintenancePlan(cur, goal, goalInfo, profile, start, modeDef, deadlineWeeks);
+    }
+
     var curve = scanCurve(cur, goal, profile, goalInfo, con);
     var reachable = curve.filter(function (c) { return c.weeks != null; });
 
@@ -853,6 +859,77 @@
     return { spread: spread, tight: ratio < 1.35, text: text };
   }
 
+  /**
+   * 유지 계획 — 상/중/하는 "얼마나 오래 유지할까"가 된다.
+   * 감량 직후 대사 회복, 증량 전 안정화, 목표 달성 후 굳히기에 쓰인다.
+   */
+  function maintenancePlan(cur, goal, goalInfo, profile, start, modeDef, deadlineWeeks) {
+    var SPAN = { high: 4, mid: 8, low: 12 };
+    if (deadlineWeeks) {
+      SPAN = { high: Math.max(2, Math.round(deadlineWeeks * 0.5)),
+               mid: Math.max(3, deadlineWeeks),
+               low: Math.max(4, Math.round(deadlineWeeks * 1.5)) };
+    }
+    var k = cur.smmToFfm;
+    var params = paramsAt(0, 'cut', modeDef ? {
+      aMin: modeDef.aMin, aMax: modeDef.aMax,
+      proteinPerFfmMin: modeDef.proteinPerFfmMin, proteinPerFfmMax: modeDef.proteinPerFfmMax
+    } : null);
+
+    var results = LEVEL_SPEC.map(function (spec) {
+      var weeks = SPAN[spec.key];
+      var st = { smmKg: cur.smmKg, bfmKg: cur.bfmKg, ffmKg: cur.ffmKg, weightKg: cur.weightKg };
+      var traj = [snapshot(st, 0, 'maintain', null)];
+      for (var w = 1; w <= weeks; w++) {
+        var r = stepWeek(st, 'maintain', params, profile, k);
+        st = r.state;
+        traj.push(snapshot(st, w, 'maintain', r));
+      }
+      var sim = {
+        strategy: 'maintain', strategyLabel: '유지',
+        strategyDesc: '지금 몸을 지키면서 대사와 습관을 안정시킵니다',
+        a: 0, params: params, mode: 'maintain',
+        weeks: weeks, reached: true, bottleneck: 'none',
+        trajectory: traj, capped: false, floored: false, continuousCutWeeks: 0,
+        leanLossKg: 0, alternative: null,
+        phases: [{ name: '유지', from: 0, to: weeks, phase: 'maintain', weeks: weeks }]
+      };
+      var macros = macrosFor(sim, cur, profile);
+      var training = resolveTraining(profile, params, goalInfo);
+      return {
+        level: spec.key, label: spec.label,
+        title: ({ high: '짧게', mid: '표준', low: '길게' })[spec.key],
+        blurb: ({ high: '4주만 굳히고 다음 단계로',
+                  mid: '8주 — 대사 회복에 보통 권하는 길이',
+                  low: '12주 — 습관이 자리 잡을 때까지' })[spec.key],
+        targetWeeks: weeks, weeks: weeks, months: r1(weeks / 4.345),
+        targetDate: addWeeks(start, weeks), a: 0,
+        sim: sim, macros: macros,
+        feasibility: { verdict: 'ok', badge: '🟢',
+                       message: weeks + '주 동안 지금 몸을 지킵니다.', blockers: [], weeks: weeks },
+        difficulty: 1, difficultyLabel: '★☆☆ 낮음',
+        training: training, daysPerWeek: training.days, sessionMin: training.sessionMin,
+        cardioMin: training.cardioMin, setsPerMuscle: training.setsPerMuscle,
+        cheatMeals: 2, tracking: '무게만 주 2~3회',
+        muscleLossRisk: '매우 낮음',
+        weeklyRateKg: 0, weeklyRatePct: 0, weeklyFatKg: 0, weeklySmmKg: avgWeeklySmm(traj, 8)
+      };
+    });
+
+    return {
+      current: cur, goal: goal, goalInfo: goalInfo, mode: modeDef || null,
+      startDate: toISODate(start),
+      minWeeks: SPAN.high, maxWeeks: SPAN.low,
+      spanWeeks: [SPAN.high, SPAN.low],
+      spanNote: { spread: SPAN.low - SPAN.high, tight: false,
+                  text: '유지는 도달할 목표가 아니라 지켜낼 기간입니다. 얼마나 오래 유지할지를 고릅니다.' },
+      curve: [], results: results, recommended: 'mid',
+      warnings: [],
+      bottleneckNote: { key: 'none', text: '유지 구간입니다. 체중이 ±1kg 안에서 움직이면 성공입니다.' },
+      isMaintenance: true
+    };
+  }
+
   function bottleneckNote(results, goalInfo) {
     var r = results.find(function (x) { return x.sim.reached; });
     if (!r) return null;
@@ -1067,6 +1144,7 @@
     buildPlan: buildPlan, checkinAdvice: checkinAdvice, planDrift: planDrift,
     macrosFor: macrosFor, workoutFor: workoutFor, dietFor: dietFor, resolveTraining: resolveTraining,
     baseSmmRatePerWeek: baseSmmRatePerWeek,
+    stepWeek: stepWeek,            // 검증 하네스(tools/validate.js)용 노출 — 로직 변경 없음
     addWeeks: addWeeks, toISODate: toISODate, daysUntil: daysUntil, r1: r1
   };
 })(window);

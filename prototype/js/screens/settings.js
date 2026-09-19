@@ -69,6 +69,30 @@
         }
         body.appendChild(c01);
 
+        /* ===== C07 계정 · 친구 ========================================= */
+        (function () {
+          var me = global.MB_BACKEND ? global.MB_BACKEND.currentUser() : null;
+          var fr = me ? global.MB_BACKEND.listFriends() : null;
+          body.appendChild(h('div.card', { uid: 'P12-C07', uidLabel: '계정과 친구' }, [
+            h('div.card__head', [
+              h('div.card__title', { text: '계정과 친구' }),
+              h('span.badge' + (me ? '.badge--ok' : ''), { text: me ? me.displayName : '로그인 안 함' })
+            ]),
+            h('div.muted', { text: me
+              ? '친구 ' + fr.accepted.length + '명' +
+                (fr.incoming.length ? ' · 받은 요청 ' + fr.incoming.length + '건' : '')
+              : '기기를 바꿔도 기록이 남고, 친구와 함께 할 수 있습니다.' }),
+            h('div.btn-row', { style: { marginTop: '10px' } }, [
+              h('button.btn.btn--sm', { text: '계정', uid: 'P12-B13', uidLabel: '계정 화면',
+                onClick: function () { A.go('P14'); } }),
+              h('button.btn.btn--sm' + (me && fr.incoming.length ? '.btn--primary' : ''), {
+                text: '친구' + (me && fr.incoming.length ? ' (' + fr.incoming.length + ')' : ''),
+                uid: 'P12-B14', uidLabel: '친구 화면',
+                onClick: function () { A.go(me ? 'P15' : 'P14'); } })
+            ])
+          ]));
+        })();
+
         /* ===== C02 표시 ================================================ */
         var theme = set.theme || 'auto';
         var badgeSize = set.badgeSize || currentBadgeSize();

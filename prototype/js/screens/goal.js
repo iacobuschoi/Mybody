@@ -163,7 +163,14 @@
           } catch (e) { /* 입력이 아직 이상한 상태 */ }
         }
 
-        if (preview && preview.results.length) {
+        if (preview && (preview.impossible || !preview.results.length)) {
+          // 강도 화면까지 가서야 "도달 불가"를 알게 하면 안 된다. 여기서 막는다.
+          gauge.appendChild(h('div.note.note--bad', { uid: 'P05-S08', uidLabel: '도달 불가 안내' }, [
+            h('b', { text: '이 목표에는 도달할 수 없습니다. ' }),
+            (preview.warnings && preview.warnings[0]) ||
+              '지금 모드가 허용하는 속도로는 4년 안에도 닿지 않습니다. 목표치를 줄이거나 모드를 바꿔보세요.'
+          ]));
+        } else if (preview && preview.results.length) {
           var mid = preview.results.find(function (r) { return r.level === 'mid'; });
           var best = preview.results.find(function (r) { return r.level === 'high'; });
           var v = mid.feasibility.verdict;
@@ -228,7 +235,7 @@
           h('button.btn.btn--primary', {
             text: isEdit ? '목표 바꾸기 →' : '강도 고르기 →',
             uid: 'P05-B05', uidLabel: isEdit ? '목표 바꾸기' : '강도 고르기',
-            disabled: sel.refused || undefined, onClick: next })
+            disabled: (sel.refused || (preview && preview.impossible)) || undefined, onClick: next })
         ]));
 
         body.appendChild(h('div.muted', { style: { marginTop: '10px', textAlign: 'center' },

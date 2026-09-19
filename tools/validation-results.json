@@ -1,0 +1,2750 @@
+{
+  "generatedAt": "2026-09-19T06:26:11.625Z",
+  "engine": "prototype/js/engine.js",
+  "engineChange": "one export added: MB_ENGINE.stepWeek (no parameter or logic change)",
+  "kSmmToFfm": 0.55,
+  "caseCount": 22,
+  "summary": {
+    "all": {
+      "deltaWeightKg": {
+        "n": 22,
+        "meanError": 1.93,
+        "meanAbsError": 2.26,
+        "sdError": 2.54,
+        "maxAbsError": 7.2,
+        "bias": "over-predicts (predicted > actual)",
+        "overPredictedCount": 18,
+        "underPredictedCount": 4
+      },
+      "deltaFatMassKg": {
+        "n": 22,
+        "meanError": 0.42,
+        "meanAbsError": 1.17,
+        "sdError": 1.48,
+        "maxAbsError": 3.49,
+        "bias": "over-predicts (predicted > actual)",
+        "overPredictedCount": 14,
+        "underPredictedCount": 8
+      },
+      "deltaLeanMassKg": {
+        "n": 22,
+        "meanError": 2.18,
+        "meanAbsError": 2.84,
+        "sdError": 3.17,
+        "maxAbsError": 8.34,
+        "bias": "over-predicts (predicted > actual)",
+        "overPredictedCount": 13,
+        "underPredictedCount": 8
+      }
+    },
+    "byDirection": {
+      "cut": {
+        "deltaWeightKg": {
+          "n": 15,
+          "meanError": 2.52,
+          "meanAbsError": 2.83,
+          "sdError": 2.8,
+          "maxAbsError": 7.2,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 13,
+          "underPredictedCount": 2
+        },
+        "deltaFatMassKg": {
+          "n": 15,
+          "meanError": 0.2,
+          "meanAbsError": 1.31,
+          "sdError": 1.73,
+          "maxAbsError": 3.49,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 7,
+          "underPredictedCount": 8
+        },
+        "deltaLeanMassKg": {
+          "n": 15,
+          "meanError": 3.29,
+          "meanAbsError": 3.74,
+          "sdError": 3.22,
+          "maxAbsError": 8.34,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 10,
+          "underPredictedCount": 4
+        }
+      },
+      "recomp": {
+        "deltaWeightKg": {
+          "n": 2,
+          "meanError": -0.24,
+          "meanAbsError": 0.55,
+          "sdError": 0.78,
+          "maxAbsError": 0.79,
+          "bias": "under-predicts (predicted < actual)",
+          "overPredictedCount": 1,
+          "underPredictedCount": 1
+        },
+        "deltaFatMassKg": {
+          "n": 2,
+          "meanError": 0.9,
+          "meanAbsError": 0.9,
+          "sdError": 0.28,
+          "maxAbsError": 1.1,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 2,
+          "underPredictedCount": 0
+        },
+        "deltaLeanMassKg": {
+          "n": 2,
+          "meanError": -1.14,
+          "meanAbsError": 1.14,
+          "sdError": 1.06,
+          "maxAbsError": 1.89,
+          "bias": "under-predicts (predicted < actual)",
+          "overPredictedCount": 0,
+          "underPredictedCount": 2
+        }
+      },
+      "bulk": {
+        "deltaWeightKg": {
+          "n": 5,
+          "meanError": 1.04,
+          "meanAbsError": 1.22,
+          "sdError": 1.21,
+          "maxAbsError": 2.74,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 4,
+          "underPredictedCount": 1
+        },
+        "deltaFatMassKg": {
+          "n": 5,
+          "meanError": 0.87,
+          "meanAbsError": 0.87,
+          "sdError": 0.68,
+          "maxAbsError": 1.99,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 5,
+          "underPredictedCount": 0
+        },
+        "deltaLeanMassKg": {
+          "n": 5,
+          "meanError": 0.18,
+          "meanAbsError": 0.81,
+          "sdError": 1.05,
+          "maxAbsError": 1.4,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 3,
+          "underPredictedCount": 2
+        }
+      }
+    },
+    "byTrainingStatus": {
+      "elite": {
+        "deltaWeightKg": {
+          "n": 3,
+          "meanError": 2.98,
+          "meanAbsError": 2.98,
+          "sdError": 3.68,
+          "maxAbsError": 7.2,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 3,
+          "underPredictedCount": 0
+        },
+        "deltaFatMassKg": {
+          "n": 3,
+          "meanError": 1.66,
+          "meanAbsError": 1.66,
+          "sdError": 0.35,
+          "maxAbsError": 2.02,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 3,
+          "underPredictedCount": 0
+        },
+        "deltaLeanMassKg": {
+          "n": 3,
+          "meanError": 1.32,
+          "meanAbsError": 2.13,
+          "sdError": 3.38,
+          "maxAbsError": 5.18,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 1,
+          "underPredictedCount": 2
+        }
+      },
+      "intermediate": {
+        "deltaWeightKg": {
+          "n": 2,
+          "meanError": -0.24,
+          "meanAbsError": 0.55,
+          "sdError": 0.78,
+          "maxAbsError": 0.79,
+          "bias": "under-predicts (predicted < actual)",
+          "overPredictedCount": 1,
+          "underPredictedCount": 1
+        },
+        "deltaFatMassKg": {
+          "n": 2,
+          "meanError": 0.9,
+          "meanAbsError": 0.9,
+          "sdError": 0.28,
+          "maxAbsError": 1.1,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 2,
+          "underPredictedCount": 0
+        },
+        "deltaLeanMassKg": {
+          "n": 2,
+          "meanError": -1.14,
+          "meanAbsError": 1.14,
+          "sdError": 1.06,
+          "maxAbsError": 1.89,
+          "bias": "under-predicts (predicted < actual)",
+          "overPredictedCount": 0,
+          "underPredictedCount": 2
+        }
+      },
+      "novice": {
+        "deltaWeightKg": {
+          "n": 13,
+          "meanError": 2.47,
+          "meanAbsError": 2.53,
+          "sdError": 2.39,
+          "maxAbsError": 6.91,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 12,
+          "underPredictedCount": 1
+        },
+        "deltaFatMassKg": {
+          "n": 13,
+          "meanError": 0.07,
+          "meanAbsError": 1.1,
+          "sdError": 1.63,
+          "maxAbsError": 3.49,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 6,
+          "underPredictedCount": 7
+        },
+        "deltaLeanMassKg": {
+          "n": 13,
+          "meanError": 3.59,
+          "meanAbsError": 3.77,
+          "sdError": 3.02,
+          "maxAbsError": 8.34,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 10,
+          "underPredictedCount": 2
+        }
+      },
+      "advanced": {
+        "deltaWeightKg": {
+          "n": 4,
+          "meanError": 0.47,
+          "meanAbsError": 1.7,
+          "sdError": 2.12,
+          "maxAbsError": 2.74,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 2,
+          "underPredictedCount": 2
+        },
+        "deltaFatMassKg": {
+          "n": 4,
+          "meanError": 0.39,
+          "meanAbsError": 1.19,
+          "sdError": 1.51,
+          "maxAbsError": 1.99,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 3,
+          "underPredictedCount": 1
+        },
+        "deltaLeanMassKg": {
+          "n": 4,
+          "meanError": -0.12,
+          "meanAbsError": 1.19,
+          "sdError": 1.4,
+          "maxAbsError": 1.4,
+          "bias": "under-predicts (predicted < actual)",
+          "overPredictedCount": 2,
+          "underPredictedCount": 2
+        }
+      }
+    }
+  },
+  "cases": [
+    {
+      "id": "villareal2011-diet",
+      "groupLabel": "Diet only (no exercise), 1 year",
+      "citation": "Villareal DT, et al. Weight loss, exercise, or both and physical function in obese older adults. NEJM 2011;364(13):1218-1229.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "mixed",
+      "weeks": 52,
+      "n": 26,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 58,
+        "baselineSmmKg": 31.9,
+        "engineSex": "male",
+        "age": 70,
+        "heightCm": 175,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "sedentary",
+        "mult": 1.2,
+        "impliedStudyTdee": 1956,
+        "engineTdeeAtBaseline": 1947,
+        "engineDerivedTdee": 1947,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 1956 kcal (= |-176| / 0.09); Katch BMR 1623 x PAL 1.2 = 1947 (off by 8 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 0.1778,
+        "studyTargetPct": 9,
+        "engineAchievedPct": 9,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": 0.283,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2.2,
+        "proteinPerFfmFromStudy": 1.72
+      },
+      "predicted": {
+        "deltaWeightKg": -2.79,
+        "deltaFatMassKg": -7.93,
+        "deltaLeanMassKg": 5.14,
+        "engineLeanLossPathKg": 1.574,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": true
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -1.24,
+        "deltaFatMassKg": -8.01,
+        "deltaLeanMassKg": 6.77
+      },
+      "actual": {
+        "deltaWeightKg": -9.7,
+        "deltaFatMassKg": -7.1,
+        "deltaLeanMassKg": -3.2
+      },
+      "error": {
+        "deltaWeightKg": 6.91,
+        "deltaFatMassKg": -0.83,
+        "deltaLeanMassKg": 8.34
+      },
+      "errorPct": {
+        "deltaWeightKg": 71,
+        "deltaFatMassKg": -12,
+        "deltaLeanMassKg": 261
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 1947,
+          "intake": 1785,
+          "deficit": 162,
+          "smmKg": 31.956,
+          "bfmKg": 41.852
+        },
+        {
+          "week": 2,
+          "tdee": 1950,
+          "intake": 1788,
+          "deficit": 162,
+          "smmKg": 32.012,
+          "bfmKg": 41.705
+        },
+        {
+          "week": 3,
+          "tdee": 1953,
+          "intake": 1790,
+          "deficit": 163,
+          "smmKg": 32.068,
+          "bfmKg": 41.557
+        },
+        {
+          "week": 52,
+          "tdee": 2078,
+          "intake": 1905,
+          "deficit": 173,
+          "smmKg": 34.729,
+          "bfmKg": 34.069
+        }
+      ],
+      "inferredFields": [
+        "baselines back-solved from integer-rounded percentages (+/-5 kg)",
+        "deficit back-calculated from tissue change (achieved average, not prescribed)",
+        "proteinGPerKgBW",
+        "measurementMethod"
+      ],
+      "notes": "33% of weight lost was lean, without RT. -0.106%/wk of lean. Engine would fire only the protein clause (0.05%/wk) => roughly half the observed loss, and by accident."
+    },
+    {
+      "id": "villareal2011-dietexercise",
+      "groupLabel": "Diet + multicomponent exercise, 1 year",
+      "citation": "Villareal DT, et al. NEJM 2011;364(13):1218-1229.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "mixed",
+      "weeks": 52,
+      "n": 28,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 56,
+        "baselineSmmKg": 30.8,
+        "engineSex": "male",
+        "age": 70,
+        "heightCm": 175,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "light",
+        "mult": 1.375,
+        "impliedStudyTdee": 2214,
+        "engineTdeeAtBaseline": 2172,
+        "engineDerivedTdee": 2172,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 2214 kcal (= |-155| / 0.07); Katch BMR 1580 x PAL 1.375 = 2172 (off by 42 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 0.0889,
+        "studyTargetPct": 7,
+        "engineAchievedPct": 7,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": 0.217,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2.1,
+        "proteinPerFfmFromStudy": 1.71
+      },
+      "predicted": {
+        "deltaWeightKg": -2.49,
+        "deltaFatMassKg": -7.43,
+        "deltaLeanMassKg": 4.94,
+        "engineLeanLossPathKg": 1.52,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -1,
+        "deltaFatMassKg": -7.5,
+        "deltaLeanMassKg": 6.51
+      },
+      "actual": {
+        "deltaWeightKg": -8.6,
+        "deltaFatMassKg": -6.3,
+        "deltaLeanMassKg": -1.8
+      },
+      "error": {
+        "deltaWeightKg": 6.11,
+        "deltaFatMassKg": -1.13,
+        "deltaLeanMassKg": 6.74
+      },
+      "errorPct": {
+        "deltaWeightKg": 71,
+        "deltaFatMassKg": -18,
+        "deltaLeanMassKg": 374
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2172,
+          "intake": 2020,
+          "deficit": 152,
+          "smmKg": 30.854,
+          "bfmKg": 39.862
+        },
+        {
+          "week": 2,
+          "tdee": 2175,
+          "intake": 2023,
+          "deficit": 152,
+          "smmKg": 30.907,
+          "bfmKg": 39.723
+        },
+        {
+          "week": 3,
+          "tdee": 2178,
+          "intake": 2025,
+          "deficit": 152,
+          "smmKg": 30.961,
+          "bfmKg": 39.585
+        },
+        {
+          "week": 52,
+          "tdee": 2316,
+          "intake": 2154,
+          "deficit": 162,
+          "smmKg": 33.515,
+          "bfmKg": 32.572
+        }
+      ],
+      "inferredFields": [
+        "baselines back-solved (+/-5 kg)",
+        "deficit back-calculated",
+        "proteinGPerKgBW",
+        "resistanceTrainingDaysPerWeek",
+        "measurementMethod"
+      ],
+      "notes": "Matched pair with villareal2011-diet. Exercise cut lean loss 3.2 -> 1.8 kg while total weight loss was 1.1 kg SMALLER. Training volume never enters stepWeek(), so the engine cannot separate these two arms at all."
+    },
+    {
+      "id": "beavers2017-wl-at",
+      "groupLabel": "WL + AT: weight loss plus aerobic training, 18 months",
+      "citation": "Beavers KM, et al. Obesity 2017;25(11):1823-1829.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "mixed",
+      "weeks": 78,
+      "n": 83,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 51.6,
+        "baselineSmmKg": 28.38,
+        "engineSex": "male",
+        "age": 66.9,
+        "heightCm": 175,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "light",
+        "mult": 1.375,
+        "impliedStudyTdee": 1980,
+        "engineTdeeAtBaseline": 2041,
+        "engineDerivedTdee": 2041,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 1980 kcal (= |-99| / 0.05); Katch BMR 1485 x PAL 1.375 = 2041 (off by 61 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 0,
+        "studyTargetPct": 5,
+        "engineAchievedPct": 5,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": 0.15,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2,
+        "proteinPerFfmFromStudy": 1.85
+      },
+      "predicted": {
+        "deltaWeightKg": -5.39,
+        "deltaFatMassKg": -7.48,
+        "deltaLeanMassKg": 4.59,
+        "engineLeanLossPathKg": 2.102,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -3.32,
+        "deltaFatMassKg": -7.59,
+        "deltaLeanMassKg": 6.76
+      },
+      "actual": {
+        "deltaWeightKg": -8.5,
+        "deltaFatMassKg": -6.8,
+        "deltaLeanMassKg": -1.6
+      },
+      "error": {
+        "deltaWeightKg": 3.11,
+        "deltaFatMassKg": -0.68,
+        "deltaLeanMassKg": 6.19
+      },
+      "errorPct": {
+        "deltaWeightKg": 37,
+        "deltaFatMassKg": -10,
+        "deltaLeanMassKg": 387
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2041,
+          "intake": 1939,
+          "deficit": 102,
+          "smmKg": 28.414,
+          "bfmKg": 41.407
+        },
+        {
+          "week": 2,
+          "tdee": 2043,
+          "intake": 1941,
+          "deficit": 102,
+          "smmKg": 28.447,
+          "bfmKg": 41.314
+        },
+        {
+          "week": 3,
+          "tdee": 2045,
+          "intake": 1943,
+          "deficit": 102,
+          "smmKg": 28.481,
+          "bfmKg": 41.221
+        },
+        {
+          "week": 78,
+          "tdee": 2176,
+          "intake": 2067,
+          "deficit": 109,
+          "smmKg": 30.904,
+          "bfmKg": 34.021
+        }
+      ],
+      "inferredFields": [
+        "baselines back-solved",
+        "deficit back-calculated",
+        "proteinGPerKgBW",
+        "cardio details",
+        "n",
+        "measurementMethod"
+      ],
+      "notes": "Lean loss 19% of weight lost. Aerobic training increased BOTH total weight loss and absolute lean loss vs diet alone; the lean FRACTION was unchanged."
+    },
+    {
+      "id": "beavers2017-wl",
+      "groupLabel": "WL: weight loss alone, 18 months",
+      "citation": "Beavers KM, et al. Effect of exercise type during intentional weight loss on body composition in older adults with obesity. Obesity 2017;25(11):1823-1829.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "mixed",
+      "weeks": 78,
+      "n": 83,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 50,
+        "baselineSmmKg": 27.5,
+        "engineSex": "male",
+        "age": 66.9,
+        "heightCm": 175,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "moderate",
+        "mult": 1.55,
+        "impliedStudyTdee": 2333,
+        "engineTdeeAtBaseline": 2248,
+        "engineDerivedTdee": 2248,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 2333 kcal (= |-70| / 0.03); Katch BMR 1450 x PAL 1.55 = 2248 (off by 86 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 0,
+        "studyTargetPct": 3,
+        "engineAchievedPct": 5,
+        "clamped": true,
+        "clampNote": "study 3.0% is OUTSIDE the engine's deficitPct range [5.0%..27.5%]; clamped to 5.0% (the engine literally cannot run this study's prescription)",
+        "ratePctPerWeek": 0.15,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2,
+        "proteinPerFfmFromStudy": 1.93
+      },
+      "predicted": {
+        "deltaWeightKg": -6.06,
+        "deltaFatMassKg": -8.25,
+        "deltaLeanMassKg": 4.69,
+        "engineLeanLossPathKg": 2.042,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -4.06,
+        "deltaFatMassKg": -8.37,
+        "deltaLeanMassKg": 6.8
+      },
+      "actual": {
+        "deltaWeightKg": -5.7,
+        "deltaFatMassKg": -4.8,
+        "deltaLeanMassKg": -1
+      },
+      "error": {
+        "deltaWeightKg": -0.36,
+        "deltaFatMassKg": -3.45,
+        "deltaLeanMassKg": 5.69
+      },
+      "errorPct": {
+        "deltaWeightKg": -6,
+        "deltaFatMassKg": -72,
+        "deltaLeanMassKg": 569
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2248,
+          "intake": 2135,
+          "deficit": 112,
+          "smmKg": 27.535,
+          "bfmKg": 43.898
+        },
+        {
+          "week": 2,
+          "tdee": 2250,
+          "intake": 2137,
+          "deficit": 112,
+          "smmKg": 27.569,
+          "bfmKg": 43.796
+        },
+        {
+          "week": 3,
+          "tdee": 2252,
+          "intake": 2139,
+          "deficit": 113,
+          "smmKg": 27.604,
+          "bfmKg": 43.693
+        },
+        {
+          "week": 78,
+          "tdee": 2403,
+          "intake": 2283,
+          "deficit": 120,
+          "smmKg": 30.08,
+          "bfmKg": 35.752
+        }
+      ],
+      "inferredFields": [
+        "baselines back-solved from paired percent+absolute reporting (cross-checked against reported BMI 34.4)",
+        "deficit back-calculated over 547 d, badly understates the early deficit",
+        "proteinGPerKgBW",
+        "n (even split of 249)",
+        "measurementMethod"
+      ],
+      "notes": "Lean loss 18% of weight lost with NO exercise, better than Villareal's diet-only arm (33%) because the rate was much slower. Lean loss in the engine is rate-independent, which is wrong in the direction shown here."
+    },
+    {
+      "id": "beavers2017-wl-rt",
+      "groupLabel": "WL + RT: weight loss plus resistance training, 18 months",
+      "citation": "Beavers KM, et al. Obesity 2017;25(11):1823-1829.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "mixed",
+      "weeks": 78,
+      "n": 83,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 53.3,
+        "baselineSmmKg": 29.315,
+        "engineSex": "male",
+        "age": 66.9,
+        "heightCm": 175,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "light",
+        "mult": 1.375,
+        "impliedStudyTdee": 2220,
+        "engineTdeeAtBaseline": 2092,
+        "engineDerivedTdee": 2092,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 2220 kcal (= |-111| / 0.05); Katch BMR 1521 x PAL 1.375 = 2092 (off by 128 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 0,
+        "studyTargetPct": 5,
+        "engineAchievedPct": 5,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": 0.15,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2,
+        "proteinPerFfmFromStudy": 1.82
+      },
+      "predicted": {
+        "deltaWeightKg": -5.55,
+        "deltaFatMassKg": -7.66,
+        "deltaLeanMassKg": 4.61,
+        "engineLeanLossPathKg": 2.169,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -3.42,
+        "deltaFatMassKg": -7.77,
+        "deltaLeanMassKg": 6.86
+      },
+      "actual": {
+        "deltaWeightKg": -8.7,
+        "deltaFatMassKg": -7.8,
+        "deltaLeanMassKg": -0.8
+      },
+      "error": {
+        "deltaWeightKg": 3.15,
+        "deltaFatMassKg": 0.14,
+        "deltaLeanMassKg": 5.41
+      },
+      "errorPct": {
+        "deltaWeightKg": 36,
+        "deltaFatMassKg": 2,
+        "deltaLeanMassKg": 676
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2092,
+          "intake": 1987,
+          "deficit": 105,
+          "smmKg": 29.349,
+          "bfmKg": 41.005
+        },
+        {
+          "week": 2,
+          "tdee": 2094,
+          "intake": 1989,
+          "deficit": 105,
+          "smmKg": 29.383,
+          "bfmKg": 40.91
+        },
+        {
+          "week": 3,
+          "tdee": 2095,
+          "intake": 1991,
+          "deficit": 105,
+          "smmKg": 29.417,
+          "bfmKg": 40.815
+        },
+        {
+          "week": 78,
+          "tdee": 2227,
+          "intake": 2116,
+          "deficit": 111,
+          "smmKg": 31.851,
+          "bfmKg": 33.441
+        }
+      ],
+      "inferredFields": [
+        "baselines back-solved",
+        "deficit back-calculated",
+        "proteinGPerKgBW",
+        "resistanceTrainingDaysPerWeek",
+        "n",
+        "measurementMethod"
+      ],
+      "notes": "Best composition outcome in the set: 90% of the weight lost was fat. Matched against WL+AT (80%) and WL alone (84%) in the same trial."
+    },
+    {
+      "id": "kistler2014",
+      "groupLabel": "Single natural male bodybuilder, 26-week contest preparation",
+      "citation": "Kistler BM, Fitschen PJ, Ranadive SM, Fernhall B, Wilund KR. Case Study: Natural Bodybuilding Contest Preparation. Int J Sport Nutr Exerc Metab. 2014;24(6):694-700.",
+      "sweep": "cut-athletes",
+      "direction": "cut",
+      "trainingStatus": "elite",
+      "sex": "male",
+      "weeks": 26,
+      "n": 1,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 73.1,
+        "baselineSmmKg": 40.205,
+        "engineSex": "male",
+        "age": 26,
+        "heightCm": 175,
+        "trainingAge": "elite"
+      },
+      "pal": {
+        "activityLevel": "active",
+        "mult": 1.725,
+        "impliedStudyTdee": 3429,
+        "engineTdeeAtBaseline": 3362,
+        "engineDerivedTdee": 3362,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 3429 kcal (= |-480| / 0.14); Katch BMR 1949 x PAL 1.725 = 3362 (off by 67 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 0.4,
+        "studyTargetPct": 14,
+        "engineAchievedPct": 14,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": 0.45,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2.44,
+        "proteinPerFfmFromStudy": 3.03
+      },
+      "predicted": {
+        "deltaWeightKg": -8.1,
+        "deltaFatMassKg": -8.08,
+        "deltaLeanMassKg": -0.02,
+        "engineLeanLossPathKg": 0.11,
+        "mobilizationCapHit": true,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -8.1,
+        "deltaFatMassKg": -8.08,
+        "deltaLeanMassKg": -0.02
+      },
+      "actual": {
+        "deltaWeightKg": -15.3,
+        "deltaFatMassKg": -10.1,
+        "deltaLeanMassKg": -5.2
+      },
+      "error": {
+        "deltaWeightKg": 7.2,
+        "deltaFatMassKg": 2.02,
+        "deltaLeanMassKg": 5.18
+      },
+      "errorPct": {
+        "deltaWeightKg": 47,
+        "deltaFatMassKg": 20,
+        "deltaLeanMassKg": 100
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 3362,
+          "intake": 2891,
+          "deficit": 471,
+          "smmKg": 40.207,
+          "bfmKg": 15.101
+        },
+        {
+          "week": 2,
+          "tdee": 3362,
+          "intake": 2894,
+          "deficit": 468,
+          "smmKg": 40.209,
+          "bfmKg": 14.704
+        },
+        {
+          "week": 3,
+          "tdee": 3362,
+          "intake": 2906,
+          "deficit": 456,
+          "smmKg": 40.211,
+          "bfmKg": 14.309
+        },
+        {
+          "week": 26,
+          "tdee": 3362,
+          "intake": 3126,
+          "deficit": 237,
+          "smmKg": 40.193,
+          "bfmKg": 7.42
+        }
+      ],
+      "inferredFields": [
+        "baselineFatMassKg",
+        "baselineLeanMassKg",
+        "deltaFatMassKg",
+        "deltaLeanMassKg",
+        "deficitKcalPerDay",
+        "deficitPctOfTdee",
+        "proteinGPerKgBW",
+        "resistanceTrainingDaysPerWeek"
+      ],
+      "notes": "Verified: 88.6 -> 73.3 kg, 17.5% -> 7.4% BF. Reviews quote 6.6 kg FFM loss (DXA lean soft tissue) vs my 5.2 kg derivation; use 5.2-6.6 as a range. 0.20-0.25 kg lean/wk for 26 wk at only ~14% deficit."
+    },
+    {
+      "id": "villareal2017-aerobic",
+      "groupLabel": "Aerobic exercise + weight management, 6 months",
+      "citation": "Villareal DT, et al. Aerobic or resistance exercise, or both, in dieting obese older adults. NEJM 2017;376(20):1943-1955.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "mixed",
+      "weeks": 26,
+      "n": 40,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 55,
+        "baselineSmmKg": 30.25,
+        "engineSex": "male",
+        "age": 70,
+        "heightCm": 175,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "light",
+        "mult": 1.375,
+        "impliedStudyTdee": 2177,
+        "engineTdeeAtBaseline": 2142,
+        "engineDerivedTdee": 2142,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 2177 kcal (= |-283| / 0.13); Katch BMR 1558 x PAL 1.375 = 2142 (off by 35 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 0.3556,
+        "studyTargetPct": 13,
+        "engineAchievedPct": 13,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": 0.417,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2.39,
+        "proteinPerFfmFromStudy": 1.76
+      },
+      "predicted": {
+        "deltaWeightKg": -6.88,
+        "deltaFatMassKg": -6.69,
+        "deltaLeanMassKg": 2.41,
+        "engineLeanLossPathKg": 0.73,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -6.17,
+        "deltaFatMassKg": -6.72,
+        "deltaLeanMassKg": 3.15
+      },
+      "actual": {
+        "deltaWeightKg": -9,
+        "deltaFatMassKg": -6.3,
+        "deltaLeanMassKg": -2.7
+      },
+      "error": {
+        "deltaWeightKg": 2.12,
+        "deltaFatMassKg": -0.39,
+        "deltaLeanMassKg": 5.11
+      },
+      "errorPct": {
+        "deltaWeightKg": 24,
+        "deltaFatMassKg": -6,
+        "deltaLeanMassKg": 189
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2142,
+          "intake": 1864,
+          "deficit": 279,
+          "smmKg": 30.303,
+          "bfmKg": 39.047
+        },
+        {
+          "week": 2,
+          "tdee": 2145,
+          "intake": 1866,
+          "deficit": 279,
+          "smmKg": 30.355,
+          "bfmKg": 38.793
+        },
+        {
+          "week": 3,
+          "tdee": 2148,
+          "intake": 1869,
+          "deficit": 279,
+          "smmKg": 30.408,
+          "bfmKg": 38.539
+        },
+        {
+          "week": 26,
+          "tdee": 2211,
+          "intake": 1924,
+          "deficit": 287,
+          "smmKg": 31.576,
+          "bfmKg": 32.61
+        }
+      ],
+      "inferredFields": [
+        "baselineFatMassKg (weight - reported lean 55.0 - assumed 2.6 kg bone)",
+        "deficit back-calculated",
+        "proteinGPerKgBW",
+        "cardio frequency",
+        "measurementMethod"
+      ],
+      "notes": "Weight 96.9 -> 87.9 and lean 55.0 -> 52.3 are BOTH directly reported. -0.189%/wk lean EXCEEDS the engine's 0.15%/wk hard cap, and the engine would not fire the path at all at a 13% deficit and 41% body fat."
+    },
+    {
+      "id": "villareal2017-combination",
+      "groupLabel": "Combined aerobic + resistance + weight management, 6 months",
+      "citation": "Villareal DT, et al. NEJM 2017;376(20):1943-1955.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "mixed",
+      "weeks": 26,
+      "n": 40,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 56.5,
+        "baselineSmmKg": 31.075,
+        "engineSex": "male",
+        "age": 70,
+        "heightCm": 175,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "light",
+        "mult": 1.375,
+        "impliedStudyTdee": 2246,
+        "engineTdeeAtBaseline": 2187,
+        "engineDerivedTdee": 2187,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 2246 kcal (= |-292| / 0.13); Katch BMR 1590 x PAL 1.375 = 2187 (off by 59 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 0.3556,
+        "studyTargetPct": 13,
+        "engineAchievedPct": 13,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": 0.417,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2.39,
+        "proteinPerFfmFromStudy": 1.75
+      },
+      "predicted": {
+        "deltaWeightKg": -7.07,
+        "deltaFatMassKg": -6.83,
+        "deltaLeanMassKg": 2.46,
+        "engineLeanLossPathKg": 0.75,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -6.34,
+        "deltaFatMassKg": -6.86,
+        "deltaLeanMassKg": 3.22
+      },
+      "actual": {
+        "deltaWeightKg": -8.5,
+        "deltaFatMassKg": -6.7,
+        "deltaLeanMassKg": -1.7
+      },
+      "error": {
+        "deltaWeightKg": 1.43,
+        "deltaFatMassKg": -0.13,
+        "deltaLeanMassKg": 4.16
+      },
+      "errorPct": {
+        "deltaWeightKg": 17,
+        "deltaFatMassKg": -2,
+        "deltaLeanMassKg": 245
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2187,
+          "intake": 1902,
+          "deficit": 284,
+          "smmKg": 31.129,
+          "bfmKg": 39.542
+        },
+        {
+          "week": 2,
+          "tdee": 2190,
+          "intake": 1905,
+          "deficit": 285,
+          "smmKg": 31.182,
+          "bfmKg": 39.283
+        },
+        {
+          "week": 3,
+          "tdee": 2193,
+          "intake": 1908,
+          "deficit": 285,
+          "smmKg": 31.236,
+          "bfmKg": 39.024
+        },
+        {
+          "week": 26,
+          "tdee": 2257,
+          "intake": 1964,
+          "deficit": 293,
+          "smmKg": 32.426,
+          "bfmKg": 32.971
+        }
+      ],
+      "inferredFields": [
+        "baselineFatMassKg",
+        "deltaFatMassKg",
+        "deficit back-calculated",
+        "proteinGPerKgBW",
+        "cardio frequency",
+        "measurementMethod"
+      ],
+      "notes": "Lean 56.5 -> 54.8 reported. Adding cardio ON TOP of RT made lean retention worse (20% vs 12%). The engine's cardioMin has zero effect on the simulation."
+    },
+    {
+      "id": "villareal2017-resistance",
+      "groupLabel": "Resistance exercise + weight management, 6 months",
+      "citation": "Villareal DT, et al. NEJM 2017;376(20):1943-1955.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "mixed",
+      "weeks": 26,
+      "n": 40,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 58.1,
+        "baselineSmmKg": 31.955,
+        "engineSex": "male",
+        "age": 70,
+        "heightCm": 175,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "light",
+        "mult": 1.375,
+        "impliedStudyTdee": 2214,
+        "engineTdeeAtBaseline": 2234,
+        "engineDerivedTdee": 2234,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 2214 kcal (= |-310| / 0.14); Katch BMR 1625 x PAL 1.375 = 2234 (off by 20 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 0.4,
+        "studyTargetPct": 14,
+        "engineAchievedPct": 14,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": 0.45,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2.44,
+        "proteinPerFfmFromStudy": 1.75
+      },
+      "predicted": {
+        "deltaWeightKg": -7.8,
+        "deltaFatMassKg": -7.51,
+        "deltaLeanMassKg": 2.52,
+        "engineLeanLossPathKg": 0.771,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -7.05,
+        "deltaFatMassKg": -7.55,
+        "deltaLeanMassKg": 3.3
+      },
+      "actual": {
+        "deltaWeightKg": -8.5,
+        "deltaFatMassKg": -7.4,
+        "deltaLeanMassKg": -1
+      },
+      "error": {
+        "deltaWeightKg": 0.7,
+        "deltaFatMassKg": -0.11,
+        "deltaLeanMassKg": 3.52
+      },
+      "errorPct": {
+        "deltaWeightKg": 8,
+        "deltaFatMassKg": -2,
+        "deltaLeanMassKg": 352
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2234,
+          "intake": 1922,
+          "deficit": 313,
+          "smmKg": 32.01,
+          "bfmKg": 40.616
+        },
+        {
+          "week": 2,
+          "tdee": 2237,
+          "intake": 1924,
+          "deficit": 313,
+          "smmKg": 32.065,
+          "bfmKg": 40.331
+        },
+        {
+          "week": 3,
+          "tdee": 2240,
+          "intake": 1927,
+          "deficit": 314,
+          "smmKg": 32.12,
+          "bfmKg": 40.046
+        },
+        {
+          "week": 26,
+          "tdee": 2306,
+          "intake": 1983,
+          "deficit": 323,
+          "smmKg": 33.34,
+          "bfmKg": 33.386
+        }
+      ],
+      "inferredFields": [
+        "baselineFatMassKg (101.8 - lean 58.1 - assumed 2.8 kg bone)",
+        "deltaFatMassKg (dWeight - dLean - assumed bone)",
+        "deficit back-calculated",
+        "proteinGPerKgBW",
+        "measurementMethod"
+      ],
+      "notes": "Weight 101.8 -> 93.3 and lean 58.1 -> 57.1 directly reported. RT held lean loss to 12% of weight lost vs 30% in the aerobic arm at an essentially identical deficit — the cleanest RT effect size in the set."
+    },
+    {
+      "id": "wycherley2010-pooled",
+      "groupLabel": "All four arms pooled (standard-CHO vs high-protein, each +/- RT 3 d/wk)",
+      "citation": "Wycherley TP, Noakes M, Clifton PM, Cleanthous X, Keogh JB, Brinkworth GD. A high-protein diet with resistance exercise training improves weight loss and body composition in overweight and obese patients with type 2 diabetes. Diabetes Care 2010;33(5):969-976.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "mixed",
+      "weeks": 16,
+      "n": 83,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 58,
+        "baselineSmmKg": 31.9,
+        "engineSex": "male",
+        "age": 56.1,
+        "heightCm": 175,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "light",
+        "mult": 1.375,
+        "impliedStudyTdee": 2250,
+        "engineTdeeAtBaseline": 2231,
+        "engineDerivedTdee": 2231,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 2250 kcal (= |-720| / 0.32); Katch BMR 1623 x PAL 1.375 = 2231 (off by 19 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 1,
+        "studyTargetPct": 32,
+        "engineAchievedPct": 27.5,
+        "clamped": true,
+        "clampNote": "study 32.0% is OUTSIDE the engine's deficitPct range [5.0%..27.5%]; clamped to 27.5% (the engine literally cannot run this study's prescription)",
+        "ratePctPerWeek": 0.9,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 3.1,
+        "proteinPerFfmFromStudy": 1.72
+      },
+      "predicted": {
+        "deltaWeightKg": -6.1,
+        "deltaFatMassKg": -6.51,
+        "deltaLeanMassKg": 0.41,
+        "engineLeanLossPathKg": 0.466,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": true
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -5.65,
+        "deltaFatMassKg": -6.53,
+        "deltaLeanMassKg": 0.87
+      },
+      "actual": {
+        "deltaWeightKg": -11.9,
+        "deltaFatMassKg": -10,
+        "deltaLeanMassKg": -1.9
+      },
+      "error": {
+        "deltaWeightKg": 5.8,
+        "deltaFatMassKg": 3.49,
+        "deltaLeanMassKg": 2.31
+      },
+      "errorPct": {
+        "deltaWeightKg": 49,
+        "deltaFatMassKg": 35,
+        "deltaLeanMassKg": 121
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2231,
+          "intake": 1785,
+          "deficit": 446,
+          "smmKg": 31.915,
+          "bfmKg": 41.594
+        },
+        {
+          "week": 2,
+          "tdee": 2232,
+          "intake": 1786,
+          "deficit": 446,
+          "smmKg": 31.93,
+          "bfmKg": 41.189
+        },
+        {
+          "week": 3,
+          "tdee": 2233,
+          "intake": 1786,
+          "deficit": 447,
+          "smmKg": 31.944,
+          "bfmKg": 40.782
+        },
+        {
+          "week": 16,
+          "tdee": 2243,
+          "intake": 1794,
+          "deficit": 449,
+          "smmKg": 32.123,
+          "bfmKg": 35.492
+        }
+      ],
+      "inferredFields": [
+        "baselines derived from reported BMI 35.4 at assumed 1.68 m — NOT reported values",
+        "proteinGPerKgBW pooled across arms",
+        "deficit derived from the 6-7 MJ/d prescription vs estimated TDEE ~2270",
+        "resistanceTrainingDaysPerWeek applies to only half the pooled cohort",
+        "measurementMethod",
+        "ATTRIBUTION CAVEAT: the -11.9/-10.0/-1.9 triple may come from the Diabetes Obes Metab companion paper"
+      ],
+      "notes": "84% of the 11.9 kg lost was fat. -0.205%/wk of FFM, again above the engine's 0.15%/wk hard cap."
+    },
+    {
+      "id": "campbell2018-highprotein",
+      "groupLabel": "High protein (HP, 2.5 g/kg/d)",
+      "citation": "Campbell BI, et al. Effects of High Versus Low Protein Intake on Body Composition and Maximal Strength in Aspiring Female Physique Athletes. Int J Sport Nutr Exerc Metab. 2018;28(6):580-585.",
+      "sweep": "cut-athletes",
+      "direction": "recomp",
+      "trainingStatus": "intermediate",
+      "sex": "female",
+      "weeks": 8,
+      "n": 9,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 47.1,
+        "baselineSmmKg": 25.905,
+        "engineSex": "female",
+        "age": 30,
+        "heightCm": 163,
+        "trainingAge": "intermediate"
+      },
+      "pal": {
+        "activityLevel": "active",
+        "mult": 1.725,
+        "impliedStudyTdee": null,
+        "engineTdeeAtBaseline": 2393,
+        "engineDerivedTdee": 2393,
+        "matchedToStudy": false,
+        "reason": "no implied TDEE (deficitKcalPerDay missing or zero); fallback from training load (4 RT d/wk, cardio=no) -> PAL 1.725, engine TDEE 2393 kcal"
+      },
+      "aggressiveness": {
+        "phase": "maintain",
+        "a": 0,
+        "studyTargetPct": 0,
+        "engineAchievedPct": 5,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": 0.15,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2,
+        "proteinPerFfmFromStudy": 3.25
+      },
+      "predicted": {
+        "deltaWeightKg": 0.21,
+        "deltaFatMassKg": 0,
+        "deltaLeanMassKg": 0.21,
+        "engineLeanLossPathKg": 0,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": 0.21,
+        "deltaFatMassKg": 0,
+        "deltaLeanMassKg": 0.21
+      },
+      "actual": {
+        "deltaWeightKg": 1,
+        "deltaFatMassKg": -1.1,
+        "deltaLeanMassKg": 2.1
+      },
+      "error": {
+        "deltaWeightKg": -0.79,
+        "deltaFatMassKg": 1.1,
+        "deltaLeanMassKg": -1.89
+      },
+      "errorPct": {
+        "deltaWeightKg": -79,
+        "deltaFatMassKg": 100,
+        "deltaLeanMassKg": -90
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2393,
+          "intake": 2393,
+          "deficit": 0,
+          "smmKg": 25.92,
+          "bfmKg": 14.1
+        },
+        {
+          "week": 2,
+          "tdee": 2394,
+          "intake": 2394,
+          "deficit": 0,
+          "smmKg": 25.934,
+          "bfmKg": 14.1
+        },
+        {
+          "week": 3,
+          "tdee": 2395,
+          "intake": 2395,
+          "deficit": 0,
+          "smmKg": 25.949,
+          "bfmKg": 14.1
+        },
+        {
+          "week": 8,
+          "tdee": 2400,
+          "intake": 2400,
+          "deficit": 0,
+          "smmKg": 26.021,
+          "bfmKg": 14.1
+        }
+      ],
+      "inferredFields": [
+        "baselineWeightKg",
+        "deltaWeightKg",
+        "resistanceTrainingDaysPerWeek",
+        "n",
+        "deficitPctOfTdee"
+      ],
+      "notes": "Verified kg: FFM 47.1 -> 49.2, FM 14.1 -> 13.0. Erratum PMID 36626613 not read. Maintenance/recomp arm: +2.1 kg FFM in 8 wk in an intermediate FEMALE vs the engine's ~0.026 kg SMM/wk ceiling."
+    },
+    {
+      "id": "antonio2014-hp",
+      "groupLabel": "High protein (HP) — 4.4 g/kg/d added to habitual diet (n=20)",
+      "citation": "Antonio J, et al. JISSN 2014;11:19.",
+      "sweep": "bulk",
+      "direction": "bulk",
+      "trainingStatus": "advanced",
+      "sex": "mixed",
+      "weeks": 8,
+      "n": 20,
+      "measurementMethod": "BodPod (ADP, Siri equation)",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 59.5,
+        "baselineSmmKg": 32.725,
+        "engineSex": "male",
+        "age": 25.2,
+        "heightCm": 170,
+        "trainingAge": "advanced"
+      },
+      "pal": {
+        "activityLevel": "sedentary",
+        "mult": 1.2,
+        "impliedStudyTdee": 2033,
+        "engineTdeeAtBaseline": 1986,
+        "engineDerivedTdee": 1986,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 2033 kcal (= |-793| / 0.39); Katch BMR 1655 x PAL 1.2 = 1986 (off by 47 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "bulk",
+        "a": 1,
+        "studyTargetPct": 39,
+        "engineAchievedPct": 17.5,
+        "clamped": true,
+        "clampNote": "study 39.0% is OUTSIDE the engine's surplusPct range [4.0%..17.5%]; clamped to 17.5% (the engine literally cannot run this study's prescription)",
+        "ratePctPerWeek": null,
+        "leanFraction": 0.4,
+        "proteinPerFfmFromA": 2.2,
+        "proteinPerFfmFromStudy": 5.31
+      },
+      "predicted": {
+        "deltaWeightKg": 1.25,
+        "deltaFatMassKg": 0.75,
+        "deltaLeanMassKg": 0.5,
+        "engineLeanLossPathKg": 0,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": 1.25,
+        "deltaFatMassKg": 0.75,
+        "deltaLeanMassKg": 0.5
+      },
+      "actual": {
+        "deltaWeightKg": 1.7,
+        "deltaFatMassKg": -0.2,
+        "deltaLeanMassKg": 1.9
+      },
+      "error": {
+        "deltaWeightKg": -0.45,
+        "deltaFatMassKg": 0.95,
+        "deltaLeanMassKg": -1.4
+      },
+      "errorPct": {
+        "deltaWeightKg": -27,
+        "deltaFatMassKg": 475,
+        "deltaLeanMassKg": -74
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 1986,
+          "intake": 2334,
+          "deficit": -348,
+          "smmKg": 32.759,
+          "bfmKg": 12.393
+        },
+        {
+          "week": 2,
+          "tdee": 1988,
+          "intake": 2336,
+          "deficit": -348,
+          "smmKg": 32.793,
+          "bfmKg": 12.486
+        },
+        {
+          "week": 3,
+          "tdee": 1989,
+          "intake": 2338,
+          "deficit": -348,
+          "smmKg": 32.827,
+          "bfmKg": 12.579
+        },
+        {
+          "week": 8,
+          "tdee": 1998,
+          "intake": 2347,
+          "deficit": -350,
+          "smmKg": 33,
+          "bfmKg": 13.049
+        }
+      ],
+      "inferredFields": [
+        "resistanceTrainingDaysPerWeek",
+        "deficitPctOfTdee"
+      ],
+      "notes": "+800 kcal/d for 8 wk, all from protein, produced no significant change in anything. Implied lean fraction of weight gained > 1 (fat fell while weight rose). The -0.39 surplus is relative to an implausibly low self-reported 2042 kcal baseline."
+    },
+    {
+      "id": "antonio2016-np",
+      "groupLabel": "Normal-protein condition (8-week period of a 16-week crossover), n=12 men",
+      "citation": "Antonio J, Ellerbroek A, Silver T, Vargas L, Peacock C. The effects of a high protein diet on indices of health and body composition - a crossover trial in resistance-trained men. JISSN 2016;13:3.",
+      "sweep": "bulk",
+      "direction": "bulk",
+      "trainingStatus": "advanced",
+      "sex": "male",
+      "weeks": 8,
+      "n": 12,
+      "measurementMethod": "BodPod (ADP)",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 73.17,
+        "baselineSmmKg": 40.244,
+        "engineSex": "male",
+        "age": 25.9,
+        "heightCm": 178,
+        "trainingAge": "advanced"
+      },
+      "pal": {
+        "activityLevel": "sedentary",
+        "mult": 1.2,
+        "impliedStudyTdee": 2455,
+        "engineTdeeAtBaseline": 2341,
+        "engineDerivedTdee": 2341,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 2455 kcal (= |-81| / 0.033); Katch BMR 1950 x PAL 1.2 = 2341 (off by 114 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "bulk",
+        "a": 0,
+        "studyTargetPct": 3.3,
+        "engineAchievedPct": 4,
+        "clamped": true,
+        "clampNote": "study 3.3% is OUTSIDE the engine's surplusPct range [4.0%..17.5%]; clamped to 4.0% (the engine literally cannot run this study's prescription)",
+        "ratePctPerWeek": null,
+        "leanFraction": 0.75,
+        "proteinPerFfmFromA": 1.9,
+        "proteinPerFfmFromStudy": 3.03
+      },
+      "predicted": {
+        "deltaWeightKg": 0.79,
+        "deltaFatMassKg": 0.2,
+        "deltaLeanMassKg": 0.59,
+        "engineLeanLossPathKg": 0,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": 0.79,
+        "deltaFatMassKg": 0.2,
+        "deltaLeanMassKg": 0.59
+      },
+      "actual": {
+        "deltaWeightKg": -0.81,
+        "deltaFatMassKg": -0.03,
+        "deltaLeanMassKg": -0.78
+      },
+      "error": {
+        "deltaWeightKg": 1.6,
+        "deltaFatMassKg": 0.23,
+        "deltaLeanMassKg": 1.37
+      },
+      "errorPct": {
+        "deltaWeightKg": 197,
+        "deltaFatMassKg": 757,
+        "deltaLeanMassKg": 176
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2341,
+          "intake": 2434,
+          "deficit": -94,
+          "smmKg": 40.284,
+          "bfmKg": 12.095
+        },
+        {
+          "week": 2,
+          "tdee": 2342,
+          "intake": 2436,
+          "deficit": -94,
+          "smmKg": 40.324,
+          "bfmKg": 12.119
+        },
+        {
+          "week": 3,
+          "tdee": 2344,
+          "intake": 2438,
+          "deficit": -94,
+          "smmKg": 40.365,
+          "bfmKg": 12.144
+        },
+        {
+          "week": 8,
+          "tdee": 2354,
+          "intake": 2448,
+          "deficit": -94,
+          "smmKg": 40.569,
+          "bfmKg": 12.267
+        }
+      ],
+      "inferredFields": [
+        "resistanceTrainingDaysPerWeek",
+        "deltaWeightKg",
+        "deltaFatMassKg",
+        "deltaLeanMassKg (crossover condition means minus baseline, computed by me)",
+        "deficitPctOfTdee",
+        "deficitKcalPerDay"
+      ],
+      "notes": "Crossover: the paper reports condition means, not within-condition deltas, so order effects are not separable from treatment effects. deficitPctOfTdee is relative to self-reported baseline intake."
+    },
+    {
+      "id": "antonio2014-con",
+      "groupLabel": "Control (CON) — maintain habitual diet and training (n=10)",
+      "citation": "Antonio J, Peacock CA, Ellerbroek A, Fromhoff B, Silver T. The effects of consuming a high protein diet (4.4 g/kg/d) on body composition in resistance-trained individuals. JISSN 2014;11:19.",
+      "sweep": "bulk",
+      "direction": "cut",
+      "trainingStatus": "advanced",
+      "sex": "mixed",
+      "weeks": 8,
+      "n": 10,
+      "measurementMethod": "BodPod (ADP, Siri equation, estimated thoracic gas volume)",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 65.2,
+        "baselineSmmKg": 35.86,
+        "engineSex": "male",
+        "age": 22,
+        "heightCm": 174.3,
+        "trainingAge": "advanced"
+      },
+      "pal": {
+        "activityLevel": "sedentary",
+        "mult": 1.2,
+        "impliedStudyTdee": 2209,
+        "engineTdeeAtBaseline": 2134,
+        "engineDerivedTdee": 2134,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 2209 kcal (= |243| / 0.11); Katch BMR 1778 x PAL 1.2 = 2134 (off by 75 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 0.2667,
+        "studyTargetPct": 11,
+        "engineAchievedPct": 11,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": 0.35,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2.29,
+        "proteinPerFfmFromStudy": 2.11
+      },
+      "predicted": {
+        "deltaWeightKg": -1.22,
+        "deltaFatMassKg": -1.29,
+        "deltaLeanMassKg": 0.08,
+        "engineLeanLossPathKg": 0,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": true
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -1.22,
+        "deltaFatMassKg": -1.29,
+        "deltaLeanMassKg": 0.08
+      },
+      "actual": {
+        "deltaWeightKg": 0.8,
+        "deltaFatMassKg": 0.3,
+        "deltaLeanMassKg": 1.3
+      },
+      "error": {
+        "deltaWeightKg": -2.02,
+        "deltaFatMassKg": -1.59,
+        "deltaLeanMassKg": -1.22
+      },
+      "errorPct": {
+        "deltaWeightKg": -252,
+        "deltaFatMassKg": -531,
+        "deltaLeanMassKg": -94
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2134,
+          "intake": 1956,
+          "deficit": 178,
+          "smmKg": 35.865,
+          "bfmKg": 11.038
+        },
+        {
+          "week": 2,
+          "tdee": 2134,
+          "intake": 1956,
+          "deficit": 178,
+          "smmKg": 35.871,
+          "bfmKg": 10.876
+        },
+        {
+          "week": 3,
+          "tdee": 2134,
+          "intake": 1957,
+          "deficit": 177,
+          "smmKg": 35.876,
+          "bfmKg": 10.715
+        },
+        {
+          "week": 8,
+          "tdee": 2136,
+          "intake": 1958,
+          "deficit": 178,
+          "smmKg": 35.903,
+          "bfmKg": 9.906
+        }
+      ],
+      "inferredFields": [
+        "resistanceTrainingDaysPerWeek (0 = NOT REPORTED, not 'no training')",
+        "deficitPctOfTdee",
+        "deficitKcalPerDay"
+      ],
+      "notes": "Nothing reached significance. Reported intake FELL 243 kcal/d yet FFM rose 1.3 kg — deficitPctOfTdee is from self-reported intake change, not a measured TDEE."
+    },
+    {
+      "id": "garthe2011-slow",
+      "groupLabel": "Slow reduction (SR), 0.7% body weight/week target",
+      "citation": "Garthe I, Raastad T, Refsnes PE, Koivisto A, Sundgot-Borgen J. Effect of Two Different Weight-Loss Rates on Body Composition and Strength and Power-Related Performance in Elite Athletes. Int J Sport Nutr Exerc Metab. 2011;21(2):97-104.",
+      "sweep": "cut-athletes",
+      "direction": "cut",
+      "trainingStatus": "elite",
+      "sex": "mixed",
+      "weeks": 8.5,
+      "n": 13,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 55.2,
+        "baselineSmmKg": 30.36,
+        "engineSex": "male",
+        "age": 24,
+        "heightCm": 175,
+        "trainingAge": "elite"
+      },
+      "pal": {
+        "activityLevel": "veryActive",
+        "mult": 1.9,
+        "impliedStudyTdee": 3368,
+        "engineTdeeAtBaseline": 2968,
+        "engineDerivedTdee": 2968,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 3368 kcal (= |-640| / 0.19); Katch BMR 1562 x PAL 1.9 = 2968 (off by 400 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 0.6222,
+        "studyTargetPct": 19,
+        "engineAchievedPct": 19,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": 0.617,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2.68,
+        "proteinPerFfmFromStudy": 2.08
+      },
+      "predicted": {
+        "deltaWeightKg": -3.55,
+        "deltaFatMassKg": -3.56,
+        "deltaLeanMassKg": 0.01,
+        "engineLeanLossPathKg": 0,
+        "mobilizationCapHit": true,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -3.55,
+        "deltaFatMassKg": -3.56,
+        "deltaLeanMassKg": 0.01
+      },
+      "actual": {
+        "deltaWeightKg": -4.03,
+        "deltaFatMassKg": -5.19,
+        "deltaLeanMassKg": 1.16
+      },
+      "error": {
+        "deltaWeightKg": 0.48,
+        "deltaFatMassKg": 1.63,
+        "deltaLeanMassKg": -1.15
+      },
+      "errorPct": {
+        "deltaWeightKg": 12,
+        "deltaFatMassKg": 31,
+        "deltaLeanMassKg": -99
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2968,
+          "intake": 2451,
+          "deficit": 518,
+          "smmKg": 30.36,
+          "bfmKg": 16.257
+        },
+        {
+          "week": 2,
+          "tdee": 2968,
+          "intake": 2464,
+          "deficit": 504,
+          "smmKg": 30.36,
+          "bfmKg": 15.816
+        },
+        {
+          "week": 3,
+          "tdee": 2968,
+          "intake": 2478,
+          "deficit": 490,
+          "smmKg": 30.36,
+          "bfmKg": 15.378
+        },
+        {
+          "week": 8,
+          "tdee": 2969,
+          "intake": 2543,
+          "deficit": 425,
+          "smmKg": 30.363,
+          "bfmKg": 13.33
+        },
+        {
+          "week": 8.5,
+          "partial": 0.5,
+          "tdee": 2969,
+          "intake": 2555,
+          "deficit": 413,
+          "smmKg": 30.364,
+          "bfmKg": 13.142
+        }
+      ],
+      "inferredFields": [
+        "baselineFatMassKg",
+        "baselineLeanMassKg",
+        "deltaWeightKg",
+        "deltaFatMassKg",
+        "deltaLeanMassKg",
+        "deficitKcalPerDay",
+        "ageYears"
+      ],
+      "notes": "Abstract reports only percent changes (BW -5.6%, FM -31%, LBM +2.1%); kg values solved algebraically from those plus baseline weight 71.9 kg. Elite athletes GAINED 1.16 kg lean in a sustained ~19% deficit; engine's MUSCLE_SITUATION gives elite=0.00 above a 15% deficit, so it predicts exactly zero lean gain."
+    },
+    {
+      "id": "longland2016-highprotein",
+      "groupLabel": "High protein 2.4 g/kg/d + 40% deficit + 6 d/wk training",
+      "citation": "Longland TM, Oikawa SY, Mitchell CJ, Devries MC, Phillips SM. Higher compared with lower dietary protein during an energy deficit combined with intense exercise promotes greater lean mass gain and fat mass loss. AJCN 2016;103(3):738-746.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "male",
+      "weeks": 4,
+      "n": 20,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 71.9,
+        "baselineSmmKg": 39.545,
+        "engineSex": "male",
+        "age": 23,
+        "heightCm": 184,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "active",
+        "mult": 1.725,
+        "impliedStudyTdee": 3375,
+        "engineTdeeAtBaseline": 3317,
+        "engineDerivedTdee": 3317,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 3375 kcal (= |-1350| / 0.4); Katch BMR 1923 x PAL 1.725 = 3317 (off by 58 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 1,
+        "studyTargetPct": 40,
+        "engineAchievedPct": 27.5,
+        "clamped": true,
+        "clampNote": "study 40.0% is OUTSIDE the engine's deficitPct range [5.0%..27.5%]; clamped to 27.5% (the engine literally cannot run this study's prescription)",
+        "ratePctPerWeek": 0.9,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 3.1,
+        "proteinPerFfmFromStudy": 3.25
+      },
+      "predicted": {
+        "deltaWeightKg": -2.5,
+        "deltaFatMassKg": -2.76,
+        "deltaLeanMassKg": 0.25,
+        "engineLeanLossPathKg": 0.081,
+        "mobilizationCapHit": true,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -2.5,
+        "deltaFatMassKg": -2.76,
+        "deltaLeanMassKg": 0.25
+      },
+      "actual": {
+        "deltaWeightKg": -3.6,
+        "deltaFatMassKg": -4.8,
+        "deltaLeanMassKg": 1.2
+      },
+      "error": {
+        "deltaWeightKg": 1.1,
+        "deltaFatMassKg": 2.04,
+        "deltaLeanMassKg": -0.95
+      },
+      "errorPct": {
+        "deltaWeightKg": 30,
+        "deltaFatMassKg": 43,
+        "deltaLeanMassKg": -79
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 3317,
+          "intake": 2527,
+          "deficit": 791,
+          "smmKg": 39.576,
+          "bfmKg": 24.781
+        },
+        {
+          "week": 2,
+          "tdee": 3319,
+          "intake": 2551,
+          "deficit": 768,
+          "smmKg": 39.61,
+          "bfmKg": 24.083
+        },
+        {
+          "week": 3,
+          "tdee": 3322,
+          "intake": 2575,
+          "deficit": 747,
+          "smmKg": 39.645,
+          "bfmKg": 23.404
+        },
+        {
+          "week": 4,
+          "tdee": 3324,
+          "intake": 2599,
+          "deficit": 726,
+          "smmKg": 39.683,
+          "bfmKg": 22.745
+        }
+      ],
+      "inferredFields": [
+        "baselineFatMassKg / baselineLeanMassKg (my ~26% BF split of the reported 97.4 kg, NOT reported)",
+        "deltaWeightKg (= dFat + dLean)",
+        "deficitKcalPerDay",
+        "resistanceTrainingDaysPerWeek (total training days)"
+      ],
+      "notes": "Hardest single case: untrained overweight young men GAINED 1.2 kg DXA lean in 4 weeks at a 40% deficit. Engine gives novice x0.30 above a 15% deficit AND fires leanLossPerWeek() above 20%, netting roughly +0.17 kg."
+    },
+    {
+      "id": "antonio2016-hp",
+      "groupLabel": "High-protein condition >3 g/kg/d (8-week period of a 16-week crossover), n=12 men",
+      "citation": "Antonio J, et al. JISSN 2016;13:3.",
+      "sweep": "bulk",
+      "direction": "bulk",
+      "trainingStatus": "advanced",
+      "sex": "male",
+      "weeks": 8,
+      "n": 12,
+      "measurementMethod": "BodPod (ADP)",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 73.17,
+        "baselineSmmKg": 40.244,
+        "engineSex": "male",
+        "age": 25.9,
+        "heightCm": 178,
+        "trainingAge": "advanced"
+      },
+      "pal": {
+        "activityLevel": "sedentary",
+        "mult": 1.2,
+        "impliedStudyTdee": 2459,
+        "engineTdeeAtBaseline": 2341,
+        "engineDerivedTdee": 2341,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 2459 kcal (= |-450| / 0.183); Katch BMR 1950 x PAL 1.2 = 2341 (off by 118 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "bulk",
+        "a": 1,
+        "studyTargetPct": 18.3,
+        "engineAchievedPct": 17.5,
+        "clamped": true,
+        "clampNote": "study 18.3% is OUTSIDE the engine's surplusPct range [4.0%..17.5%]; clamped to 17.5% (the engine literally cannot run this study's prescription)",
+        "ratePctPerWeek": null,
+        "leanFraction": 0.4,
+        "proteinPerFfmFromA": 2.2,
+        "proteinPerFfmFromStudy": 3.84
+      },
+      "predicted": {
+        "deltaWeightKg": 1.48,
+        "deltaFatMassKg": 0.89,
+        "deltaLeanMassKg": 0.59,
+        "engineLeanLossPathKg": 0,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": 1.48,
+        "deltaFatMassKg": 0.89,
+        "deltaLeanMassKg": 0.59
+      },
+      "actual": {
+        "deltaWeightKg": -1.26,
+        "deltaFatMassKg": -1.1,
+        "deltaLeanMassKg": -0.17
+      },
+      "error": {
+        "deltaWeightKg": 2.74,
+        "deltaFatMassKg": 1.99,
+        "deltaLeanMassKg": 0.76
+      },
+      "errorPct": {
+        "deltaWeightKg": 218,
+        "deltaFatMassKg": 181,
+        "deltaLeanMassKg": 449
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2341,
+          "intake": 2750,
+          "deficit": -410,
+          "smmKg": 40.284,
+          "bfmKg": 12.18
+        },
+        {
+          "week": 2,
+          "tdee": 2342,
+          "intake": 2752,
+          "deficit": -410,
+          "smmKg": 40.325,
+          "bfmKg": 12.291
+        },
+        {
+          "week": 3,
+          "tdee": 2344,
+          "intake": 2755,
+          "deficit": -410,
+          "smmKg": 40.365,
+          "bfmKg": 12.402
+        },
+        {
+          "week": 8,
+          "tdee": 2354,
+          "intake": 2766,
+          "deficit": -412,
+          "smmKg": 40.57,
+          "bfmKg": 12.96
+        }
+      ],
+      "inferredFields": [
+        "resistanceTrainingDaysPerWeek",
+        "deltaWeightKg",
+        "deltaFatMassKg",
+        "deltaLeanMassKg (computed by me from crossover condition means)",
+        "deficitPctOfTdee",
+        "deficitKcalPerDay"
+      ],
+      "notes": "Eating ~450 kcal/d MORE than baseline for 8 weeks produced a LOWER body weight and lower fat mass with unchanged FFM. No differences reached significance. Direct evidence against a naive kcal-in/kcal-out fat-gain model for high-protein surpluses, but self-reported intake is the weak link."
+    },
+    {
+      "id": "campbell2018-lowprotein",
+      "groupLabel": "Low protein (LP, 0.9 g/kg/d)",
+      "citation": "Campbell BI, et al. Int J Sport Nutr Exerc Metab. 2018;28(6):580-585.",
+      "sweep": "cut-athletes",
+      "direction": "recomp",
+      "trainingStatus": "intermediate",
+      "sex": "female",
+      "weeks": 8,
+      "n": 8,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 48.1,
+        "baselineSmmKg": 26.455,
+        "engineSex": "female",
+        "age": 30,
+        "heightCm": 163,
+        "trainingAge": "intermediate"
+      },
+      "pal": {
+        "activityLevel": "active",
+        "mult": 1.725,
+        "impliedStudyTdee": null,
+        "engineTdeeAtBaseline": 2430,
+        "engineDerivedTdee": 2430,
+        "matchedToStudy": false,
+        "reason": "no implied TDEE (deficitKcalPerDay missing or zero); fallback from training load (4 RT d/wk, cardio=no) -> PAL 1.725, engine TDEE 2430 kcal"
+      },
+      "aggressiveness": {
+        "phase": "maintain",
+        "a": 0,
+        "studyTargetPct": 0,
+        "engineAchievedPct": 5,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": 0.15,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2,
+        "proteinPerFfmFromStudy": 1.15
+      },
+      "predicted": {
+        "deltaWeightKg": 0.21,
+        "deltaFatMassKg": 0,
+        "deltaLeanMassKg": 0.21,
+        "engineLeanLossPathKg": 0,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": 0.21,
+        "deltaFatMassKg": 0,
+        "deltaLeanMassKg": 0.21
+      },
+      "actual": {
+        "deltaWeightKg": -0.1,
+        "deltaFatMassKg": -0.7,
+        "deltaLeanMassKg": 0.6
+      },
+      "error": {
+        "deltaWeightKg": 0.31,
+        "deltaFatMassKg": 0.7,
+        "deltaLeanMassKg": -0.39
+      },
+      "errorPct": {
+        "deltaWeightKg": 312,
+        "deltaFatMassKg": 100,
+        "deltaLeanMassKg": -65
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2430,
+          "intake": 2430,
+          "deficit": 0,
+          "smmKg": 26.47,
+          "bfmKg": 13.2
+        },
+        {
+          "week": 2,
+          "tdee": 2431,
+          "intake": 2431,
+          "deficit": 0,
+          "smmKg": 26.484,
+          "bfmKg": 13.2
+        },
+        {
+          "week": 3,
+          "tdee": 2432,
+          "intake": 2432,
+          "deficit": 0,
+          "smmKg": 26.499,
+          "bfmKg": 13.2
+        },
+        {
+          "week": 8,
+          "tdee": 2437,
+          "intake": 2437,
+          "deficit": 0,
+          "smmKg": 26.572,
+          "bfmKg": 13.2
+        }
+      ],
+      "inferredFields": [
+        "baselineWeightKg",
+        "deltaWeightKg",
+        "resistanceTrainingDaysPerWeek",
+        "n",
+        "deficitPctOfTdee"
+      ],
+      "notes": "FFM 48.1 -> 48.7, FM 13.2 -> 12.5. At ~1.15 g/kg FFM, far below the engine's 2.0 lean-loss threshold, these women still GAINED FFM at maintenance. The engine's low-protein clause is an absolute-loss path; reality is a blunted gain."
+    },
+    {
+      "id": "hatamoto2024-p10",
+      "groupLabel": "P group — +10% energy surplus from protein alone (ITT, n=12)",
+      "citation": "Hatamoto Y, et al. Greater energy surplus promotes body protein accretion in healthy young men: A randomized clinical trial. Clinical Nutrition 2024;43:48-60.",
+      "sweep": "bulk",
+      "direction": "bulk",
+      "trainingStatus": "novice",
+      "sex": "male",
+      "weeks": 6,
+      "n": 12,
+      "measurementMethod": "4-compartment model (DXA + DLW dilution + hydrostatic weighing)",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 51.31,
+        "baselineSmmKg": 28.221,
+        "engineSex": "male",
+        "age": 21.6,
+        "heightCm": 173.2,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "moderate",
+        "mult": 1.55,
+        "impliedStudyTdee": null,
+        "engineTdeeAtBaseline": 2291,
+        "engineDerivedTdee": 2291,
+        "matchedToStudy": false,
+        "reason": "no implied TDEE (deficitKcalPerDay missing or zero); fallback from training load (0 RT d/wk, cardio=no) -> PAL 1.55, engine TDEE 2291 kcal"
+      },
+      "aggressiveness": {
+        "phase": "bulk",
+        "a": 0.4444,
+        "studyTargetPct": 10,
+        "engineAchievedPct": 10,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": null,
+        "leanFraction": 0.594,
+        "proteinPerFfmFromA": 2.03,
+        "proteinPerFfmFromStudy": 2.8
+      },
+      "predicted": {
+        "deltaWeightKg": 1.83,
+        "deltaFatMassKg": 0.74,
+        "deltaLeanMassKg": 1.09,
+        "engineLeanLossPathKg": 0,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": 1.83,
+        "deltaFatMassKg": 0.74,
+        "deltaLeanMassKg": 1.09
+      },
+      "actual": {
+        "deltaWeightKg": 0.88,
+        "deltaFatMassKg": 0.14,
+        "deltaLeanMassKg": 0.73
+      },
+      "error": {
+        "deltaWeightKg": 0.95,
+        "deltaFatMassKg": 0.6,
+        "deltaLeanMassKg": 0.36
+      },
+      "errorPct": {
+        "deltaWeightKg": 108,
+        "deltaFatMassKg": 431,
+        "deltaLeanMassKg": 49
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2291,
+          "intake": 2520,
+          "deficit": -229,
+          "smmKg": 28.319,
+          "bfmKg": 11.192
+        },
+        {
+          "week": 2,
+          "tdee": 2297,
+          "intake": 2527,
+          "deficit": -230,
+          "smmKg": 28.418,
+          "bfmKg": 11.315
+        },
+        {
+          "week": 3,
+          "tdee": 2303,
+          "intake": 2534,
+          "deficit": -230,
+          "smmKg": 28.518,
+          "bfmKg": 11.439
+        },
+        {
+          "week": 6,
+          "tdee": 2322,
+          "intake": 2554,
+          "deficit": -232,
+          "smmKg": 28.82,
+          "bfmKg": 11.814
+        }
+      ],
+      "inferredFields": [
+        "deficitKcalPerDay"
+      ],
+      "notes": "NO RESISTANCE TRAINING — a pure overfeeding trial that bounds what a surplus alone does. Total body protein mass change was 0.00 +/- 0.61 kg, so the FFM gain was water/glycogen. Implied lean fraction 0.83."
+    },
+    {
+      "id": "hatamoto2024-pe40",
+      "groupLabel": "PE group — +40% energy surplus (+10% protein, +30% CHO) (ITT, n=11)",
+      "citation": "Hatamoto Y, et al. Clinical Nutrition 2024;43:48-60.",
+      "sweep": "bulk",
+      "direction": "bulk",
+      "trainingStatus": "novice",
+      "sex": "male",
+      "weeks": 6,
+      "n": 11,
+      "measurementMethod": "4-compartment model (DXA + DLW dilution + hydrostatic weighing)",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 52.94,
+        "baselineSmmKg": 29.117,
+        "engineSex": "male",
+        "age": 21.4,
+        "heightCm": 171.9,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "moderate",
+        "mult": 1.55,
+        "impliedStudyTdee": null,
+        "engineTdeeAtBaseline": 2346,
+        "engineDerivedTdee": 2346,
+        "matchedToStudy": false,
+        "reason": "no implied TDEE (deficitKcalPerDay missing or zero); fallback from training load (0 RT d/wk, cardio=no) -> PAL 1.55, engine TDEE 2346 kcal"
+      },
+      "aggressiveness": {
+        "phase": "bulk",
+        "a": 1,
+        "studyTargetPct": 40,
+        "engineAchievedPct": 17.5,
+        "clamped": true,
+        "clampNote": "study 40.0% is OUTSIDE the engine's surplusPct range [4.0%..17.5%]; clamped to 17.5% (the engine literally cannot run this study's prescription)",
+        "ratePctPerWeek": null,
+        "leanFraction": 0.4,
+        "proteinPerFfmFromA": 2.2,
+        "proteinPerFfmFromStudy": 2.68
+      },
+      "predicted": {
+        "deltaWeightKg": 2.83,
+        "deltaFatMassKg": 1.7,
+        "deltaLeanMassKg": 1.13,
+        "engineLeanLossPathKg": 0,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": 2.83,
+        "deltaFatMassKg": 1.7,
+        "deltaLeanMassKg": 1.13
+      },
+      "actual": {
+        "deltaWeightKg": 2.45,
+        "deltaFatMassKg": 1.14,
+        "deltaLeanMassKg": 1.31
+      },
+      "error": {
+        "deltaWeightKg": 0.38,
+        "deltaFatMassKg": 0.56,
+        "deltaLeanMassKg": -0.18
+      },
+      "errorPct": {
+        "deltaWeightKg": 16,
+        "deltaFatMassKg": 49,
+        "deltaLeanMassKg": -13
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2346,
+          "intake": 2756,
+          "deficit": -411,
+          "smmKg": 29.219,
+          "bfmKg": 11.828
+        },
+        {
+          "week": 2,
+          "tdee": 2352,
+          "intake": 2764,
+          "deficit": -412,
+          "smmKg": 29.322,
+          "bfmKg": 12.109
+        },
+        {
+          "week": 3,
+          "tdee": 2358,
+          "intake": 2771,
+          "deficit": -413,
+          "smmKg": 29.425,
+          "bfmKg": 12.391
+        },
+        {
+          "week": 6,
+          "tdee": 2377,
+          "intake": 2793,
+          "deficit": -416,
+          "smmKg": 29.74,
+          "bfmKg": 13.25
+        }
+      ],
+      "inferredFields": [
+        "deficitKcalPerDay"
+      ],
+      "notes": "Protein mass +0.44 +/- 0.34 kg (p=0.003). Implied lean fraction 0.53. vs the +10% arm: FFM gain roughly doubled but FAT gain rose ~8x for a 4x larger surplus. Cleanest available test of how fat gain should scale with surplus size."
+    },
+    {
+      "id": "garthe2011-fast",
+      "groupLabel": "Fast reduction (FR), 1.4% body weight/week target",
+      "citation": "Garthe I, et al. Int J Sport Nutr Exerc Metab. 2011;21(2):97-104.",
+      "sweep": "cut-athletes",
+      "direction": "cut",
+      "trainingStatus": "elite",
+      "sex": "mixed",
+      "weeks": 5.3,
+      "n": 11,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 55.7,
+        "baselineSmmKg": 30.635,
+        "engineSex": "male",
+        "age": 22,
+        "heightCm": 175,
+        "trainingAge": "elite"
+      },
+      "pal": {
+        "activityLevel": "active",
+        "mult": 1.725,
+        "impliedStudyTdee": 2767,
+        "engineTdeeAtBaseline": 2714,
+        "engineDerivedTdee": 2714,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 2767 kcal (= |-830| / 0.3); Katch BMR 1573 x PAL 1.725 = 2714 (off by 53 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 1,
+        "studyTargetPct": 30,
+        "engineAchievedPct": 27.5,
+        "clamped": true,
+        "clampNote": "study 30.0% is OUTSIDE the engine's deficitPct range [5.0%..27.5%]; clamped to 27.5% (the engine literally cannot run this study's prescription)",
+        "ratePctPerWeek": 0.9,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 3.1,
+        "proteinPerFfmFromStudy": 1.88
+      },
+      "predicted": {
+        "deltaWeightKg": -2.85,
+        "deltaFatMassKg": -2.68,
+        "deltaLeanMassKg": -0.17,
+        "engineLeanLossPathKg": 0.168,
+        "mobilizationCapHit": true,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -2.7,
+        "deltaFatMassKg": -2.68,
+        "deltaLeanMassKg": -0.02
+      },
+      "actual": {
+        "deltaWeightKg": -4.11,
+        "deltaFatMassKg": -4,
+        "deltaLeanMassKg": -0.11
+      },
+      "error": {
+        "deltaWeightKg": 1.26,
+        "deltaFatMassKg": 1.32,
+        "deltaLeanMassKg": -0.06
+      },
+      "errorPct": {
+        "deltaWeightKg": 31,
+        "deltaFatMassKg": 33,
+        "deltaLeanMassKg": -53
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2714,
+          "intake": 2122,
+          "deficit": 592,
+          "smmKg": 30.614,
+          "bfmKg": 18.562
+        },
+        {
+          "week": 2,
+          "tdee": 2712,
+          "intake": 2137,
+          "deficit": 575,
+          "smmKg": 30.595,
+          "bfmKg": 18.039
+        },
+        {
+          "week": 3,
+          "tdee": 2711,
+          "intake": 2152,
+          "deficit": 559,
+          "smmKg": 30.578,
+          "bfmKg": 17.53
+        },
+        {
+          "week": 5,
+          "tdee": 2709,
+          "intake": 2181,
+          "deficit": 528,
+          "smmKg": 30.547,
+          "bfmKg": 16.556
+        },
+        {
+          "week": 5.3,
+          "partial": 0.2999999999999998,
+          "tdee": 2708,
+          "intake": 2194,
+          "deficit": 513,
+          "smmKg": 30.543,
+          "bfmKg": 16.416
+        }
+      ],
+      "inferredFields": [
+        "baselineFatMassKg",
+        "baselineLeanMassKg",
+        "deltaWeightKg",
+        "deltaFatMassKg",
+        "deltaLeanMassKg",
+        "deficitKcalPerDay",
+        "ageYears"
+      ],
+      "notes": "Reported: BW -5.5%, FM -21%, LBM -0.2% (n.s.). The real penalty of the fast arm showed up as FORGONE lean gain (+1.16 SR vs -0.11 FR = 1.27 kg swing), not as absolute loss. The engine models it through leanLossPerWeek() only."
+    },
+    {
+      "id": "longland2016-lowprotein",
+      "groupLabel": "Lower protein 1.2 g/kg/d + 40% deficit + 6 d/wk training",
+      "citation": "Longland TM, et al. AJCN 2016;103(3):738-746.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "male",
+      "weeks": 4,
+      "n": 20,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 71.9,
+        "baselineSmmKg": 39.545,
+        "engineSex": "male",
+        "age": 23,
+        "heightCm": 184,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "active",
+        "mult": 1.725,
+        "impliedStudyTdee": 3375,
+        "engineTdeeAtBaseline": 3317,
+        "engineDerivedTdee": 3317,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 3375 kcal (= |-1350| / 0.4); Katch BMR 1923 x PAL 1.725 = 3317 (off by 58 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 1,
+        "studyTargetPct": 40,
+        "engineAchievedPct": 27.5,
+        "clamped": true,
+        "clampNote": "study 40.0% is OUTSIDE the engine's deficitPct range [5.0%..27.5%]; clamped to 27.5% (the engine literally cannot run this study's prescription)",
+        "ratePctPerWeek": 0.9,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 3.1,
+        "proteinPerFfmFromStudy": 1.63
+      },
+      "predicted": {
+        "deltaWeightKg": -2.65,
+        "deltaFatMassKg": -2.76,
+        "deltaLeanMassKg": 0.11,
+        "engineLeanLossPathKg": 0.225,
+        "mobilizationCapHit": true,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -2.5,
+        "deltaFatMassKg": -2.76,
+        "deltaLeanMassKg": 0.25
+      },
+      "actual": {
+        "deltaWeightKg": -3.4,
+        "deltaFatMassKg": -3.5,
+        "deltaLeanMassKg": 0.1
+      },
+      "error": {
+        "deltaWeightKg": 0.75,
+        "deltaFatMassKg": 0.74,
+        "deltaLeanMassKg": 0.01
+      },
+      "errorPct": {
+        "deltaWeightKg": 22,
+        "deltaFatMassKg": 21,
+        "deltaLeanMassKg": 7
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 3317,
+          "intake": 2527,
+          "deficit": 791,
+          "smmKg": 39.556,
+          "bfmKg": 24.781
+        },
+        {
+          "week": 2,
+          "tdee": 3318,
+          "intake": 2550,
+          "deficit": 768,
+          "smmKg": 39.57,
+          "bfmKg": 24.083
+        },
+        {
+          "week": 3,
+          "tdee": 3319,
+          "intake": 2572,
+          "deficit": 747,
+          "smmKg": 39.586,
+          "bfmKg": 23.404
+        },
+        {
+          "week": 4,
+          "tdee": 3320,
+          "intake": 2594,
+          "deficit": 726,
+          "smmKg": 39.604,
+          "bfmKg": 22.745
+        }
+      ],
+      "inferredFields": [
+        "baselineFatMassKg / baselineLeanMassKg (same estimate as HP arm)",
+        "deltaWeightKg",
+        "deficitKcalPerDay",
+        "resistanceTrainingDaysPerWeek"
+      ],
+      "notes": "Even at 1.2 g/kg/d (~1.6 g/kg FFM) lean was MAINTAINED in a 40% deficit. The engine predicts net lean LOSS here. The missing mediator is training status."
+    }
+  ]
+}

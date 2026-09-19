@@ -520,6 +520,79 @@
     });
   };
 
+  /* M30 친구 추가 */
+  M.addFriend = function (onDone) {
+    var input, msg;
+    UI.openModal({
+      uid: 'M30', title: '친구 추가',
+      sub: '상대에게 받은 8자리 코드를 넣어주세요',
+      body: [
+        input = h('input.input', { placeholder: 'ABCD2345', maxlength: '8',
+          style: { fontFamily: 'ui-monospace, monospace', fontSize: '18px',
+                   letterSpacing: '.12em', textAlign: 'center' } }),
+        msg = h('div.field__err', { style: { display: 'none' } }),
+        h('div.muted', { style: { marginTop: '10px' },
+          text: '전화번호나 이메일로는 찾을 수 없습니다. 코드를 직접 알려준 사람만 추가됩니다.' })
+      ],
+      actions: [
+        { label: '취소', kind: 'ghost' },
+        { label: '요청 보내기', kind: 'primary', onClick: function () {
+            var r = global.MB_BACKEND.sendRequest((input.value || '').trim().toUpperCase());
+            if (!r.ok) { msg.textContent = r.reason; msg.style.display = ''; return true; }
+            global.MB_UID.toast(r.status === 'accepted' ? '친구가 되었습니다' : '요청을 보냈습니다');
+            if (onDone) onDone();
+          } }
+      ]
+    });
+  };
+
+  /* M31 공유 전부 끄기 */
+  M.stopSharing = function (friend, onConfirm) {
+    UI.openModal({
+      uid: 'M31', title: '공유를 모두 끌까요?',
+      body: h('div', { text: friend.displayName + '님 화면에서 바로 사라집니다. 친구 관계는 그대로입니다.' }),
+      actions: [{ label: '취소', kind: 'ghost' },
+                { label: '모두 끄기', kind: 'danger', onClick: onConfirm }]
+    });
+  };
+
+  /* M32 계정 삭제 */
+  M.deleteAccount = function (onDone) {
+    var input;
+    UI.openModal({
+      uid: 'M32', title: '계정을 삭제할까요?',
+      body: [
+        h('div.note.note--bad', { text: '친구 관계와 공유한 내용이 모두 지워집니다. 되돌릴 수 없습니다.' }),
+        h('p', { text: '확인을 위해 "삭제" 라고 입력해 주세요.' }),
+        input = h('input.input', { placeholder: '삭제' }),
+        h('div.muted', { style: { marginTop: '8px' },
+          text: '이 기기에 저장된 측정 기록은 지워지지 않습니다.' })
+      ],
+      actions: [
+        { label: '취소', kind: 'ghost' },
+        { label: '삭제', kind: 'danger', onClick: function () {
+            if ((input.value || '').trim() !== '삭제') {
+              global.MB_UID.toast('"삭제" 라고 정확히 입력해 주세요');
+              return true;
+            }
+            global.MB_BACKEND.deleteAccount();
+            global.MB_UID.toast('계정을 삭제했습니다');
+            if (onDone) onDone();
+          } }
+      ]
+    });
+  };
+
+  /* M37 친구 끊기 */
+  M.removeFriend = function (friend, onConfirm) {
+    UI.openModal({
+      uid: 'M37', title: friend.displayName + '님과 친구를 끊을까요?',
+      body: h('div', { text: '서로 공유하던 내용이 모두 사라집니다. 다시 친구가 되려면 코드부터 다시 시작합니다.' }),
+      actions: [{ label: '취소', kind: 'ghost' },
+                { label: '끊기', kind: 'danger', onClick: onConfirm }]
+    });
+  };
+
   /* --- 조각 --- */
   function kv(k, v) {
     return h('div.kv', [h('span.kv__k', { text: k }), h('span.kv__v', { text: v })]);
