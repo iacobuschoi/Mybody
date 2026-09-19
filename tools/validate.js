@@ -631,8 +631,12 @@ function engineStamp() {
            warning: dirty ? 'engine.js 에 커밋되지 않은 변경이 있습니다 — 이 결과는 재현 불가' : null };
 }
 
-fs.writeFileSync(OUT_PATH, JSON.stringify({
-  generatedAt: new Date().toISOString(),
+/* 결과 파일은 커밋되는 파일입니다. 그래서 내용이 그대로인데 돌릴
+   때마다 타임스탬프만 바뀌면, 검증을 한 번 돌릴 때마다 저장소가
+   더러워집니다. 그 더러움이 쌓이면 진짜 변경을 가립니다 —
+   "뭐가 바뀐 거지" 를 볼 때마다 이 파일을 먼저 걷어내야 합니다.
+   숫자가 그대로면 파일도 그대로 둡니다. */
+const payload = {
   engine: 'prototype/js/engine.js',
   engineChange: 'one export added: MB_ENGINE.stepWeek (no parameter or logic change)',
   provenance: engineStamp(),
@@ -651,7 +655,22 @@ fs.writeFileSync(OUT_PATH, JSON.stringify({
     byDeficitSource: Object.fromEntries([...groupBy(rows, r => r.deficitSource)].map(([g, rs]) => [g, stats(rs)]))
   },
   cases: sorted
-}, null, 2));
+};
+
+/* 이전 결과에서 타임스탬프만 빼고 비교합니다. 같으면 안 씁니다. */
+let prevBody = null;
+try {
+  const prev = JSON.parse(fs.readFileSync(OUT_PATH, 'utf8'));
+  delete prev.generatedAt;
+  prevBody = JSON.stringify(prev);
+} catch { prevBody = null; }
+
+const nextBody = JSON.stringify(payload);
+if (nextBody !== prevBody) {
+  fs.writeFileSync(OUT_PATH, JSON.stringify(
+    Object.assign({ generatedAt: new Date().toISOString() }, payload), null, 2));
+}
+
 console.log('\nwrote ' + OUT_PATH);
 
 /* ---------------------------------------------------------------------------
