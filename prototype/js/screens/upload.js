@@ -66,6 +66,8 @@
       var fileInput = null;
       var camInput = null;        // capture 속성이 붙은 쪽 — 폰에서 바로 카메라
       var serverExtra = null;     // 2층이 돌려준 나머지 칸들 (검수 화면으로 넘어감)
+      var serverAt = null;        // 서버가 결과지에서 읽은 측정 시각 (날짜만이 아니라)
+      var cancelOcr = null;       // 판독을 실제로 멈추는 손잡이
       var body = h('div');
       wrap.appendChild(body);
       draw();
@@ -219,13 +221,18 @@
             h('div.btn-row', { style: { margin: '0' } }, [
               h('button.btn.btn--ghost.btn--sm', {
                 text: '바꾸기', uid: 'P03-B10', uidLabel: '사진 바꾸기',
-                onClick: function () { mode = 'idle'; shot = null; draw(); }
+                onClick: function () {
+                  if (cancelOcr) { cancelOcr(); cancelOcr = null; }
+                  mode = 'idle'; shot = null; serverExtra = null; serverAt = null; draw();
+                }
               }),
               h('button.btn.btn--ghost.btn--sm', {
                 text: '빼기', uid: 'P03-B11', uidLabel: '사진 빼기',
                 onClick: function () {
+                  if (cancelOcr) { cancelOcr(); cancelOcr = null; }
                   if (shot && shot.id) global.MB_PHOTO.remove(shot.id);
-                  shot = null; mode = 'idle'; draw();
+                  shot = null; serverExtra = null; serverAt = null;
+                  mode = 'idle'; draw();
                   global.MB_UID.toast('사진을 지웠습니다');
                 }
               })
@@ -338,6 +345,10 @@
             style: { marginTop: '12px' },
             onClick: function () {
               clearTimers();
+              /* 결과만 무시하는 게 아니라 업로드를 실제로 멈춥니다.
+                 취소를 누르는 이유는 보통 느려서인데, 그때가 데이터와
+                 돈이 제일 아까운 순간입니다. */
+              if (cancelOcr) { cancelOcr(); cancelOcr = null; }
               mode = shot ? 'shot' : 'idle'; step = 0;
               draw();
               global.MB_UID.toast('판독을 취소했습니다');
@@ -414,7 +425,8 @@
            보낸 사진과 지금 사진이 같을 때만 받습니다. */
         var forShot = shot.id;
 
-        global.MB_SYNC.ocr(shot.dataUrl, function (err, fields) {
+        cancelOcr = global.MB_SYNC.ocr(shot.dataUrl, function (err, fields) {
+          cancelOcr = null;
           clearTimers();
           if (A.current !== 'P03' || !body.isConnected) return;
           if (!shot || shot.id !== forShot) return;   // 빼거나 바꿨습니다
@@ -431,7 +443,18 @@
           QUICK.forEach(function (f) {
             if (fields[f.key] != null) { quick[f.key] = fields[f.key]; read++; }
           });
-          if (fields.measuredAt) quickAt = String(fields.measuredAt).slice(0, 10);
+          /* 서버가 결과지 머리글에서 읽은 시각을 통째로 들고 있습니다.
+             예전에는 slice(0, 10) 로 날짜만 남기고 시각을 버렸습니다.
+             그러면 quickISO() 가 다시 정오나 지금 시각을 박는데, 그건
+             결과지에 인쇄된 시각이 아닙니다. 같은 날 두 번 잰 경우
+             순서도 잃고, "지난 측정과 며칠 차이" 도 어긋납니다.
+             화면의 날짜 칸은 날짜만 받으니 거기엔 날짜를 넣고,
+             시각은 따로 들고 있다가 저장할 때 씁니다. */
+          if (fields.measuredAt) {
+            var at = String(fields.measuredAt);
+            quickAt = at.slice(0, 10);
+            serverAt = /\d{2}:\d{2}/.test(at) ? at : null;
+          }
           serverExtra = fields;
           mode = 'shot'; draw();
           // 한 칸도 못 읽었으면 "판독했습니다" 는 거짓말입니다.
@@ -461,7 +484,7 @@
           shot = { dataUrl: out.dataUrl, w: out.w, h: out.h, bytes: out.bytes,
                    name: out.name, exifAt: out.exifAt || null, id: id };
           if (out.exifAt) quickAt = String(out.exifAt).slice(0, 10);
-          serverExtra = null;
+          serverExtra = null; serverAt = null;
           mode = 'shot'; step = 0;
           draw();
         });
@@ -546,8 +569,13 @@
 
       function quickISO() {
         var d = quickAt || todayLocal();
-        // 사진에서 시각까지 읽었으면 그대로 씁니다 — 같은 날 두 번 잰
-        // 경우에 순서가 살아납니다.
+        /* 시각의 출처는 셋이고, 믿을 만한 순서가 있습니다.
+             1. 서버가 결과지에서 읽은 시각 — 결과지에 인쇄된 값입니다
+             2. 사진의 EXIF 촬영 시각 — 잰 직후 찍었다면 거의 같습니다
+             3. 없으면 지금 시각(오늘) 또는 정오(지난 날)
+           앞의 둘은 사용자가 고른 날짜와 같은 날일 때만 씁니다 —
+           날짜를 손으로 고쳤다면 그쪽이 우선입니다. */
+        if (serverAt && serverAt.slice(0, 10) === d) return serverAt;
         if (shot && shot.exifAt && String(shot.exifAt).slice(0, 10) === d) return shot.exifAt;
 
         /* EXIF 가 없을 때 예전에는 'T09:00:00' 을 박았습니다. 카톡으로

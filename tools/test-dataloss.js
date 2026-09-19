@@ -24,7 +24,14 @@
  *    결과지 사진에는 보통 이름 · 나이 · 성별이 같이 인쇄돼 있습니다.
  *    "전부 지웠다" 고 믿고 폰을 넘긴 사람에게는 그게 전부입니다.
  *
- * 5. 고치던 값을 두고 나가면 말없이 버린다
+ * 5. 판독 결과가 취소·삭제 뒤에 도착해 값을 덮는다
+ *    판독은 몇 초 걸리고, 그 사이에 사용자는 취소하거나 사진을 뺍니다.
+ *    늦게 온 답이 그대로 적용되면 취소가 취소가 아닙니다.
+ *
+ * 6. 서버가 결과지에서 읽은 시각을 버린다
+ *    날짜만 남기고 시각을 버리면 같은 날 두 번 잰 순서를 잃습니다.
+ *
+ * 7. 고치던 값을 두고 나가면 말없이 버린다
  *    "저장하지 않고 나갈까요?" 모달(M23)이 만들어져 있었는데 부르는 곳이
  *    한 군데도 없었습니다. 나가는 길이 탭바 · 뒤로가기 · 화면 안 버튼으로
  *    여러 개라, 라우터에서 한 번 막습니다.
@@ -210,7 +217,97 @@ const ok=(n,c,d)=>{if(c){pass++;console.log('  ✓',n);}else{fail++;console.log(
   ok('다른 측정이 쓰는 사진은 남는다', r.afterB.includes('ph-b'), r);
   ok('전체 초기화가 사진까지 지운다', r.afterReset===0, r);
 
-  console.log('\n[11] JS 오류');
+  console.log('\n[11] 서버가 읽은 시각이 살아남는다');
+  const o1 = await pg.evaluate(async ()=>{
+    localStorage.clear(); window.MB_STORE.seed();
+    // 판독을 켜고, MB_SYNC.ocr 을 가짜로 바꿔 시각까지 돌려주게 합니다
+    window.MB_SYNC.configure('http://x');
+    window.MB_SYNC.canOcr = () => true;
+    window.MB_SYNC.ocr = (url, cb) => {
+      setTimeout(()=>cb(null,{weightKg:85.2,smmKg:38.2,bfmKg:18.1,
+        measuredAt:'2026-11-20T07:36:00'}),60);
+      return ()=>{};
+    };
+    window.MB_APP.go('P03');
+    await new Promise(r=>setTimeout(r,350));
+    // 사진을 하나 넣습니다
+    const c=document.createElement('canvas'); c.width=80;c.height=80;
+    const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',0.8));
+    const dt=new DataTransfer(); dt.items.add(new File([blob],'s.jpg',{type:'image/jpeg'}));
+    const i=document.querySelector('[data-uid="P03-F01"]'); i.files=dt.files;
+    i.dispatchEvent(new Event('change',{bubbles:true}));
+    await new Promise(r=>setTimeout(r,700));
+    const btn=document.querySelector('[data-uid="P03-B13"]');
+    if(!btn) return {err:'서버 판독 버튼이 없습니다'};
+    btn.click();
+    await new Promise(r=>setTimeout(r,900));
+    document.querySelector('[data-uid="P03-B12"]').click();
+    await new Promise(r=>setTimeout(r,600));
+    const st=window.MB_STORE.get();
+    return { draftAt: st.draft && st.draft.measuredAt };
+  });
+  ok('결과지의 시각 07:36 이 남는다', o1.draftAt && /T07:36/.test(o1.draftAt), o1);
+
+  console.log('\n[12] 취소하면 업로드를 실제로 멈춘다');
+  const o2 = await pg.evaluate(async ()=>{
+    localStorage.clear(); window.MB_STORE.seed();
+    window.MB_SYNC.configure('http://x');
+    window.MB_SYNC.canOcr = () => true;
+    let aborted = false, delivered = false;
+    window.MB_SYNC.ocr = (url, cb) => {
+      const t=setTimeout(()=>{ delivered=true; cb(null,{weightKg:99.9}); }, 1200);
+      return ()=>{ aborted=true; clearTimeout(t); };
+    };
+    window.MB_APP.go('P03');
+    await new Promise(r=>setTimeout(r,350));
+    const c=document.createElement('canvas'); c.width=80;c.height=80;
+    const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',0.8));
+    const dt=new DataTransfer(); dt.items.add(new File([blob],'s.jpg',{type:'image/jpeg'}));
+    const i=document.querySelector('[data-uid="P03-F01"]'); i.files=dt.files;
+    i.dispatchEvent(new Event('change',{bubbles:true}));
+    await new Promise(r=>setTimeout(r,700));
+    document.querySelector('[data-uid="P03-B13"]').click();
+    await new Promise(r=>setTimeout(r,300));
+    const cancel=document.querySelector('[data-uid="P03-B05"]');
+    if(!cancel) return {err:'취소 버튼이 없습니다'};
+    cancel.click();
+    await new Promise(r=>setTimeout(r,1500));
+    const w=document.querySelector('[data-uid="P03-F02"]');
+    return { aborted, delivered, weightField: w?w.value:null };
+  });
+  ok('취소가 업로드를 끊는다', o2.aborted===true, o2);
+  ok('늦은 응답이 값을 안 덮는다', o2.delivered===false && !o2.weightField, o2);
+
+  console.log('\n[13] 사진을 빼도 멈춘다');
+  const o3 = await pg.evaluate(async ()=>{
+    localStorage.clear(); window.MB_STORE.seed();
+    window.MB_SYNC.configure('http://x');
+    window.MB_SYNC.canOcr = () => true;
+    let aborted=false;
+    window.MB_SYNC.ocr = (url, cb) => { const t=setTimeout(()=>cb(null,{weightKg:99.9}),1200);
+      return ()=>{aborted=true;clearTimeout(t);}; };
+    window.MB_APP.go('P03');
+    await new Promise(r=>setTimeout(r,350));
+    const c=document.createElement('canvas'); c.width=80;c.height=80;
+    const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',0.8));
+    const dt=new DataTransfer(); dt.items.add(new File([blob],'s.jpg',{type:'image/jpeg'}));
+    const i=document.querySelector('[data-uid="P03-F01"]'); i.files=dt.files;
+    i.dispatchEvent(new Event('change',{bubbles:true}));
+    await new Promise(r=>setTimeout(r,700));
+    document.querySelector('[data-uid="P03-B13"]').click();
+    await new Promise(r=>setTimeout(r,300));
+    // 판독 중에는 사진 카드가 안 보이므로 취소 후 빼기
+    document.querySelector('[data-uid="P03-B05"]').click();
+    await new Promise(r=>setTimeout(r,300));
+    const rm=document.querySelector('[data-uid="P03-B11"]');
+    if(rm) rm.click();
+    await new Promise(r=>setTimeout(r,1400));
+    const main=document.getElementById('main');
+    return { aborted, chars:(main.innerText||'').trim().length };
+  });
+  ok('화면이 비지 않는다', o3.chars>30, o3);
+
+  console.log('\n[14] JS 오류');
   ok('오류 0건', errs.length===0, errs);
 
   console.log(`\n통과 ${pass} / 실패 ${fail}`);

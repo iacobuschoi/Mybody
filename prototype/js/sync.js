@@ -80,6 +80,7 @@
     return fetch(base + '/api' + path, {
       method: opts.method || 'GET',
       headers: headers,
+      signal: opts.signal,          // 취소할 수 있게 (판독이 씁니다)
       body: opts.body ? JSON.stringify(opts.body) : undefined
     }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
@@ -321,18 +322,28 @@
    * @param {string} dataUrl  photo.js 가 줄여 놓은 JPEG 데이터 URL
    * @param {function(err, fields)} cb
    */
+  /**
+   * @returns {function} 취소 함수. 부르면 업로드를 실제로 멈춥니다.
+   *
+   * 취소 버튼이 결과만 무시하고 업로드는 계속하게 두면, 사용자의 데이터와
+   * 서버의 돈이 그대로 나갑니다 — 사용자가 취소를 누르는 이유는 보통
+   * 느려서이고, 그때가 제일 아까운 순간입니다.
+   */
   function ocr(dataUrl, cb) {
     cb = cb || function () {};
-    if (!canOcr()) return cb(new Error('자동 판독이 꺼져 있습니다'));
+    if (!canOcr()) { cb(new Error('자동 판독이 꺼져 있습니다')); return function () {}; }
     if (!dataUrl || dataUrl.indexOf('data:image/') !== 0) {
-      return cb(new Error('사진이 아닙니다'));
+      cb(new Error('사진이 아닙니다')); return function () {};
     }
     if (dataUrl.length > OCR_MAX) {
-      return cb(new Error('사진이 너무 큽니다'));
+      cb(new Error('사진이 너무 큽니다')); return function () {};
     }
     var comma = dataUrl.indexOf(',');
     var mime = dataUrl.slice(5, dataUrl.indexOf(';'));
-    api('/ocr', { method: 'POST', body: {
+    var ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+    var cancelled = false;
+
+    api('/ocr', { method: 'POST', signal: ctrl ? ctrl.signal : undefined, body: {
       mediaType: mime, data: dataUrl.slice(comma + 1)
     } }).then(function (r) {
       cb(null, (r && r.fields) || {});
