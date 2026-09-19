@@ -228,6 +228,118 @@ process.on('exit',()=>srv.kill());
     else { console.log('    ✗ 프로토타입이 오염됐다'); lockFail++; }
   }
 
+  /* --- 복구 코드 -------------------------------------------------------
+   * 비밀번호를 잊은 사람이 돌아오는 유일한 길입니다. 이 서버는 메일을
+   * 보내지 않으니 다른 길이 없습니다. 그래서 여기가 뚫리면 계정을
+   * 가져가는 문이 하나 더 열리는 것과 같습니다.
+   *
+   * 보는 것
+   *   · 틀린 코드로는 못 지나간다
+   *   · 맞는 코드는 사람이 옮겨 적은 모양(소문자·공백)으로도 통한다
+   *   · 쓴 코드는 두 번 안 통한다 — 메모장에 남아 있어도 무용지물
+   *   · 되찾으면 다른 기기의 세션이 끊긴다
+   *   · 찍어 보는 시도는 아이디별로 잠긴다 (로그인과 같은 잠금)
+   *   · 로그인한 채 코드를 새로 받으려면 비밀번호를 다시 대야 한다
+   */
+  console.log('\n  복구 코드');
+  {
+    const json = r => r.json().catch(() => ({}));
+    const up = await json(await post('/auth/signup',
+      { handle: 'rec', password: 'rec-password-1', displayName: 'R', pairSecret: 'x' }));
+
+    if (/^[A-HJ-NP-Z2-9]{4}(-[A-HJ-NP-Z2-9]{4}){3}$/.test(up.recoveryCode || ''))
+      console.log('    ✓ 가입할 때 코드가 나온다 (헷갈리는 글자 없음)');
+    else { console.log('    ✗ 코드 모양이 이상하다: ' + JSON.stringify(up.recoveryCode)); lockFail++; }
+
+    const oldToken = up.token;
+
+    // 틀린 코드
+    const wrong = await post('/auth/recover',
+      { handle: 'rec', code: 'AAAA-BBBB-CCCC-DDDD', password: 'new-password-1' });
+    if (wrong.status === 400) console.log('    ✓ 틀린 코드는 거부한다');
+    else { console.log('    ✗ 틀린 코드가 통했다 ' + wrong.status); lockFail++; }
+
+    // 없는 아이디도 같은 말로 거부해야 합니다 (계정이 있는지 알려주지 않기)
+    const ghost = await json(await post('/auth/recover',
+      { handle: 'no-such-person', code: 'AAAA-BBBB-CCCC-DDDD', password: 'new-password-1' }));
+    const wrongBody = await json(wrong.clone ? wrong.clone() : wrong);
+    if (ghost.reason && wrongBody.reason && ghost.reason === wrongBody.reason)
+      console.log('    ✓ 없는 아이디와 틀린 코드를 같은 말로 거부한다');
+    else { console.log('    ✗ 말이 다르다 — 계정 존재 여부가 샌다'); lockFail++; }
+
+    // 맞는 코드 — 사람이 옮겨 적은 모양으로
+    const typed = String(up.recoveryCode).toLowerCase().replace(/-/g, ' ');
+    const okRes = await post('/auth/recover',
+      { handle: 'rec', code: typed, password: 'new-password-1' });
+    const ok = await json(okRes);
+    if (okRes.status === 200 && ok.token) console.log('    ✓ 소문자·공백으로 적어도 통한다');
+    else { console.log('    ✗ 맞는 코드가 막혔다 ' + okRes.status); lockFail++; }
+
+    if (ok.recoveryCode && ok.recoveryCode !== up.recoveryCode)
+      console.log('    ✓ 쓰고 나면 새 코드를 준다');
+    else { console.log('    ✗ 새 코드를 안 준다'); lockFail++; }
+
+    // 옛 세션이 죽었나
+    const oldStill = await fetch(`http://localhost:${PORT}/api/me`,
+      { headers: { authorization: 'Bearer ' + oldToken } });
+    if (oldStill.status === 401) console.log('    ✓ 되찾으면 다른 기기가 끊긴다');
+    else { console.log('    ✗ 옛 토큰이 살아 있다 ' + oldStill.status); lockFail++; }
+
+    // 쓴 코드 재사용
+    const reuse = await post('/auth/recover',
+      { handle: 'rec', code: up.recoveryCode, password: 'other-password-1' });
+    if (reuse.status === 400) console.log('    ✓ 쓴 코드는 두 번 안 통한다');
+    else { console.log('    ✗ 쓴 코드가 또 통했다 ' + reuse.status); lockFail++; }
+
+    // 새 비밀번호로 로그인
+    const back = await post('/auth/signin', { handle: 'rec', password: 'new-password-1' });
+    if (back.status === 200) console.log('    ✓ 새 비밀번호로 들어가진다');
+    else { console.log('    ✗ 새 비밀번호로 못 들어간다 ' + back.status); lockFail++; }
+
+    // 찍어 보는 시도는 잠긴다 (아이디별 잠금이 recover 에도 걸리는가)
+    await post('/auth/signup', { handle: 'guessme', password: 'guess-password-1',
+                                 displayName: 'G', pairSecret: 'x' });
+    let hit429 = 0;
+    for (let i = 0; i < 12; i++) {
+      const r = await post('/auth/recover',
+        { handle: 'guessme', code: 'ZZZZ-ZZZZ-ZZZZ-ZZZ' + 'ABCDEFGHJKMN'[i], password: 'x-password-1' });
+      if (r.status === 429) hit429++;
+    }
+    if (hit429 > 0) console.log(`    ✓ 찍어 보면 잠긴다 (12번 중 ${hit429}번 429)`);
+    else { console.log('    ✗ 아무리 찍어도 안 잠긴다'); lockFail++; }
+
+    // 로그인한 채 코드 새로 받기 — 비밀번호를 다시 대야 합니다
+    const sess = await json(await post('/auth/signin',
+      { handle: 'rec', password: 'new-password-1' }));
+    const reissue = (body) => fetch(`http://localhost:${PORT}/api/auth/recovery-code`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + sess.token },
+      body: JSON.stringify(body)
+    });
+    const noPw = await reissue({});
+    if (noPw.status === 400) console.log('    ✓ 비밀번호 없이는 새 코드를 못 받는다');
+    else { console.log('    ✗ 비밀번호 없이 코드가 나왔다 ' + noPw.status); lockFail++; }
+    const withPw = await json(await reissue({ password: 'new-password-1' }));
+    if (withPw.ok && withPw.recoveryCode) console.log('    ✓ 비밀번호를 대면 새 코드가 나온다');
+    else { console.log('    ✗ 맞는 비밀번호로도 못 받는다'); lockFail++; }
+
+    // 토큰 없이는 아예 못 부릅니다
+    const noAuth = await post('/auth/recovery-code', { password: 'new-password-1' });
+    if (noAuth.status === 401) console.log('    ✓ 로그인 안 하면 못 부른다');
+    else { console.log('    ✗ 로그인 없이 통했다 ' + noAuth.status); lockFail++; }
+
+    // 이상한 타입으로 500 이 나는가
+    let recFive = 0;
+    for (const w of [{}, [], 123, true, null, { toString: 1 }, 'x'.repeat(5000)]) {
+      const r = await post('/auth/recover', { handle: w, code: w, password: w });
+      if (r.status >= 500) recFive++;
+      const r2 = await reissue({ password: w });
+      if (r2.status >= 500) recFive++;
+    }
+    if (!recFive) console.log('    ✓ 이상한 입력에 500 이 없다');
+    else { console.log(`    ✗ 500 이 ${recFive}건`); lockFail++; }
+  }
+
   const bad = leak + lockFail;
   console.log(bad ? `\n실패 ${bad}건` : '\n통과');
   srv.kill();

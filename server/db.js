@@ -78,7 +78,11 @@ function open(file) {
   for (const stmt of ['ALTER TABLE users ADD COLUMN pw_hash TEXT',
                       'ALTER TABLE users ADD COLUMN pw_salt TEXT',
                       'ALTER TABLE users ADD COLUMN pw_n INTEGER',
-                      'ALTER TABLE sessions ADD COLUMN expires_at TEXT']) {
+                      'ALTER TABLE sessions ADD COLUMN expires_at TEXT',
+                      'ALTER TABLE users ADD COLUMN rc_hash TEXT',
+                      'ALTER TABLE users ADD COLUMN rc_salt TEXT',
+                      'ALTER TABLE users ADD COLUMN rc_n INTEGER',
+                      'ALTER TABLE users ADD COLUMN rc_used_at TEXT']) {
     try { db.exec(stmt); } catch { /* 이미 있음 */ }
   }
 
@@ -131,6 +135,62 @@ function passwordProblem(plain) {
   return null;
 }
 
+/* ---------------------------------------------------------------------------
+ * 복구 코드
+ *
+ * 이 서버는 메일을 보내지 않습니다. 보내려면 주소를 받아서 보관해야 하고,
+ * 그건 지키기로 한 "민감한 것은 최소한만" 과 어긋납니다. 그래서 가입할 때
+ * 코드를 한 번 보여주고, 비밀번호를 잊으면 그걸로 새로 정합니다.
+ *
+ * 왜 이게 없으면 런칭을 못 하나
+ *   지금은 잊으면 끝입니다. 서버 주인이 DB 에서 계정을 지우고 다시
+ *   만드는 수밖에 없는데, 그러면 친구 관계와 그동안의 주간 기록이
+ *   같이 사라집니다. 나 혼자면 참을 수 있지만 남에게 줄 수는 없습니다.
+ *
+ * 모양: XXXX-XXXX-XXXX-XXXX, 숫자와 헷갈리지 않는 글자만 (0/O, 1/I/L 제외).
+ * 글자 31종 × 16자리 = 31^16 ≈ 7.3e23 ≈ 79비트. 아이디별로 시간당
+ * 몇 번만 시도할 수 있으므로 무차별 대입은 우주의 나이보다 오래 걸립니다.
+ *
+ * 저장은 비밀번호와 똑같이 scrypt 해시로만 합니다 — DB 를 통째로 가져가도
+ * 코드를 되돌릴 수 없어야 합니다.
+ *
+ * 한 번 쓰면 새 코드를 발급합니다. 쓴 코드가 메모장에 남아 있어도 그때부터
+ * 쓸모가 없어야 합니다.
+ */
+const RC_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';   // 0 O 1 I L 제외
+const RC_GROUPS = 4, RC_PER_GROUP = 4;
+
+function makeRecoveryCode() {
+  const n = RC_GROUPS * RC_PER_GROUP;
+  const bytes = crypto.randomBytes(n * 2);
+  let out = '';
+  for (let i = 0; i < n; i++) {
+    // 모듈로 편향을 피하려고 넉넉히 뽑아 버립니다
+    let v = bytes[i * 2] * 256 + bytes[i * 2 + 1];
+    while (v >= 65536 - (65536 % RC_ALPHABET.length)) v = crypto.randomBytes(2).readUInt16BE(0);
+    out += RC_ALPHABET[v % RC_ALPHABET.length];
+    if ((i + 1) % RC_PER_GROUP === 0 && i + 1 < n) out += '-';
+  }
+  return out;
+}
+
+/** 사람이 옮겨 적은 코드를 비교할 수 있는 모양으로. 대소문자·하이픈·공백 무시. */
+function normalizeCode(x) {
+  return str(x).toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+function hashCode(plain, saltHex, n) {
+  return hashPassword(normalizeCode(plain), saltHex, n);
+}
+
+function verifyCode(plain, user) {
+  if (!user || !user.rc_hash || !user.rc_salt) return false;
+  const got = hashCode(plain, user.rc_salt, user.rc_n || SCRYPT_N).hash;
+  const a = Buffer.from(got, 'hex'), b = Buffer.from(user.rc_hash, 'hex');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
 const SESSION_DAYS = 90;
 
 /* 바깥에서 온 값을 문자열로.
@@ -181,6 +241,7 @@ function makeApi(db) {
     insertSession: db.prepare('INSERT INTO sessions (token, user_id, created_at, last_seen, expires_at) VALUES (?,?,?,?,?)'),
     deleteSessionsOf: db.prepare('DELETE FROM sessions WHERE user_id = ?'),
     setPassword: db.prepare('UPDATE users SET pw_hash=?, pw_salt=?, pw_n=? WHERE id=?'),
+    setRecovery: db.prepare('UPDATE users SET rc_hash=?, rc_salt=?, rc_n=?, rc_used_at=? WHERE id=?'),
     sessionByToken: db.prepare('SELECT * FROM sessions WHERE token = ?'),
     touchSession: db.prepare('UPDATE sessions SET last_seen = ? WHERE token = ?'),
     deleteSession: db.prepare('DELETE FROM sessions WHERE token = ?'),
@@ -247,8 +308,59 @@ function makeApi(db) {
       const uid = id('user');
       q.insertUser.run(uid, h, 'local', (displayName || h).slice(0, 20), inviteCode(), nowISO());
       q.setPassword.run(pw.hash, pw.salt, pw.n, uid);
+      /* 복구 코드는 지금 한 번만 원문으로 나갑니다. 서버에는 해시만
+         남으므로, 사용자가 이걸 놓치면 우리도 되찾아 줄 수 없습니다.
+         화면이 그 사실을 분명히 말해야 합니다. */
+      const code = makeRecoveryCode();
+      const rc = hashCode(code);
+      q.setRecovery.run(rc.hash, rc.salt, rc.n, null, uid);
       const u = q.userById.get(uid);
-      return Object.assign({ ok: true }, this._newSession(u));
+      return Object.assign({ ok: true, recoveryCode: code }, this._newSession(u));
+    },
+
+    /* 복구 코드로 비밀번호를 새로 정합니다.
+     *
+     * 성공하면 세 가지를 같이 합니다:
+     *   1. 새 비밀번호를 건다
+     *   2. 다른 기기의 세션을 전부 끊는다 — 계정을 되찾는 상황이라면
+     *      남이 들어와 있을 수 있고, 그 사람을 남겨 둘 이유가 없습니다
+     *   3. 새 복구 코드를 발급한다 — 쓴 코드가 메모장에 남아 있어도
+     *      그때부터 쓸모가 없어야 합니다
+     */
+    recoverPassword({ handle, code, password }) {
+      const h = str(handle).trim().toLowerCase();
+      const u = q.userByHandle.get(h);
+      /* 아이디가 없어도 해시를 한 번 돌립니다 — 응답 시간으로 계정
+         존재 여부를 알아낼 수 없게. signIn 과 같은 이유입니다. */
+      if (!u) { hashCode(code, null, SCRYPT_N); }
+      const pwBad = passwordProblem(password);
+      if (!u || !u.rc_hash || !verifyCode(code, u)) {
+        // 어느 쪽이 틀렸는지 알려주지 않습니다
+        return { ok: false, reason: '아이디 또는 복구 코드가 맞지 않습니다' };
+      }
+      // 코드는 맞았습니다. 이제 비밀번호 자체의 문제를 말해 줍니다.
+      if (pwBad) return { ok: false, reason: pwBad };
+
+      const pw = hashPassword(password);
+      q.setPassword.run(pw.hash, pw.salt, pw.n, u.id);
+      q.deleteSessionsOf.run(u.id);
+      const next = makeRecoveryCode();
+      const rc = hashCode(next);
+      q.setRecovery.run(rc.hash, rc.salt, rc.n, nowISO(), u.id);
+      const fresh = q.userById.get(u.id);
+      return Object.assign({ ok: true, recoveryCode: next }, this._newSession(fresh));
+    },
+
+    /** 로그인한 상태에서 새 복구 코드를 받습니다 (잃어버렸을 때) */
+    newRecoveryCode(uid, { password }) {
+      const u = q.userById.get(uid);
+      if (!u) return { ok: false, reason: '없는 계정입니다' };
+      // 잠깐 열린 폰을 집어든 사람이 코드를 새로 뽑아 가지 못하게 합니다
+      if (!verifyPassword(password, u)) return { ok: false, reason: '비밀번호가 맞지 않습니다' };
+      const code = makeRecoveryCode();
+      const rc = hashCode(code);
+      q.setRecovery.run(rc.hash, rc.salt, rc.n, null, uid);
+      return { ok: true, recoveryCode: code };
     },
 
     signIn({ handle, password }) {

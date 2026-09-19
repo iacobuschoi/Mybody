@@ -298,7 +298,8 @@ async function handleApi(req, res, url) {
   /* 계정 만들기 — 페어링 비밀이 필요합니다.
      이 서버는 주인 것이지 공개 가입 서비스가 아닙니다. 비밀을 아는 사람만
      계정을 만들 수 있고, 그 비밀은 주인이 초대하고 싶은 사람에게만 줍니다. */
-  if ((p === '/auth/signup' || p === '/auth/signin') && method === 'POST' && authLimited(reqIp)) {
+  if ((p === '/auth/signup' || p === '/auth/signin' || p === '/auth/recover')
+      && method === 'POST' && authLimited(reqIp)) {
     // scrypt 를 돌리기 전에 잘라냅니다 — 비싼 것은 그 다음 줄입니다.
     return send(res, 429, { ok: false, reason: '로그인 시도가 너무 잦습니다. 잠시 뒤에 다시 해 주세요' });
   }
@@ -329,6 +330,27 @@ async function handleApi(req, res, url) {
     return send(res, 200, r);
   }
 
+  /* 복구 코드로 비밀번호 새로 정하기 — 로그인 전에 쓰는 길입니다.
+   *
+   * 아이디별 잠금(loginBlocked)을 로그인과 같이 씁니다. 코드가 79비트라
+   * 무차별 대입은 현실적으로 불가능하지만, 잠금이 있으면 "몇 번 찍어보다
+   * 그만두는" 사람도 못 지나갑니다. 그리고 코드 확인도 scrypt 라 비싸서,
+   * 제한이 없으면 그것만으로 서버를 묶을 수 있습니다. */
+  if (p === '/auth/recover' && method === 'POST') {
+    const b = await readBody(req);
+    const h = str(b.handle).trim().toLowerCase();
+    if (!h) return send(res, 400, { ok: false, reason: '아이디가 필요합니다' });
+    const wait = loginBlocked(h);
+    if (wait) {
+      return send(res, 429, { ok: false,
+        reason: '시도가 너무 많습니다. ' + wait + '분 뒤에 다시 해 주세요' });
+    }
+    const r = api.recoverPassword(b);
+    if (!r.ok) { noteLoginFail(h); return send(res, 400, r); }
+    clearLoginFails(h);
+    return send(res, 200, r);
+  }
+
   const tok = bearer(req);
   const user = api.userForToken(tok);
   if (!user) return send(res, 401, { ok: false, reason: '로그인이 필요합니다' });
@@ -339,6 +361,13 @@ async function handleApi(req, res, url) {
   if (p === '/auth/password' && method === 'POST') {
     const b = await readBody(req);
     const r = api.changePassword(me, b);
+    return send(res, r.ok ? 200 : 400, r);
+  }
+  /* 복구 코드를 잃어버렸을 때 새로 받습니다. 비밀번호를 다시 확인합니다 —
+     잠깐 열린 폰을 집어든 사람이 코드를 뽑아 가지 못하게. */
+  if (p === '/auth/recovery-code' && method === 'POST') {
+    const b = await readBody(req);
+    const r = api.newRecoveryCode(me, b);
     return send(res, r.ok ? 200 : 400, r);
   }
   if (p === '/me' && method === 'GET') return send(res, 200, { ok: true, user: api.me(me), stats: api.stats(me) });
