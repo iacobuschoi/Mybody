@@ -64,6 +64,7 @@
       shot = null; quick = {}; quickAt = todayLocal();
 
       var fileInput = null;
+      var camInput = null;        // capture 속성이 붙은 쪽 — 폰에서 바로 카메라
       var serverExtra = null;     // 2층이 돌려준 나머지 칸들 (검수 화면으로 넘어감)
       var body = h('div');
       wrap.appendChild(body);
@@ -107,6 +108,22 @@
           }
         });
 
+        /* 촬영용 입력은 따로 둡니다. capture 가 붙어 있으면 폰에서
+           앨범을 건너뛰고 카메라가 바로 열리는데, 그 속성이 붙은
+           입력으로는 앨범에서 고를 수가 없습니다. 둘을 한 입력으로
+           합치면 둘 중 하나가 불편해집니다. */
+        /* 고유번호를 안 붙입니다 — 화면에 안 보이는 입력이라 가리킬 수가
+           없고, 사용자가 누르는 것은 촬영 버튼(P03-B01) 쪽입니다. */
+        camInput = h('input', {
+          type: 'file', accept: 'image/*', capture: 'environment',
+          style: { display: 'none' },
+          onChange: function () {
+            var f = camInput.files && camInput.files[0];
+            camInput.value = '';
+            handleFile(f);
+          }
+        });
+
         zone = h('div.card.card--flat', {
           uid: 'P03-C01', uidLabel: '드래그앤드롭 존',
           style: { border: '2px dashed var(--border)', cursor: 'pointer' },
@@ -129,6 +146,7 @@
           ])
         ]);
         body.appendChild(zone);
+        body.appendChild(camInput);
 
         body.appendChild(h('div.card', { uid: 'P03-C02', uidLabel: '촬영 가이드 카드' }, [
           h('div.card__head', [
@@ -150,7 +168,7 @@
             h('button.btn.btn--primary', {
               text: '📷 사진 촬영', uid: 'P03-B01', uidLabel: '사진 촬영',
               onClick: function () {
-                global.MB_MODALS.cameraGuide(function () { fileInput.click(); });
+                global.MB_MODALS.cameraGuide(function () { camInput.click(); });
               }
             }),
             h('button.btn.btn--primary', {
