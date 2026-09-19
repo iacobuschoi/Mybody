@@ -583,7 +583,12 @@
            예전엔 체지방 90kg / 체중 70kg 같은 입력이 조용히 통과해서
            제지방 -20kg 짜리 계획이 만들어졌습니다.
            거부가 아니라 확인입니다 — 진짜 그 값이면 그대로 저장할 수 있어야 합니다. */
-        var bad = E.validateScan(scan);
+        /* 이전 측정을 같이 넘깁니다. 골격근량은 결과지 안에 짝이 없어서
+           단독으로는 19.9kg 폭이 통째로 통과했습니다 — 그 안에서 목표일이
+           2년 넘게 벌어져도 경고가 없었습니다. */
+        var prevScans = S.sortedScans();
+        var prev = prevScans.length ? prevScans[prevScans.length - 1] : null;
+        var bad = E.validateScan(scan, prev);
         if (bad && !save.forced) {
           global.MB_MODALS.confirmScan(bad, function () {
             save.forced = true;

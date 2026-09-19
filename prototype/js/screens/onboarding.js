@@ -201,7 +201,7 @@
         ]));
 
         body.appendChild(h('div.muted', { style: { marginTop: '10px', textAlign: 'center' },
-          text: '입력값은 이 기기에만 저장됩니다. 서버로 보내지 않습니다.' }));
+          text: '입력값은 이 기기에 저장됩니다. 나중에 로그인하면 내가 지정한 서버로도 올라갑니다.' }));
 
         syncErrors();
         if (global.MB_UID && global.MB_UID.scan) global.MB_UID.scan(body);

@@ -132,7 +132,7 @@
    *
    * @returns null 이면 정상, 아니면 { invalid: [문제 필드들], reasons: [사람이 읽는 설명] }
    */
-  function validateScan(scan) {
+  function validateScan(scan, prevScan) {
     if (!scan) return { invalid: ['스캔'], reasons: ['측정 기록이 없습니다.'] };
     var bad = [], why = [];
     var w = scan.weightKg;
@@ -158,6 +158,49 @@
                  '근육과 지방 칸이 바뀌지 않았는지 확인해 주세요.');
       }
     }
+    /* 골격근량은 결과지 안에 짝이 없습니다.
+     *
+     * 다른 값들은 서로 검산됩니다 — 제지방 = 체중 − 체지방, 체지방률 =
+     * 체지방/체중 같은 식으로요. 골격근량만 홀로 서 있어서, 한 자리를
+     * 잘못 읽어도 아무 등식이 깨지지 않습니다.
+     *
+     * 실측 확인: 체중 86.7 · 체지방 20.0 을 고정하고 골격근량을 훑으면
+     * 23.4~43.3kg 이 전부 통과합니다(폭 19.9kg). 그 구간 안에서
+     * 31kg 이면 목표일이 2029-08, 40kg 이면 2027-03 — 2년 4개월 차이인데
+     * 경고가 한 줄도 없었습니다.
+     *
+     * 그런데 k = 골격근/제지방 은 한 사람 안에서 아주 안정적입니다.
+     * 주인 실측 3회에서 0.56829 / 0.56753 / 0.56822 (폭 0.00076)이고,
+     * 직전 k 로 다음 측정을 예측한 오차가 62일 간격에도 0.05kg —
+     * 측정 노이즈(0.6kg)의 1/12 입니다.
+     *
+     * 그래서 이전 측정이 있으면 그걸로 예측해서 대조합니다.
+     * 허용치는 넉넉하게 둡니다 — 잡으려는 것은 미세한 편차가 아니라
+     * 자릿수·자리바꿈 같은 판독 오류입니다. */
+    if (prevScan && w > 0 && b != null && smm > 0) {
+      var pw = prevScan.weightKg;
+      var pb = prevScan.bfmKg != null ? prevScan.bfmKg
+             : (pw != null && prevScan.pbfPct != null ? pw * prevScan.pbfPct / 100 : null);
+      var pffm = prevScan.ffmKg != null ? prevScan.ffmKg
+               : (pw != null && pb != null ? pw - pb : null);
+      var ffmNow = w - b;
+      if (pffm > 0 && prevScan.smmKg > 0 && ffmNow > 0) {
+        var kPrev = prevScan.smmKg / pffm;
+        var expect = kPrev * ffmNow;
+        var gapDays = Math.abs(Date.parse(scan.measuredAt) - Date.parse(prevScan.measuredAt)) / 86400000;
+        if (isFinite(gapDays)) {
+          // 기본 1.2kg + 한 달마다 0.25kg. k 는 훈련으로 아주 천천히 오릅니다.
+          var tol = Math.min(3.0, 1.2 + (gapDays / 30) * 0.25);
+          if (Math.abs(smm - expect) > tol) {
+            bad.push('골격근량');
+            why.push('이전 측정으로 보면 골격근량이 ' + (Math.round(expect * 10) / 10) +
+                     'kg 근처여야 하는데 ' + smm + 'kg 입니다. ' +
+                     '자릿수나 자리를 잘못 읽지 않았는지 확인해 주세요.');
+          }
+        }
+      }
+    }
+
     if (!bad.length) return null;
     // 같은 필드가 여러 번 들어갈 수 있으니 정리합니다
     var seen = {}, uniq = [];
