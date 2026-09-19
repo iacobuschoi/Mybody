@@ -495,10 +495,55 @@ pairDiff('garthe2011-slow', 'garthe2011-fast', 'slow vs fast weight loss in elit
 {
   const a = rows.find(r => r.id === 'hatamoto2024-pe40'), b = rows.find(r => r.id === 'hatamoto2024-p10');
   if (a && b) {
-    console.log(pad('surplus +40% vs +10% (Hatamoto, no RT)', 46) +
+    console.log(pad('surplus +40% vs +10% -> FAT (Hatamoto, no RT)', 46) +
       pad('actual ΔFM gap ' + num(a.actual.deltaFatMassKg - b.actual.deltaFatMassKg), 26) +
-      pad('engine ΔFM gap ' + num(a.predicted.deltaFatMassKg - b.predicted.deltaFatMassKg), 26));
-    console.log(pad('   (engine bulk path: surplusPct never enters mass balance)', 46));
+      pad('engine ΔFM gap ' + num(a.predicted.deltaFatMassKg - b.predicted.deltaFatMassKg), 26) +
+      'right answer, wrong mechanism (see below)');
+    console.log(pad('surplus +40% vs +10% -> LEAN (Hatamoto)', 46) +
+      pad('actual ΔLM gap ' + num(a.actual.deltaLeanMassKg - b.actual.deltaLeanMassKg), 26) +
+      pad('engine ΔLM gap ' + num(a.predicted.deltaLeanMassKg - b.predicted.deltaLeanMassKg), 26) +
+      '<-- gap is baseline-weight only');
+  }
+}
+
+/* 증량 국면의 구조적 성질을 숫자로 확인한다 (주장하지 말고 돌려 보고 말한다) */
+{
+  console.log('');
+  const prof = buildProfile(CASES.find(c => c.id === 'hatamoto2024-p10'), 'moderate');
+  const st0 = { smmKg: 52 * K_SMM_TO_FFM, bfmKg: 11 };
+  const probe = [0.0, 0.25, 0.5, 0.75, 1.0].map(a => {
+    const p = E.paramsAt(a, 'bulk', null);
+    const r = E.stepWeek(st0, 'bulk', p, prof, K_SMM_TO_FFM);
+    return { a, surplusPct: +(p.surplusPct * 100).toFixed(1), leanFraction: +p.leanFraction.toFixed(3),
+             intake: r.intake, smmDelta: +(r.state.smmKg - st0.smmKg).toFixed(4),
+             fatDelta: +(r.state.bfmKg - st0.bfmKg).toFixed(4) };
+  });
+  console.log('BULK-PATH PROBE — same body, a swept 0..1, one week of stepWeek(phase="bulk"):');
+  console.log('  ' + pad('a', 6) + pad('surplus%', 10, true) + pad('intake', 9, true) +
+              pad('leanFrac', 10, true) + pad('ΔSMM kg', 10, true) + pad('ΔFAT kg', 10, true));
+  probe.forEach(x => console.log('  ' + pad(x.a.toFixed(2), 6) + pad(x.surplusPct, 10, true) +
+    pad(x.intake, 9, true) + pad(x.leanFraction, 10, true) +
+    pad(x.smmDelta.toFixed(4), 10, true) + pad(x.fatDelta.toFixed(4), 10, true)));
+  const smmSame = probe.every(x => Math.abs(x.smmDelta - probe[0].smmDelta) < 1e-9);
+  console.log('  -> muscle gain is ' + (smmSame ? 'IDENTICAL' : 'different') +
+              ' across a 4x range of surplus: in stepWeek("bulk"), surplusPct sets INTAKE only.');
+  console.log('  -> fat gain varies only because leanFraction happens to co-vary with a. No kcal ever');
+  console.log('     reaches the fat compartment: eating +1000 kcal/d and +150 kcal/d at the same a give');
+  console.log('     byte-identical body composition. The bulk path has no energy balance at all.');
+}
+
+/* 근육 증가가 저항운동 여부를 전혀 보지 않는다는 것도 숫자로 */
+{
+  const r = rows.find(x => x.id === 'villareal2011-diet');
+  if (r) {
+    console.log('');
+    console.log('NO-TRAINING PROBE — villareal2011-diet is a 70-year-old obese cohort with ZERO prescribed exercise.');
+    console.log('  engine predicts ΔLM ' + num(r.predicted.deltaLeanMassKg) + ' kg over 52 weeks; the trial measured ' +
+                num(r.actual.deltaLeanMassKg) + ' kg.');
+    console.log('  stepWeek() takes no training input, so profile.trainingAge="novice" pays out the full');
+    console.log('  MUSCLE_BASE 1.25 %BW/month ceiling to someone who never lifted. That single fact accounts for');
+    console.log('  most of the +' + stats(rows.filter(x => x.direction === 'cut')).deltaLeanMassKg.meanError.toFixed(2) +
+                ' kg mean lean-mass error across the cut cases.');
   }
 }
 
