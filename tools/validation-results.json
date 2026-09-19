@@ -1,11 +1,10 @@
 {
-  "generatedAt": "2026-09-19T07:21:44.958Z",
+  "generatedAt": "2026-09-19T07:33:45.207Z",
   "engine": "prototype/js/engine.js",
   "engineChange": "one export added: MB_ENGINE.stepWeek (no parameter or logic change)",
   "provenance": {
     "engineSha": "1d80611a5c775a8ef90422d7512c52e732cba576",
     "engineDirty": false,
-    "headSha": "f9ab7970442b15b895075d3d2bcda55e044f2efa",
     "warning": null
   },
   "kSmmToFfm": 0.55,

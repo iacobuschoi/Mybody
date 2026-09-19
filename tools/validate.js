@@ -620,8 +620,9 @@ function engineStamp() {
                      catch { return null; } };
   const sha = run(['log', '-1', '--format=%H', '--', '../prototype/js/engine.js']);
   const dirty = run(['status', '--porcelain', '--', '../prototype/js/engine.js']);
+  // HEAD 는 일부러 안 넣는다. 엔진과 무관한 커밋마다 결과 파일이 바뀌어
+  // diff 노이즈만 만들고, 재현에 필요한 것은 engineSha 뿐이다.
   return { engineSha: sha, engineDirty: !!dirty,
-           headSha: run(['rev-parse', 'HEAD']),
            warning: dirty ? 'engine.js 에 커밋되지 않은 변경이 있습니다 — 이 결과는 재현 불가' : null };
 }
 
