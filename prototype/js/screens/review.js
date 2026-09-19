@@ -578,6 +578,20 @@
           return;
         }
         var scan = buildScan();
+
+        /* 물리적으로 불가능한 값을 저장하지 않습니다.
+           예전엔 체지방 90kg / 체중 70kg 같은 입력이 조용히 통과해서
+           제지방 -20kg 짜리 계획이 만들어졌습니다.
+           거부가 아니라 확인입니다 — 진짜 그 값이면 그대로 저장할 수 있어야 합니다. */
+        var bad = E.validateScan(scan);
+        if (bad && !save.forced) {
+          global.MB_MODALS.confirmScan(bad, function () {
+            save.forced = true;
+            save(where);
+          });
+          return;
+        }
+        save.forced = false;
         S.addScan(scan);
         S.set({ draft: null });
         global.MB_DRAFT = null;

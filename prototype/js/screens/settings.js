@@ -204,7 +204,8 @@
           h('div.btn-row.btn-row--stack', [
             h('button.btn.btn--block', {
               text: '의학적 고지', uid: 'P12-B11', uidLabel: '의학적 고지',
-              onClick: function () { global.MB_MODALS.disclaimer(); }
+              // 설정에서는 일부러 다시 보는 것이므로 수락 여부와 무관하게 띄웁니다
+              onClick: function () { global.MB_MODALS.disclaimer(true); }
             }),
             h('button.btn.btn--block', {
               text: '용어 사전', uid: 'P12-B12', uidLabel: '용어 사전',

@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-09-19T08:35:41.532Z",
+  "generatedAt": "2026-09-19T09:45:48.850Z",
   "engine": "prototype/js/engine.js",
   "engineChange": "one export added: MB_ENGINE.stepWeek (no parameter or logic change)",
   "provenance": {
     "engineSha": "1d80611a5c775a8ef90422d7512c52e732cba576",
-    "engineDirty": false,
-    "warning": null
+    "engineDirty": true,
+    "warning": "engine.js 에 커밋되지 않은 변경이 있습니다 — 이 결과는 재현 불가"
   },
   "kSmmToFfm": 0.55,
   "caseCount": 22,
@@ -17,75 +17,75 @@
     "all": {
       "deltaWeightKg": {
         "n": 22,
-        "meanError": 2.66,
-        "meanAbsError": 3.03,
-        "sdError": 2.76,
-        "maxAbsError": 7.51,
+        "meanError": 0.93,
+        "meanAbsError": 1.89,
+        "sdError": 2.41,
+        "maxAbsError": 7.16,
         "bias": "over-predicts (predicted > actual)",
-        "overPredictedCount": 19,
-        "underPredictedCount": 3
+        "overPredictedCount": 15,
+        "underPredictedCount": 7
       },
       "deltaFatMassKg": {
         "n": 22,
-        "meanError": 0.41,
-        "meanAbsError": 1.17,
-        "sdError": 1.47,
-        "maxAbsError": 3.49,
+        "meanError": 0.38,
+        "meanAbsError": 1.11,
+        "sdError": 1.43,
+        "maxAbsError": 3.51,
         "bias": "over-predicts (predicted > actual)",
-        "overPredictedCount": 14,
-        "underPredictedCount": 8
+        "overPredictedCount": 12,
+        "underPredictedCount": 9
       },
       "deltaLeanMassKg": {
         "n": 22,
-        "meanError": 2.24,
-        "meanAbsError": 2.89,
-        "sdError": 3.12,
-        "maxAbsError": 8.34,
+        "meanError": 0.55,
+        "meanAbsError": 1.36,
+        "sdError": 1.73,
+        "maxAbsError": 5.14,
         "bias": "over-predicts (predicted > actual)",
-        "overPredictedCount": 14,
-        "underPredictedCount": 7
+        "overPredictedCount": 10,
+        "underPredictedCount": 10
       }
     },
     "byDirection": {
       "cut": {
         "deltaWeightKg": {
           "n": 15,
-          "meanError": 3.49,
-          "meanAbsError": 3.86,
-          "sdError": 2.91,
-          "maxAbsError": 7.51,
+          "meanError": 1.27,
+          "meanAbsError": 2.27,
+          "sdError": 2.72,
+          "maxAbsError": 7.16,
           "bias": "over-predicts (predicted > actual)",
-          "overPredictedCount": 14,
-          "underPredictedCount": 1
+          "overPredictedCount": 12,
+          "underPredictedCount": 3
         },
         "deltaFatMassKg": {
           "n": 15,
-          "meanError": 0.2,
-          "meanAbsError": 1.31,
-          "sdError": 1.73,
-          "maxAbsError": 3.49,
+          "meanError": 0.32,
+          "meanAbsError": 1.23,
+          "sdError": 1.63,
+          "maxAbsError": 3.51,
           "bias": "over-predicts (predicted > actual)",
           "overPredictedCount": 7,
-          "underPredictedCount": 8
+          "underPredictedCount": 7
         },
         "deltaLeanMassKg": {
           "n": 15,
-          "meanError": 3.28,
-          "meanAbsError": 3.73,
-          "sdError": 3.21,
-          "maxAbsError": 8.34,
+          "meanError": 0.95,
+          "meanAbsError": 1.58,
+          "sdError": 1.85,
+          "maxAbsError": 5.14,
           "bias": "over-predicts (predicted > actual)",
-          "overPredictedCount": 10,
-          "underPredictedCount": 4
+          "overPredictedCount": 8,
+          "underPredictedCount": 6
         }
       },
       "recomp": {
         "deltaWeightKg": {
           "n": 2,
-          "meanError": -0.24,
+          "meanError": -0.26,
           "meanAbsError": 0.55,
           "sdError": 0.78,
-          "maxAbsError": 0.79,
+          "maxAbsError": 0.81,
           "bias": "under-predicts (predicted < actual)",
           "overPredictedCount": 1,
           "underPredictedCount": 1
@@ -102,10 +102,10 @@
         },
         "deltaLeanMassKg": {
           "n": 2,
-          "meanError": -1.14,
-          "meanAbsError": 1.14,
+          "meanError": -1.16,
+          "meanAbsError": 1.16,
           "sdError": 1.06,
-          "maxAbsError": 1.89,
+          "maxAbsError": 1.91,
           "bias": "under-predicts (predicted < actual)",
           "overPredictedCount": 0,
           "underPredictedCount": 2
@@ -114,33 +114,33 @@
       "bulk": {
         "deltaWeightKg": {
           "n": 5,
-          "meanError": 1.33,
-          "meanAbsError": 1.51,
-          "sdError": 1.12,
-          "maxAbsError": 2.63,
+          "meanError": 0.38,
+          "meanAbsError": 1.27,
+          "sdError": 1.67,
+          "maxAbsError": 2.6,
           "bias": "over-predicts (predicted > actual)",
-          "overPredictedCount": 4,
-          "underPredictedCount": 1
+          "overPredictedCount": 2,
+          "underPredictedCount": 3
         },
         "deltaFatMassKg": {
           "n": 5,
-          "meanError": 0.85,
-          "meanAbsError": 0.85,
-          "sdError": 0.65,
-          "maxAbsError": 1.91,
+          "meanError": 0.35,
+          "meanAbsError": 0.86,
+          "sdError": 1.14,
+          "maxAbsError": 1.9,
           "bias": "over-predicts (predicted > actual)",
-          "overPredictedCount": 5,
-          "underPredictedCount": 0
+          "overPredictedCount": 3,
+          "underPredictedCount": 2
         },
         "deltaLeanMassKg": {
           "n": 5,
-          "meanError": 0.48,
-          "meanAbsError": 1.04,
-          "sdError": 1.09,
-          "maxAbsError": 1.4,
-          "bias": "over-predicts (predicted > actual)",
-          "overPredictedCount": 4,
-          "underPredictedCount": 1
+          "meanError": 0.03,
+          "meanAbsError": 0.78,
+          "sdError": 1.05,
+          "maxAbsError": 1.43,
+          "bias": "unbiased",
+          "overPredictedCount": 2,
+          "underPredictedCount": 2
         }
       }
     },
@@ -180,10 +180,10 @@
       "intermediate": {
         "deltaWeightKg": {
           "n": 2,
-          "meanError": -0.24,
+          "meanError": -0.26,
           "meanAbsError": 0.55,
           "sdError": 0.78,
-          "maxAbsError": 0.79,
+          "maxAbsError": 0.81,
           "bias": "under-predicts (predicted < actual)",
           "overPredictedCount": 1,
           "underPredictedCount": 1
@@ -200,10 +200,10 @@
         },
         "deltaLeanMassKg": {
           "n": 2,
-          "meanError": -1.14,
-          "meanAbsError": 1.14,
+          "meanError": -1.16,
+          "meanAbsError": 1.16,
           "sdError": 1.06,
-          "maxAbsError": 1.89,
+          "maxAbsError": 1.91,
           "bias": "under-predicts (predicted < actual)",
           "overPredictedCount": 0,
           "underPredictedCount": 2
@@ -212,41 +212,41 @@
       "novice": {
         "deltaWeightKg": {
           "n": 13,
-          "meanError": 3.78,
-          "meanAbsError": 3.78,
-          "sdError": 2.2,
-          "maxAbsError": 7.51,
+          "meanError": 0.87,
+          "meanAbsError": 1.85,
+          "sdError": 2.23,
+          "maxAbsError": 5.4,
           "bias": "over-predicts (predicted > actual)",
-          "overPredictedCount": 13,
-          "underPredictedCount": 0
+          "overPredictedCount": 9,
+          "underPredictedCount": 4
         },
         "deltaFatMassKg": {
           "n": 13,
-          "meanError": 0.07,
-          "meanAbsError": 1.1,
-          "sdError": 1.63,
-          "maxAbsError": 3.49,
-          "bias": "over-predicts (predicted > actual)",
-          "overPredictedCount": 6,
-          "underPredictedCount": 7
+          "meanError": 0.01,
+          "meanAbsError": 1.01,
+          "sdError": 1.56,
+          "maxAbsError": 3.51,
+          "bias": "unbiased",
+          "overPredictedCount": 4,
+          "underPredictedCount": 8
         },
         "deltaLeanMassKg": {
           "n": 13,
-          "meanError": 3.72,
-          "meanAbsError": 3.86,
-          "sdError": 2.87,
-          "maxAbsError": 8.34,
+          "meanError": 0.86,
+          "meanAbsError": 1.28,
+          "sdError": 1.38,
+          "maxAbsError": 2.94,
           "bias": "over-predicts (predicted > actual)",
-          "overPredictedCount": 11,
-          "underPredictedCount": 1
+          "overPredictedCount": 7,
+          "underPredictedCount": 4
         }
       },
       "advanced": {
         "deltaWeightKg": {
           "n": 4,
-          "meanError": 0.22,
+          "meanError": 0.2,
           "meanAbsError": 1.86,
-          "sdError": 2.4,
+          "sdError": 2.39,
           "maxAbsError": 2.82,
           "bias": "over-predicts (predicted > actual)",
           "overPredictedCount": 2,
@@ -254,20 +254,20 @@
         },
         "deltaFatMassKg": {
           "n": 4,
-          "meanError": 0.37,
-          "meanAbsError": 1.17,
-          "sdError": 1.48,
-          "maxAbsError": 1.91,
+          "meanError": 0.36,
+          "meanAbsError": 1.15,
+          "sdError": 1.47,
+          "maxAbsError": 1.9,
           "bias": "over-predicts (predicted > actual)",
           "overPredictedCount": 3,
           "underPredictedCount": 1
         },
         "deltaLeanMassKg": {
           "n": 4,
-          "meanError": -0.15,
-          "meanAbsError": 1.16,
+          "meanError": -0.16,
+          "meanAbsError": 1.17,
           "sdError": 1.37,
-          "maxAbsError": 1.4,
+          "maxAbsError": 1.43,
           "bias": "under-predicts (predicted < actual)",
           "overPredictedCount": 2,
           "underPredictedCount": 2
@@ -278,62 +278,62 @@
       "backsolved-from-tissue": {
         "deltaWeightKg": {
           "n": 11,
-          "meanError": 4.32,
-          "meanAbsError": 4.32,
-          "sdError": 2.29,
-          "maxAbsError": 7.51,
-          "bias": "over-predicts (predicted > actual)",
-          "overPredictedCount": 11,
-          "underPredictedCount": 0
-        },
-        "deltaFatMassKg": {
-          "n": 11,
-          "meanError": -0.15,
-          "meanAbsError": 1.08,
-          "sdError": 1.51,
-          "maxAbsError": 3.45,
-          "bias": "under-predicts (predicted < actual)",
-          "overPredictedCount": 4,
-          "underPredictedCount": 7
-        },
-        "deltaLeanMassKg": {
-          "n": 11,
-          "meanError": 4.46,
-          "meanAbsError": 4.68,
-          "sdError": 2.82,
-          "maxAbsError": 8.34,
+          "meanError": 1.34,
+          "meanAbsError": 2.19,
+          "sdError": 2.63,
+          "maxAbsError": 7.16,
           "bias": "over-predicts (predicted > actual)",
           "overPredictedCount": 9,
           "underPredictedCount": 2
+        },
+        "deltaFatMassKg": {
+          "n": 11,
+          "meanError": 0.01,
+          "meanAbsError": 0.96,
+          "sdError": 1.39,
+          "maxAbsError": 3.06,
+          "bias": "unbiased",
+          "overPredictedCount": 4,
+          "underPredictedCount": 6
+        },
+        "deltaLeanMassKg": {
+          "n": 11,
+          "meanError": 1.33,
+          "meanAbsError": 1.78,
+          "sdError": 1.9,
+          "maxAbsError": 5.14,
+          "bias": "over-predicts (predicted > actual)",
+          "overPredictedCount": 7,
+          "underPredictedCount": 4
         }
       },
       "self-reported": {
         "deltaWeightKg": {
           "n": 6,
-          "meanError": 0.07,
-          "meanAbsError": 1.42,
+          "meanError": 0.04,
+          "meanAbsError": 1.43,
           "sdError": 1.9,
           "maxAbsError": 2.82,
-          "bias": "over-predicts (predicted > actual)",
+          "bias": "unbiased",
           "overPredictedCount": 3,
           "underPredictedCount": 3
         },
         "deltaFatMassKg": {
           "n": 6,
-          "meanError": 0.55,
-          "meanAbsError": 1.08,
-          "sdError": 1.19,
-          "maxAbsError": 1.91,
+          "meanError": 0.54,
+          "meanAbsError": 1.07,
+          "sdError": 1.18,
+          "maxAbsError": 1.9,
           "bias": "over-predicts (predicted > actual)",
           "overPredictedCount": 5,
           "underPredictedCount": 1
         },
         "deltaLeanMassKg": {
           "n": 6,
-          "meanError": -0.48,
+          "meanError": -0.49,
           "meanAbsError": 1.16,
           "sdError": 1.27,
-          "maxAbsError": 1.89,
+          "maxAbsError": 1.91,
           "bias": "under-predicts (predicted < actual)",
           "overPredictedCount": 2,
           "underPredictedCount": 4
@@ -342,62 +342,62 @@
       "provided": {
         "deltaWeightKg": {
           "n": 4,
-          "meanError": 1.2,
-          "meanAbsError": 1.2,
-          "sdError": 0.39,
-          "maxAbsError": 1.69,
-          "bias": "over-predicts (predicted > actual)",
-          "overPredictedCount": 4,
-          "underPredictedCount": 0
+          "meanError": 0.01,
+          "meanAbsError": 0.87,
+          "sdError": 1.17,
+          "maxAbsError": 1.58,
+          "bias": "unbiased",
+          "overPredictedCount": 2,
+          "underPredictedCount": 2
         },
         "deltaFatMassKg": {
           "n": 4,
-          "meanError": 0.99,
-          "meanAbsError": 0.99,
-          "sdError": 0.71,
+          "meanError": 0.38,
+          "meanAbsError": 1.02,
+          "sdError": 1.35,
           "maxAbsError": 2.04,
           "bias": "over-predicts (predicted > actual)",
-          "overPredictedCount": 4,
-          "underPredictedCount": 0
+          "overPredictedCount": 2,
+          "underPredictedCount": 2
         },
         "deltaLeanMassKg": {
           "n": 4,
-          "meanError": 0.21,
-          "meanAbsError": 0.68,
-          "sdError": 0.89,
-          "maxAbsError": 1.09,
-          "bias": "over-predicts (predicted > actual)",
-          "overPredictedCount": 2,
-          "underPredictedCount": 1
+          "meanError": -0.37,
+          "meanAbsError": 0.37,
+          "sdError": 0.46,
+          "maxAbsError": 1,
+          "bias": "under-predicts (predicted < actual)",
+          "overPredictedCount": 0,
+          "underPredictedCount": 2
         }
       },
       "prescribed": {
         "deltaWeightKg": {
           "n": 1,
-          "meanError": 5.8,
-          "meanAbsError": 5.8,
+          "meanError": 5.4,
+          "meanAbsError": 5.4,
           "sdError": 0,
-          "maxAbsError": 5.8,
+          "maxAbsError": 5.4,
           "bias": "over-predicts (predicted > actual)",
           "overPredictedCount": 1,
           "underPredictedCount": 0
         },
         "deltaFatMassKg": {
           "n": 1,
-          "meanError": 3.49,
-          "meanAbsError": 3.49,
+          "meanError": 3.51,
+          "meanAbsError": 3.51,
           "sdError": 0,
-          "maxAbsError": 3.49,
+          "maxAbsError": 3.51,
           "bias": "over-predicts (predicted > actual)",
           "overPredictedCount": 1,
           "underPredictedCount": 0
         },
         "deltaLeanMassKg": {
           "n": 1,
-          "meanError": 2.31,
-          "meanAbsError": 2.31,
+          "meanError": 1.89,
+          "meanAbsError": 1.89,
           "sdError": 0,
-          "maxAbsError": 2.31,
+          "maxAbsError": 1.89,
           "bias": "over-predicts (predicted > actual)",
           "overPredictedCount": 1,
           "underPredictedCount": 0
@@ -406,582 +406,6 @@
     }
   },
   "cases": [
-    {
-      "id": "villareal2011-diet",
-      "groupLabel": "Diet only (no exercise), 1 year",
-      "citation": "Villareal DT, et al. Weight loss, exercise, or both and physical function in obese older adults. NEJM 2011;364(13):1218-1229.",
-      "sweep": "cut-general",
-      "direction": "cut",
-      "trainingStatus": "novice",
-      "sex": "mixed",
-      "weeks": 52,
-      "n": 26,
-      "measurementMethod": "DEXA",
-      "translation": {
-        "kSmmToFfm": 0.55,
-        "baselineLeanMassKg": 58,
-        "baselineSmmKg": 31.9,
-        "engineSex": "male",
-        "age": 70,
-        "heightCm": 175,
-        "trainingAge": "novice"
-      },
-      "pal": {
-        "activityLevel": "sedentary",
-        "mult": 1.2,
-        "impliedStudyTdee": 1956,
-        "engineTdeeAtBaseline": 1947,
-        "engineDerivedTdee": 1947,
-        "matchedToStudy": true,
-        "reason": "implied TDEE 1956 kcal (= |-176| / 0.09); Katch BMR 1623 x PAL 1.2 = 1947 (off by 8 kcal, the closest of the engine's five)"
-      },
-      "aggressiveness": {
-        "phase": "cut",
-        "a": 0.1778,
-        "studyTargetPct": 9,
-        "engineAchievedPct": 9,
-        "clamped": false,
-        "clampNote": null,
-        "ratePctPerWeek": 0.283,
-        "leanFraction": null,
-        "proteinPerFfmFromA": 2.2,
-        "proteinPerFfmFromStudy": 1.72
-      },
-      "predicted": {
-        "deltaWeightKg": -2.79,
-        "deltaFatMassKg": -7.93,
-        "deltaLeanMassKg": 5.14,
-        "engineLeanLossPathKg": 1.574,
-        "mobilizationCapHit": false,
-        "intakeFloorHit": true
-      },
-      "predictedWithAProtein": {
-        "deltaWeightKg": -1.24,
-        "deltaFatMassKg": -8.01,
-        "deltaLeanMassKg": 6.77
-      },
-      "actual": {
-        "deltaWeightKg": -10.3,
-        "deltaFatMassKg": -7.1,
-        "deltaLeanMassKg": -3.2
-      },
-      "error": {
-        "deltaWeightKg": 7.51,
-        "deltaFatMassKg": -0.83,
-        "deltaLeanMassKg": 8.34
-      },
-      "errorPct": {
-        "deltaWeightKg": 73,
-        "deltaFatMassKg": -12,
-        "deltaLeanMassKg": 261
-      },
-      "weeklyLog": [
-        {
-          "week": 1,
-          "tdee": 1947,
-          "intake": 1785,
-          "deficit": 162,
-          "smmKg": 31.956,
-          "bfmKg": 41.852
-        },
-        {
-          "week": 2,
-          "tdee": 1950,
-          "intake": 1788,
-          "deficit": 162,
-          "smmKg": 32.012,
-          "bfmKg": 41.705
-        },
-        {
-          "week": 3,
-          "tdee": 1953,
-          "intake": 1790,
-          "deficit": 163,
-          "smmKg": 32.068,
-          "bfmKg": 41.557
-        },
-        {
-          "week": 52,
-          "tdee": 2078,
-          "intake": 1905,
-          "deficit": 173,
-          "smmKg": 34.729,
-          "bfmKg": 34.069
-        }
-      ],
-      "leanScoringBasis": "published",
-      "leanScoringNote": null,
-      "deficitSource": "backsolved-from-tissue",
-      "inferredFields": [
-        "baselines back-solved from integer-rounded percentages (+/-5 kg)",
-        "deficit back-calculated from tissue change (achieved average, not prescribed)",
-        "proteinGPerKgBW",
-        "measurementMethod"
-      ],
-      "notes": "33% of weight lost was lean, without RT. -0.106%/wk of lean. Engine would fire only the protein clause (0.05%/wk) => roughly half the observed loss, and by accident."
-    },
-    {
-      "id": "villareal2011-dietexercise",
-      "groupLabel": "Diet + multicomponent exercise, 1 year",
-      "citation": "Villareal DT, et al. NEJM 2011;364(13):1218-1229.",
-      "sweep": "cut-general",
-      "direction": "cut",
-      "trainingStatus": "novice",
-      "sex": "mixed",
-      "weeks": 52,
-      "n": 28,
-      "measurementMethod": "DEXA",
-      "translation": {
-        "kSmmToFfm": 0.55,
-        "baselineLeanMassKg": 56,
-        "baselineSmmKg": 30.8,
-        "engineSex": "male",
-        "age": 70,
-        "heightCm": 175,
-        "trainingAge": "novice"
-      },
-      "pal": {
-        "activityLevel": "light",
-        "mult": 1.375,
-        "impliedStudyTdee": 2214,
-        "engineTdeeAtBaseline": 2172,
-        "engineDerivedTdee": 2172,
-        "matchedToStudy": true,
-        "reason": "implied TDEE 2214 kcal (= |-155| / 0.07); Katch BMR 1580 x PAL 1.375 = 2172 (off by 42 kcal, the closest of the engine's five)"
-      },
-      "aggressiveness": {
-        "phase": "cut",
-        "a": 0.0889,
-        "studyTargetPct": 7,
-        "engineAchievedPct": 7,
-        "clamped": false,
-        "clampNote": null,
-        "ratePctPerWeek": 0.217,
-        "leanFraction": null,
-        "proteinPerFfmFromA": 2.1,
-        "proteinPerFfmFromStudy": 1.71
-      },
-      "predicted": {
-        "deltaWeightKg": -2.49,
-        "deltaFatMassKg": -7.43,
-        "deltaLeanMassKg": 4.94,
-        "engineLeanLossPathKg": 1.52,
-        "mobilizationCapHit": false,
-        "intakeFloorHit": false
-      },
-      "predictedWithAProtein": {
-        "deltaWeightKg": -1,
-        "deltaFatMassKg": -7.5,
-        "deltaLeanMassKg": 6.51
-      },
-      "actual": {
-        "deltaWeightKg": -8.1,
-        "deltaFatMassKg": -6.3,
-        "deltaLeanMassKg": -1.8
-      },
-      "error": {
-        "deltaWeightKg": 5.61,
-        "deltaFatMassKg": -1.13,
-        "deltaLeanMassKg": 6.74
-      },
-      "errorPct": {
-        "deltaWeightKg": 69,
-        "deltaFatMassKg": -18,
-        "deltaLeanMassKg": 374
-      },
-      "weeklyLog": [
-        {
-          "week": 1,
-          "tdee": 2172,
-          "intake": 2020,
-          "deficit": 152,
-          "smmKg": 30.854,
-          "bfmKg": 39.862
-        },
-        {
-          "week": 2,
-          "tdee": 2175,
-          "intake": 2023,
-          "deficit": 152,
-          "smmKg": 30.907,
-          "bfmKg": 39.723
-        },
-        {
-          "week": 3,
-          "tdee": 2178,
-          "intake": 2025,
-          "deficit": 152,
-          "smmKg": 30.961,
-          "bfmKg": 39.585
-        },
-        {
-          "week": 52,
-          "tdee": 2316,
-          "intake": 2154,
-          "deficit": 162,
-          "smmKg": 33.515,
-          "bfmKg": 32.572
-        }
-      ],
-      "leanScoringBasis": "published",
-      "leanScoringNote": null,
-      "deficitSource": "backsolved-from-tissue",
-      "inferredFields": [
-        "baselines back-solved (+/-5 kg)",
-        "deficit back-calculated",
-        "proteinGPerKgBW",
-        "resistanceTrainingDaysPerWeek",
-        "measurementMethod"
-      ],
-      "notes": "Matched pair with villareal2011-diet. Exercise cut lean loss 3.2 -> 1.8 kg while total weight loss was 1.1 kg SMALLER. Training volume never enters stepWeek(), so the engine cannot separate these two arms at all."
-    },
-    {
-      "id": "beavers2017-wl-at",
-      "groupLabel": "WL + AT: weight loss plus aerobic training, 18 months",
-      "citation": "Beavers KM, et al. Obesity 2017;25(11):1823-1829.",
-      "sweep": "cut-general",
-      "direction": "cut",
-      "trainingStatus": "novice",
-      "sex": "mixed",
-      "weeks": 78,
-      "n": 83,
-      "measurementMethod": "DEXA",
-      "translation": {
-        "kSmmToFfm": 0.55,
-        "baselineLeanMassKg": 51.6,
-        "baselineSmmKg": 28.38,
-        "engineSex": "male",
-        "age": 66.9,
-        "heightCm": 175,
-        "trainingAge": "novice"
-      },
-      "pal": {
-        "activityLevel": "light",
-        "mult": 1.375,
-        "impliedStudyTdee": 1980,
-        "engineTdeeAtBaseline": 2041,
-        "engineDerivedTdee": 2041,
-        "matchedToStudy": true,
-        "reason": "implied TDEE 1980 kcal (= |-99| / 0.05); Katch BMR 1485 x PAL 1.375 = 2041 (off by 61 kcal, the closest of the engine's five)"
-      },
-      "aggressiveness": {
-        "phase": "cut",
-        "a": 0,
-        "studyTargetPct": 5,
-        "engineAchievedPct": 5,
-        "clamped": false,
-        "clampNote": null,
-        "ratePctPerWeek": 0.15,
-        "leanFraction": null,
-        "proteinPerFfmFromA": 2,
-        "proteinPerFfmFromStudy": 1.85
-      },
-      "predicted": {
-        "deltaWeightKg": -2.89,
-        "deltaFatMassKg": -7.48,
-        "deltaLeanMassKg": 4.59,
-        "engineLeanLossPathKg": 2.102,
-        "mobilizationCapHit": false,
-        "intakeFloorHit": false
-      },
-      "predictedWithAProtein": {
-        "deltaWeightKg": -3.32,
-        "deltaFatMassKg": -7.59,
-        "deltaLeanMassKg": 6.76
-      },
-      "actual": {
-        "deltaWeightKg": -8.4,
-        "deltaFatMassKg": -6.8,
-        "deltaLeanMassKg": -1.6
-      },
-      "error": {
-        "deltaWeightKg": 5.51,
-        "deltaFatMassKg": -0.68,
-        "deltaLeanMassKg": 6.19
-      },
-      "errorPct": {
-        "deltaWeightKg": 66,
-        "deltaFatMassKg": -10,
-        "deltaLeanMassKg": 387
-      },
-      "weeklyLog": [
-        {
-          "week": 1,
-          "tdee": 2041,
-          "intake": 1939,
-          "deficit": 102,
-          "smmKg": 28.414,
-          "bfmKg": 41.407
-        },
-        {
-          "week": 2,
-          "tdee": 2043,
-          "intake": 1941,
-          "deficit": 102,
-          "smmKg": 28.447,
-          "bfmKg": 41.314
-        },
-        {
-          "week": 3,
-          "tdee": 2045,
-          "intake": 1943,
-          "deficit": 102,
-          "smmKg": 28.481,
-          "bfmKg": 41.221
-        },
-        {
-          "week": 78,
-          "tdee": 2176,
-          "intake": 2067,
-          "deficit": 109,
-          "smmKg": 30.904,
-          "bfmKg": 34.021
-        }
-      ],
-      "leanScoringBasis": "published",
-      "leanScoringNote": null,
-      "deficitSource": "backsolved-from-tissue",
-      "inferredFields": [
-        "baselines back-solved",
-        "deficit back-calculated",
-        "proteinGPerKgBW",
-        "cardio details",
-        "n",
-        "measurementMethod"
-      ],
-      "notes": "Lean loss 19% of weight lost. Aerobic training increased BOTH total weight loss and absolute lean loss vs diet alone; the lean FRACTION was unchanged."
-    },
-    {
-      "id": "beavers2017-wl",
-      "groupLabel": "WL: weight loss alone, 18 months",
-      "citation": "Beavers KM, et al. Effect of exercise type during intentional weight loss on body composition in older adults with obesity. Obesity 2017;25(11):1823-1829.",
-      "sweep": "cut-general",
-      "direction": "cut",
-      "trainingStatus": "novice",
-      "sex": "mixed",
-      "weeks": 78,
-      "n": 83,
-      "measurementMethod": "DEXA",
-      "translation": {
-        "kSmmToFfm": 0.55,
-        "baselineLeanMassKg": 50,
-        "baselineSmmKg": 27.5,
-        "engineSex": "male",
-        "age": 66.9,
-        "heightCm": 175,
-        "trainingAge": "novice"
-      },
-      "pal": {
-        "activityLevel": "moderate",
-        "mult": 1.55,
-        "impliedStudyTdee": 2333,
-        "engineTdeeAtBaseline": 2248,
-        "engineDerivedTdee": 2248,
-        "matchedToStudy": true,
-        "reason": "implied TDEE 2333 kcal (= |-70| / 0.03); Katch BMR 1450 x PAL 1.55 = 2248 (off by 86 kcal, the closest of the engine's five)"
-      },
-      "aggressiveness": {
-        "phase": "cut",
-        "a": 0,
-        "studyTargetPct": 3,
-        "engineAchievedPct": 5,
-        "clamped": true,
-        "clampNote": "study 3.0% is OUTSIDE the engine's deficitPct range [5.0%..27.5%]; clamped to 5.0% (the engine literally cannot run this study's prescription)",
-        "ratePctPerWeek": 0.15,
-        "leanFraction": null,
-        "proteinPerFfmFromA": 2,
-        "proteinPerFfmFromStudy": 1.93
-      },
-      "predicted": {
-        "deltaWeightKg": -3.56,
-        "deltaFatMassKg": -8.25,
-        "deltaLeanMassKg": 4.69,
-        "engineLeanLossPathKg": 2.042,
-        "mobilizationCapHit": false,
-        "intakeFloorHit": false
-      },
-      "predictedWithAProtein": {
-        "deltaWeightKg": -4.06,
-        "deltaFatMassKg": -8.37,
-        "deltaLeanMassKg": 6.8
-      },
-      "actual": {
-        "deltaWeightKg": -5.8,
-        "deltaFatMassKg": -4.8,
-        "deltaLeanMassKg": -1
-      },
-      "error": {
-        "deltaWeightKg": 2.24,
-        "deltaFatMassKg": -3.45,
-        "deltaLeanMassKg": 5.69
-      },
-      "errorPct": {
-        "deltaWeightKg": 39,
-        "deltaFatMassKg": -72,
-        "deltaLeanMassKg": 569
-      },
-      "weeklyLog": [
-        {
-          "week": 1,
-          "tdee": 2248,
-          "intake": 2135,
-          "deficit": 112,
-          "smmKg": 27.535,
-          "bfmKg": 43.898
-        },
-        {
-          "week": 2,
-          "tdee": 2250,
-          "intake": 2137,
-          "deficit": 112,
-          "smmKg": 27.569,
-          "bfmKg": 43.796
-        },
-        {
-          "week": 3,
-          "tdee": 2252,
-          "intake": 2139,
-          "deficit": 113,
-          "smmKg": 27.604,
-          "bfmKg": 43.693
-        },
-        {
-          "week": 78,
-          "tdee": 2403,
-          "intake": 2283,
-          "deficit": 120,
-          "smmKg": 30.08,
-          "bfmKg": 35.752
-        }
-      ],
-      "leanScoringBasis": "published",
-      "leanScoringNote": null,
-      "deficitSource": "backsolved-from-tissue",
-      "inferredFields": [
-        "baselines back-solved from paired percent+absolute reporting (cross-checked against reported BMI 34.4)",
-        "deficit back-calculated over 547 d, badly understates the early deficit",
-        "proteinGPerKgBW",
-        "n (even split of 249)",
-        "measurementMethod"
-      ],
-      "notes": "Lean loss 18% of weight lost with NO exercise, better than Villareal's diet-only arm (33%) because the rate was much slower. Lean loss in the engine is rate-independent, which is wrong in the direction shown here."
-    },
-    {
-      "id": "beavers2017-wl-rt",
-      "groupLabel": "WL + RT: weight loss plus resistance training, 18 months",
-      "citation": "Beavers KM, et al. Obesity 2017;25(11):1823-1829.",
-      "sweep": "cut-general",
-      "direction": "cut",
-      "trainingStatus": "novice",
-      "sex": "mixed",
-      "weeks": 78,
-      "n": 83,
-      "measurementMethod": "DEXA",
-      "translation": {
-        "kSmmToFfm": 0.55,
-        "baselineLeanMassKg": 53.3,
-        "baselineSmmKg": 29.315,
-        "engineSex": "male",
-        "age": 66.9,
-        "heightCm": 175,
-        "trainingAge": "novice"
-      },
-      "pal": {
-        "activityLevel": "light",
-        "mult": 1.375,
-        "impliedStudyTdee": 2220,
-        "engineTdeeAtBaseline": 2092,
-        "engineDerivedTdee": 2092,
-        "matchedToStudy": true,
-        "reason": "implied TDEE 2220 kcal (= |-111| / 0.05); Katch BMR 1521 x PAL 1.375 = 2092 (off by 128 kcal, the closest of the engine's five)"
-      },
-      "aggressiveness": {
-        "phase": "cut",
-        "a": 0,
-        "studyTargetPct": 5,
-        "engineAchievedPct": 5,
-        "clamped": false,
-        "clampNote": null,
-        "ratePctPerWeek": 0.15,
-        "leanFraction": null,
-        "proteinPerFfmFromA": 2,
-        "proteinPerFfmFromStudy": 1.82
-      },
-      "predicted": {
-        "deltaWeightKg": -3.05,
-        "deltaFatMassKg": -7.66,
-        "deltaLeanMassKg": 4.61,
-        "engineLeanLossPathKg": 2.169,
-        "mobilizationCapHit": false,
-        "intakeFloorHit": false
-      },
-      "predictedWithAProtein": {
-        "deltaWeightKg": -3.42,
-        "deltaFatMassKg": -7.77,
-        "deltaLeanMassKg": 6.86
-      },
-      "actual": {
-        "deltaWeightKg": -8.6,
-        "deltaFatMassKg": -7.8,
-        "deltaLeanMassKg": -0.8
-      },
-      "error": {
-        "deltaWeightKg": 5.55,
-        "deltaFatMassKg": 0.14,
-        "deltaLeanMassKg": 5.41
-      },
-      "errorPct": {
-        "deltaWeightKg": 65,
-        "deltaFatMassKg": 2,
-        "deltaLeanMassKg": 676
-      },
-      "weeklyLog": [
-        {
-          "week": 1,
-          "tdee": 2092,
-          "intake": 1987,
-          "deficit": 105,
-          "smmKg": 29.349,
-          "bfmKg": 41.005
-        },
-        {
-          "week": 2,
-          "tdee": 2094,
-          "intake": 1989,
-          "deficit": 105,
-          "smmKg": 29.383,
-          "bfmKg": 40.91
-        },
-        {
-          "week": 3,
-          "tdee": 2095,
-          "intake": 1991,
-          "deficit": 105,
-          "smmKg": 29.417,
-          "bfmKg": 40.815
-        },
-        {
-          "week": 78,
-          "tdee": 2227,
-          "intake": 2116,
-          "deficit": 111,
-          "smmKg": 31.851,
-          "bfmKg": 33.441
-        }
-      ],
-      "leanScoringBasis": "published",
-      "leanScoringNote": null,
-      "deficitSource": "backsolved-from-tissue",
-      "inferredFields": [
-        "baselines back-solved",
-        "deficit back-calculated",
-        "proteinGPerKgBW",
-        "resistanceTrainingDaysPerWeek",
-        "n",
-        "measurementMethod"
-      ],
-      "notes": "Best composition outcome in the set: 90% of the weight lost was fat. Matched against WL+AT (80%) and WL alone (84%) in the same trial."
-    },
     {
       "id": "kistler2014",
       "groupLabel": "Single natural male bodybuilder, 26-week contest preparation",
@@ -1101,20 +525,20 @@
       "notes": "Verified: 88.6 -> 73.3 kg, 17.5% -> 7.4% BF. Reviews quote 6.6 kg FFM loss (DXA lean soft tissue) vs my 5.2 kg derivation; use 5.2-6.6 as a range. 0.20-0.25 kg lean/wk for 26 wk at only ~14% deficit."
     },
     {
-      "id": "villareal2017-aerobic",
-      "groupLabel": "Aerobic exercise + weight management, 6 months",
-      "citation": "Villareal DT, et al. Aerobic or resistance exercise, or both, in dieting obese older adults. NEJM 2017;376(20):1943-1955.",
+      "id": "villareal2011-dietexercise",
+      "groupLabel": "Diet + multicomponent exercise, 1 year",
+      "citation": "Villareal DT, et al. NEJM 2011;364(13):1218-1229.",
       "sweep": "cut-general",
       "direction": "cut",
       "trainingStatus": "novice",
       "sex": "mixed",
-      "weeks": 26,
-      "n": 40,
+      "weeks": 52,
+      "n": 28,
       "measurementMethod": "DEXA",
       "translation": {
         "kSmmToFfm": 0.55,
-        "baselineLeanMassKg": 55,
-        "baselineSmmKg": 30.25,
+        "baselineLeanMassKg": 56,
+        "baselineSmmKg": 30.8,
         "engineSex": "male",
         "age": 70,
         "heightCm": 175,
@@ -1123,97 +547,97 @@
       "pal": {
         "activityLevel": "light",
         "mult": 1.375,
-        "impliedStudyTdee": 2177,
-        "engineTdeeAtBaseline": 2142,
-        "engineDerivedTdee": 2142,
+        "impliedStudyTdee": 2214,
+        "engineTdeeAtBaseline": 2172,
+        "engineDerivedTdee": 2172,
         "matchedToStudy": true,
-        "reason": "implied TDEE 2177 kcal (= |-283| / 0.13); Katch BMR 1558 x PAL 1.375 = 2142 (off by 35 kcal, the closest of the engine's five)"
+        "reason": "implied TDEE 2214 kcal (= |-155| / 0.07); Katch BMR 1580 x PAL 1.375 = 2172 (off by 42 kcal, the closest of the engine's five)"
       },
       "aggressiveness": {
         "phase": "cut",
-        "a": 0.3556,
-        "studyTargetPct": 13,
-        "engineAchievedPct": 13,
+        "a": 0.0889,
+        "studyTargetPct": 7,
+        "engineAchievedPct": 7,
         "clamped": false,
         "clampNote": null,
-        "ratePctPerWeek": 0.417,
+        "ratePctPerWeek": 0.217,
         "leanFraction": null,
-        "proteinPerFfmFromA": 2.39,
-        "proteinPerFfmFromStudy": 1.76
+        "proteinPerFfmFromA": 2.1,
+        "proteinPerFfmFromStudy": 1.71
       },
       "predicted": {
-        "deltaWeightKg": -4.28,
-        "deltaFatMassKg": -6.69,
-        "deltaLeanMassKg": 2.41,
-        "engineLeanLossPathKg": 0.73,
+        "deltaWeightKg": -6.12,
+        "deltaFatMassKg": -7.26,
+        "deltaLeanMassKg": 1.14,
+        "engineLeanLossPathKg": 1.475,
         "mobilizationCapHit": false,
         "intakeFloorHit": false
       },
       "predictedWithAProtein": {
-        "deltaWeightKg": -6.17,
-        "deltaFatMassKg": -6.72,
-        "deltaLeanMassKg": 3.15
+        "deltaWeightKg": -4.69,
+        "deltaFatMassKg": -7.33,
+        "deltaLeanMassKg": 2.65
       },
       "actual": {
-        "deltaWeightKg": -9,
+        "deltaWeightKg": -8.1,
         "deltaFatMassKg": -6.3,
-        "deltaLeanMassKg": -2.7
+        "deltaLeanMassKg": -1.8
       },
       "error": {
-        "deltaWeightKg": 4.72,
-        "deltaFatMassKg": -0.39,
-        "deltaLeanMassKg": 5.11
+        "deltaWeightKg": 1.98,
+        "deltaFatMassKg": -0.96,
+        "deltaLeanMassKg": 2.94
       },
       "errorPct": {
-        "deltaWeightKg": 52,
-        "deltaFatMassKg": -6,
-        "deltaLeanMassKg": 189
+        "deltaWeightKg": 24,
+        "deltaFatMassKg": -15,
+        "deltaLeanMassKg": 163
       },
       "weeklyLog": [
         {
           "week": 1,
-          "tdee": 2142,
-          "intake": 1864,
-          "deficit": 279,
-          "smmKg": 30.303,
-          "bfmKg": 39.047
+          "tdee": 2172,
+          "intake": 2020,
+          "deficit": 152,
+          "smmKg": 30.819,
+          "bfmKg": 39.862
         },
         {
           "week": 2,
-          "tdee": 2145,
-          "intake": 1866,
-          "deficit": 279,
-          "smmKg": 30.355,
-          "bfmKg": 38.793
+          "tdee": 2173,
+          "intake": 2021,
+          "deficit": 152,
+          "smmKg": 30.839,
+          "bfmKg": 39.723
         },
         {
           "week": 3,
-          "tdee": 2148,
-          "intake": 1869,
-          "deficit": 279,
-          "smmKg": 30.408,
-          "bfmKg": 38.539
+          "tdee": 2174,
+          "intake": 2022,
+          "deficit": 152,
+          "smmKg": 30.858,
+          "bfmKg": 39.585
         },
         {
-          "week": 26,
-          "tdee": 2211,
-          "intake": 1924,
-          "deficit": 287,
-          "smmKg": 31.576,
-          "bfmKg": 32.61
+          "week": 52,
+          "tdee": 2206,
+          "intake": 2052,
+          "deficit": 154,
+          "smmKg": 31.427,
+          "bfmKg": 32.74
         }
       ],
       "leanScoringBasis": "published",
       "leanScoringNote": null,
       "deficitSource": "backsolved-from-tissue",
       "inferredFields": [
-        "baselineFatMassKg (weight - reported lean 55.0 - assumed 2.6 kg bone)",
+        "baselines back-solved (+/-5 kg)",
         "deficit back-calculated",
         "proteinGPerKgBW",
-        "cardio frequency",
+        "resistanceTrainingDaysPerWeek",
         "measurementMethod"
       ],
-      "notes": "Weight 96.9 -> 87.9 and lean 55.0 -> 52.3 are BOTH directly reported. -0.189%/wk lean EXCEEDS the engine's 0.15%/wk hard cap, and the engine would not fire the path at all at a 13% deficit and 41% body fat."
+      "notes": "Matched pair with villareal2011-diet. Exercise cut lean loss 3.2 -> 1.8 kg while total weight loss was 1.1 kg SMALLER. Training volume never enters stepWeek(), so the engine cannot separate these two arms at all."
     },
     {
       "id": "villareal2017-combination",
@@ -1257,17 +681,17 @@
         "proteinPerFfmFromStudy": 1.75
       },
       "predicted": {
-        "deltaWeightKg": -4.37,
-        "deltaFatMassKg": -6.83,
-        "deltaLeanMassKg": 2.46,
-        "engineLeanLossPathKg": 0.75,
+        "deltaWeightKg": -5.85,
+        "deltaFatMassKg": -6.76,
+        "deltaLeanMassKg": 0.91,
+        "engineLeanLossPathKg": 0.74,
         "mobilizationCapHit": false,
         "intakeFloorHit": false
       },
       "predictedWithAProtein": {
-        "deltaWeightKg": -6.34,
-        "deltaFatMassKg": -6.86,
-        "deltaLeanMassKg": 3.22
+        "deltaWeightKg": -7.83,
+        "deltaFatMassKg": -6.79,
+        "deltaLeanMassKg": 1.66
       },
       "actual": {
         "deltaWeightKg": -8.4,
@@ -1275,14 +699,14 @@
         "deltaLeanMassKg": -1.7
       },
       "error": {
-        "deltaWeightKg": 4.03,
-        "deltaFatMassKg": -0.13,
-        "deltaLeanMassKg": 4.16
+        "deltaWeightKg": 2.55,
+        "deltaFatMassKg": -0.06,
+        "deltaLeanMassKg": 2.61
       },
       "errorPct": {
-        "deltaWeightKg": 48,
-        "deltaFatMassKg": -2,
-        "deltaLeanMassKg": 245
+        "deltaWeightKg": 30,
+        "deltaFatMassKg": -1,
+        "deltaLeanMassKg": 153
       },
       "weeklyLog": [
         {
@@ -1290,32 +714,32 @@
           "tdee": 2187,
           "intake": 1902,
           "deficit": 284,
-          "smmKg": 31.129,
+          "smmKg": 31.095,
           "bfmKg": 39.542
         },
         {
           "week": 2,
-          "tdee": 2190,
-          "intake": 1905,
-          "deficit": 285,
-          "smmKg": 31.182,
+          "tdee": 2188,
+          "intake": 1903,
+          "deficit": 284,
+          "smmKg": 31.114,
           "bfmKg": 39.283
         },
         {
           "week": 3,
-          "tdee": 2193,
-          "intake": 1908,
+          "tdee": 2189,
+          "intake": 1904,
           "deficit": 285,
-          "smmKg": 31.236,
+          "smmKg": 31.134,
           "bfmKg": 39.024
         },
         {
           "week": 26,
-          "tdee": 2257,
-          "intake": 1964,
-          "deficit": 293,
-          "smmKg": 32.426,
-          "bfmKg": 32.971
+          "tdee": 2213,
+          "intake": 1926,
+          "deficit": 288,
+          "smmKg": 31.574,
+          "bfmKg": 33.039
         }
       ],
       "leanScoringBasis": "published",
@@ -1330,6 +754,121 @@
         "measurementMethod"
       ],
       "notes": "Lean 56.5 -> 54.8 reported. Adding cardio ON TOP of RT made lean retention worse (20% vs 12%). The engine's cardioMin has zero effect on the simulation."
+    },
+    {
+      "id": "villareal2017-aerobic",
+      "groupLabel": "Aerobic exercise + weight management, 6 months",
+      "citation": "Villareal DT, et al. Aerobic or resistance exercise, or both, in dieting obese older adults. NEJM 2017;376(20):1943-1955.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "mixed",
+      "weeks": 26,
+      "n": 40,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 55,
+        "baselineSmmKg": 30.25,
+        "engineSex": "male",
+        "age": 70,
+        "heightCm": 175,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "light",
+        "mult": 1.375,
+        "impliedStudyTdee": 2177,
+        "engineTdeeAtBaseline": 2142,
+        "engineDerivedTdee": 2142,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 2177 kcal (= |-283| / 0.13); Katch BMR 1558 x PAL 1.375 = 2142 (off by 35 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 0.3556,
+        "studyTargetPct": 13,
+        "engineAchievedPct": 13,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": 0.417,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2.39,
+        "proteinPerFfmFromStudy": 1.76
+      },
+      "predicted": {
+        "deltaWeightKg": -7.26,
+        "deltaFatMassKg": -6.55,
+        "deltaLeanMassKg": -0.71,
+        "engineLeanLossPathKg": 0.711,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -9.18,
+        "deltaFatMassKg": -6.58,
+        "deltaLeanMassKg": 0
+      },
+      "actual": {
+        "deltaWeightKg": -9,
+        "deltaFatMassKg": -6.3,
+        "deltaLeanMassKg": -2.7
+      },
+      "error": {
+        "deltaWeightKg": 1.74,
+        "deltaFatMassKg": -0.25,
+        "deltaLeanMassKg": 1.99
+      },
+      "errorPct": {
+        "deltaWeightKg": 19,
+        "deltaFatMassKg": -4,
+        "deltaLeanMassKg": 74
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2142,
+          "intake": 1864,
+          "deficit": 279,
+          "smmKg": 30.235,
+          "bfmKg": 39.047
+        },
+        {
+          "week": 2,
+          "tdee": 2141,
+          "intake": 1863,
+          "deficit": 278,
+          "smmKg": 30.22,
+          "bfmKg": 38.794
+        },
+        {
+          "week": 3,
+          "tdee": 2141,
+          "intake": 1862,
+          "deficit": 278,
+          "smmKg": 30.205,
+          "bfmKg": 38.541
+        },
+        {
+          "week": 26,
+          "tdee": 2122,
+          "intake": 1846,
+          "deficit": 276,
+          "smmKg": 29.859,
+          "bfmKg": 32.748
+        }
+      ],
+      "leanScoringBasis": "published",
+      "leanScoringNote": null,
+      "deficitSource": "backsolved-from-tissue",
+      "inferredFields": [
+        "baselineFatMassKg (weight - reported lean 55.0 - assumed 2.6 kg bone)",
+        "deficit back-calculated",
+        "proteinGPerKgBW",
+        "cardio frequency",
+        "measurementMethod"
+      ],
+      "notes": "Weight 96.9 -> 87.9 and lean 55.0 -> 52.3 are BOTH directly reported. -0.189%/wk lean EXCEEDS the engine's 0.15%/wk hard cap, and the engine would not fire the path at all at a 13% deficit and 41% body fat."
     },
     {
       "id": "villareal2017-resistance",
@@ -1373,17 +912,17 @@
         "proteinPerFfmFromStudy": 1.75
       },
       "predicted": {
-        "deltaWeightKg": -5,
-        "deltaFatMassKg": -7.51,
-        "deltaLeanMassKg": 2.52,
-        "engineLeanLossPathKg": 0.771,
+        "deltaWeightKg": -6.51,
+        "deltaFatMassKg": -7.44,
+        "deltaLeanMassKg": 0.93,
+        "engineLeanLossPathKg": 0.761,
         "mobilizationCapHit": false,
         "intakeFloorHit": false
       },
       "predictedWithAProtein": {
-        "deltaWeightKg": -7.05,
-        "deltaFatMassKg": -7.55,
-        "deltaLeanMassKg": 3.3
+        "deltaWeightKg": -8.57,
+        "deltaFatMassKg": -7.48,
+        "deltaLeanMassKg": 1.71
       },
       "actual": {
         "deltaWeightKg": -8.4,
@@ -1391,14 +930,14 @@
         "deltaLeanMassKg": -1
       },
       "error": {
-        "deltaWeightKg": 3.4,
-        "deltaFatMassKg": -0.11,
-        "deltaLeanMassKg": 3.52
+        "deltaWeightKg": 1.89,
+        "deltaFatMassKg": -0.04,
+        "deltaLeanMassKg": 1.93
       },
       "errorPct": {
-        "deltaWeightKg": 41,
-        "deltaFatMassKg": -2,
-        "deltaLeanMassKg": 352
+        "deltaWeightKg": 23,
+        "deltaFatMassKg": -1,
+        "deltaLeanMassKg": 193
       },
       "weeklyLog": [
         {
@@ -1406,32 +945,32 @@
           "tdee": 2234,
           "intake": 1922,
           "deficit": 313,
-          "smmKg": 32.01,
+          "smmKg": 31.975,
           "bfmKg": 40.616
         },
         {
           "week": 2,
-          "tdee": 2237,
-          "intake": 1924,
+          "tdee": 2235,
+          "intake": 1922,
           "deficit": 313,
-          "smmKg": 32.065,
+          "smmKg": 31.995,
           "bfmKg": 40.331
         },
         {
           "week": 3,
-          "tdee": 2240,
-          "intake": 1927,
-          "deficit": 314,
-          "smmKg": 32.12,
+          "tdee": 2236,
+          "intake": 1923,
+          "deficit": 313,
+          "smmKg": 32.016,
           "bfmKg": 40.046
         },
         {
           "week": 26,
-          "tdee": 2306,
-          "intake": 1983,
-          "deficit": 323,
-          "smmKg": 33.34,
-          "bfmKg": 33.386
+          "tdee": 2262,
+          "intake": 1945,
+          "deficit": 317,
+          "smmKg": 32.469,
+          "bfmKg": 33.461
         }
       ],
       "leanScoringBasis": "published",
@@ -1445,122 +984,6 @@
         "measurementMethod"
       ],
       "notes": "Weight 101.8 -> 93.3 and lean 58.1 -> 57.1 directly reported. RT held lean loss to 12% of weight lost vs 30% in the aerobic arm at an essentially identical deficit — the cleanest RT effect size in the set."
-    },
-    {
-      "id": "wycherley2010-pooled",
-      "groupLabel": "All four arms pooled (standard-CHO vs high-protein, each +/- RT 3 d/wk)",
-      "citation": "Wycherley TP, Noakes M, Clifton PM, Cleanthous X, Keogh JB, Brinkworth GD. A high-protein diet with resistance exercise training improves weight loss and body composition in overweight and obese patients with type 2 diabetes. Diabetes Care 2010;33(5):969-976.",
-      "sweep": "cut-general",
-      "direction": "cut",
-      "trainingStatus": "novice",
-      "sex": "mixed",
-      "weeks": 16,
-      "n": 83,
-      "measurementMethod": "DEXA",
-      "translation": {
-        "kSmmToFfm": 0.55,
-        "baselineLeanMassKg": 58,
-        "baselineSmmKg": 31.9,
-        "engineSex": "male",
-        "age": 56.1,
-        "heightCm": 175,
-        "trainingAge": "novice"
-      },
-      "pal": {
-        "activityLevel": "light",
-        "mult": 1.375,
-        "impliedStudyTdee": 2250,
-        "engineTdeeAtBaseline": 2231,
-        "engineDerivedTdee": 2231,
-        "matchedToStudy": true,
-        "reason": "implied TDEE 2250 kcal (= |-720| / 0.32); Katch BMR 1623 x PAL 1.375 = 2231 (off by 19 kcal, the closest of the engine's five)"
-      },
-      "aggressiveness": {
-        "phase": "cut",
-        "a": 1,
-        "studyTargetPct": 32,
-        "engineAchievedPct": 27.5,
-        "clamped": true,
-        "clampNote": "study 32.0% is OUTSIDE the engine's deficitPct range [5.0%..27.5%]; clamped to 27.5% (the engine literally cannot run this study's prescription)",
-        "ratePctPerWeek": 0.9,
-        "leanFraction": null,
-        "proteinPerFfmFromA": 3.1,
-        "proteinPerFfmFromStudy": 1.72
-      },
-      "predicted": {
-        "deltaWeightKg": -6.1,
-        "deltaFatMassKg": -6.51,
-        "deltaLeanMassKg": 0.41,
-        "engineLeanLossPathKg": 0.466,
-        "mobilizationCapHit": false,
-        "intakeFloorHit": true
-      },
-      "predictedWithAProtein": {
-        "deltaWeightKg": -5.65,
-        "deltaFatMassKg": -6.53,
-        "deltaLeanMassKg": 0.87
-      },
-      "actual": {
-        "deltaWeightKg": -11.9,
-        "deltaFatMassKg": -10,
-        "deltaLeanMassKg": -1.9
-      },
-      "error": {
-        "deltaWeightKg": 5.8,
-        "deltaFatMassKg": 3.49,
-        "deltaLeanMassKg": 2.31
-      },
-      "errorPct": {
-        "deltaWeightKg": 49,
-        "deltaFatMassKg": 35,
-        "deltaLeanMassKg": 121
-      },
-      "weeklyLog": [
-        {
-          "week": 1,
-          "tdee": 2231,
-          "intake": 1785,
-          "deficit": 446,
-          "smmKg": 31.915,
-          "bfmKg": 41.594
-        },
-        {
-          "week": 2,
-          "tdee": 2232,
-          "intake": 1786,
-          "deficit": 446,
-          "smmKg": 31.93,
-          "bfmKg": 41.189
-        },
-        {
-          "week": 3,
-          "tdee": 2233,
-          "intake": 1786,
-          "deficit": 447,
-          "smmKg": 31.944,
-          "bfmKg": 40.782
-        },
-        {
-          "week": 16,
-          "tdee": 2243,
-          "intake": 1794,
-          "deficit": 449,
-          "smmKg": 32.123,
-          "bfmKg": 35.492
-        }
-      ],
-      "leanScoringBasis": "published",
-      "leanScoringNote": null,
-      "deficitSource": "prescribed",
-      "inferredFields": [
-        "baselines derived from reported BMI 35.4 at assumed 1.68 m — NOT reported values",
-        "proteinGPerKgBW pooled across arms",
-        "deficit derived from the 6-7 MJ/d prescription vs estimated TDEE ~2270",
-        "resistanceTrainingDaysPerWeek applies to only half the pooled cohort",
-        "measurementMethod",
-        "ATTRIBUTION CAVEAT: the -11.9/-10.0/-1.9 triple may come from the Diabetes Obes Metab companion paper"
-      ],
-      "notes": "84% of the 11.9 kg lost was fat. -0.205%/wk of FFM, again above the engine's 0.15%/wk hard cap."
     },
     {
       "id": "campbell2018-highprotein",
@@ -1604,17 +1027,17 @@
         "proteinPerFfmFromStudy": 3.25
       },
       "predicted": {
-        "deltaWeightKg": 0.21,
+        "deltaWeightKg": 0.19,
         "deltaFatMassKg": 0,
-        "deltaLeanMassKg": 0.21,
+        "deltaLeanMassKg": 0.19,
         "engineLeanLossPathKg": 0,
         "mobilizationCapHit": false,
         "intakeFloorHit": false
       },
       "predictedWithAProtein": {
-        "deltaWeightKg": 0.21,
+        "deltaWeightKg": 0.19,
         "deltaFatMassKg": 0,
-        "deltaLeanMassKg": 0.21
+        "deltaLeanMassKg": 0.19
       },
       "actual": {
         "deltaWeightKg": 1,
@@ -1622,14 +1045,14 @@
         "deltaLeanMassKg": 2.1
       },
       "error": {
-        "deltaWeightKg": -0.79,
+        "deltaWeightKg": -0.81,
         "deltaFatMassKg": 1.1,
-        "deltaLeanMassKg": -1.89
+        "deltaLeanMassKg": -1.91
       },
       "errorPct": {
-        "deltaWeightKg": -79,
+        "deltaWeightKg": -81,
         "deltaFatMassKg": 100,
-        "deltaLeanMassKg": -90
+        "deltaLeanMassKg": -91
       },
       "weeklyLog": [
         {
@@ -1637,7 +1060,7 @@
           "tdee": 2393,
           "intake": 2393,
           "deficit": 0,
-          "smmKg": 25.92,
+          "smmKg": 25.918,
           "bfmKg": 14.1
         },
         {
@@ -1645,7 +1068,7 @@
           "tdee": 2394,
           "intake": 2394,
           "deficit": 0,
-          "smmKg": 25.934,
+          "smmKg": 25.931,
           "bfmKg": 14.1
         },
         {
@@ -1653,15 +1076,15 @@
           "tdee": 2395,
           "intake": 2395,
           "deficit": 0,
-          "smmKg": 25.949,
+          "smmKg": 25.943,
           "bfmKg": 14.1
         },
         {
           "week": 8,
-          "tdee": 2400,
-          "intake": 2400,
+          "tdee": 2399,
+          "intake": 2399,
           "deficit": 0,
-          "smmKg": 26.021,
+          "smmKg": 26.008,
           "bfmKg": 14.1
         }
       ],
@@ -1676,6 +1099,236 @@
         "deficitPctOfTdee"
       ],
       "notes": "Verified kg: FFM 47.1 -> 49.2, FM 14.1 -> 13.0. Erratum PMID 36626613 not read. Maintenance/recomp arm: +2.1 kg FFM in 8 wk in an intermediate FEMALE vs the engine's ~0.026 kg SMM/wk ceiling."
+    },
+    {
+      "id": "wycherley2010-pooled",
+      "groupLabel": "All four arms pooled (standard-CHO vs high-protein, each +/- RT 3 d/wk)",
+      "citation": "Wycherley TP, Noakes M, Clifton PM, Cleanthous X, Keogh JB, Brinkworth GD. A high-protein diet with resistance exercise training improves weight loss and body composition in overweight and obese patients with type 2 diabetes. Diabetes Care 2010;33(5):969-976.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "mixed",
+      "weeks": 16,
+      "n": 83,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 58,
+        "baselineSmmKg": 31.9,
+        "engineSex": "male",
+        "age": 56.1,
+        "heightCm": 175,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "light",
+        "mult": 1.375,
+        "impliedStudyTdee": 2250,
+        "engineTdeeAtBaseline": 2231,
+        "engineDerivedTdee": 2231,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 2250 kcal (= |-720| / 0.32); Katch BMR 1623 x PAL 1.375 = 2231 (off by 19 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 1,
+        "studyTargetPct": 32,
+        "engineAchievedPct": 27.5,
+        "clamped": true,
+        "clampNote": "study 32.0% is OUTSIDE the engine's deficitPct range [5.0%..27.5%]; clamped to 27.5% (the engine literally cannot run this study's prescription)",
+        "ratePctPerWeek": 0.9,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 3.1,
+        "proteinPerFfmFromStudy": 1.72
+      },
+      "predicted": {
+        "deltaWeightKg": -6.5,
+        "deltaFatMassKg": -6.49,
+        "deltaLeanMassKg": -0.01,
+        "engineLeanLossPathKg": 0.464,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": true
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -6.06,
+        "deltaFatMassKg": -6.51,
+        "deltaLeanMassKg": 0.45
+      },
+      "actual": {
+        "deltaWeightKg": -11.9,
+        "deltaFatMassKg": -10,
+        "deltaLeanMassKg": -1.9
+      },
+      "error": {
+        "deltaWeightKg": 5.4,
+        "deltaFatMassKg": 3.51,
+        "deltaLeanMassKg": 1.89
+      },
+      "errorPct": {
+        "deltaWeightKg": 45,
+        "deltaFatMassKg": 35,
+        "deltaLeanMassKg": 99
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2231,
+          "intake": 1785,
+          "deficit": 446,
+          "smmKg": 31.9,
+          "bfmKg": 41.594
+        },
+        {
+          "week": 2,
+          "tdee": 2231,
+          "intake": 1785,
+          "deficit": 446,
+          "smmKg": 31.899,
+          "bfmKg": 41.188
+        },
+        {
+          "week": 3,
+          "tdee": 2231,
+          "intake": 1785,
+          "deficit": 446,
+          "smmKg": 31.899,
+          "bfmKg": 40.783
+        },
+        {
+          "week": 16,
+          "tdee": 2231,
+          "intake": 1785,
+          "deficit": 446,
+          "smmKg": 31.892,
+          "bfmKg": 35.511
+        }
+      ],
+      "leanScoringBasis": "published",
+      "leanScoringNote": null,
+      "deficitSource": "prescribed",
+      "inferredFields": [
+        "baselines derived from reported BMI 35.4 at assumed 1.68 m — NOT reported values",
+        "proteinGPerKgBW pooled across arms",
+        "deficit derived from the 6-7 MJ/d prescription vs estimated TDEE ~2270",
+        "resistanceTrainingDaysPerWeek applies to only half the pooled cohort",
+        "measurementMethod",
+        "ATTRIBUTION CAVEAT: the -11.9/-10.0/-1.9 triple may come from the Diabetes Obes Metab companion paper"
+      ],
+      "notes": "84% of the 11.9 kg lost was fat. -0.205%/wk of FFM, again above the engine's 0.15%/wk hard cap."
+    },
+    {
+      "id": "villareal2011-diet",
+      "groupLabel": "Diet only (no exercise), 1 year",
+      "citation": "Villareal DT, et al. Weight loss, exercise, or both and physical function in obese older adults. NEJM 2011;364(13):1218-1229.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "mixed",
+      "weeks": 52,
+      "n": 26,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 58,
+        "baselineSmmKg": 31.9,
+        "engineSex": "male",
+        "age": 70,
+        "heightCm": 175,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "sedentary",
+        "mult": 1.2,
+        "impliedStudyTdee": 1956,
+        "engineTdeeAtBaseline": 1947,
+        "engineDerivedTdee": 1947,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 1956 kcal (= |-176| / 0.09); Katch BMR 1623 x PAL 1.2 = 1947 (off by 8 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 0.1778,
+        "studyTargetPct": 9,
+        "engineAchievedPct": 9,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": 0.283,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2.2,
+        "proteinPerFfmFromStudy": 1.72
+      },
+      "predicted": {
+        "deltaWeightKg": -9.09,
+        "deltaFatMassKg": -7.6,
+        "deltaLeanMassKg": -1.49,
+        "engineLeanLossPathKg": 1.489,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": true
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -7.68,
+        "deltaFatMassKg": -7.68,
+        "deltaLeanMassKg": 0
+      },
+      "actual": {
+        "deltaWeightKg": -10.3,
+        "deltaFatMassKg": -7.1,
+        "deltaLeanMassKg": -3.2
+      },
+      "error": {
+        "deltaWeightKg": 1.21,
+        "deltaFatMassKg": -0.5,
+        "deltaLeanMassKg": 1.71
+      },
+      "errorPct": {
+        "deltaWeightKg": 12,
+        "deltaFatMassKg": -7,
+        "deltaLeanMassKg": 53
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 1947,
+          "intake": 1785,
+          "deficit": 162,
+          "smmKg": 31.884,
+          "bfmKg": 41.852
+        },
+        {
+          "week": 2,
+          "tdee": 1947,
+          "intake": 1784,
+          "deficit": 163,
+          "smmKg": 31.868,
+          "bfmKg": 41.705
+        },
+        {
+          "week": 3,
+          "tdee": 1946,
+          "intake": 1784,
+          "deficit": 162,
+          "smmKg": 31.852,
+          "bfmKg": 41.557
+        },
+        {
+          "week": 52,
+          "tdee": 1909,
+          "intake": 1750,
+          "deficit": 159,
+          "smmKg": 31.081,
+          "bfmKg": 34.403
+        }
+      ],
+      "leanScoringBasis": "published",
+      "leanScoringNote": null,
+      "deficitSource": "backsolved-from-tissue",
+      "inferredFields": [
+        "baselines back-solved from integer-rounded percentages (+/-5 kg)",
+        "deficit back-calculated from tissue change (achieved average, not prescribed)",
+        "proteinGPerKgBW",
+        "measurementMethod"
+      ],
+      "notes": "33% of weight lost was lean, without RT. -0.106%/wk of lean. Engine would fire only the protein clause (0.05%/wk) => roughly half the observed loss, and by accident."
     },
     {
       "id": "antonio2014-hp",
@@ -1719,17 +1372,17 @@
         "proteinPerFfmFromStudy": 5.31
       },
       "predicted": {
-        "deltaWeightKg": 1.25,
-        "deltaFatMassKg": 0.75,
-        "deltaLeanMassKg": 0.5,
+        "deltaWeightKg": 1.18,
+        "deltaFatMassKg": 0.71,
+        "deltaLeanMassKg": 0.47,
         "engineLeanLossPathKg": 0,
         "mobilizationCapHit": false,
         "intakeFloorHit": false
       },
       "predictedWithAProtein": {
-        "deltaWeightKg": 1.25,
-        "deltaFatMassKg": 0.75,
-        "deltaLeanMassKg": 0.5
+        "deltaWeightKg": 1.18,
+        "deltaFatMassKg": 0.71,
+        "deltaLeanMassKg": 0.47
       },
       "actual": {
         "deltaWeightKg": 1.7,
@@ -1737,14 +1390,14 @@
         "deltaLeanMassKg": 1.9
       },
       "error": {
-        "deltaWeightKg": -0.45,
-        "deltaFatMassKg": 0.95,
-        "deltaLeanMassKg": -1.4
+        "deltaWeightKg": -0.52,
+        "deltaFatMassKg": 0.91,
+        "deltaLeanMassKg": -1.43
       },
       "errorPct": {
-        "deltaWeightKg": -27,
-        "deltaFatMassKg": 475,
-        "deltaLeanMassKg": -74
+        "deltaWeightKg": -30,
+        "deltaFatMassKg": 455,
+        "deltaLeanMassKg": -75
       },
       "weeklyLog": [
         {
@@ -1752,32 +1405,32 @@
           "tdee": 1986,
           "intake": 2334,
           "deficit": -348,
-          "smmKg": 32.759,
-          "bfmKg": 12.393
+          "smmKg": 32.757,
+          "bfmKg": 12.388
         },
         {
           "week": 2,
           "tdee": 1988,
           "intake": 2336,
           "deficit": -348,
-          "smmKg": 32.793,
-          "bfmKg": 12.486
+          "smmKg": 32.79,
+          "bfmKg": 12.477
         },
         {
           "week": 3,
           "tdee": 1989,
-          "intake": 2338,
+          "intake": 2337,
           "deficit": -348,
-          "smmKg": 32.827,
-          "bfmKg": 12.579
+          "smmKg": 32.822,
+          "bfmKg": 12.565
         },
         {
           "week": 8,
-          "tdee": 1998,
-          "intake": 2347,
-          "deficit": -350,
-          "smmKg": 33,
-          "bfmKg": 13.049
+          "tdee": 1997,
+          "intake": 2346,
+          "deficit": -349,
+          "smmKg": 32.985,
+          "bfmKg": 13.009
         }
       ],
       "leanScoringBasis": "published",
@@ -1831,17 +1484,17 @@
         "proteinPerFfmFromStudy": 3.03
       },
       "predicted": {
-        "deltaWeightKg": 0.72,
+        "deltaWeightKg": 0.71,
         "deltaFatMassKg": 0.18,
-        "deltaLeanMassKg": 0.54,
+        "deltaLeanMassKg": 0.53,
         "engineLeanLossPathKg": 0,
         "mobilizationCapHit": false,
         "intakeFloorHit": false
       },
       "predictedWithAProtein": {
-        "deltaWeightKg": 0.72,
+        "deltaWeightKg": 0.71,
         "deltaFatMassKg": 0.18,
-        "deltaLeanMassKg": 0.54
+        "deltaLeanMassKg": 0.53
       },
       "actual": {
         "deltaWeightKg": -0.81,
@@ -1849,14 +1502,14 @@
         "deltaLeanMassKg": -0.78
       },
       "error": {
-        "deltaWeightKg": 1.53,
+        "deltaWeightKg": 1.52,
         "deltaFatMassKg": 0.21,
-        "deltaLeanMassKg": 1.32
+        "deltaLeanMassKg": 1.31
       },
       "errorPct": {
-        "deltaWeightKg": 189,
-        "deltaFatMassKg": 701,
-        "deltaLeanMassKg": 169
+        "deltaWeightKg": 188,
+        "deltaFatMassKg": 691,
+        "deltaLeanMassKg": 168
       },
       "weeklyLog": [
         {
@@ -1864,7 +1517,7 @@
           "tdee": 2341,
           "intake": 2434,
           "deficit": -94,
-          "smmKg": 40.282,
+          "smmKg": 40.281,
           "bfmKg": 12.093
         },
         {
@@ -1872,24 +1525,24 @@
           "tdee": 2342,
           "intake": 2436,
           "deficit": -94,
-          "smmKg": 40.32,
-          "bfmKg": 12.117
+          "smmKg": 40.319,
+          "bfmKg": 12.116
         },
         {
           "week": 3,
           "tdee": 2344,
           "intake": 2438,
           "deficit": -94,
-          "smmKg": 40.358,
-          "bfmKg": 12.139
+          "smmKg": 40.356,
+          "bfmKg": 12.138
         },
         {
           "week": 8,
           "tdee": 2353,
           "intake": 2447,
           "deficit": -94,
-          "smmKg": 40.541,
-          "bfmKg": 12.25
+          "smmKg": 40.536,
+          "bfmKg": 12.247
         }
       ],
       "leanScoringBasis": "published",
@@ -2127,7 +1780,7 @@
           "tdee": 2969,
           "intake": 2555,
           "deficit": 413,
-          "smmKg": 30.364,
+          "smmKg": 30.363,
           "bfmKg": 13.142
         }
       ],
@@ -2144,117 +1797,6 @@
         "ageYears"
       ],
       "notes": "Abstract reports only percent changes (BW -5.6%, FM -31%, LBM +2.1%); kg values solved algebraically from those plus baseline weight 71.9 kg. Elite athletes GAINED 1.16 kg lean in a sustained ~19% deficit; engine's MUSCLE_SITUATION gives elite=0.00 above a 15% deficit, so it predicts exactly zero lean gain."
-    },
-    {
-      "id": "hatamoto2024-p10",
-      "groupLabel": "P group — +10% energy surplus from protein alone (ITT, n=12)",
-      "citation": "Hatamoto Y, et al. Greater energy surplus promotes body protein accretion in healthy young men: A randomized clinical trial. Clinical Nutrition 2024;43:48-60.",
-      "sweep": "bulk",
-      "direction": "bulk",
-      "trainingStatus": "novice",
-      "sex": "male",
-      "weeks": 6,
-      "n": 12,
-      "measurementMethod": "4-compartment model (DXA + DLW dilution + hydrostatic weighing)",
-      "translation": {
-        "kSmmToFfm": 0.55,
-        "baselineLeanMassKg": 51.31,
-        "baselineSmmKg": 28.221,
-        "engineSex": "male",
-        "age": 21.6,
-        "heightCm": 173.2,
-        "trainingAge": "novice"
-      },
-      "pal": {
-        "activityLevel": "moderate",
-        "mult": 1.55,
-        "impliedStudyTdee": null,
-        "engineTdeeAtBaseline": 2291,
-        "engineDerivedTdee": 2291,
-        "matchedToStudy": false,
-        "reason": "no implied TDEE (deficitKcalPerDay missing or zero); fallback from training load (0 RT d/wk, cardio=no) -> PAL 1.55, engine TDEE 2291 kcal"
-      },
-      "aggressiveness": {
-        "phase": "bulk",
-        "a": 0.4444,
-        "studyTargetPct": 10,
-        "engineAchievedPct": 10,
-        "clamped": false,
-        "clampNote": null,
-        "ratePctPerWeek": null,
-        "leanFraction": 0.594,
-        "proteinPerFfmFromA": 2.03,
-        "proteinPerFfmFromStudy": 2.8
-      },
-      "predicted": {
-        "deltaWeightKg": 1.83,
-        "deltaFatMassKg": 0.74,
-        "deltaLeanMassKg": 1.09,
-        "engineLeanLossPathKg": 0,
-        "mobilizationCapHit": false,
-        "intakeFloorHit": false
-      },
-      "predictedWithAProtein": {
-        "deltaWeightKg": 1.83,
-        "deltaFatMassKg": 0.74,
-        "deltaLeanMassKg": 1.09
-      },
-      "actual": {
-        "deltaWeightKg": 0.14,
-        "deltaFatMassKg": 0.14,
-        "deltaLeanMassKg": 0
-      },
-      "error": {
-        "deltaWeightKg": 1.69,
-        "deltaFatMassKg": 0.6,
-        "deltaLeanMassKg": 1.09
-      },
-      "errorPct": {
-        "deltaWeightKg": 1210,
-        "deltaFatMassKg": 431,
-        "deltaLeanMassKg": null
-      },
-      "weeklyLog": [
-        {
-          "week": 1,
-          "tdee": 2291,
-          "intake": 2520,
-          "deficit": -229,
-          "smmKg": 28.319,
-          "bfmKg": 11.192
-        },
-        {
-          "week": 2,
-          "tdee": 2297,
-          "intake": 2527,
-          "deficit": -230,
-          "smmKg": 28.418,
-          "bfmKg": 11.315
-        },
-        {
-          "week": 3,
-          "tdee": 2303,
-          "intake": 2534,
-          "deficit": -230,
-          "smmKg": 28.518,
-          "bfmKg": 11.439
-        },
-        {
-          "week": 6,
-          "tdee": 2322,
-          "intake": 2554,
-          "deficit": -232,
-          "smmKg": 28.82,
-          "bfmKg": 11.814
-        }
-      ],
-      "leanScoringBasis": "bodyProtein",
-      "leanScoringNote": "body protein mass change (0.00 +/- 0.61 kg), NOT 4C fat-free mass (+0.73 kg). The 4C FFM gain was water/glycogen; scoring the engine against it would tune muscle to hydration.",
-      "deficitSource": "provided",
-      "inferredFields": [
-        "deficitKcalPerDay"
-      ],
-      "notes": "NO RESISTANCE TRAINING — a pure overfeeding trial that bounds what a surplus alone does. Total body protein mass change was 0.00 +/- 0.61 kg, so the FFM gain was water/glycogen. Implied lean fraction 0.83."
     },
     {
       "id": "longland2016-highprotein",
@@ -2298,17 +1840,17 @@
         "proteinPerFfmFromStudy": 3.25
       },
       "predicted": {
-        "deltaWeightKg": -2.5,
+        "deltaWeightKg": -2.55,
         "deltaFatMassKg": -2.76,
-        "deltaLeanMassKg": 0.25,
+        "deltaLeanMassKg": 0.2,
         "engineLeanLossPathKg": 0.081,
         "mobilizationCapHit": true,
         "intakeFloorHit": false
       },
       "predictedWithAProtein": {
-        "deltaWeightKg": -2.5,
+        "deltaWeightKg": -2.55,
         "deltaFatMassKg": -2.76,
-        "deltaLeanMassKg": 0.25
+        "deltaLeanMassKg": 0.2
       },
       "actual": {
         "deltaWeightKg": -3.5999999999999996,
@@ -2316,14 +1858,14 @@
         "deltaLeanMassKg": 1.2
       },
       "error": {
-        "deltaWeightKg": 1.1,
+        "deltaWeightKg": 1.05,
         "deltaFatMassKg": 2.04,
-        "deltaLeanMassKg": -0.95
+        "deltaLeanMassKg": -1
       },
       "errorPct": {
-        "deltaWeightKg": 30,
+        "deltaWeightKg": 29,
         "deltaFatMassKg": 43,
-        "deltaLeanMassKg": -79
+        "deltaLeanMassKg": -83
       },
       "weeklyLog": [
         {
@@ -2331,7 +1873,7 @@
           "tdee": 3317,
           "intake": 2527,
           "deficit": 791,
-          "smmKg": 39.576,
+          "smmKg": 39.569,
           "bfmKg": 24.781
         },
         {
@@ -2339,23 +1881,23 @@
           "tdee": 3319,
           "intake": 2551,
           "deficit": 768,
-          "smmKg": 39.61,
+          "smmKg": 39.596,
           "bfmKg": 24.083
         },
         {
           "week": 3,
-          "tdee": 3322,
-          "intake": 2575,
+          "tdee": 3321,
+          "intake": 2574,
           "deficit": 747,
-          "smmKg": 39.645,
+          "smmKg": 39.626,
           "bfmKg": 23.404
         },
         {
           "week": 4,
-          "tdee": 3324,
-          "intake": 2599,
+          "tdee": 3323,
+          "intake": 2597,
           "deficit": 726,
-          "smmKg": 39.683,
+          "smmKg": 39.658,
           "bfmKg": 22.745
         }
       ],
@@ -2369,6 +1911,237 @@
         "resistanceTrainingDaysPerWeek (total training days)"
       ],
       "notes": "Hardest single case: untrained overweight young men GAINED 1.2 kg DXA lean in 4 weeks at a 40% deficit. Engine gives novice x0.30 above a 15% deficit AND fires leanLossPerWeek() above 20%, netting roughly +0.17 kg."
+    },
+    {
+      "id": "beavers2017-wl",
+      "groupLabel": "WL: weight loss alone, 18 months",
+      "citation": "Beavers KM, et al. Effect of exercise type during intentional weight loss on body composition in older adults with obesity. Obesity 2017;25(11):1823-1829.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "mixed",
+      "weeks": 78,
+      "n": 83,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 50,
+        "baselineSmmKg": 27.5,
+        "engineSex": "male",
+        "age": 66.9,
+        "heightCm": 175,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "moderate",
+        "mult": 1.55,
+        "impliedStudyTdee": 2333,
+        "engineTdeeAtBaseline": 2248,
+        "engineDerivedTdee": 2248,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 2333 kcal (= |-70| / 0.03); Katch BMR 1450 x PAL 1.55 = 2248 (off by 86 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 0,
+        "studyTargetPct": 3,
+        "engineAchievedPct": 5,
+        "clamped": true,
+        "clampNote": "study 3.0% is OUTSIDE the engine's deficitPct range [5.0%..27.5%]; clamped to 5.0% (the engine literally cannot run this study's prescription)",
+        "ratePctPerWeek": 0.15,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2,
+        "proteinPerFfmFromStudy": 1.93
+      },
+      "predicted": {
+        "deltaWeightKg": -9.77,
+        "deltaFatMassKg": -7.86,
+        "deltaLeanMassKg": -1.91,
+        "engineLeanLossPathKg": 1.913,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -10.47,
+        "deltaFatMassKg": -7.97,
+        "deltaLeanMassKg": 0
+      },
+      "actual": {
+        "deltaWeightKg": -5.8,
+        "deltaFatMassKg": -4.8,
+        "deltaLeanMassKg": -1
+      },
+      "error": {
+        "deltaWeightKg": -3.97,
+        "deltaFatMassKg": -3.06,
+        "deltaLeanMassKg": -0.91
+      },
+      "errorPct": {
+        "deltaWeightKg": -68,
+        "deltaFatMassKg": -64,
+        "deltaLeanMassKg": -91
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2248,
+          "intake": 2135,
+          "deficit": 112,
+          "smmKg": 27.486,
+          "bfmKg": 43.898
+        },
+        {
+          "week": 2,
+          "tdee": 2247,
+          "intake": 2134,
+          "deficit": 112,
+          "smmKg": 27.473,
+          "bfmKg": 43.796
+        },
+        {
+          "week": 3,
+          "tdee": 2246,
+          "intake": 2134,
+          "deficit": 112,
+          "smmKg": 27.459,
+          "bfmKg": 43.694
+        },
+        {
+          "week": 78,
+          "tdee": 2184,
+          "intake": 2075,
+          "deficit": 109,
+          "smmKg": 26.448,
+          "bfmKg": 36.144
+        }
+      ],
+      "leanScoringBasis": "published",
+      "leanScoringNote": null,
+      "deficitSource": "backsolved-from-tissue",
+      "inferredFields": [
+        "baselines back-solved from paired percent+absolute reporting (cross-checked against reported BMI 34.4)",
+        "deficit back-calculated over 547 d, badly understates the early deficit",
+        "proteinGPerKgBW",
+        "n (even split of 249)",
+        "measurementMethod"
+      ],
+      "notes": "Lean loss 18% of weight lost with NO exercise, better than Villareal's diet-only arm (33%) because the rate was much slower. Lean loss in the engine is rate-independent, which is wrong in the direction shown here."
+    },
+    {
+      "id": "beavers2017-wl-rt",
+      "groupLabel": "WL + RT: weight loss plus resistance training, 18 months",
+      "citation": "Beavers KM, et al. Obesity 2017;25(11):1823-1829.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "mixed",
+      "weeks": 78,
+      "n": 83,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 53.3,
+        "baselineSmmKg": 29.315,
+        "engineSex": "male",
+        "age": 66.9,
+        "heightCm": 175,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "light",
+        "mult": 1.375,
+        "impliedStudyTdee": 2220,
+        "engineTdeeAtBaseline": 2092,
+        "engineDerivedTdee": 2092,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 2220 kcal (= |-111| / 0.05); Katch BMR 1521 x PAL 1.375 = 2092 (off by 128 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 0,
+        "studyTargetPct": 5,
+        "engineAchievedPct": 5,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": 0.15,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2,
+        "proteinPerFfmFromStudy": 1.82
+      },
+      "predicted": {
+        "deltaWeightKg": -7.44,
+        "deltaFatMassKg": -7.44,
+        "deltaLeanMassKg": 0.01,
+        "engineLeanLossPathKg": 2.089,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -7.93,
+        "deltaFatMassKg": -7.55,
+        "deltaLeanMassKg": 2.13
+      },
+      "actual": {
+        "deltaWeightKg": -8.6,
+        "deltaFatMassKg": -7.8,
+        "deltaLeanMassKg": -0.8
+      },
+      "error": {
+        "deltaWeightKg": 1.16,
+        "deltaFatMassKg": 0.36,
+        "deltaLeanMassKg": 0.81
+      },
+      "errorPct": {
+        "deltaWeightKg": 14,
+        "deltaFatMassKg": 5,
+        "deltaLeanMassKg": 101
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2092,
+          "intake": 1987,
+          "deficit": 105,
+          "smmKg": 29.324,
+          "bfmKg": 41.005
+        },
+        {
+          "week": 2,
+          "tdee": 2092,
+          "intake": 1988,
+          "deficit": 105,
+          "smmKg": 29.333,
+          "bfmKg": 40.91
+        },
+        {
+          "week": 3,
+          "tdee": 2093,
+          "intake": 1988,
+          "deficit": 105,
+          "smmKg": 29.342,
+          "bfmKg": 40.815
+        },
+        {
+          "week": 78,
+          "tdee": 2093,
+          "intake": 1988,
+          "deficit": 105,
+          "smmKg": 29.319,
+          "bfmKg": 33.656
+        }
+      ],
+      "leanScoringBasis": "published",
+      "leanScoringNote": null,
+      "deficitSource": "backsolved-from-tissue",
+      "inferredFields": [
+        "baselines back-solved",
+        "deficit back-calculated",
+        "proteinGPerKgBW",
+        "resistanceTrainingDaysPerWeek",
+        "n",
+        "measurementMethod"
+      ],
+      "notes": "Best composition outcome in the set: 90% of the weight lost was fat. Matched against WL+AT (80%) and WL alone (84%) in the same trial."
     },
     {
       "id": "antonio2016-hp",
@@ -2412,17 +2185,17 @@
         "proteinPerFfmFromStudy": 3.84
       },
       "predicted": {
-        "deltaWeightKg": 1.36,
-        "deltaFatMassKg": 0.81,
-        "deltaLeanMassKg": 0.54,
+        "deltaWeightKg": 1.33,
+        "deltaFatMassKg": 0.8,
+        "deltaLeanMassKg": 0.53,
         "engineLeanLossPathKg": 0,
         "mobilizationCapHit": false,
         "intakeFloorHit": false
       },
       "predictedWithAProtein": {
-        "deltaWeightKg": 1.36,
-        "deltaFatMassKg": 0.81,
-        "deltaLeanMassKg": 0.54
+        "deltaWeightKg": 1.33,
+        "deltaFatMassKg": 0.8,
+        "deltaLeanMassKg": 0.53
       },
       "actual": {
         "deltaWeightKg": -1.27,
@@ -2430,14 +2203,14 @@
         "deltaLeanMassKg": -0.17
       },
       "error": {
-        "deltaWeightKg": 2.63,
-        "deltaFatMassKg": 1.91,
-        "deltaLeanMassKg": 0.71
+        "deltaWeightKg": 2.6,
+        "deltaFatMassKg": 1.9,
+        "deltaLeanMassKg": 0.7
       },
       "errorPct": {
-        "deltaWeightKg": 207,
-        "deltaFatMassKg": 174,
-        "deltaLeanMassKg": 419
+        "deltaWeightKg": 205,
+        "deltaFatMassKg": 173,
+        "deltaLeanMassKg": 413
       },
       "weeklyLog": [
         {
@@ -2445,32 +2218,32 @@
           "tdee": 2341,
           "intake": 2750,
           "deficit": -410,
-          "smmKg": 40.282,
-          "bfmKg": 12.175
+          "smmKg": 40.281,
+          "bfmKg": 12.174
         },
         {
           "week": 2,
           "tdee": 2342,
           "intake": 2752,
           "deficit": -410,
-          "smmKg": 40.32,
-          "bfmKg": 12.279
+          "smmKg": 40.319,
+          "bfmKg": 12.276
         },
         {
           "week": 3,
           "tdee": 2344,
           "intake": 2754,
           "deficit": -410,
-          "smmKg": 40.358,
-          "bfmKg": 12.383
+          "smmKg": 40.356,
+          "bfmKg": 12.377
         },
         {
           "week": 8,
           "tdee": 2353,
-          "intake": 2765,
+          "intake": 2764,
           "deficit": -412,
-          "smmKg": 40.542,
-          "bfmKg": 12.884
+          "smmKg": 40.536,
+          "bfmKg": 12.868
         }
       ],
       "leanScoringBasis": "published",
@@ -2528,17 +2301,17 @@
         "proteinPerFfmFromStudy": 2.68
       },
       "predicted": {
-        "deltaWeightKg": 2.83,
-        "deltaFatMassKg": 1.7,
-        "deltaLeanMassKg": 1.13,
+        "deltaWeightKg": 0,
+        "deltaFatMassKg": 0,
+        "deltaLeanMassKg": 0,
         "engineLeanLossPathKg": 0,
         "mobilizationCapHit": false,
         "intakeFloorHit": false
       },
       "predictedWithAProtein": {
-        "deltaWeightKg": 2.83,
-        "deltaFatMassKg": 1.7,
-        "deltaLeanMassKg": 1.13
+        "deltaWeightKg": 0,
+        "deltaFatMassKg": 0,
+        "deltaLeanMassKg": 0
       },
       "actual": {
         "deltaWeightKg": 1.5799999999999998,
@@ -2546,14 +2319,14 @@
         "deltaLeanMassKg": 0.44
       },
       "error": {
-        "deltaWeightKg": 1.25,
-        "deltaFatMassKg": 0.56,
-        "deltaLeanMassKg": 0.69
+        "deltaWeightKg": -1.58,
+        "deltaFatMassKg": -1.14,
+        "deltaLeanMassKg": -0.44
       },
       "errorPct": {
-        "deltaWeightKg": 79,
-        "deltaFatMassKg": 49,
-        "deltaLeanMassKg": 158
+        "deltaWeightKg": -100,
+        "deltaFatMassKg": -100,
+        "deltaLeanMassKg": -100
       },
       "weeklyLog": [
         {
@@ -2561,32 +2334,32 @@
           "tdee": 2346,
           "intake": 2756,
           "deficit": -411,
-          "smmKg": 29.219,
-          "bfmKg": 11.828
+          "smmKg": 29.117,
+          "bfmKg": 11.55
         },
         {
           "week": 2,
-          "tdee": 2352,
-          "intake": 2764,
-          "deficit": -412,
-          "smmKg": 29.322,
-          "bfmKg": 12.109
+          "tdee": 2346,
+          "intake": 2756,
+          "deficit": -411,
+          "smmKg": 29.117,
+          "bfmKg": 11.55
         },
         {
           "week": 3,
-          "tdee": 2358,
-          "intake": 2771,
-          "deficit": -413,
-          "smmKg": 29.425,
-          "bfmKg": 12.391
+          "tdee": 2346,
+          "intake": 2756,
+          "deficit": -411,
+          "smmKg": 29.117,
+          "bfmKg": 11.55
         },
         {
           "week": 6,
-          "tdee": 2377,
-          "intake": 2793,
-          "deficit": -416,
-          "smmKg": 29.74,
-          "bfmKg": 13.25
+          "tdee": 2346,
+          "intake": 2756,
+          "deficit": -411,
+          "smmKg": 29.117,
+          "bfmKg": 11.55
         }
       ],
       "leanScoringBasis": "bodyProtein",
@@ -2639,17 +2412,17 @@
         "proteinPerFfmFromStudy": 1.15
       },
       "predicted": {
-        "deltaWeightKg": 0.21,
+        "deltaWeightKg": 0.19,
         "deltaFatMassKg": 0,
-        "deltaLeanMassKg": 0.21,
+        "deltaLeanMassKg": 0.19,
         "engineLeanLossPathKg": 0,
         "mobilizationCapHit": false,
         "intakeFloorHit": false
       },
       "predictedWithAProtein": {
-        "deltaWeightKg": 0.21,
+        "deltaWeightKg": 0.19,
         "deltaFatMassKg": 0,
-        "deltaLeanMassKg": 0.21
+        "deltaLeanMassKg": 0.19
       },
       "actual": {
         "deltaWeightKg": -0.09999999999999998,
@@ -2657,14 +2430,14 @@
         "deltaLeanMassKg": 0.6
       },
       "error": {
-        "deltaWeightKg": 0.31,
+        "deltaWeightKg": 0.29,
         "deltaFatMassKg": 0.7,
-        "deltaLeanMassKg": -0.39
+        "deltaLeanMassKg": -0.41
       },
       "errorPct": {
-        "deltaWeightKg": 312,
+        "deltaWeightKg": 291,
         "deltaFatMassKg": 100,
-        "deltaLeanMassKg": -65
+        "deltaLeanMassKg": -68
       },
       "weeklyLog": [
         {
@@ -2672,7 +2445,7 @@
           "tdee": 2430,
           "intake": 2430,
           "deficit": 0,
-          "smmKg": 26.47,
+          "smmKg": 26.468,
           "bfmKg": 13.2
         },
         {
@@ -2680,7 +2453,7 @@
           "tdee": 2431,
           "intake": 2431,
           "deficit": 0,
-          "smmKg": 26.484,
+          "smmKg": 26.481,
           "bfmKg": 13.2
         },
         {
@@ -2688,7 +2461,7 @@
           "tdee": 2432,
           "intake": 2432,
           "deficit": 0,
-          "smmKg": 26.499,
+          "smmKg": 26.494,
           "bfmKg": 13.2
         },
         {
@@ -2696,7 +2469,7 @@
           "tdee": 2437,
           "intake": 2437,
           "deficit": 0,
-          "smmKg": 26.572,
+          "smmKg": 26.56,
           "bfmKg": 13.2
         }
       ],
@@ -2711,6 +2484,122 @@
         "deficitPctOfTdee"
       ],
       "notes": "FFM 48.1 -> 48.7, FM 13.2 -> 12.5. At ~1.15 g/kg FFM, far below the engine's 2.0 lean-loss threshold, these women still GAINED FFM at maintenance. The engine's low-protein clause is an absolute-loss path; reality is a blunted gain."
+    },
+    {
+      "id": "beavers2017-wl-at",
+      "groupLabel": "WL + AT: weight loss plus aerobic training, 18 months",
+      "citation": "Beavers KM, et al. Obesity 2017;25(11):1823-1829.",
+      "sweep": "cut-general",
+      "direction": "cut",
+      "trainingStatus": "novice",
+      "sex": "mixed",
+      "weeks": 78,
+      "n": 83,
+      "measurementMethod": "DEXA",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 51.6,
+        "baselineSmmKg": 28.38,
+        "engineSex": "male",
+        "age": 66.9,
+        "heightCm": 175,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "light",
+        "mult": 1.375,
+        "impliedStudyTdee": 1980,
+        "engineTdeeAtBaseline": 2041,
+        "engineDerivedTdee": 2041,
+        "matchedToStudy": true,
+        "reason": "implied TDEE 1980 kcal (= |-99| / 0.05); Katch BMR 1485 x PAL 1.375 = 2041 (off by 61 kcal, the closest of the engine's five)"
+      },
+      "aggressiveness": {
+        "phase": "cut",
+        "a": 0,
+        "studyTargetPct": 5,
+        "engineAchievedPct": 5,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": 0.15,
+        "leanFraction": null,
+        "proteinPerFfmFromA": 2,
+        "proteinPerFfmFromStudy": 1.85
+      },
+      "predicted": {
+        "deltaWeightKg": -9.11,
+        "deltaFatMassKg": -7.13,
+        "deltaLeanMassKg": -1.97,
+        "engineLeanLossPathKg": 1.974,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": -9.74,
+        "deltaFatMassKg": -7.24,
+        "deltaLeanMassKg": 0
+      },
+      "actual": {
+        "deltaWeightKg": -8.4,
+        "deltaFatMassKg": -6.8,
+        "deltaLeanMassKg": -1.6
+      },
+      "error": {
+        "deltaWeightKg": -0.71,
+        "deltaFatMassKg": -0.33,
+        "deltaLeanMassKg": -0.37
+      },
+      "errorPct": {
+        "deltaWeightKg": -8,
+        "deltaFatMassKg": -5,
+        "deltaLeanMassKg": -23
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2041,
+          "intake": 1939,
+          "deficit": 102,
+          "smmKg": 28.366,
+          "bfmKg": 41.407
+        },
+        {
+          "week": 2,
+          "tdee": 2041,
+          "intake": 1938,
+          "deficit": 102,
+          "smmKg": 28.352,
+          "bfmKg": 41.314
+        },
+        {
+          "week": 3,
+          "tdee": 2040,
+          "intake": 1938,
+          "deficit": 102,
+          "smmKg": 28.337,
+          "bfmKg": 41.222
+        },
+        {
+          "week": 78,
+          "tdee": 1983,
+          "intake": 1884,
+          "deficit": 99,
+          "smmKg": 27.294,
+          "bfmKg": 34.366
+        }
+      ],
+      "leanScoringBasis": "published",
+      "leanScoringNote": null,
+      "deficitSource": "backsolved-from-tissue",
+      "inferredFields": [
+        "baselines back-solved",
+        "deficit back-calculated",
+        "proteinGPerKgBW",
+        "cardio details",
+        "n",
+        "measurementMethod"
+      ],
+      "notes": "Lean loss 19% of weight lost. Aerobic training increased BOTH total weight loss and absolute lean loss vs diet alone; the lean FRACTION was unchanged."
     },
     {
       "id": "garthe2011-fast",
@@ -2880,17 +2769,17 @@
         "proteinPerFfmFromStudy": 1.63
       },
       "predicted": {
-        "deltaWeightKg": -2.65,
+        "deltaWeightKg": -2.69,
         "deltaFatMassKg": -2.76,
-        "deltaLeanMassKg": 0.11,
+        "deltaLeanMassKg": 0.06,
         "engineLeanLossPathKg": 0.225,
         "mobilizationCapHit": true,
         "intakeFloorHit": false
       },
       "predictedWithAProtein": {
-        "deltaWeightKg": -2.5,
+        "deltaWeightKg": -2.55,
         "deltaFatMassKg": -2.76,
-        "deltaLeanMassKg": 0.25
+        "deltaLeanMassKg": 0.2
       },
       "actual": {
         "deltaWeightKg": -3.4,
@@ -2898,14 +2787,14 @@
         "deltaLeanMassKg": 0.1
       },
       "error": {
-        "deltaWeightKg": 0.75,
+        "deltaWeightKg": 0.71,
         "deltaFatMassKg": 0.74,
-        "deltaLeanMassKg": 0.01
+        "deltaLeanMassKg": -0.04
       },
       "errorPct": {
-        "deltaWeightKg": 22,
+        "deltaWeightKg": 21,
         "deltaFatMassKg": 21,
-        "deltaLeanMassKg": 7
+        "deltaLeanMassKg": -39
       },
       "weeklyLog": [
         {
@@ -2913,31 +2802,31 @@
           "tdee": 3317,
           "intake": 2527,
           "deficit": 791,
-          "smmKg": 39.556,
+          "smmKg": 39.549,
           "bfmKg": 24.781
         },
         {
           "week": 2,
           "tdee": 3318,
-          "intake": 2550,
+          "intake": 2549,
           "deficit": 768,
-          "smmKg": 39.57,
+          "smmKg": 39.556,
           "bfmKg": 24.083
         },
         {
           "week": 3,
-          "tdee": 3319,
-          "intake": 2572,
+          "tdee": 3318,
+          "intake": 2571,
           "deficit": 747,
-          "smmKg": 39.586,
+          "smmKg": 39.566,
           "bfmKg": 23.404
         },
         {
           "week": 4,
-          "tdee": 3320,
-          "intake": 2594,
+          "tdee": 3319,
+          "intake": 2593,
           "deficit": 726,
-          "smmKg": 39.604,
+          "smmKg": 39.578,
           "bfmKg": 22.745
         }
       ],
@@ -2951,6 +2840,117 @@
         "resistanceTrainingDaysPerWeek"
       ],
       "notes": "Even at 1.2 g/kg/d (~1.6 g/kg FFM) lean was MAINTAINED in a 40% deficit. The engine predicts net lean LOSS here. The missing mediator is training status."
+    },
+    {
+      "id": "hatamoto2024-p10",
+      "groupLabel": "P group — +10% energy surplus from protein alone (ITT, n=12)",
+      "citation": "Hatamoto Y, et al. Greater energy surplus promotes body protein accretion in healthy young men: A randomized clinical trial. Clinical Nutrition 2024;43:48-60.",
+      "sweep": "bulk",
+      "direction": "bulk",
+      "trainingStatus": "novice",
+      "sex": "male",
+      "weeks": 6,
+      "n": 12,
+      "measurementMethod": "4-compartment model (DXA + DLW dilution + hydrostatic weighing)",
+      "translation": {
+        "kSmmToFfm": 0.55,
+        "baselineLeanMassKg": 51.31,
+        "baselineSmmKg": 28.221,
+        "engineSex": "male",
+        "age": 21.6,
+        "heightCm": 173.2,
+        "trainingAge": "novice"
+      },
+      "pal": {
+        "activityLevel": "moderate",
+        "mult": 1.55,
+        "impliedStudyTdee": null,
+        "engineTdeeAtBaseline": 2291,
+        "engineDerivedTdee": 2291,
+        "matchedToStudy": false,
+        "reason": "no implied TDEE (deficitKcalPerDay missing or zero); fallback from training load (0 RT d/wk, cardio=no) -> PAL 1.55, engine TDEE 2291 kcal"
+      },
+      "aggressiveness": {
+        "phase": "bulk",
+        "a": 0.4444,
+        "studyTargetPct": 10,
+        "engineAchievedPct": 10,
+        "clamped": false,
+        "clampNote": null,
+        "ratePctPerWeek": null,
+        "leanFraction": 0.594,
+        "proteinPerFfmFromA": 2.03,
+        "proteinPerFfmFromStudy": 2.8
+      },
+      "predicted": {
+        "deltaWeightKg": 0,
+        "deltaFatMassKg": 0,
+        "deltaLeanMassKg": 0,
+        "engineLeanLossPathKg": 0,
+        "mobilizationCapHit": false,
+        "intakeFloorHit": false
+      },
+      "predictedWithAProtein": {
+        "deltaWeightKg": 0,
+        "deltaFatMassKg": 0,
+        "deltaLeanMassKg": 0
+      },
+      "actual": {
+        "deltaWeightKg": 0.14,
+        "deltaFatMassKg": 0.14,
+        "deltaLeanMassKg": 0
+      },
+      "error": {
+        "deltaWeightKg": -0.14,
+        "deltaFatMassKg": -0.14,
+        "deltaLeanMassKg": 0
+      },
+      "errorPct": {
+        "deltaWeightKg": -100,
+        "deltaFatMassKg": -100,
+        "deltaLeanMassKg": null
+      },
+      "weeklyLog": [
+        {
+          "week": 1,
+          "tdee": 2291,
+          "intake": 2520,
+          "deficit": -229,
+          "smmKg": 28.221,
+          "bfmKg": 11.07
+        },
+        {
+          "week": 2,
+          "tdee": 2291,
+          "intake": 2520,
+          "deficit": -229,
+          "smmKg": 28.221,
+          "bfmKg": 11.07
+        },
+        {
+          "week": 3,
+          "tdee": 2291,
+          "intake": 2520,
+          "deficit": -229,
+          "smmKg": 28.221,
+          "bfmKg": 11.07
+        },
+        {
+          "week": 6,
+          "tdee": 2291,
+          "intake": 2520,
+          "deficit": -229,
+          "smmKg": 28.221,
+          "bfmKg": 11.07
+        }
+      ],
+      "leanScoringBasis": "bodyProtein",
+      "leanScoringNote": "body protein mass change (0.00 +/- 0.61 kg), NOT 4C fat-free mass (+0.73 kg). The 4C FFM gain was water/glycogen; scoring the engine against it would tune muscle to hydration.",
+      "deficitSource": "provided",
+      "inferredFields": [
+        "deficitKcalPerDay"
+      ],
+      "notes": "NO RESISTANCE TRAINING — a pure overfeeding trial that bounds what a surplus alone does. Total body protein mass change was 0.00 +/- 0.61 kg, so the FFM gain was water/glycogen. Implied lean fraction 0.83."
     }
   ]
 }

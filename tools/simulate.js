@@ -67,6 +67,8 @@ function makeUser(i) {
     profile: {
       sex, age, heightCm,
       activityLevel: pick(['sedentary', 'light', 'moderate', 'moderate', 'active', 'veryActive']),
+      // 주당 실제 저항운동 일수. 근성장 게이트가 이 값을 봅니다.
+      resistanceDaysPerWeek: pick([0, 1, 2, 3, 3, 4, 4, 5, 6]),
       trainingAge: pick(['novice', 'novice', 'intermediate', 'intermediate', 'advanced', 'elite']),
       daysPerWeek: Math.round(between(2, 6)),
       sessionMinutes: pick([30, 45, 60, 60, 90]),
@@ -92,24 +94,92 @@ function makeUser(i) {
 }
 
 /* --- 몸의 실제 변화(앱 바깥의 현실) --------------------------------------- */
+/* ===========================================================================
+ * 시뮬레이터 자체 생리 모델
+ *
+ * 예전 advanceBody() 는 몸의 변화를 plan.trajectory 에서 그대로 읽었습니다.
+ * 즉 세계가 곧 엔진이라, 엔진의 예측은 구조적으로 항상 맞았습니다.
+ * 실제로 확인해 보니 엔진을 20군데 망가뜨렸을 때 17개가 통과했습니다 —
+ * 지방 1kg 의 에너지를 7700 에서 770 으로 바꿔도 "문제 0건"이었습니다.
+ *
+ * 여기서는 계획이 지시한 섭취량만 받아서, 이 파일이 가진 상수로
+ * 몸을 전진시킵니다. 엔진의 상수를 절대 import 하지 않습니다 —
+ * 가져오는 순간 다시 자기 자신을 채점하게 됩니다.
+ * ========================================================================= */
+const WORLD = {
+  KCAL_PER_KG_FAT: 7700,
+  // 키 이름은 프로필이 쓰는 것과 같아야 합니다. athlete 로 적어 뒀더니
+  // veryActive 사용자가 전부 기본값 1.55 로 떨어져서, 그 사람들만
+  // 세계가 엔진보다 훨씬 적게 소비했습니다.
+  PAL: { sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, veryActive: 1.9 },
+  // 저항운동을 충분히 할 때의 주당 근육 증가 상한 (kg/주)
+  SMM_CAP: { novice: 0.115, intermediate: 0.055, advanced: 0.027, elite: 0.012 },
+  // 적자가 깊을 때 주당 제지방 손실 비율 상한
+  LEAN_LOSS_MAX: 0.0015
+};
+
 function advanceBody(u, week) {
   const b = u.body;
-  const k = b.smmKg / (b.weightKg - b.bfmKg);
+  const ffm = b.weightKg - b.bfmKg;
+  const k = b.smmKg / ffm;
+
+  // 이 세계의 에너지 소비 — 엔진과 같은 식을 쓰지만 상수는 이 파일 것입니다.
+  const bmr = 370 + 21.6 * ffm;
+  const pal = WORLD.PAL[u.profile.activityLevel];
+  if (pal == null) throw new Error('알 수 없는 활동 수준: ' + u.profile.activityLevel);
+  const tdee = bmr * pal;
+
+  let intake, proteinPerFfm, rtDays;
   if (!u.plan || !u.active) {
-    // 계획이 없으면 서서히 원래대로 — 약간 찌는 쪽
-    b.bfmKg += between(-0.05, 0.12);
-    b.smmKg += between(-0.03, 0.02);
+    // 계획이 없으면 대충 유지보다 조금 더 먹습니다
+    intake = tdee + between(0, 220);
+    proteinPerFfm = 1.2;
+    rtDays = 0;
   } else {
-    const t = u.plan.trajectory;
-    const w = Math.max(0, Math.min(t.length - 2, week - u.plan.startWeek));
-    const dF = (t[w + 1].bfmKg - t[w].bfmKg);
-    const dS = (t[w + 1].smmKg - t[w].smmKg);
-    // 계획대로 100% 가지 않는다. 순응도 + 노이즈.
-    b.bfmKg += dF * u.adherence + between(-0.12, 0.12);
-    b.smmKg += dS * u.adherence + between(-0.04, 0.04);
+    const m = u.plan.macros;
+    // 순응도: 목표와 유지 사이 어딘가를 먹습니다. 100%면 목표대로.
+    intake = tdee + (m.intakeKcal - tdee) * u.adherence + between(-160, 160);
+    proteinPerFfm = (m.proteinG * u.adherence) / ffm;
+    // 계획이 며칠을 시키든, 실제로 하는 날은 이 사람의 습관 × 순응도입니다
+    rtDays = (u.profile.resistanceDaysPerWeek || 0) * u.adherence;
   }
-  b.bfmKg = Math.max(1.5, b.bfmKg);
-  b.smmKg = Math.max(8, b.smmKg);
+
+  const balance = intake - tdee;
+  let dFat = balance * 7 / WORLD.KCAL_PER_KG_FAT;
+
+  // 지방 동원 상한 — 몸에 붙은 지방보다 빨리 뺄 수는 없습니다
+  const mobilizeCap = 31 * b.bfmKg * 7 / WORLD.KCAL_PER_KG_FAT;
+  if (dFat < -mobilizeCap) dFat = -mobilizeCap;
+
+  // 근육: 저항운동과 단백질이 있어야 늘고, 적자가 깊으면 줄어듭니다
+  let dSmm = 0;
+  const cap = WORLD.SMM_CAP[u.profile.trainingAge] || WORLD.SMM_CAP.intermediate;
+  const trainFactor = Math.max(0, Math.min(1, rtDays / 3));
+  const sexFactor = u.profile.sex === 'female' ? 0.5 : 1.0;
+  const deficitRatio = -balance / tdee;
+  if (deficitRatio < 0.05) {
+    // 유지·잉여 구간에서만 제대로 붙습니다
+    dSmm = cap * trainFactor * sexFactor * (deficitRatio < -0.02 ? 1.0 : 0.7);
+  } else if (deficitRatio < 0.20) {
+    dSmm = cap * trainFactor * sexFactor * 0.30;   // 적자 중 근성장은 크게 꺾입니다
+  }
+  // 깊은 적자·저단백이면 제지방이 빠집니다
+  if (deficitRatio > 0.20 || proteinPerFfm < 1.6) {
+    const lean = Math.min(WORLD.LEAN_LOSS_MAX, 0.0005 +
+                 (deficitRatio > 0.20 ? (deficitRatio - 0.20) * 0.01 : 0) +
+                 (proteinPerFfm < 1.6 ? 0.0005 : 0)) * ffm;
+    dSmm -= lean * k;
+  }
+
+  /* 필수지방 아래로는 안 내려갑니다. 엔진과 같은 규칙입니다.
+     예전엔 절대 하한 1.5kg 만 있어서, 150주 동안 조금씩 깎여 체지방률
+     1.3% 인 사람이 생겼습니다 — 생리적으로 불가능하고, 그 몸에서 만든
+     계획을 검사해 봐야 아무 의미가 없습니다. */
+  b.smmKg = Math.max(8, b.smmKg + dSmm + between(-0.03, 0.03));
+  const ffmAfter = b.smmKg / k;
+  const essentialPct = u.profile.sex === 'female' ? 12 : 5;
+  const floorFat = ffmAfter * essentialPct / (100 - essentialPct);
+  b.bfmKg = Math.max(floorFat, b.bfmKg + dFat + between(-0.10, 0.10));
   b.weightKg = +(b.smmKg / k + b.bfmKg).toFixed(1);
   b.bfmKg = +b.bfmKg.toFixed(1);
   b.smmKg = +b.smmKg.toFixed(1);
@@ -124,7 +194,8 @@ function measure(u, week) {
     device: 'InBody270', source: 'sheet',
     weightKg: +(u.body.weightKg + n() * 0.5).toFixed(1),
     smmKg: +(u.body.smmKg + n() * 0.5).toFixed(1),
-    bfmKg: +Math.max(1, u.body.bfmKg + n()).toFixed(1)
+    // 측정 노이즈가 필수지방 아래로 끌고 내려가지 않게 합니다
+    bfmKg: +Math.max(u.body.bfmKg * 0.8, u.body.bfmKg + n()).toFixed(1)
   };
   scan.ffmKg = +(scan.weightKg - scan.bfmKg).toFixed(1);
   scan.pbfPct = +(scan.bfmKg / scan.weightKg * 100).toFixed(1);
@@ -270,6 +341,66 @@ function checkAdherence(u, week) {
 }
 
 /* --- 불변식 검사 ---------------------------------------------------------- */
+/* ===========================================================================
+ * 엔진의 예측을 세계의 실제와 대조합니다.
+ *
+ * 이게 이 파일에서 가장 중요한 검사입니다. 세계를 엔진에서 분리한 것만으로는
+ * 부족했습니다 — 분리해 놓고 아무도 대조하지 않으면, 엔진을 망가뜨려도
+ * 세계는 멀쩡하게 돌아가고 검사는 그대로 통과합니다.
+ * (실제로 KCAL_PER_KG_FAT 을 7700 → 770 으로 바꿔도 "문제 0건"이었습니다)
+ *
+ * 순응도가 낮은 사람은 계획과 다르게 가는 게 정상이므로, 잘 지킨 사람만
+ * 봅니다. 밴드는 아주 넉넉하게 둡니다 — 잡으려는 것은 미세한 편향이 아니라
+ * 상수 자릿수가 틀린 종류의 오류입니다.
+ * ========================================================================= */
+/* 개별 건은 노이즈가 큽니다. 한 사람이 한 번 어긋나는 건 정상입니다.
+   상수 자릿수가 틀린 종류의 오류는 개별 건수가 아니라 집계 편향으로 드러납니다 —
+   실제로 7700 → 3500 돌연변이는 개별 건수가 기준선보다 오히려 적었습니다.
+   그래서 모든 (예측, 실제) 쌍을 모아 두고 끝에서 중앙값 비율을 봅니다. */
+const PRED = { minWeeks: 8, minAdherence: 0.85, lo: 0.12, hi: 8.0, minMoveKg: 1.0 };
+const predPairs = { fat: [], smm: [] };
+const predOutliers = { fat: 0, smm: 0 };
+
+/* 확률적 세계에서 개별 이탈은 정상입니다 — 한 사람이 한 번 크게 어긋나는 건
+   순응도·노이즈·재계획 타이밍으로 얼마든지 생깁니다. 그래서 개별 건은
+   경고로 남기고, 판정은 (1) 집계 중앙값 (2) 이탈 비율 두 가지로 합니다. */
+const warnings = [];
+function warn(kind, detail, ctx) { warnings.push({ kind, detail, ctx }); }
+
+function checkPrediction(u, week) {
+  if (!u.plan || !u.plan.trajectory || u.adherence < PRED.minAdherence) return;
+  const t = u.plan.trajectory;
+  const w = week - u.plan.startWeek;
+  if (w < PRED.minWeeks || w >= t.length) return;
+
+  const predFat = t[w].bfmKg - t[0].bfmKg;
+  const predSmm = t[w].smmKg - t[0].smmKg;
+  const actFat = u.body.bfmKg - u.plan.bodyAtStart.bfmKg;
+  const actSmm = u.body.smmKg - u.plan.bodyAtStart.smmKg;
+
+  // 예측 자체가 노이즈 수준이면 비율을 볼 의미가 없습니다
+  if (Math.abs(predFat) >= PRED.minMoveKg) {
+    const ratio = actFat / predFat;
+    predPairs.fat.push(ratio);
+    if (ratio < PRED.lo || ratio > PRED.hi) {
+      predOutliers.fat++;
+      warn('엔진 예측이 실제와 크게 어긋남 (지방)',
+           '예측 ' + predFat.toFixed(2) + 'kg / 실제 ' + actFat.toFixed(2) + 'kg (비율 ' + ratio.toFixed(2) + ')',
+           { user: u.i, week: week, planWeek: w, adherence: +u.adherence.toFixed(2) });
+    }
+  }
+  if (Math.abs(predSmm) >= 0.8) {
+    const ratio = actSmm / predSmm;
+    predPairs.smm.push(ratio);
+    if (ratio < PRED.lo || ratio > PRED.hi) {
+      predOutliers.smm++;
+      warn('엔진 예측이 실제와 크게 어긋남 (근육)',
+           '예측 ' + predSmm.toFixed(2) + 'kg / 실제 ' + actSmm.toFixed(2) + 'kg (비율 ' + ratio.toFixed(2) + ')',
+           { user: u.i, week: week, planWeek: w, adherence: +u.adherence.toFixed(2) });
+    }
+  }
+}
+
 function checkPlan(u, plan, week) {
   if (!plan) return;
   const ctx = { user: u.i, week, mode: u.goal && u.goal.modeId, level: plan.level,
@@ -393,6 +524,7 @@ for (let week = 0; week < WEEKS; week++) {
     if (wantScan && chance(0.85)) {
       measure(u, week);
       bump('측정');
+      checkPrediction(u, week);
     }
     if (!u.scans.length) continue;
 
@@ -408,7 +540,11 @@ for (let week = 0; week < WEEKS; week++) {
           u.goal = g;
           bump('목표 설정');
           const p = buildPlan(u, week, null);
-          if (p) { u.plan = p; u.baselinePlan = JSON.parse(JSON.stringify(p)); checkPlan(u, p, week); bump('플랜 생성'); }
+          if (p) {
+            p.bodyAtStart = { bfmKg: u.body.bfmKg, smmKg: u.body.smmKg, weightKg: u.body.weightKg };
+            u.plan = p; u.baselinePlan = JSON.parse(JSON.stringify(p));
+            checkPlan(u, p, week); bump('플랜 생성');
+          }
           else { u.goal = null; }     // 도달 불가 → 목표를 접고 다음에 다시 잡는다
         }
       }
@@ -430,7 +566,10 @@ for (let week = 0; week < WEEKS; week++) {
             u.goalHistory.push({ goal: JSON.parse(JSON.stringify(g)), atWeek: week });
             u.goal = g;
             const p = buildPlan(u, week, u.plan.level);
-            if (p) { u.plan = p; checkPlan(u, p, week); bump('목표 변경'); }
+            if (p) {
+              p.bodyAtStart = { bfmKg: u.body.bfmKg, smmKg: u.body.smmKg, weightKg: u.body.weightKg };
+              u.plan = p; checkPlan(u, p, week); bump('목표 변경');
+            }
           }
         }
       }
@@ -445,7 +584,10 @@ for (let week = 0; week < WEEKS; week++) {
         if (!isFinite(drift.weeksAhead)) fail('planDrift NaN', JSON.stringify(drift), { user: u.i, week });
         if (drift.recommendChange && chance(0.5)) {
           const p = buildPlan(u, week, u.plan.level);
-          if (p) { u.plan = p; checkPlan(u, p, week); bump('계획 재조정'); }
+          if (p) {
+            p.bodyAtStart = { bfmKg: u.body.bfmKg, smmKg: u.body.smmKg, weightKg: u.body.weightKg };
+            u.plan = p; checkPlan(u, p, week); bump('계획 재조정');
+          }
         }
       }
     }
@@ -559,6 +701,85 @@ console.log('=== 발생한 행동 ===');
 Object.entries(counters).sort((a, b) => b[1] - a[1])
   .forEach(([k, v]) => console.log(`  ${k.padEnd(14)} ${String(v).padStart(7)}`));
 
+/* ── 집계 편향 — 이게 엔진을 실제로 채점하는 자리입니다 ──────────────
+   개별 건은 노이즈가 커서 한두 건 어긋나는 게 정상이지만, 상수가 틀리면
+   전체 중앙값이 1.0 에서 통째로 밀려납니다. 순응도 높은 사람만 봅니다. */
+function median(a) {
+  if (!a.length) return null;
+  const x = a.slice().sort((p, q) => p - q);
+  const m = x.length >> 1;
+  return x.length % 2 ? x[m] : (x[m - 1] + x[m]) / 2;
+}
+/* 축마다 밴드가 다릅니다. 근거:
+ *
+ * 지방 — 세 시드(기본/777/42)에서 중앙값 1.00~1.01 로 안정적입니다.
+ *        좁게 잡아도 오탐이 없고, 에너지 상수 10배 오류를 잡습니다.
+ *        한계: 2.2배 오류(7700→3500)는 중앙값을 8%밖에 못 움직여서
+ *        통과합니다 — 속도 상한과 지방동원 상한이 먼저 걸리기 때문이고,
+ *        엔진의 min(에너지 유도, 속도 유도) 이중 제약 설계의 결과입니다.
+ *        이 부류는 tools/validate.js(실제 논문 대조)가 담당합니다.
+ *
+ * 근육 — 네 시드에서 0.33 / 0.57 / 0.77 / 0.96 으로 흔들립니다. 이유는
+ *        엔진이 틀려서만이 아니라, 이 파일의 근육 상수(WORLD.SMM_CAP)가
+ *        제가 만든 독립 추정치이기 때문입니다. 두 모델은 구간에 따라
+ *        최대 5배까지 다릅니다(예: 적자 중 중급자 — 엔진 배율 0.05 대
+ *        이 파일 0.30). 어느 쪽이 맞는지는 시뮬레이터가 판정할 수 없습니다.
+ *
+ *        그래서 역할을 나눕니다:
+ *          근육의 절대 정확도 → tools/validate.js (실제 논문 22개군 대조)
+ *          여기서는 회귀만    → 상한 ×10, 저항운동 게이트 제거 같은 부류
+ *        실측으로 그 두 돌연변이는 0.00 / 0.10 을 내므로 아래 밴드로 잡힙니다.
+ *
+ *        통과할 때까지 밴드를 넓히는 것은 이 파일이 원래 갖고 있던 병
+ *        ("무엇을 망가뜨려도 통과")을 되풀이하는 짓이므로, 여기까지가 상한입니다. */
+const BIAS_BAND = {
+  fat: { lo: 0.82, hi: 1.22 },
+  smm: { lo: 0.25, hi: 3.00 },
+  minN: 20
+};
+console.log('\n=== 엔진 예측 대 실제 (중앙값 비율, 1.0 = 정확) ===');
+[['지방', predPairs.fat, BIAS_BAND.fat], ['근육', predPairs.smm, BIAS_BAND.smm]].forEach(([label, arr, band]) => {
+  const m = median(arr);
+  if (m == null || arr.length < BIAS_BAND.minN) {
+    console.log(`  ${label}  n=${arr.length} — 표본이 적어 판정하지 않음`);
+    return;
+  }
+  const ok = m >= band.lo && m <= band.hi;
+  console.log(`  ${label}  n=${String(arr.length).padStart(3)}  중앙값 ${m.toFixed(2)}  ${ok ? '✓' : '✗ 허용 ' + band.lo + '~' + band.hi}`);
+  if (!ok) {
+    issues.push({
+      kind: '엔진 예측이 집계에서 체계적으로 어긋남 (' + label + ')',
+      detail: '중앙값 비율 ' + m.toFixed(2) + ' (허용 ' + band.lo + '~' + band.hi + ', n=' + arr.length + ')',
+      ctx: { note: '1.0 미만 = 엔진이 과대예측, 초과 = 과소예측' }
+    });
+  }
+});
+
+/* 이탈 비율 — 개별 경고가 얼마나 흔한가.
+   중앙값이 멀쩡해도 꼬리가 두꺼우면(= 어떤 부류의 사람에게만 크게 틀리면)
+   여기서 걸립니다. */
+/* 이탈 비율은 지방에만 겁니다. 지방은 기준선이 0~2% 로 안정적이지만,
+   근육은 같은 이유(두 모델의 상수가 다름)로 0~38% 까지 흔들려서
+   비율 게이트가 신호가 아니라 잡음이 됩니다. 근육 이탈은 출력만 합니다. */
+const OUTLIER_RATE_MAX = 0.12;
+const RATE_GATED = { '지방': true, '근육': false };
+[['지방', predPairs.fat.length, predOutliers.fat],
+ ['근육', predPairs.smm.length, predOutliers.smm]].forEach(([label, n, bad]) => {
+  if (n < BIAS_BAND.minN) return;
+  const rate = bad / n;
+  const gated = RATE_GATED[label];
+  console.log(`  ${label} 이탈 ${bad}/${n} = ${(rate * 100).toFixed(0)}%  ` +
+              (gated ? (rate <= OUTLIER_RATE_MAX ? '✓' : '✗ 허용 ' + (OUTLIER_RATE_MAX * 100) + '% 이하')
+                     : '(참고용 — 판정 안 함)'));
+  if (gated && rate > OUTLIER_RATE_MAX) {
+    issues.push({
+      kind: '엔진 예측 이탈이 너무 잦음 (' + label + ')',
+      detail: bad + '/' + n + ' = ' + (rate * 100).toFixed(0) + '% (허용 ' + (OUTLIER_RATE_MAX * 100) + '%)',
+      ctx: { note: '중앙값은 멀쩡해도 특정 부류에서만 크게 틀리는 경우입니다' }
+    });
+  }
+});
+
 const byKind = {};
 issues.forEach(x => { (byKind[x.kind] = byKind[x.kind] || []).push(x); });
 console.log(`\n=== 문제 ${issues.length}건 · ${Object.keys(byKind).length}종 ===`);
@@ -567,6 +788,16 @@ Object.entries(byKind).sort((a, b) => b[1].length - a[1].length).forEach(([k, li
   list.slice(0, 3).forEach(x => console.log(`   ${x.detail}  ${JSON.stringify(x.ctx).slice(0, 150)}`));
 });
 
+if (warnings.length) {
+  const wk = {};
+  warnings.forEach(x => { (wk[x.kind] = wk[x.kind] || []).push(x); });
+  console.log(`\n=== 경고 ${warnings.length}건 (실패는 아님) ===`);
+  Object.entries(wk).forEach(([k, list]) => {
+    console.log(`  [${list.length}건] ${k}`);
+    list.slice(0, 2).forEach(x => console.log(`     ${x.detail}  ${JSON.stringify(x.ctx)}`));
+  });
+}
+
 const survivors = users.filter(u => u.active && u.id).length;
 const withPlan = users.filter(u => u.plan).length;
 console.log(`\n=== 끝난 시점 ===`);
@@ -574,6 +805,6 @@ console.log(`  활성 ${survivors}명 / ${N_USERS}명 · 플랜 보유 ${withPla
 console.log(`  총 측정 ${counters['측정'] || 0}건 · 스냅샷 ${counters['스냅샷'] || 0}건 · 친구 조회 ${counters['친구 조회'] || 0}건`);
 
 fs.writeFileSync(path.join(__dirname, '.shots', 'simulation-issues.json'),
-  JSON.stringify({ seed: SEED, users: N_USERS, weeks: WEEKS, counters, issues }, null, 1));
+  JSON.stringify({ seed: SEED, users: N_USERS, weeks: WEEKS, counters, issues, warnings }, null, 1));
 console.log(`\n상세: tools/.shots/simulation-issues.json`);
 process.exit(issues.length ? 1 : 0);

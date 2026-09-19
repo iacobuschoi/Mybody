@@ -65,7 +65,7 @@ function open(file) {
       payload TEXT NOT NULL,
       PRIMARY KEY (user_id, kind, id)
     );
-    CREATE INDEX IF NOT EXISTS idx_records_sync ON records(user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_records_sync ON records(user_id, updated_at, kind, id);
     CREATE INDEX IF NOT EXISTS idx_snapshots_owner ON snapshots(owner_id, week_start DESC);
   `);
   return db;
@@ -127,7 +127,12 @@ function makeApi(db) {
       'INSERT INTO records (user_id,kind,id,updated_at,deleted,payload) VALUES (?,?,?,?,?,?) ' +
       'ON CONFLICT(user_id,kind,id) DO UPDATE SET updated_at=excluded.updated_at, ' +
       'deleted=excluded.deleted, payload=excluded.payload WHERE excluded.updated_at >= records.updated_at'),
-    recordsSince: db.prepare('SELECT * FROM records WHERE user_id=? AND updated_at > ? ORDER BY updated_at LIMIT ?'),
+    // 커서는 (updated_at, kind, id) 복합입니다. updated_at 단독으로 비교하면
+    // 같은 타임스탬프를 가진 형제 행들이 커서를 넘기는 순간 영구히 건너뛰어집니다.
+    // (기본키가 (user_id, kind, id) 라서 같은 id 가 kind 마다 존재할 수 있습니다)
+    recordsSince: db.prepare(
+      'SELECT * FROM records WHERE user_id=? AND (updated_at, kind, id) > (?,?,?) ' +
+      'ORDER BY updated_at, kind, id LIMIT ?'),
     countRecords: db.prepare('SELECT COUNT(*) c FROM records WHERE user_id=?')
   };
 
@@ -209,18 +214,40 @@ function makeApi(db) {
     },
     removeFriend(me, otherId) {
       const [x, y] = pair(me, otherId);
-      if (!q.edge.get(x, y)) return { ok: false, reason: '친구가 아닙니다' };
+      const e = q.edge.get(x, y);
+      if (!e) return { ok: false, reason: '친구가 아닙니다' };
+      // 차단당한 사람이 "친구 끊기"로 자기를 막고 있는 행을 지울 수 있었습니다.
+      // 차단은 차단한 사람만 풀 수 있습니다.
+      if (e.status === 'blocked' && e.blocked_by !== me)
+        return { ok: false, reason: '친구가 아닙니다' };
+      if (e.status === 'pending' && e.requested_by !== me)
+        return { ok: false, reason: '받은 요청은 거절로 처리합니다' };
       q.deleteEdge.run(x, y);
       q.deleteShare.run(me, otherId);
       q.deleteShare.run(otherId, me);
       return { ok: true };
     },
     block(me, otherId) {
+      if (!this.exists(me) || !this.exists(otherId)) return { ok: false, reason: '없는 계정입니다' };
+      if (me === otherId) return { ok: false, reason: '자기 자신은 차단할 수 없습니다' };
       const [x, y] = pair(me, otherId);
-      if (!q.edge.get(x, y)) q.insertEdge.run(x, y, 'blocked', me, nowISO());
+      const e = q.edge.get(x, y);
+      // 맞차단으로 남의 차단을 자기 것으로 덮어쓰면, 그걸 풀어서 관계를 되살릴 수 있습니다.
+      if (e && e.status === 'blocked' && e.blocked_by !== me)
+        return { ok: false, reason: '요청할 수 없는 상대입니다' };
+      if (!e) q.insertEdge.run(x, y, 'blocked', me, nowISO());
       q.setEdgeBlocked.run('blocked', me, nowISO(), x, y);
       q.deleteShare.run(me, otherId);
       q.deleteShare.run(otherId, me);
+      return { ok: true };
+    },
+    /** 차단 해제. 차단한 본인만. 이게 없으면 차단한 사람이 영원히 지울 수 없는 행에 묶입니다. */
+    unblock(me, otherId) {
+      const [x, y] = pair(me, otherId);
+      const e = q.edge.get(x, y);
+      if (!e || e.status !== 'blocked') return { ok: false, reason: '차단하지 않은 상대입니다' };
+      if (e.blocked_by !== me) return { ok: false, reason: '내가 차단한 상대가 아닙니다' };
+      q.deleteEdge.run(x, y);
       return { ok: true };
     },
     listFriends(me) {
@@ -262,7 +289,14 @@ function makeApi(db) {
       if (!this.exists(me) || !this.exists(viewerId)) return { ok: false, reason: '없는 계정입니다' };
       if (!this.areFriends(me, viewerId)) return { ok: false, reason: '친구가 아닙니다' };
       const cur = this.shareFields(me, viewerId);
-      for (const k of SHARE_FIELDS) if (k in patch) cur[k] = !!patch[k];
+      // !! 강제변환이면 문자열 "false" 가 true 가 됩니다. 이 앱에서 가장 민감한
+      // 스위치가 한쪽 방향으로만(= 더 열리는 쪽으로만) 실패하던 자리입니다.
+      for (const k of SHARE_FIELDS) {
+        if (!(k in patch)) continue;
+        if (typeof patch[k] !== 'boolean')
+          return { ok: false, reason: '공유 설정은 true/false 여야 합니다' };
+        cur[k] = patch[k];
+      }
       if (cur.absolute && !cur.weightTrend && !cur.smmTrend && !cur.bfmTrend) cur.absolute = false;
       q.upsertShare.run(me, viewerId, JSON.stringify(cur), nowISO());
       return { ok: true, share: cur };
@@ -296,7 +330,11 @@ function makeApi(db) {
           if (s.weightTrend && p.weightKg != null) o.weightKg = p.weightKg;
           if (s.smmTrend && p.smmKg != null) o.smmKg = p.smmKg;
           if (s.bfmTrend && p.bfmKg != null) o.bfmKg = p.bfmKg;
-          if (s.bfmTrend && p.pbfPct != null) o.pbfPct = p.pbfPct;
+          // 원칙: 다른 두 값으로 계산되는 항목은 두 게이트의 논리곱으로 잠급니다.
+          // pbfPct = bfmKg / weightKg 이므로 둘이 같이 나가면 체중이 복원됩니다.
+          // 실측: bfmKg 18.9 + pbfPct 25.5 → 역산 74.12kg (실제 74.2kg).
+          // 체중 공유를 명시적으로 끈 사람의 체중입니다.
+          if (s.weightTrend && s.bfmTrend && p.pbfPct != null) o.pbfPct = p.pbfPct;
         }
         return o;
       });
@@ -304,24 +342,36 @@ function makeApi(db) {
     },
 
     push(me, records) {
-      if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다', accepted: 0 };
+      if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다', accepted: 0, rejected: [] };
       let n = 0;
+      const rejected = [];
       for (const r of records || []) {
-        if (!r || !r.kind || !r.id || !r.updatedAt) continue;
-        q.upsertRecord.run(me, String(r.kind), String(r.id), String(r.updatedAt),
+        if (!r || !r.kind || !r.id || !r.updatedAt) { rejected.push({ id: r && r.id, why: '필수 필드 누락' }); continue; }
+        // updatedAt 을 검증하고 정규화합니다. 예전엔 'zzzz' 같은 값이 그대로 저장됐고,
+        // 그게 모든 ISO 문자열보다 큰 값이라 커서가 그 위로 올라가면
+        // 그 계정의 동기화가 영구히 멈췄습니다.
+        const t = Date.parse(r.updatedAt);
+        if (!Number.isFinite(t)) { rejected.push({ id: r.id, why: 'updatedAt 이 날짜가 아닙니다' }); continue; }
+        q.upsertRecord.run(me, String(r.kind), String(r.id), new Date(t).toISOString(),
                            r.deleted ? 1 : 0, JSON.stringify(r.payload || {}));
         n++;
       }
-      return { ok: true, accepted: n };
+      return { ok: true, accepted: n, rejected: rejected };
     },
     pull(me, since = '', limit = 500) {
-      if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다', records: [], cursor: since };
-      const rows = q.recordsSince.all(me, String(since || ''), Math.min(2000, limit));
+      if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다', records: [], cursor: since, hasMore: false };
+      const lim = Math.min(2000, Math.max(1, Number.isFinite(+limit) ? +limit : 500));
+      // 커서 형식: "<iso>|<kind>|<id>". 빈 문자열이면 처음부터.
+      const parts = String(since || '').split('|');
+      const cAt = parts[0] || '', cKind = parts[1] || '', cId = parts[2] || '';
+      const rows = q.recordsSince.all(me, cAt, cKind, cId, lim);
+      const last = rows.length ? rows[rows.length - 1] : null;
       return {
         ok: true,
         records: rows.map(r => ({ kind: r.kind, id: r.id, updatedAt: r.updated_at,
                                   deleted: !!r.deleted, payload: safeParse(r.payload) })),
-        cursor: rows.length ? rows[rows.length - 1].updated_at : since
+        cursor: last ? (last.updated_at + '|' + last.kind + '|' + last.id) : String(since || ''),
+        hasMore: rows.length === lim
       };
     },
     stats(me) { return { records: q.countRecords.get(me).c }; }

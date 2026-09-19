@@ -13,6 +13,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const PORT = 8300 + Math.floor(Math.random() * 500);
+const PAIR = 'test-pair-secret';
 const DB = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mybody-test-')), 'test.db');
 const B = `http://localhost:${PORT}/api`;
 
@@ -22,7 +23,13 @@ const ok = (n, c, d) => {
   else { fail++; console.log('  ✗', n, d === undefined ? '' : JSON.stringify(d)); }
 };
 
+/** signin 본문에는 페어링 비밀이 반드시 붙어야 합니다. */
+function withPair(p, body) {
+  return (p === '/auth/signin' && body) ? Object.assign({ pairSecret: PAIR }, body) : body;
+}
+
 async function call(m, p, body, tok) {
+  body = withPair(p, body);
   const r = await fetch(B + p, {
     method: m,
     headers: { 'content-type': 'application/json', ...(tok ? { authorization: 'Bearer ' + tok } : {}) },
@@ -48,8 +55,21 @@ async function main() {
   ok('A 로그인', !!ta, A.json);
   ok('B 로그인', !!tb, Bo.json);
   ok('handle 없으면 400', (await call('POST', '/auth/signin', {})).status === 400);
-  ok('같은 handle 재로그인 = 같은 계정',
+  // 예전엔 "같은 handle 이면 같은 계정"만 확인했습니다. 그 성질 자체는 맞지만,
+  // 그것만으로 세션이 발급되면 남의 handle 을 아는 사람이 계정을 가져갑니다.
+  // 페어링 비밀을 함께 확인합니다.
+  ok('같은 handle + 올바른 비밀 = 같은 계정',
      (await call('POST', '/auth/signin', { handle: 'gayoung' })).json.user.id === A.json.user.id);
+  const noSecret = await fetch(B + '/auth/signin', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ handle: 'gayoung' })
+  });
+  ok('페어링 비밀 없이는 로그인 불가', noSecret.status === 401);
+  const badSecret = await fetch(B + '/auth/signin', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ handle: 'gayoung', pairSecret: 'wrong-value-here' })
+  });
+  ok('틀린 페어링 비밀도 불가', badSecret.status === 401);
 
   const meA = (await call('GET', '/me', null, ta)).json.user;
   const meB = (await call('GET', '/me', null, tb)).json.user;
@@ -118,7 +138,69 @@ async function main() {
      (await call('GET', '/sync/pull?since=' + encodeURIComponent(pull.cursor), null, ta)).json.records.length === 0);
   ok('남의 기록은 안 섞인다', (await call('GET', '/sync/pull?since=', null, tb)).json.records.length === 0);
 
-  console.log('\n[6] 탈퇴 뒷정리');
+  console.log('\n[6] 보안 회귀 — 한 번 열렸던 구멍들');
+
+  // 차단 우회: 차단당한 사람이 "친구 끊기"로 자기를 막고 있는 행을 지웠습니다
+  const V = await call('POST', '/auth/signin', { handle: 'victim', displayName: '차단당함' });
+  const tv = V.json.token, meV = (await call('GET', '/me', null, tv)).json.user;
+  await call('POST', '/friends/request', { inviteCode: meV.inviteCode }, ta);
+  await call('POST', '/friends/accept', { userId: meA.id }, tv);
+  ok('A가 V를 차단', (await call('POST', '/friends/block', { userId: meV.id }, ta)).json.ok === true);
+  ok('차단당한 V는 그 관계를 못 지운다',
+     (await call('DELETE', '/friends/' + meA.id, null, tv)).json.ok === false);
+  ok('V의 맞차단으로 A의 차단을 덮어쓸 수 없다',
+     (await call('POST', '/friends/block', { userId: meA.id }, tv)).json.ok === false);
+  ok('V는 차단을 풀 수 없다',
+     (await call('POST', '/friends/unblock', { userId: meA.id }, tv)).json.ok === false);
+  ok('A는 자기 차단을 풀 수 있다',
+     (await call('POST', '/friends/unblock', { userId: meV.id }, ta)).json.ok === true);
+
+  // setShare 강제변환: 문자열 "false" 가 스위치를 켰습니다
+  await call('POST', '/friends/request', { inviteCode: meV.inviteCode }, ta);
+  await call('POST', '/friends/accept', { userId: meA.id }, tv);
+  const coerce = await call('PUT', '/share/' + meV.id,
+    { weightTrend: 'false', smmTrend: 'false', bfmTrend: 'false', absolute: 'false' }, ta);
+  ok('문자열 "false" 는 거부된다', coerce.json.ok === false, coerce.json);
+  const after = await call('GET', '/share/' + meV.id, null, ta);
+  ok('거부된 요청이 아무것도 켜지 않았다',
+     !after.json.share.weightTrend && !after.json.share.absolute, after.json.share);
+
+  // pbfPct 역산: 체지방량과 체지방률이 같이 나가면 체중이 복원됩니다
+  await call('POST', '/snapshots', { weekStart: '2026-09-14',
+    payload: { dBfmKg: -0.9, bfmKg: 18.9, pbfPct: 25.5, weightKg: 74.2 } }, ta);
+  await call('PUT', '/share/' + meV.id, { bfmTrend: true, absolute: true }, ta);
+  const leak = (await call('GET', '/snapshots/' + meA.id, null, tv)).json.rows[0];
+  ok('체중을 안 켰으면 체지방률도 안 나간다', !('pbfPct' in leak), leak);
+  ok('체중도 당연히 안 나간다', !('weightKg' in leak), leak);
+  await call('PUT', '/share/' + meV.id, { weightTrend: true }, ta);
+  const both = (await call('GET', '/snapshots/' + meA.id, null, tv)).json.rows[0];
+  ok('둘 다 켜면 체지방률이 나온다', 'pbfPct' in both, both);
+
+  // 동기화 커서: 같은 타임스탬프의 형제 행이 영구 유실됐습니다
+  const SAME = '2026-09-10T00:00:00.000Z';
+  await call('POST', '/sync/push', { records: [
+    { kind: 'scan', id: 'x1', updatedAt: SAME, payload: { n: 1 } },
+    { kind: 'goal', id: 'x1', updatedAt: SAME, payload: { n: 2 } },
+    { kind: 'checkin', id: 'x1', updatedAt: SAME, payload: { n: 3 } }
+  ] }, tv);
+  let cursor = '', seen = 0, guard = 0;
+  while (guard++ < 10) {
+    const page = (await call('GET', '/sync/pull?since=' + encodeURIComponent(cursor) + '&limit=1', null, tv)).json;
+    if (!page.records.length) break;
+    seen += page.records.length;
+    cursor = page.cursor;
+  }
+  ok('같은 시각 형제 행 3건이 한 건도 안 샌다', seen === 3, { seen });
+  ok('잘못된 updatedAt 은 거부된다',
+     (await call('POST', '/sync/push', { records: [
+       { kind: 'scan', id: 'bad', updatedAt: 'zzzz', payload: {} }
+     ] }, tv)).json.accepted === 0);
+  ok('limit=abc 로 500이 나지 않는다',
+     (await call('GET', '/sync/pull?since=&limit=abc', null, tv)).status === 200);
+  ok('userId 없는 block 도 500이 아니다',
+     (await call('POST', '/friends/block', {}, tv)).status === 400);
+
+  console.log('\n[7] 탈퇴 뒷정리');
   const C = await call('POST', '/auth/signin', { handle: 'temp', displayName: '임시' });
   ok('탈퇴', (await call('DELETE', '/me', null, C.json.token)).json.ok === true);
   ok('탈퇴하면 토큰이 죽는다', (await call('GET', '/me', null, C.json.token)).status === 401);
@@ -127,7 +209,7 @@ async function main() {
 }
 
 const srv = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'server.js')], {
-  env: { ...process.env, PORT: String(PORT), DB },
+  env: { ...process.env, PORT: String(PORT), DB, PAIR_SECRET: PAIR },
   stdio: 'ignore'
 });
 process.on('exit', () => srv.kill());

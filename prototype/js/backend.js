@@ -132,8 +132,13 @@
     function deleteAccount() {
       var me = requireUser();
       db.friendships = db.friendships.filter(function (f) { return f.aId !== me && f.bId !== me; });
+      // 예전엔 k.indexOf(me) >= 0 이라 user_1 탈퇴가 user_11·user_13 의 공유 행까지
+      // 지웠습니다. 친구 관계 행은 동등 비교라 살아남으므로, 두 사람은 공유 행 없는
+      // 친구로 남고 getShare 가 blankShare() 로 떨어집니다 — 그 기본값의 streak:true
+      // 때문에 명시적으로 꺼 둔 설정이 남의 탈퇴로 다시 켜졌습니다.
       Object.keys(db.shares).forEach(function (k) {
-        if (k.indexOf(me) >= 0) delete db.shares[k];
+        var pp = k.split('>');
+        if (pp[0] === me || pp[1] === me) delete db.shares[k];
       });
       db.snapshots = db.snapshots.filter(function (s) { return s.ownerId !== me; });
       delete db.users[me];
@@ -207,6 +212,11 @@
       var me = requireUser();
       var e = edgeOf(me, otherId);
       if (!e) return { ok: false, reason: '친구가 아닙니다' };
+      // 차단당한 사람이 "친구 끊기"로 자기를 막고 있는 행을 지울 수 있었습니다.
+      if (e.status === 'blocked' && e.blockedBy !== me)
+        return { ok: false, reason: '친구가 아닙니다' };
+      if (e.status === 'pending' && e.requestedBy !== me)
+        return { ok: false, reason: '받은 요청은 거절로 처리합니다' };
       db.friendships = db.friendships.filter(function (f) { return f !== e; });
       delete db.shares[shareKey(me, otherId)];
       delete db.shares[shareKey(otherId, me)];
@@ -217,7 +227,11 @@
 
     function block(otherId) {
       var me = requireUser();
+      if (otherId === me) return { ok: false, reason: '자기 자신은 차단할 수 없습니다' };
       var e = edgeOf(me, otherId);
+      // 맞차단으로 남의 차단을 자기 것으로 덮어쓰면, 그걸 풀어서 관계를 되살릴 수 있습니다.
+      if (e && e.status === 'blocked' && e.blockedBy !== me)
+        return { ok: false, reason: '요청할 수 없는 상대입니다' };
       if (!e) {
         e = { id: nextId('fr'), aId: me, bId: otherId, status: 'blocked',
               requestedBy: me, createdAt: now(), respondedAt: now() };
@@ -227,6 +241,17 @@
       e.blockedBy = me;
       delete db.shares[shareKey(me, otherId)];
       delete db.shares[shareKey(otherId, me)];
+      save();
+      return { ok: true };
+    }
+
+    /** 차단 해제. 차단한 본인만. 이게 없으면 차단한 사람이 영원히 지울 수 없는 행에 묶입니다. */
+    function unblock(otherId) {
+      var me = requireUser();
+      var e = edgeOf(me, otherId);
+      if (!e || e.status !== 'blocked') return { ok: false, reason: '차단하지 않은 상대입니다' };
+      if (e.blockedBy !== me) return { ok: false, reason: '내가 차단한 상대가 아닙니다' };
+      db.friendships = db.friendships.filter(function (f) { return f !== e; });
       save();
       return { ok: true };
     }
@@ -266,9 +291,14 @@
       var me = requireUser();
       if (!areFriends(me, viewerId)) return { ok: false, reason: '친구가 아닙니다' };
       var cur = db.shares[shareKey(me, viewerId)] || blankShare();
-      SHARE_FIELDS.forEach(function (f) {
-        if (Object.prototype.hasOwnProperty.call(patch, f.key)) cur[f.key] = !!patch[f.key];
-      });
+      // !! 강제변환이면 문자열 "false" 가 true 가 됩니다. 이 앱에서 가장 민감한
+      // 스위치가 한쪽 방향으로만(= 더 열리는 쪽으로만) 실패하던 자리입니다.
+      for (var si = 0; si < SHARE_FIELDS.length; si++) {
+        var sk = SHARE_FIELDS[si].key;
+        if (!Object.prototype.hasOwnProperty.call(patch, sk)) continue;
+        if (typeof patch[sk] !== 'boolean') return { ok: false, reason: '공유 설정은 true/false 여야 합니다' };
+        cur[sk] = patch[sk];
+      }
       // 실제 수치는 변화량 공유가 하나라도 켜져 있어야 의미가 있다
       if (cur.absolute && !cur.weightTrend && !cur.smmTrend && !cur.bfmTrend) cur.absolute = false;
       cur.updatedAt = now();
@@ -326,7 +356,9 @@
             if (s.weightTrend && p.weightKg != null) out.weightKg = p.weightKg;
             if (s.smmTrend && p.smmKg != null) out.smmKg = p.smmKg;
             if (s.bfmTrend && p.bfmKg != null) out.bfmKg = p.bfmKg;
-            if (s.bfmTrend && p.pbfPct != null) out.pbfPct = p.pbfPct;
+            // 원칙: 다른 두 값으로 계산되는 항목은 두 게이트의 논리곱으로 잠급니다.
+            // pbfPct = bfmKg / weightKg 이므로 둘이 같이 나가면 체중이 복원됩니다.
+            if (s.weightTrend && s.bfmTrend && p.pbfPct != null) out.pbfPct = p.pbfPct;
           }
           return out;
         });
@@ -341,7 +373,8 @@
       signIn: signIn, signOut: signOut, currentUser: currentUser,
       updateProfile: updateProfile, deleteAccount: deleteAccount,
       findByInviteCode: findByInviteCode, sendRequest: sendRequest,
-      accept: accept, decline: decline, removeFriend: removeFriend, block: block,
+      accept: accept, decline: decline, removeFriend: removeFriend,
+      block: block, unblock: unblock,
       listFriends: listFriends, areFriends: areFriends,
       getShare: getShare, setShare: setShare, shareSummary: shareSummary,
       publishSnapshot: publishSnapshot, getFriendSnapshots: getFriendSnapshots,

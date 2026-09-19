@@ -9,6 +9,7 @@
  * ========================================================================== */
 'use strict';
 const http = require('node:http');
+const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { open, makeApi } = require('./db.js');
@@ -19,6 +20,33 @@ const STATIC_DIR = process.env.STATIC
   ? path.resolve(process.env.STATIC)
   : path.join(__dirname, '..', 'prototype');
 const ORIGIN = process.env.ORIGIN || '*';
+
+/* 페어링 비밀 — 이 서버에 기기를 등록할 때 쓰는 한 개의 값.
+ *
+ * 이게 없을 때 /api/auth/signin 은 handle 만으로 세션을 발급했습니다.
+ * 남의 handle 을 알면(친구끼리는 대개 압니다) 그 계정으로 그냥 로그인됐습니다.
+ * 계정 탈취이고, 체성분 전체와 친구 관계가 통째로 넘어갑니다.
+ *
+ * 127.0.0.1 바인딩으로 막지 않는 이유: 주인이 "서버는 내 컴퓨터로 사용해"라고
+ * 했고, 같은 와이파이의 폰이 못 들어오면 결국 되돌리게 됩니다. */
+const PAIR_SECRET = process.env.PAIR_SECRET || '';
+
+function pairOk(given) {
+  const got = Buffer.from(String(given || ''), 'utf8');
+  const want = Buffer.from(PAIR_SECRET, 'utf8');
+  if (got.length !== want.length) return false;
+  return crypto.timingSafeEqual(got, want);   // 길이가 같을 때만 안전하게 비교
+}
+
+/** 쿼리 파라미터를 정수로. 못 읽으면 기본값 — 예전엔 SQLite 까지 내려가 HTTP 500 이 났습니다. */
+function intParam(v, def, lo, hi) {
+  const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : def;
+}
+/** 본문에서 받은 사용자 id. 문자열이 아니면 거절합니다. */
+function idParam(v) {
+  return (typeof v === 'string' && /^[\w-]{1,64}$/.test(v)) ? v : null;
+}
 
 const db = open(DB_FILE);
 const api = makeApi(db);
@@ -88,6 +116,9 @@ async function handleApi(req, res, url) {
   if (p === '/auth/signin' && method === 'POST') {
     const b = await readBody(req);
     if (!b.handle) return send(res, 400, { ok: false, reason: 'handle 이 필요합니다' });
+    if (!pairOk(b.pairSecret)) {
+      return send(res, 401, { ok: false, reason: '이 서버에 등록되지 않은 기기입니다' });
+    }
     return send(res, 200, Object.assign({ ok: true }, api.signIn(b)));
   }
 
@@ -107,13 +138,28 @@ async function handleApi(req, res, url) {
     return send(res, 200, api.sendRequest(me, b.inviteCode));
   }
   if (p === '/friends/accept' && method === 'POST') {
-    const b = await readBody(req); return send(res, 200, api.accept(me, b.userId));
+    const b = await readBody(req);
+    const uid = idParam(b.userId);
+    if (!uid) return send(res, 400, { ok: false, reason: 'userId 가 필요합니다' });
+    return send(res, 200, api.accept(me, uid));
   }
   if (p === '/friends/decline' && method === 'POST') {
-    const b = await readBody(req); return send(res, 200, api.decline(me, b.userId));
+    const b = await readBody(req);
+    const uid = idParam(b.userId);
+    if (!uid) return send(res, 400, { ok: false, reason: 'userId 가 필요합니다' });
+    return send(res, 200, api.decline(me, uid));
   }
   if (p === '/friends/block' && method === 'POST') {
-    const b = await readBody(req); return send(res, 200, api.block(me, b.userId));
+    const b = await readBody(req);
+    const uid = idParam(b.userId);
+    if (!uid) return send(res, 400, { ok: false, reason: 'userId 가 필요합니다' });
+    return send(res, 200, api.block(me, uid));
+  }
+  if (p === '/friends/unblock' && method === 'POST') {
+    const b = await readBody(req);
+    const uid = idParam(b.userId);
+    if (!uid) return send(res, 400, { ok: false, reason: 'userId 가 필요합니다' });
+    return send(res, 200, api.unblock(me, uid));
   }
   let m = p.match(/^\/friends\/([\w-]+)$/);
   if (m && method === 'DELETE') return send(res, 200, api.removeFriend(me, m[1]));
@@ -131,7 +177,7 @@ async function handleApi(req, res, url) {
   }
   m = p.match(/^\/snapshots\/([\w-]+)$/);
   if (m && method === 'GET') {
-    return send(res, 200, api.friendSnapshots(me, m[1], Number(url.searchParams.get('limit') || 26)));
+    return send(res, 200, api.friendSnapshots(me, m[1], intParam(url.searchParams.get('limit'), 26, 1, 200)));
   }
 
   if (p === '/sync/push' && method === 'POST') {
@@ -139,7 +185,7 @@ async function handleApi(req, res, url) {
   }
   if (p === '/sync/pull' && method === 'GET') {
     return send(res, 200, api.pull(me, url.searchParams.get('since') || '',
-                                   Number(url.searchParams.get('limit') || 500)));
+                                   intParam(url.searchParams.get('limit'), 500, 1, 2000)));
   }
 
   return send(res, 404, { ok: false, reason: '그런 경로가 없습니다' });
@@ -165,19 +211,34 @@ const server = http.createServer(async (req, res) => {
     if (url.pathname === '/health' || url.pathname.startsWith('/api/')) return await handleApi(req, res, url);
     serveStatic(req, res, url);
   } catch (e) {
-    send(res, e.status || 500, { ok: false, reason: e.message || '서버 오류' });
+    // 예전엔 SQLite 드라이버 원문이 그대로 나갔습니다 ("Provided value cannot be
+    // bound to SQLite parameter 1"). 내부 구조를 밖에 알려줄 이유가 없습니다.
+    if (e && e.status) return send(res, e.status, { ok: false, reason: e.message || '요청 오류' });
+    console.error('[500]', e && e.stack || e);
+    send(res, 500, { ok: false, reason: '서버 오류' });
   }
 });
 
 if (require.main === module) {
+  if (!PAIR_SECRET) {
+    console.error('PAIR_SECRET 없이는 시작하지 않습니다.');
+    console.error('');
+    console.error('  아무나 로그인할 수 있는 서버가 되기 때문입니다.');
+    console.error('  아래처럼 값을 하나 정해서 넘기고, 같은 값을 내 기기에만 알려주세요:');
+    console.error('');
+    console.error('    PAIR_SECRET=$(openssl rand -hex 16) node server/server.js');
+    console.error('');
+    process.exit(1);
+  }
   server.listen(PORT, () => {
     console.log('Mybody 서버 실행 중');
     console.log('  주소   http://localhost:' + PORT);
     console.log('  DB     ' + DB_FILE);
     console.log('  정적   ' + STATIC_DIR);
     console.log('');
-    console.log('밖에서 접속하려면 (포트포워딩 없이):');
-    console.log('  cloudflared tunnel --url http://localhost:' + PORT);
+    // cloudflared 안내는 뺐습니다. 집 안 서버를 공개 서버로 바꾸는 두 줄이었고,
+    // 그 상태에서 인증 구멍이 있으면 피해가 바로 현실이 됩니다.
+    console.log('  밖에서 접속하려면 먼저 server/README.md 의 "밖에서 접속하기"를 읽어 주세요.');
   });
 }
 

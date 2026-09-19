@@ -23,12 +23,18 @@
     veryActive: { mult: 1.90, label: '매우 활동적 (육체노동/2회 운동)' }
   };
 
-  // 훈련연령별 최대 제지방 증가율 (%BW/월, 남성 기준 · 중앙값)
+  /* 훈련연령별 최대 제지방 증가율 (%FFM/월, 남성 기준 · 중앙값)
+   *
+   * 기준을 체중에서 제지방으로 바꿨습니다. 체중 기준이면 같은 훈련연령에서
+   * 비만 입문자가 마른 입문자보다 52% 빨리 근육이 붙는다는 역설이 생깁니다 —
+   * 지방은 근육을 만들지 않습니다.
+   * 값은 기준 조성 0.80(추정치)으로 재앵커한 ×1.15 입니다.
+   * 논문 22개군 대조에서 전체 제지방 MAE 2.83 → 2.21. */
   var MUSCLE_BASE = {
-    novice:       { pct: 1.25, label: '입문 (6개월 미만)' },
-    intermediate: { pct: 0.75, label: '중급 (6개월~3년)' },
-    advanced:     { pct: 0.375, label: '숙련 (3년 이상)' },
-    elite:        { pct: 0.175, label: '상급 정체기 (5년+)' }
+    novice:       { pct: 1.44, label: '입문 (6개월 미만)' },
+    intermediate: { pct: 0.86, label: '중급 (6개월~3년)' },
+    advanced:     { pct: 0.43, label: '숙련 (3년 이상)' },
+    elite:        { pct: 0.20, label: '상급 정체기 (5년+)' }
   };
 
   // 칼로리 수지 상황별 근성장 배율
@@ -113,6 +119,51 @@
   /* ---------------------------------------------------------------------- */
   /* 1. 파생값                                                                */
   /* ---------------------------------------------------------------------- */
+
+  /**
+   * 물리적으로 불가능한 스캔을 걸러냅니다.
+   *
+   * 이게 없어서 {weightKg:70, bfmKg:90} 이 조용히 통과했고,
+   * 제지방 -20kg · 체지방률 128.6% · BMR -62kcal 짜리 계획이 나왔습니다.
+   * OCR 이 근육/지방 칸을 바꿔 읽으면 k=1.2 로 통과하기도 했습니다.
+   *
+   * modes.js A절이 "k가 0.40~0.60 범위를 벗어나면 입력 오류로 안내합니다"를
+   * 이미 문장으로 명시하고 있는데 구현이 없었습니다.
+   *
+   * @returns null 이면 정상, 아니면 { invalid: [문제 필드들], reasons: [사람이 읽는 설명] }
+   */
+  function validateScan(scan) {
+    if (!scan) return { invalid: ['스캔'], reasons: ['측정 기록이 없습니다.'] };
+    var bad = [], why = [];
+    var w = scan.weightKg;
+    var b = scan.bfmKg != null ? scan.bfmKg : (w != null && scan.pbfPct != null ? w * scan.pbfPct / 100 : null);
+    var smm = scan.smmKg;
+
+    if (!(w >= 25 && w <= 300)) { bad.push('체중'); why.push('체중이 25~300kg 범위를 벗어났습니다.'); }
+    if (b == null || !(b >= 0)) { bad.push('체지방량'); why.push('체지방량을 읽지 못했습니다.'); }
+    else if (w >= 25 && b > 0.65 * w) {
+      bad.push('체지방량');
+      why.push('체지방량이 체중의 65%를 넘습니다. 체중과 체지방 칸이 바뀌지 않았는지 확인해 주세요.');
+    }
+
+    var ffm = (w != null && b != null) ? w - b : null;
+    if (ffm != null && !(ffm > 0)) { bad.push('제지방량'); why.push('체지방량이 체중보다 큽니다.'); }
+
+    if (smm == null || !(smm >= 0)) { bad.push('골격근량'); why.push('골격근량을 읽지 못했습니다.'); }
+    else if (ffm != null && ffm > 0) {
+      var k = smm / ffm;
+      if (k < 0.35 || k > 0.65) {
+        bad.push('골격근량');
+        why.push('골격근량이 제지방량의 ' + Math.round(k * 100) + '% 입니다. 보통 40~60% 입니다 — ' +
+                 '근육과 지방 칸이 바뀌지 않았는지 확인해 주세요.');
+      }
+    }
+    if (!bad.length) return null;
+    // 같은 필드가 여러 번 들어갈 수 있으니 정리합니다
+    var seen = {}, uniq = [];
+    bad.forEach(function (x) { if (!seen[x]) { seen[x] = 1; uniq.push(x); } });
+    return { invalid: uniq, reasons: why };
+  }
 
   function derive(scan, profile) {
     var w = scan.weightKg;
@@ -248,12 +299,52 @@
   }
 
   // 주당 SMM 증가 상한 (kg/주) — 최적 조건에서의 생리적 천장
-  function baseSmmRatePerWeek(weightKg, profile, smmToFfm, ffmKg) {
+  function baseSmmRatePerWeek(weightKg, profile, smmToFfm, ffmKg, weekIndex) {
     var base = (MUSCLE_BASE[profile.trainingAge] || MUSCLE_BASE.intermediate).pct;
     var sexFactor = profile.sex === 'male' ? 1.0 : 0.5;
-    var ffmPerMonth = weightKg * (base / 100) * sexFactor;
+    // 체중이 아니라 제지방 기준입니다 (MUSCLE_BASE 주석 참조).
+    var anchor = ffmKg != null ? ffmKg : weightKg * 0.80;
+    var ffmPerMonth = anchor * (base / 100) * sexFactor;
     var smmPerMonth = ffmPerMonth * smmToFfm;
     var rate = smmPerMonth / 4.345 * ageFactor(profile.age);
+
+    /* 저항운동 게이트.
+     * 예전에는 훈련 변수가 이 식에 아예 안 들어와서, 운동을 하나도 안 해도
+     * 근육이 붙는다고 계산했습니다. 시험 내 짝 비교 3건이 전부 실패했고
+     * 그중 1건은 부호가 반대였습니다.
+     * 값이 없으면 1.0 — 모르는 것을 0으로 치면 기존 계획이 전부 뒤집힙니다. */
+    /* null 과 undefined 를 구분합니다.
+         null      = "보고되지 않음" (검증 하네스의 일부 논문) → 게이트 1.0
+         undefined = 필드가 아예 없음 (앱)                  → 프로필의 운동일수를 씀
+         숫자      = 그대로
+       앱에서 profile.daysPerWeek 은 사용자가 고른 주당 저항운동 일수입니다.
+       하네스에서는 이 값이 3 이상으로 클램프되므로 따로 넘겨받습니다. */
+    var rt = profile.resistanceDaysPerWeek;
+    if (rt === undefined) rt = profile.daysPerWeek;
+    if (rt != null && isFinite(rt)) {
+      rate *= Math.max(0, Math.min(1, rt / 4));
+    }
+
+    /* 시간 포화.
+     * 훈련연령은 계획 시작 시점에 고정되지만, 계획이 진행되는 동안 사람은
+     * 실제로 경력이 쌓입니다. 이 항이 없으면 근성장 천장이 78주 내내
+     * 입문자 수준으로 유지되고, 오차가 기간에 정비례해서 커집니다
+     * (논문 22개군에서 기간과 제지방 오차의 상관 r = +0.83).
+     *
+     * 26주마다 한 단계씩 올라가는 것으로 봅니다. 지수 감쇠 대신 이 방식을
+     * 쓴 이유는 바닥이 0 이 아니라 다음 단계의 실제 값이기 때문입니다 —
+     * 6개월 훈련했다고 근성장 능력이 사라지지는 않습니다. */
+    if (weekIndex != null && weekIndex > 0) {
+      var LADDER = ['novice', 'intermediate', 'advanced', 'elite'];
+      var at = LADDER.indexOf(profile.trainingAge);
+      if (at >= 0) {
+        var steps = Math.floor(weekIndex / 26);
+        var eff = LADDER[Math.min(LADDER.length - 1, at + steps)];
+        var effPct = MUSCLE_BASE[eff].pct;
+        if (effPct < base) rate *= effPct / base;
+      }
+    }
+
     if (profile.hadPriorPeak) rate *= 2.5;   // 머슬메모리
     if (ffmKg != null) rate *= ffmiFactor(ffmKg, profile);
     return rate;
@@ -295,7 +386,7 @@
    * 한 주를 전진시킨다.
    * phase: 'cut' | 'bulk' | 'maintain'
    */
-  function stepWeek(st, phase, params, profile, k) {
+  function stepWeek(st, phase, params, profile, k, weekIndex) {
     var ffm = st.smmKg / k;
     var w = ffm + st.bfmKg;
     var bmr = 370 + 21.6 * ffm;
@@ -303,6 +394,7 @@
     var tdee = bmr * pal;
 
     var intake, deficit, fatDelta = 0, smmDelta = 0, capped = false, floored = false;
+    var hitFatFloor = false;
 
     if (phase === 'cut') {
       var want = params.deficitPct * tdee;
@@ -335,7 +427,7 @@
       var mult = MUSCLE_SITUATION[situation][profile.trainingAge] != null
         ? MUSCLE_SITUATION[situation][profile.trainingAge]
         : MUSCLE_SITUATION[situation].intermediate;
-      smmDelta = baseSmmRatePerWeek(w, profile, k, ffm) * mult;
+      smmDelta = baseSmmRatePerWeek(w, profile, k, ffm, weekIndex) * mult;
       if (phase === 'cut') {
         var ffmNow = st.smmKg / k;
         leanLoss = leanLossPerWeek(deficitRatio, params.proteinPerFFM,
@@ -344,15 +436,22 @@
       }
     }
 
+    /* 필수지방 아래로는 내려가지 않습니다.
+       엔진이 목표는 필수지방과 대조하면서 궤적에는 하한이 없어서,
+       계획이 길어지면 체지방률 1.3% 짜리 주차가 만들어졌습니다.
+       생리적으로 불가능하고, 그 위에 세운 계산은 전부 무의미합니다. */
     var next = {
       smmKg: Math.max(1, st.smmKg + smmDelta),
       bfmKg: Math.max(0.5, st.bfmKg + fatDelta)
     };
     next.ffmKg = next.smmKg / k;
+    var essentialPct = profile.sex === 'female' ? 12 : 5;   // 경기 직전 선수 수준의 하한
+    var floorFat = next.ffmKg * essentialPct / (100 - essentialPct);
+    if (next.bfmKg < floorFat) { next.bfmKg = floorFat; hitFatFloor = true; }
     next.weightKg = next.ffmKg + next.bfmKg;
 
     return {
-      state: next,
+      state: next, fatFloor: hitFatFloor,
       tdee: Math.round(tdee),
       bmr: Math.round(bmr),
       intake: Math.round(intake),
@@ -389,29 +488,43 @@
 
     var st = { smmKg: cur.smmKg, bfmKg: cur.bfmKg, ffmKg: cur.ffmKg, weightKg: cur.weightKg };
     var traj = [snapshot(st, 0, phase, null)];
+    /* fatWeek 을 0 으로 못박고 다시 확인하지 않던 것이 버그였습니다.
+       증량 계획이 목표 지방을 8kg 넘기고 끝나도 "도달"로 표시됐습니다 —
+       79kg 을 입력한 사람의 마지막 마일스톤이 88.8kg 이었습니다. */
     var fatWeek = goalInfo.dBfmKg >= -0.3 ? 0 : null;
     var smmWeek = goalInfo.dSmmKg <= 0.3 ? 0 : null;
     var anyCapped = false, anyFloored = false, cutWeeks = 0, leanLossTotal = 0;
+    var fatBreached = false, anyFatFloor = false;
 
     for (var wk = 1; wk <= MAX_WEEKS; wk++) {
-      var r = stepWeek(st, phase, params, profile, k);
+      var r = stepWeek(st, phase, params, profile, k, wk);
       st = r.state;
       if (phase === 'cut') cutWeeks++;
       if (r.capped) anyCapped = true;
       if (r.floored) anyFloored = true;
+      // 필수지방 하한에 닿았다면 더 뺄 수 없습니다 — 계속 돌려봐야 같은 값입니다
+      if (r.fatFloor) { anyFatFloor = true; break; }
       if (r.leanLoss > 0) leanLossTotal += r.leanLoss;
       traj.push(snapshot(st, wk, phase, r));
 
       if (fatWeek === null && st.bfmKg <= goal.bfmKg + 0.05) fatWeek = wk;
       if (smmWeek === null && st.smmKg >= goal.smmKg - 0.005) smmWeek = wk;
-      if (fatWeek !== null && smmWeek !== null) break;
+
+      /* 증량 중 지방이 목표를 넘으면 잉여를 멈춥니다.
+         감량이 목표 도달 후 유지로 전환하는 것과 같은 규칙인데 반대쪽에만 있었습니다. */
+      if (phase === 'bulk' && st.bfmKg > goal.bfmKg + 0.05) { phase = 'maintain'; fatBreached = true; }
+
+      if (fatWeek !== null && smmWeek !== null && st.bfmKg <= goal.bfmKg + 0.05) break;
       // 목표 체지방 도달 후에는 더 깎지 않고 유지로 전환
       if (phase === 'cut' && fatWeek !== null && smmWeek === null) phase = 'maintain';
     }
 
-    var reached = fatWeek !== null && smmWeek !== null;
+    // 끝난 시점의 지방이 목표 안에 있어야 도달입니다. 중간에 한 번 지나갔다가
+    // 다시 넘어간 것은 도달이 아닙니다.
+    var fatOk = st.bfmKg <= goal.bfmKg + 0.05;
+    var reached = fatWeek !== null && smmWeek !== null && fatOk;
     var weeks = reached ? Math.max(fatWeek, smmWeek) : null;
-    var bottleneck = !reached ? 'unreachable'
+    var bottleneck = !reached ? (fatBreached || !fatOk ? 'fatOvershoot' : 'unreachable')
       : (smmWeek > fatWeek ? 'muscle' : (fatWeek > smmWeek ? 'fat' : 'both'));
 
     return {
@@ -423,9 +536,10 @@
       a: a, params: params, mode: mode,
       weeks: weeks, reached: reached,
       fatWeek: fatWeek, smmWeek: smmWeek,
+      fatOvershootKg: fatOk ? 0 : Math.round((st.bfmKg - goal.bfmKg) * 100) / 100,
       bottleneck: bottleneck,
       trajectory: traj,
-      capped: anyCapped, floored: anyFloored,
+      capped: anyCapped, floored: anyFloored, fatFloorReached: anyFatFloor,
       continuousCutWeeks: cutWeeks,
       leanLossKg: Math.round(leanLossTotal * 100) / 100,
       phases: [{ name: mode === 'cut' ? '감량' : (mode === 'bulk' ? '증량' : '유지'),
@@ -451,7 +565,7 @@
       var start = wk, len = 0;
       while (guard++ < MAX_WEEKS && (maxLen == null || len < maxLen)) {
         if (stop(st)) break;
-        var r = stepWeek(st, phase, params, profile, k);
+        var r = stepWeek(st, phase, params, profile, k, wk);
         st = r.state; wk++; len++;
         if (r.capped) anyCapped = true;
         if (r.floored) anyFloored = true;
@@ -912,7 +1026,7 @@
       var st = { smmKg: cur.smmKg, bfmKg: cur.bfmKg, ffmKg: cur.ffmKg, weightKg: cur.weightKg };
       var traj = [snapshot(st, 0, 'maintain', null)];
       for (var w = 1; w <= weeks; w++) {
-        var r = stepWeek(st, 'maintain', params, profile, k);
+        var r = stepWeek(st, 'maintain', params, profile, k, w);
         st = r.state;
         traj.push(snapshot(st, w, 'maintain', r));
       }
@@ -1047,24 +1161,57 @@
     }
     var expected = at(weeksElapsed);
 
-    // 실제 체지방량이 계획상 몇 주차에 해당하는가 → 그 차이가 곧 빠름/느림
-    var isCut = traj[traj.length - 1].bfmKg < traj[0].bfmKg;
-    var matchWeek = null;
-    for (var i = 0; i < traj.length; i++) {
-      var hit = isCut ? (traj[i].bfmKg <= cur.bfmKg) : (traj[i].bfmKg >= cur.bfmKg);
-      if (hit) { matchWeek = i; break; }
-    }
-    if (matchWeek === null) matchWeek = isCut ? 0 : traj.length - 1;
-    var weeksAhead = matchWeek - weeksElapsed;
-
     var NF = global.MB_MODES ? global.MB_MODES.NOISE : { weight: 1.0, smm: 0.6, bfm: 1.0 };
-    var gapBfm = cur.bfmKg - expected.bfmKg;          // 음수 = 계획보다 적게 남음 = 앞섬
+    var gapBfm = cur.bfmKg - expected.bfmKg;          // 음수 = 계획보다 지방이 적다
     var gapWeight = cur.weightKg - expected.weightKg;
     var gapSmm = cur.smmKg - expected.smmKg;
 
+    /* 어느 축으로 진행을 재는가.
+     *
+     * 예전에는 무조건 체지방 축이었습니다. 그래서 증량 계획에서
+     *   지방만 +2kg          → "계획보다 22주 빠릅니다" (칭찬)
+     *   지방 -2kg (린벌크 성공) → "계획보다 8주 느립니다" (질책)
+     *   근육 -2kg (근손실)     → "계획대로 가고 있습니다"
+     * 가 나왔습니다. gapSmm 은 계산해 놓고 판정에 쓰지 않았습니다. */
+    var fatSpan = Math.max.apply(null, traj.map(function (t) { return t.bfmKg; })) -
+                  Math.min.apply(null, traj.map(function (t) { return t.bfmKg; }));
+    var smmSpan = Math.max.apply(null, traj.map(function (t) { return t.smmKg; })) -
+                  Math.min.apply(null, traj.map(function (t) { return t.smmKg; }));
+    var fatMoves = fatSpan >= NF.bfm;
+    var smmMoves = smmSpan >= NF.smm;
+
+    // 계획이 실제로 움직이겠다고 한 축만 씁니다. 둘 다 움직이면 더 크게 움직이는 쪽.
+    var axis = null;
+    if (fatMoves && smmMoves) axis = (fatSpan / NF.bfm >= smmSpan / NF.smm) ? 'bfm' : 'smm';
+    else if (fatMoves) axis = 'bfm';
+    else if (smmMoves) axis = 'smm';
+
+    var isCut = traj[traj.length - 1].bfmKg < traj[0].bfmKg;
+    var weeksAhead = null, matchWeek = null;
+    if (axis) {
+      var key = axis === 'bfm' ? 'bfmKg' : 'smmKg';
+      var goingDown = traj[traj.length - 1][key] < traj[0][key];
+      var val = axis === 'bfm' ? cur.bfmKg : cur.smmKg;
+      for (var i = 0; i < traj.length; i++) {
+        var hit = goingDown ? (traj[i][key] <= val) : (traj[i][key] >= val);
+        if (hit) { matchWeek = i; break; }
+      }
+      if (matchWeek === null) matchWeek = goingDown ? 0 : traj.length - 1;
+      weeksAhead = matchWeek - weeksElapsed;
+    }
+
+    var gapAxis = axis === 'smm' ? -gapSmm : gapBfm;   // 두 축 모두 "양수 = 뒤처짐"
+    var noiseAxis = axis === 'smm' ? NF.smm : NF.bfm;
+
     var status, headline;
-    var absAhead = Math.abs(weeksAhead);
-    if (Math.abs(gapBfm) < NF.bfm) {
+    var absAhead = weeksAhead === null ? 0 : Math.abs(weeksAhead);
+    if (axis === null) {
+      /* 유지 계획입니다. 궤적이 노이즈 안에서만 움직이므로 "몇 주 빠르다"는
+         경과 시간의 함수로 퇴화하고, 지방이 많을수록 점수가 높아집니다.
+         주차 숫자를 아예 내지 않습니다. */
+      status = (Math.abs(gapWeight) < NF.weight) ? 'onTrack' : 'off';
+      headline = status === 'onTrack' ? '유지 범위 안입니다.' : '유지 범위를 벗어났습니다.';
+    } else if (Math.abs(gapAxis) < noiseAxis) {
       status = 'onTrack';
       headline = '계획대로 가고 있습니다.';
     } else if (weeksAhead > 0) {
@@ -1073,6 +1220,23 @@
     } else {
       status = absAhead >= 4 ? 'off' : 'behind';
       headline = '계획보다 ' + Math.round(absAhead) + '주 느립니다.';
+    }
+
+    /* 근손실은 어느 축을 쓰든 따로 말합니다. 축이 지방이면 근육이 빠져도
+       "계획대로"가 나오는데, 그건 이 앱이 절대 하면 안 되는 말입니다.
+     *
+     * 단 "계획이 기대한 만큼 안 늘었다"와 "실제로 줄었다"는 다릅니다.
+     * 전자는 흔한 편차이고 후자만 경고입니다. 예전 수정은 이걸 구분하지 않아
+     * "4주 빠릅니다"인데 상태는 behind 인 모순을 만들었습니다.
+     * headline 도 건드리지 않습니다 — 축의 판정과 섞이면 문장이 모순됩니다. */
+    var muscleWarning = null;
+    var smmFell = cur.smmKg - traj[0].smmKg;          // 시작 대비 실제 변화
+    if (smmFell < -NF.smm) {
+      muscleWarning = '시작보다 근육이 ' + Math.abs(r2(smmFell)) + 'kg 줄었습니다.';
+      if (status === 'onTrack' || status === 'ahead') status = 'behind';
+    } else if (gapSmm < -NF.smm) {
+      // 줄지는 않았지만 계획이 기대한 만큼 안 늘었습니다. 상태는 안 바꿉니다.
+      muscleWarning = '근육이 계획보다 ' + Math.abs(r2(gapSmm)) + 'kg 적습니다.';
     }
 
     // 지금 속도가 아니라 지금 몸 상태에서 남은 거리를 다시 계산한 날짜
@@ -1091,16 +1255,20 @@
       }
     } catch (e) { /* 재계산 실패는 치명적이지 않다 */ }
 
-    var recommend = (status === 'off') ||
-                    (status === 'behind' && absAhead >= 3) ||
-                    (dayDelta !== null && Math.abs(dayDelta) >= 21);
+    /* onTrack 인 동안에는 계획 변경을 권하지 않습니다.
+       예전엔 "계획대로 가고 있습니다" 와 계획 변경 권유가 같이 나왔습니다. */
+    var recommend = status !== 'onTrack' &&
+                    ((status === 'off') ||
+                     (status === 'behind' && absAhead >= 3) ||
+                     (dayDelta !== null && Math.abs(dayDelta) >= 21));
 
     return {
       weeksElapsed: Math.round(weeksElapsed * 10) / 10,
       expected: { weightKg: r1(expected.weightKg), smmKg: r2(expected.smmKg), bfmKg: r2(expected.bfmKg) },
       actual: { weightKg: cur.weightKg, smmKg: cur.smmKg, bfmKg: cur.bfmKg },
       gapWeightKg: r1(gapWeight), gapSmmKg: r2(gapSmm), gapBfmKg: r2(gapBfm),
-      weeksAhead: Math.round(weeksAhead * 10) / 10,
+      weeksAhead: weeksAhead === null ? null : Math.round(weeksAhead * 10) / 10,
+      axis: axis, muscleWarning: muscleWarning,
       status: status, headline: headline,
       projectedDate: projectedDate, dayDelta: dayDelta,
       recommendChange: recommend,
@@ -1261,7 +1429,7 @@
   global.MB_ENGINE = {
     PAL: PAL, MUSCLE_BASE: MUSCLE_BASE, LEVEL_SPEC: LEVEL_SPEC,
     CUT_RANGE: CUT_RANGE, BULK_RANGE: BULK_RANGE, paramsAt: paramsAt,
-    derive: derive, classifyGoal: classifyGoal, compareLevels: compareLevels,
+    derive: derive, validateScan: validateScan, classifyGoal: classifyGoal, compareLevels: compareLevels,
     buildPlan: buildPlan, checkinAdvice: checkinAdvice, planDrift: planDrift,
     ffmiOf: ffmiOf, ffmiCeiling: ffmiCeiling, ffmiFactor: ffmiFactor,
     dietAdherence: dietAdherence, dietNudge: dietNudge,

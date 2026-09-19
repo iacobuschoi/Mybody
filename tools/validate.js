@@ -53,6 +53,11 @@ function buildProfile(c, activityLevel) {
     activityLevel: activityLevel,
     trainingAge: c.trainingStatus,
     daysPerWeek: Math.min(6, Math.max(3, c.resistanceTrainingDaysPerWeek || 3)),
+    /* 근성장 게이트는 daysPerWeek 가 아니라 이 값을 씁니다.
+       daysPerWeek 는 위에서 3 이상으로 클램프되므로, 운동을 안 한 군까지
+       주 3회로 보이게 만듭니다. null(미보고)은 null 로 넘겨야 게이트가
+       1.0 으로 남고 기존 동작이 유지됩니다. */
+    resistanceDaysPerWeek: c.resistanceTrainingDaysPerWeek,
     sessionMinutes: 60,
     mealsPerDay: 3,
     hadPriorPeak: false
@@ -174,7 +179,7 @@ function simulate(c, profile, params, phase, k, weeks) {
   let leanLossTotal = 0, anyCapped = false, anyFloored = false;
 
   for (let wk = 1; wk <= whole; wk++) {
-    const r = E.stepWeek(st, phase, params, profile, k);
+    const r = E.stepWeek(st, phase, params, profile, k, wk);
     st = { smmKg: r.state.smmKg, bfmKg: r.state.bfmKg };
     leanLossTotal += r.leanLoss || 0;
     anyCapped = anyCapped || r.capped;
@@ -186,7 +191,7 @@ function simulate(c, profile, params, phase, k, weeks) {
   }
   // 소수 주(8.5주, 5.3주)는 마지막 한 주의 델타를 비례 배분한다.
   if (frac > 1e-9) {
-    const r = E.stepWeek(st, phase, params, profile, k);
+    const r = E.stepWeek(st, phase, params, profile, k, whole + 1);
     const smmDelta = r.state.smmKg - st.smmKg;
     const bfmDelta = r.state.bfmKg - st.bfmKg;
     st = {
@@ -648,3 +653,49 @@ fs.writeFileSync(OUT_PATH, JSON.stringify({
   cases: sorted
 }, null, 2));
 console.log('\nwrote ' + OUT_PATH);
+
+/* ---------------------------------------------------------------------------
+ * 게이트 — 이 파일이 엔진 정확도의 판정자입니다.
+ *
+ * 예전에는 오차를 출력만 하고 항상 exit 0 이었습니다. 그래서 제지방을 평균
+ * 2.24kg 과대예측하는 상태로 "통과"가 계속 찍혔습니다.
+ *
+ * 시뮬레이션(tools/simulate.js)은 자기가 만든 생리 모델로 채점하므로
+ * 절대 정확도를 판정할 수 없습니다 — 두 모델이 다를 때 누가 맞는지 모릅니다.
+ * 실제 논문 22개군과 대조하는 이쪽이 그 역할을 합니다.
+ *
+ * 임계값은 "지금보다 나빠지면 잡는다" 기준입니다. 현재값에서 약간의 여유만
+ * 둡니다 — 크게 두면 서서히 나빠지는 것을 못 잡습니다.
+ * ------------------------------------------------------------------------- */
+const GATE = {
+  leanMAE: 1.60,      // 현재 1.36
+  leanBias: 1.00,     // 현재 +0.55
+  fatMAE: 1.30,       // 현재 1.11
+  providedLeanMAE: 0.70   // 독립 검증군(전량 제공식) 현재 0.37
+};
+const all = stats(rows);
+const provided = (() => {
+  const g = rows.filter(r => r.deficitSource === 'provided');
+  return g.length ? stats(g) : null;
+})();
+const fails = [];
+if (all.deltaLeanMassKg.meanAbsError > GATE.leanMAE)
+  fails.push(`제지방 MAE ${all.deltaLeanMassKg.meanAbsError} > ${GATE.leanMAE}`);
+if (Math.abs(all.deltaLeanMassKg.meanError) > GATE.leanBias)
+  fails.push(`제지방 편향 ${all.deltaLeanMassKg.meanError} (절대값 > ${GATE.leanBias})`);
+if (all.deltaFatMassKg.meanAbsError > GATE.fatMAE)
+  fails.push(`지방 MAE ${all.deltaFatMassKg.meanAbsError} > ${GATE.fatMAE}`);
+if (provided && provided.deltaLeanMassKg.meanAbsError > GATE.providedLeanMAE)
+  fails.push(`독립 검증군 제지방 MAE ${provided.deltaLeanMassKg.meanAbsError} > ${GATE.providedLeanMAE}`);
+
+console.log('\n=== 게이트 ===');
+console.log(`  제지방 MAE       ${all.deltaLeanMassKg.meanAbsError} / ${GATE.leanMAE}`);
+console.log(`  제지방 편향      ${all.deltaLeanMassKg.meanError} / ±${GATE.leanBias}`);
+console.log(`  지방 MAE         ${all.deltaFatMassKg.meanAbsError} / ${GATE.fatMAE}`);
+if (provided) console.log(`  독립군 제지방MAE ${provided.deltaLeanMassKg.meanAbsError} / ${GATE.providedLeanMAE}`);
+if (fails.length) {
+  console.log('\n실패 — 엔진 정확도가 기준을 벗어났습니다:');
+  fails.forEach(f => console.log('  ✗ ' + f));
+  process.exit(1);
+}
+console.log('\n통과');

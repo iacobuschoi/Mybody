@@ -423,7 +423,13 @@
   };
 
   /* M24 의학적 고지 */
-  M.disclaimer = function () {
+  M.disclaimer = function (force) {
+    /* 이미 수락했으면 다시 띄우지 않습니다.
+       예전엔 온보딩 완료·건너뛰기가 수락 여부를 확인하지 않고 무조건 불러서,
+       "이해했습니다"를 누른 뒤에도 완료를 다시 누르면 또 떴습니다.
+       호출처마다 조건을 다는 대신 여기서 막습니다 — 빠뜨릴 수가 없는 자리입니다.
+       force 는 설정에서 사용자가 일부러 다시 볼 때만 씁니다. */
+    if (!force && S.get().disclaimerAccepted) return;
     UI.openModal({
       uid: 'M24', title: '시작하기 전에', dismissable: false,
       body: [
@@ -554,6 +560,25 @@
       body: h('div', { text: friend.displayName + '님 화면에서 바로 사라집니다. 친구 관계는 그대로입니다.' }),
       actions: [{ label: '취소', kind: 'ghost' },
                 { label: '모두 끄기', kind: 'danger', onClick: onConfirm }]
+    });
+  };
+
+  /* M26 스캔 값 확인 — 물리적으로 이상한 입력 */
+  M.confirmScan = function (bad, onConfirm) {
+    UI.openModal({
+      uid: 'M26', title: '값을 한 번만 확인해 주세요',
+      body: [
+        h('div', { text: '아래 값이 보통 범위를 벗어났습니다. 결과지와 다르면 고쳐 주세요.' }),
+        h('div', { style: { marginTop: '10px' } }, bad.reasons.map(function (r) {
+          return h('div.note.note--warn', { style: { marginBottom: '6px' }, text: r });
+        })),
+        h('div.muted', { style: { marginTop: '8px' },
+          text: '정말 이 값이 맞다면 그대로 저장해도 됩니다. 다만 이 값으로 만든 계획은 믿기 어렵습니다.' })
+      ],
+      actions: [
+        { label: '고치러 가기', kind: 'ghost' },
+        { label: '이대로 저장', kind: 'danger', onClick: onConfirm }
+      ]
     });
   };
 

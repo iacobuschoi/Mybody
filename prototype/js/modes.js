@@ -1423,13 +1423,39 @@
     i.smmKnown = (i.dSmmKg != null && isFinite(i.dSmmKg));
     i.smmUp    = i.smmKnown && i.dSmmKg > NOISE.smm;
     i.smmDown  = i.smmKnown && i.dSmmKg < -NOISE.smm;
-    i.smmFlat  = i.smmKnown && Math.abs(i.dSmmKg) <= NOISE.smm;
+    // 미지를 "변화 없음"으로 봅니다. smmKnown 을 곱하면 미지일 때 세 플래그가
+    // 모두 false 가 되어 어떤 규칙에도 안 걸립니다 — 전수 분할이 깨집니다.
+    i.smmFlat  = !i.smmKnown || Math.abs(i.dSmmKg) <= NOISE.smm;
     i.subNoiseAll = Math.abs(i.dWeightKg || 0) < NOISE.weight &&
                     Math.abs(i.dSmmKg || 0) < NOISE.smm &&
                     Math.abs(i.dBfmKg || 0) < NOISE.bfm;
-    i.taExp = i.trainingAge !== 'novice';
+    // 화이트리스트입니다. 예전엔 !== 'novice' 라 값이 없거나 오타이면
+    // 숙련자 게이트가 열렸습니다 — 누락된 입력이 가드를 약화시키는 쪽으로만
+    // 작동했습니다. 레지스트리 F절이 이걸 이미 문장으로 요구하고 있었습니다.
+    i.taExp = ['intermediate', 'advanced', 'elite'].indexOf(i.trainingAge) >= 0;
     if (i.currentPhase === undefined) i.currentPhase = null;
     i.input = i;
+
+    /* 거부 문구가 이름으로 요구하는 파생값들.
+       없으면 fill() 이 '—' 를 찍습니다. 실제로 이런 문장이 나갔습니다:
+         "계획을 만들기 전에 필요한 값이 빠져 있습니다: —."
+         "혹시 근육 +—kg · 지방 −—kg을 입력하려던 건 아닌가요?"
+       계획을 거부해 놓고 무엇이 빠졌는지 말하지 않는 것이 가장 나쁩니다. */
+    var REQUIRED = ['curWeightKg', 'curSmmKg', 'curBfmKg', 'heightCm', 'age',
+                    'dWeightKg', 'dSmmKg', 'dBfmKg'];
+    var LABEL = { curWeightKg: '현재 체중', curSmmKg: '현재 골격근량', curBfmKg: '현재 체지방량',
+                  heightCm: '키', age: '나이', dWeightKg: '체중 목표',
+                  dSmmKg: '근육 목표', dBfmKg: '지방 목표', sex: '성별' };
+    var miss = REQUIRED.filter(function (f) { return i[f] == null || !isFinite(i[f]); })
+                       .map(function (f) { return LABEL[f] || f; });
+    if (i.sex !== 'male' && i.sex !== 'female') miss.push(LABEL.sex);
+    i.missingFields = miss.length ? miss.join(', ') : '없음';
+
+    i.absDSmmKg = Math.abs(i.dSmmKg || 0);
+    i.absDBfmKg = Math.abs(i.dBfmKg || 0);
+    // 근육·지방 목표가 함의하는 체중 변화 (제지방 환산은 아래 k 기반 dFfmKg 사용)
+    i.impliedDWeightKg = (i.dBfmKg || 0) + (i.dFfmKg != null ? i.dFfmKg : (i.dSmmKg || 0) / 0.55);
+    i.impliedWeightKg = (i.curWeightKg || 0) + i.impliedDWeightKg;
 
     i.ratePct = (i.deadlineWeeks && i.curWeightKg)
       ? Math.abs(i.dWeightKg) / i.curWeightKg / i.deadlineWeeks * 100 : null;
@@ -1490,8 +1516,11 @@
 
     for (var r = 0; r < REFUSALS.length; r++) {
       var ref = REFUSALS[r];
+      // 예외를 '해당 없음'으로 삼키면 누락된 입력이 언제나 가드를 약화시키는
+      // 쪽으로만 작동합니다. 안전 거부에서는 예외를 '걸림'으로 취급합니다.
       var hit = false;
-      try { hit = !!ref.test(i); } catch (e) { hit = false; }
+      try { hit = !!ref.test(i); }
+      catch (e) { hit = true; if (typeof console !== 'undefined') console.warn('거부 규칙 평가 실패', r, e); }
       if (hit) {
         return { refused: true, message: fill(ref.message, i), mode: null, trendNote: trendNote };
       }
@@ -1499,8 +1528,11 @@
 
     for (var n = 0; n < RULES.length; n++) {
       var rule = RULES[n];
+      // 선택 규칙은 반대입니다 — 평가 실패한 규칙은 고르지 않습니다.
+      // 다만 조용히 넘어가지 않고 남깁니다.
       var ok = false;
-      try { ok = !!rule.test(i); } catch (e) { ok = false; }
+      try { ok = !!rule.test(i); }
+      catch (e) { ok = false; if (typeof console !== 'undefined') console.warn('선택 규칙 평가 실패', n, e); }
       if (ok) {
         var mode = byId(rule.modeId);
         return {
