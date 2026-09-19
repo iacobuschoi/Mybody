@@ -134,7 +134,7 @@
     if (ph) {
       card.appendChild(h('img', {
         src: ph.dataUrl, alt: '그때 올린 결과지',
-        uid: 'P11-B08', uidLabel: '결과지 사진 크게 보기',
+        uid: 'P11-B09', uidLabel: '결과지 사진 크게 보기',
         style: { width: '100%', borderRadius: '10px', display: 'block',
                  marginTop: '10px', cursor: 'zoom-in', background: 'var(--bg-2)' },
         onClick: function () { global.MB_MODALS.photoZoom(ph.dataUrl); }

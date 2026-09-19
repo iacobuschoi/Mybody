@@ -630,6 +630,16 @@
         }
         save.forced = false;
         S.addScan(scan);
+
+        /* 저장이 실제로 기기에 쓰였는지 확인하고 나서 말합니다.
+           예전에는 무조건 "저장되었습니다" 라고 했는데, 저장소가 꽉 차면
+           조용히 실패했습니다. 사용자는 토스트를 보고 나갔다가 다음에
+           들어와서 그 측정이 없는 걸 보게 됩니다 — 앱을 의심하기 전에
+           자기 기억을 의심하는 종류의 실패입니다. */
+        if (!S.saved()) {
+          global.MB_MODALS.saveFailed(v);
+          return;
+        }
         S.set({ draft: null });
         global.MB_DRAFT = null;
         global.MB_UID.toast('측정이 저장되었습니다');
@@ -677,8 +687,24 @@
         var digits = String(v.measuredAt || nowISO()).replace(/[^0-9]/g, '');
         if (!digits) digits = String(Date.now());
         var id = 'scan-' + digits.slice(0, 8);
-        var clash = S.scanById(id);
-        if (clash && clash.measuredAt !== v.measuredAt) id = 'scan-' + digits.slice(0, 12);
+
+        /* 같은 날 두 번 재는 일은 드물지 않습니다 — 주인 실측만 해도
+           하루에 07:36 · 08:35 · 11:09 세 번이 있습니다.
+           예전 규칙은 "충돌했는데 측정시각이 다르면" 시·분을 붙였습니다.
+           그런데 사진에 EXIF 가 없으면(카톡으로 받은 사진 · 스크린샷 ·
+           PNG) 측정시각이 둘 다 'T09:00:00' 으로 똑같이 박혀서, 조건이
+           안 맞고 같은 id 가 나왔습니다. 두 번째가 첫 번째를 말없이
+           덮어썼습니다.
+
+           지금은 새 측정이면(편집이 아니면) 충돌하는 순간 무조건
+           번호를 늘립니다. 덮어쓰기는 "이 기록을 고친다" 고 명시적으로
+           들어왔을 때만 일어나야 합니다. */
+        var n = 0;
+        while (S.scanById(id)) {
+          n++;
+          id = n === 1 ? 'scan-' + digits.slice(0, 12) : 'scan-' + digits.slice(0, 12) + '-' + n;
+          if (n > 50) { id = 'scan-' + digits.slice(0, 12) + '-' + String(S.get().scans.length + 1); break; }
+        }
         return id;
       }
 

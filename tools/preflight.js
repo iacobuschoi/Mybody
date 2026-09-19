@@ -36,6 +36,8 @@ const CHECKS = [
     why: '번호가 겹치면 남겨둔 피드백 메모가 엉뚱한 곳에 붙습니다' },
   { id: '장기 시뮬레이션', level: 'BLOCK', slow: false, cmd: ['node', 'tools/simulate.js'],
     why: '3년짜리 경로에서만 드러나는 불변식 위반이 있습니다' },
+  { id: '데이터 유실', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-dataloss.js'],
+    why: '앱은 저장했다고 말하는데 실제로는 없어지는 것들 — 눌러보는 검사로는 안 잡힙니다' },
   { id: '화면 스모크', level: 'BLOCK', slow: true, cmd: ['node', 'tools/smoke.js'],
     why: '화면이 안 뜨면 나머지는 의미가 없습니다' },
   { id: '인터랙션 전수', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-interactions.js'],

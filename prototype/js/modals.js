@@ -1200,5 +1200,37 @@
     });
   };
 
+  /* M48 저장 실패 — 기기에 자리가 없습니다.
+     여기서 제일 중요한 것은 사용자가 방금 입력한 숫자를 잃지 않는
+     것입니다. 저장은 실패했지만 화면의 값은 아직 살아 있으니, 그
+     값을 눈에 보이게 적어 줍니다. 적어 두고 자리를 만든 뒤 다시
+     넣을 수 있게. */
+  M.saveFailed = function (v) {
+    var rows = [['체중', v.weightKg, 'kg'], ['골격근량', v.smmKg, 'kg'], ['체지방량', v.bfmKg, 'kg']]
+      .filter(function (r) { return r[1] != null; })
+      .map(function (r) { return r[0] + ' ' + r[1] + r[2]; }).join(' · ');
+    UI.openModal({
+      uid: 'M48', title: '저장하지 못했습니다',
+      sub: '이 기기에 자리가 없습니다',
+      body: [
+        h('div.note.note--bad', {
+          text: '측정이 저장되지 않았습니다. 사진을 먼저 지워 자리를 만들어 봤지만 그래도 모자랍니다.' }),
+        rows ? h('div', { style: { marginTop: '10px' } }, [
+          h('div.card__sub', { text: '방금 넣은 값 — 어딘가에 적어 두세요' }),
+          h('div.num', { style: { fontSize: '16px', fontWeight: '700', marginTop: '4px' }, text: rows }),
+          v.measuredAt ? h('div.muted', { style: { marginTop: '2px' },
+            text: '측정일 ' + String(v.measuredAt).slice(0, 10) }) : null
+        ]) : null,
+        h('div.muted', { style: { marginTop: '10px' },
+          text: '브라우저 설정에서 이 사이트의 저장 공간을 늘리거나, ' +
+                '설정 → 결과지 사진에서 사진을 지우면 자리가 납니다.' })
+      ],
+      actions: [
+        { label: '설정 열기', onClick: function () { global.MB_APP.go('P12'); } },
+        { label: '알겠습니다', kind: 'primary' }
+      ]
+    });
+  };
+
   global.MB_MODALS = M;
 })(window);

@@ -529,7 +529,21 @@
         // 사진에서 시각까지 읽었으면 그대로 씁니다 — 같은 날 두 번 잰
         // 경우에 순서가 살아납니다.
         if (shot && shot.exifAt && String(shot.exifAt).slice(0, 10) === d) return shot.exifAt;
-        return d + 'T09:00:00';
+
+        /* EXIF 가 없을 때 예전에는 'T09:00:00' 을 박았습니다. 카톡으로
+           받은 사진은 EXIF 가 지워지고, 스크린샷과 PNG 에는 애초에
+           없습니다 — 흔한 경우입니다. 그래서 같은 날 두 장을 넣으면
+           측정시각이 글자 하나까지 같아졌고, 검산은 "같은 날" 이라며
+           변화량 검사를 껐고, id 는 충돌했습니다.
+           오늘이면 지금 시각을, 지난 날이면 정오를 씁니다. 정확한
+           시각은 아니지만 서로 다르고, 사용자가 고칠 수 있습니다. */
+        var now = new Date();
+        if (d === todayLocal()) {
+          return d + 'T' + String(now.getHours()).padStart(2, '0') + ':' +
+                 String(now.getMinutes()).padStart(2, '0') + ':' +
+                 String(now.getSeconds()).padStart(2, '0');
+        }
+        return d + 'T12:00:00';
       }
     }
   });

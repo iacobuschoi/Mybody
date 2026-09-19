@@ -42,8 +42,47 @@
 
   var publishing = false;
 
+  /* 저장이 실패할 수 있습니다. 그리고 실패를 삼키면 안 됩니다.
+   *
+   * localStorage 는 보통 5MB 가 한도인데, 결과지 사진이 같은 칸을 씁니다.
+   * 꽉 차면 setItem 이 QuotaExceededError 를 던지고, 예전에는 그걸
+   * 조용히 먹었습니다. 사용자는 "저장했습니다" 토스트를 보고, 새로고침
+   * 하면 그 측정이 없습니다. 앱이 틀렸다고 생각하기 전에 자기 기억을
+   * 의심하게 되는 종류의 버그입니다.
+   *
+   * 이제 두 가지를 합니다.
+   *   (가) 공간이 모자라면 사진부터 버리고 다시 시도합니다 — 숫자가
+   *        사진보다 중요합니다. 사진은 다시 찍을 수 있지만 지나간
+   *        측정일의 숫자는 되찾을 수 없습니다.
+   *   (나) 그래도 안 되면 false 를 돌려줍니다. 부르는 쪽이 사실대로
+   *        말할 수 있게.
+   */
+  var lastSaveOk = true;
+
+  function writeState() {
+    try { localStorage.setItem(KEY, JSON.stringify(state)); return true; }
+    catch (e) {
+      // 사진을 버려서 자리를 만들어 봅니다 (오래된 것부터)
+      try {
+        var P = global.MB_PHOTO;
+        if (P) {
+          var map = P.list();
+          var ids = Object.keys(map).sort(function (a, b) {
+            return (map[a].at || '') < (map[b].at || '') ? -1 : 1;
+          });
+          while (ids.length) {
+            P.remove(ids.shift());
+            try { localStorage.setItem(KEY, JSON.stringify(state)); return true; }
+            catch (e2) { /* 계속 버립니다 */ }
+          }
+        }
+      } catch (e3) {}
+      return false;
+    }
+  }
+
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    lastSaveOk = writeState();
     // 친구에게 나갈 값이 바뀌었을 수 있으니 여기서 올린다.
     //
     // 호출처마다 publishWeekly() 를 넣는 방법도 있지만, 이 기능이 망가져 있던 이유가
@@ -55,7 +94,11 @@
       try { publishWeekly(); } catch (e) {} finally { publishing = false; }
     }
     listeners.forEach(function (f) { try { f(state); } catch (e) {} });
+    return lastSaveOk;
   }
+
+  /** 마지막 저장이 실제로 기기에 쓰였는가 */
+  function saved() { return lastSaveOk; }
 
   function get() { return state; }
   function set(patch) { Object.assign(state, patch); save(); return state; }
@@ -354,7 +397,7 @@
   }
 
   global.MB_STORE = {
-    load: load, save: save, get: get, set: set, reset: reset, seed: seed,
+    load: load, save: save, saved: saved, get: get, set: set, reset: reset, seed: seed,
     onChange: onChange, latestScan: latestScan, sortedScans: sortedScans,
     addScan: addScan, removeScan: removeScan, scanById: scanById,
     setGoal: setGoal, setPlan: setPlan, planMatchesGoal: planMatchesGoal, sameGoal: sameGoal,

@@ -48,7 +48,13 @@ for (const f of files) {
   while ((m = RE_PAIR.exec(src))) {
     const uid = m[1].replace(/'\s*\+.*$/, '').trim();
     if (!found.has(uid) || !found.get(uid).label) found.set(uid, { label: m[2], file: rel });
-    if (/^[PMA]\d{2}$/.test(uid)) {
+    /* 컨테이너(P06)든 잎(P06-B90)이든 똑같이 중복을 봅니다.
+       예전엔 /^[PMA]\d{2}$/ 로 컨테이너만 걸렀습니다. 그런데 번호
+       재사용이 실제로 아픈 쪽은 잎입니다 — 피드백 메모가 uid 문자열로
+       저장되기 때문에, P06-B90 을 두 군데서 쓰면 한쪽에 남긴 메모가
+       다른 쪽 버튼에 붙습니다. 이 파일 주석은 그걸 잡는다고 적혀
+       있었는데 실제로는 한 번도 안 보고 있었습니다. */
+    if (/^[PMA]\d{2}(-[A-Z]\d{2})?$/.test(uid)) {
       if (!declared.has(uid)) declared.set(uid, new Map());
       declared.get(uid).set(m[2], rel);
     }

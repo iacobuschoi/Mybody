@@ -12,7 +12,7 @@
       var me = B().currentUser();
 
       if (!me) {
-        wrap.appendChild(h('div.card', { uid: 'P14-C01', uidLabel: '로그인 카드' }, [
+        wrap.appendChild(h('div.card', { uid: 'P14-C06', uidLabel: '로그인 카드' }, [
           h('div.card__title', { text: '로그인' }),
           h('div.muted', { style: { marginTop: '6px' },
             text: '기기를 바꿔도 기록이 남습니다. 친구와 함께 하려면 필요합니다.' }),
@@ -490,7 +490,7 @@
           h('div.empty__ico', { text: '👤' }),
           h('div.empty__t', { text: '이 친구는 목록에 없습니다' }),
           h('div.empty__d', { text: '끊겼거나 상대가 계정을 지웠을 수 있습니다.' }),
-          h('button.btn.btn--primary', { text: '친구 목록', uid: 'P16-B03', uidLabel: '친구 목록으로',
+          h('button.btn.btn--primary', { text: '친구 목록', uid: 'P16-B04', uidLabel: '친구 목록으로',
             onClick: function () { A.go('P15'); } })
         ]));
         return;

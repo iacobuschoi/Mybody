@@ -189,15 +189,21 @@
               });
             }
           }),
-          h('button.btn.btn--ghost.btn--sm', {
-            text: '내 실제 인바디로 바로 시작', uid: 'P01-B05', uidLabel: '실제 인바디로 바로 시작',
+          /* 이 버튼은 개발 빌드 전용입니다.
+             누르면 주인의 실제 인바디 3건과 프로필이 통째로 들어오고,
+             seed() 가 disclaimerAccepted 까지 켭니다 — 남의 몸 숫자를
+             자기 것으로 받고, 의학적 고지를 읽지도 않은 채 승낙한
+             상태가 됩니다. 배포본에 있으면 안 됩니다. */
+          global.MB_BUILD.tools ? h('button.btn.btn--ghost.btn--sm', {
+            text: '내 실제 인바디로 바로 시작 (개발용)', uid: 'P01-B05',
+            uidLabel: '실제 인바디로 바로 시작',
             onClick: function () {
               S.seed();
               draft = null; draftFrom = null; step = 0;
               global.MB_UID.toast('실제 인바디 3건과 프로필을 불러왔습니다');
               A.go('P02');
             }
-          })
+          }) : null
         ]));
 
         body.appendChild(h('div.muted', { style: { marginTop: '10px', textAlign: 'center' },
