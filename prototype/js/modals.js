@@ -379,7 +379,7 @@
   M.exportData = function () {
     var text = S.exportJSON();
     UI.openModal({
-      uid: 'M20', title: '데이터 내보내기',
+      uid: 'M43', title: '데이터 내보내기',
       sub: '전체 상태를 JSON으로',
       body: h('textarea.textarea', { rows: 12, readonly: true, value: text }),
       actions: [
@@ -527,6 +527,179 @@
     });
   };
 
+  /* M42 비밀번호 변경 — 바꾸면 다른 기기 세션이 전부 끊깁니다 */
+  M.changePassword = function (onDone) {
+    var cur, next, next2, msg, busy = false;
+    UI.openModal({
+      uid: 'M42', title: '비밀번호 변경',
+      body: [
+        h('div.field', [h('div.field__label', { text: '지금 비밀번호' }),
+          cur = h('input.input', { uid: 'M42-F01', uidLabel: '지금 비밀번호', type: 'password' })]),
+        h('div.field', [h('div.field__label', { text: '새 비밀번호' }),
+          next = h('input.input', { uid: 'M42-F02', uidLabel: '새 비밀번호', type: 'password',
+            placeholder: '8자 이상' })]),
+        h('div.field', [h('div.field__label', { text: '새 비밀번호 확인' }),
+          next2 = h('input.input', { uid: 'M42-F03', uidLabel: '새 비밀번호 확인', type: 'password' })]),
+        msg = h('div.field__err', { style: { display: 'none' } }),
+        h('div.muted', { style: { marginTop: '10px' },
+          text: '바꾸면 다른 기기에서 전부 로그아웃됩니다. 토큰이 샜을 때의 복구 수단이기도 합니다.' })
+      ],
+      actions: [
+        { label: '취소', kind: 'ghost' },
+        { label: '바꾸기', kind: 'primary', onClick: function (close) {
+            if (busy) return true;
+            var S = global.MB_SYNC;
+            if (!S || !S.status().signedIn) {
+              msg.textContent = '로그인 상태가 아닙니다'; msg.style.display = ''; return true;
+            }
+            if ((next.value || '').length < 8) {
+              msg.textContent = '새 비밀번호는 8자 이상이어야 합니다'; msg.style.display = ''; return true;
+            }
+            if (next.value !== next2.value) {
+              msg.textContent = '새 비밀번호가 서로 다릅니다'; msg.style.display = ''; return true;
+            }
+            busy = true; msg.textContent = '확인 중...'; msg.style.display = '';
+            S.changePassword({ current: cur.value, next: next.value }).then(function () {
+              global.MB_UID.toast('비밀번호를 바꿨습니다');
+              if (onDone) onDone();
+              close();
+            }).catch(function (e) {
+              msg.textContent = e.message; msg.style.display = ''; busy = false;
+            });
+            return true;
+          } }
+      ]
+    });
+  };
+
+  /* M38 서버 주소 — 자가호스팅이라 기기마다 다를 수 있습니다 */
+  M.serverAddress = function (onDone) {
+    var S = global.MB_SYNC;
+    var cur = S ? (S.status().baseUrl || '') : '';
+    var input, msg;
+    UI.openModal({
+      uid: 'M38', title: '서버 주소',
+      sub: '이 앱의 데이터를 보관하는 곳',
+      body: [
+        input = h('input.input', { uid: 'M38-F01', uidLabel: '서버 주소',
+          value: cur, placeholder: 'http://192.168.0.10:8080',
+          autocapitalize: 'none', autocorrect: 'off' }),
+        msg = h('div.field__err', { style: { display: 'none' } }),
+        h('div.muted', { style: { marginTop: '10px' },
+          text: '집 컴퓨터에서 서버를 돌리고 있다면 그 컴퓨터의 주소입니다. ' +
+                '비워두면 이 기기에만 저장되고 친구 기능은 쓸 수 없습니다.' })
+      ],
+      actions: [
+        { label: '취소', kind: 'ghost' },
+        { label: '저장', kind: 'primary', onClick: function (close) {
+            var v = (input.value || '').trim();
+            if (v && !/^https?:\/\//.test(v)) {
+              msg.textContent = 'http:// 또는 https:// 로 시작해야 합니다';
+              msg.style.display = ''; return true;
+            }
+            S.configure(v || null);
+            global.MB_UID.toast(v ? '서버를 바꿨습니다' : '이 기기에만 저장합니다');
+            if (onDone) onDone();
+          } }
+      ]
+    });
+  };
+
+  /* ======================================================================
+   * M29 로그인 / 가입 — 우리 서버에서 직접
+   *
+   * 카카오·애플을 쓰지 않는 이유: 외부 OAuth 는 사업자 등록과 앱 심사가
+   * 필요하고, "서버는 내 컴퓨터로 사용해"라는 이 앱의 전제와 맞지 않습니다.
+   * 아이디는 이메일이 아닙니다 — 이메일을 받으면 보관해야 할 개인정보가
+   * 하나 늘어나는데, 이 서버는 비밀번호 재발송을 하지 않으므로 할 일이 없습니다.
+   * ==================================================================== */
+  M.signIn = function (onDone) {
+    var mode = 'in';          // 'in' = 로그인, 'up' = 가입
+    var body = h('div');
+    var handle, pw, pw2, pair, name, msg, busy = false;
+
+    function draw() {
+      body.textContent = '';
+      msg = h('div.field__err', { style: { display: 'none' } });
+
+      body.appendChild(h('div.chips', { style: { marginBottom: '12px' } }, [
+        chip('로그인', 'in', 'M29-B10'), chip('처음이에요', 'up', 'M29-B11')
+      ]));
+
+      body.appendChild(field('아이디', handle = h('input.input', {
+        uid: 'M29-F01', uidLabel: '아이디', value: handle ? handle.value : '',
+        autocapitalize: 'none', autocorrect: 'off',
+        placeholder: '영문·숫자 3~32자' })));
+
+      body.appendChild(field('비밀번호', pw = h('input.input', {
+        uid: 'M29-F02', uidLabel: '비밀번호', type: 'password',
+        placeholder: '8자 이상' })));
+
+      if (mode === 'up') {
+        body.appendChild(field('비밀번호 확인', pw2 = h('input.input', {
+          uid: 'M29-F03', uidLabel: '비밀번호 확인', type: 'password' })));
+        body.appendChild(field('표시 이름 (선택)', name = h('input.input', {
+          uid: 'M29-F04', uidLabel: '표시 이름', maxlength: '20',
+          placeholder: '친구에게 보이는 이름' })));
+        body.appendChild(field('가입 코드', pair = h('input.input', {
+          uid: 'M29-F05', uidLabel: '가입 코드',
+          placeholder: '서버 주인에게 받은 코드' })));
+        body.appendChild(h('div.muted', { style: { marginTop: '6px' },
+          text: '이 서버는 공개 가입 서비스가 아닙니다. 주인이 알려준 코드가 있어야 계정을 만들 수 있습니다.' }));
+      }
+
+      body.appendChild(msg);
+      body.appendChild(h('div.muted', { style: { marginTop: '10px' },
+        text: '비밀번호를 잊으면 되돌릴 방법이 없습니다 — 이 서버는 메일을 보내지 않습니다.' }));
+    }
+
+    function field(label, input) {
+      return h('div.field', { style: { marginBottom: '10px' } },
+        [h('div.field__label', { text: label }), input]);
+    }
+    function chip(label, key, uid) {
+      return h('button.chip' + (key === mode ? '.is-on' : ''), {
+        text: label, uid: uid, uidLabel: label,
+        onClick: function () { mode = key; draw(); } });
+    }
+    function fail(t) { msg.textContent = t; msg.style.display = ''; busy = false; }
+
+    draw();
+    UI.openModal({
+      uid: 'M29', title: '계정',
+      sub: '이 앱의 서버에서 직접 관리합니다',
+      body: body,
+      actions: [
+        { label: '취소', kind: 'ghost' },
+        { label: '계속', kind: 'primary', onClick: function (close) {
+            if (busy) return true;
+            var S = global.MB_SYNC;
+            if (!S || !S.status().configured) { fail('서버 주소가 설정되지 않았습니다'); return true; }
+            var h1 = (handle.value || '').trim().toLowerCase();
+            var p1 = pw.value || '';
+            if (!h1) { fail('아이디를 넣어주세요'); return true; }
+            if (p1.length < 8) { fail('비밀번호는 8자 이상이어야 합니다'); return true; }
+            if (mode === 'up' && p1 !== (pw2.value || '')) { fail('비밀번호가 서로 다릅니다'); return true; }
+
+            busy = true; msg.textContent = '확인 중...'; msg.style.display = '';
+            var work = mode === 'up'
+              ? S.signUp({ handle: h1, password: p1,
+                           displayName: (name.value || '').trim() || h1,
+                           pairSecret: (pair.value || '').trim() })
+              : S.signIn({ handle: h1, password: p1 });
+
+            work.then(function (r) {
+              global.MB_STORE.publishWeekly();
+              global.MB_UID.toast(r.user.displayName + '으로 로그인했습니다');
+              if (onDone) onDone();
+              close();
+            }).catch(function (e) { fail(e.message); });
+            return true;
+          } }
+      ]
+    });
+  };
+
   /* M30 친구 추가 */
   M.addFriend = function (onDone) {
     var input, msg;
@@ -543,8 +716,26 @@
       ],
       actions: [
         { label: '취소', kind: 'ghost' },
-        { label: '요청 보내기', kind: 'primary', onClick: function () {
-            var r = global.MB_BACKEND.sendRequest((input.value || '').trim().toUpperCase());
+        { label: '요청 보내기', kind: 'primary', onClick: function (close) {
+            var code = (input.value || '').trim().toUpperCase();
+            if (code.length !== 8) {
+              msg.textContent = '8자리 코드를 넣어주세요'; msg.style.display = ''; return true;
+            }
+            var S = global.MB_SYNC;
+            /* 서버에 로그인돼 있으면 서버에 묻습니다. 초대 코드는 상대 것이라
+               내 기기에는 없습니다 — 로컬에서 찾으면 언제나 "없는 코드"가 됩니다. */
+            if (S && S.status().signedIn) {
+              msg.textContent = '확인 중...'; msg.style.display = '';
+              S.sendRequest(code).then(function () {
+                global.MB_UID.toast('요청을 보냈습니다');
+                if (onDone) onDone();
+                close();
+              }).catch(function (e) {
+                msg.textContent = e.message; msg.style.display = '';
+              });
+              return true;   // 답이 올 때까지 모달을 열어 둡니다
+            }
+            var r = global.MB_BACKEND.sendRequest(code);
             if (!r.ok) { msg.textContent = r.reason; msg.style.display = ''; return true; }
             global.MB_UID.toast(r.status === 'accepted' ? '친구가 되었습니다' : '요청을 보냈습니다');
             if (onDone) onDone();

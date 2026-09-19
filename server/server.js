@@ -64,6 +64,29 @@ function rateLimited(ip) {
   return rec.n > max;
 }
 
+/* --- 로그인 시도 제한 -------------------------------------------------------
+ * 비밀번호 로그인은 무차별 대입의 표적입니다. 일반 속도 제한(분당 300)으로는
+ * 턱없이 모자랍니다 — 분당 300번이면 흔한 비밀번호 목록을 하루에 다 돌립니다.
+ * 아이디별로 따로 셉니다. IP 별로만 세면 여러 IP 로 한 계정을 때릴 수 있고,
+ * 반대로 한 IP 뒤의 여러 사람이 서로를 막게 됩니다. */
+const loginFails = new Map();
+const LOGIN = { max: 8, windowMs: 15 * 60_000 };
+
+function loginBlocked(handle) {
+  const rec = loginFails.get(handle);
+  if (!rec) return 0;
+  if (Date.now() - rec.t > LOGIN.windowMs) { loginFails.delete(handle); return 0; }
+  return rec.n >= LOGIN.max ? Math.ceil((LOGIN.windowMs - (Date.now() - rec.t)) / 60000) : 0;
+}
+function noteLoginFail(handle) {
+  const rec = loginFails.get(handle) || { t: Date.now(), n: 0 };
+  if (Date.now() - rec.t > LOGIN.windowMs) { rec.t = Date.now(); rec.n = 0; }
+  rec.n++;
+  loginFails.set(handle, rec);
+  if (loginFails.size > 5000) loginFails.clear();
+}
+function clearLoginFails(handle) { loginFails.delete(handle); }
+
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
                '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8',
                '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
@@ -113,13 +136,33 @@ async function handleApi(req, res, url) {
 
   if (p === '/health') return send(res, 200, { ok: true, now: new Date().toISOString() });
 
+  /* 계정 만들기 — 페어링 비밀이 필요합니다.
+     이 서버는 주인 것이지 공개 가입 서비스가 아닙니다. 비밀을 아는 사람만
+     계정을 만들 수 있고, 그 비밀은 주인이 초대하고 싶은 사람에게만 줍니다. */
+  if (p === '/auth/signup' && method === 'POST') {
+    const b = await readBody(req);
+    if (!pairOk(b.pairSecret)) {
+      return send(res, 401, { ok: false, reason: '이 서버의 가입 코드가 필요합니다' });
+    }
+    const r = api.signUp(b);
+    return send(res, r.ok ? 200 : 400, r);
+  }
+
+  /* 로그인 — 가입 후에는 비밀번호만으로 들어옵니다.
+     페어링 비밀을 계속 요구하면 그게 사실상 공용 비밀번호가 되어,
+     한 사람만 새도 전원이 뚫립니다. */
   if (p === '/auth/signin' && method === 'POST') {
     const b = await readBody(req);
-    if (!b.handle) return send(res, 400, { ok: false, reason: 'handle 이 필요합니다' });
-    if (!pairOk(b.pairSecret)) {
-      return send(res, 401, { ok: false, reason: '이 서버에 등록되지 않은 기기입니다' });
+    const h = String(b.handle || '').trim().toLowerCase();
+    if (!h) return send(res, 400, { ok: false, reason: '아이디가 필요합니다' });
+    const wait = loginBlocked(h);
+    if (wait) {
+      return send(res, 429, { ok: false, reason: '로그인 시도가 너무 많습니다. ' + wait + '분 뒤에 다시 해주세요' });
     }
-    return send(res, 200, Object.assign({ ok: true }, api.signIn(b)));
+    const r = api.signIn(b);
+    if (!r.ok) { noteLoginFail(h); return send(res, 401, r); }
+    clearLoginFails(h);
+    return send(res, 200, r);
   }
 
   const tok = bearer(req);
@@ -128,6 +171,12 @@ async function handleApi(req, res, url) {
   const me = user.id;
 
   if (p === '/auth/signout' && method === 'POST') { api.signOut(tok); return send(res, 200, { ok: true }); }
+  if (p === '/auth/signout-all' && method === 'POST') return send(res, 200, api.signOutEverywhere(me));
+  if (p === '/auth/password' && method === 'POST') {
+    const b = await readBody(req);
+    const r = api.changePassword(me, b);
+    return send(res, r.ok ? 200 : 400, r);
+  }
   if (p === '/me' && method === 'GET') return send(res, 200, { ok: true, user: api.me(me), stats: api.stats(me) });
   if (p === '/me' && method === 'PATCH') return send(res, 200, { ok: true, user: api.updateMe(me, await readBody(req)) });
   if (p === '/me' && method === 'DELETE') { api.deleteMe(me); return send(res, 200, { ok: true }); }

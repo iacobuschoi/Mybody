@@ -484,7 +484,11 @@ const t0 = Date.now();
 const users = [];
 for (let i = 0; i < N_USERS; i++) {
   const u = makeUser(i);
-  const s = api.signIn({ provider: 'kakao', handle: u.handle, displayName: '사용자' + i });
+  // 가입은 이제 아이디 + 비밀번호입니다. handle 은 소문자·영숫자만 허용됩니다.
+  const s = api.signUp({ handle: 'sim' + i, password: 'sim-password-' + i,
+                         displayName: '사용자' + i });
+  if (!s.ok) throw new Error('가입 실패: ' + s.reason);
+  u.handle = 'sim' + i;
   u.token = s.token; u.id = s.user.id; u.inviteCode = s.user.inviteCode;
   users.push(u);
 }
@@ -503,8 +507,11 @@ for (let week = 0; week < WEEKS; week++) {
       if (!u.id) {
         // 탈퇴했다가 돌아온 경우 — 실제 앱에서도 새 계정이 된다.
         // 기기에 남아 있던 측정 기록은 그대로지만 친구 관계는 사라진다.
-        const s2 = api.signIn({ provider: 'kakao', handle: u.handle + ':again' + week,
+        const h2 = u.handle + '-again' + week;
+        const s2 = api.signUp({ handle: h2, password: 'sim-password-' + u.i,
                                 displayName: '사용자' + u.i });
+        if (!s2.ok) throw new Error('재가입 실패: ' + s2.reason);
+        u.handle = h2;
         u.token = s2.token; u.id = s2.user.id; u.inviteCode = s2.user.inviteCode;
         u.friends.clear();
         bump('재가입');

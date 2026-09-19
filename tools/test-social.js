@@ -23,9 +23,12 @@ const ok = (n, c, d) => {
   else { fail++; console.log('  ✗', n, d === undefined ? '' : JSON.stringify(d)); }
 };
 
-/** signin 본문에는 페어링 비밀이 반드시 붙어야 합니다. */
+/** 가입에는 페어링 비밀이, 로그인에는 비밀번호가 필요합니다. */
+const PW = 'test-password-1';
 function withPair(p, body) {
-  return (p === '/auth/signin' && body) ? Object.assign({ pairSecret: PAIR }, body) : body;
+  if (p === '/auth/signup' && body) return Object.assign({ pairSecret: PAIR, password: PW }, body);
+  if (p === '/auth/signin' && body) return Object.assign({ password: PW }, body);
+  return body;
 }
 
 async function call(m, p, body, tok) {
@@ -49,27 +52,41 @@ async function waitUp(ms = 5000) {
 
 async function main() {
   console.log('\n[1] 로그인 · 계정');
-  const A = await call('POST', '/auth/signin', { handle: 'gayoung', displayName: '가영' });
-  const Bo = await call('POST', '/auth/signin', { handle: 'narin', displayName: '나린' });
+  const A = await call('POST', '/auth/signup', { handle: 'gayoung', displayName: '가영' });
+  const Bo = await call('POST', '/auth/signup', { handle: 'narin', displayName: '나린' });
   const ta = A.json.token, tb = Bo.json.token;
   ok('A 로그인', !!ta, A.json);
   ok('B 로그인', !!tb, Bo.json);
-  ok('handle 없으면 400', (await call('POST', '/auth/signin', {})).status === 400);
-  // 예전엔 "같은 handle 이면 같은 계정"만 확인했습니다. 그 성질 자체는 맞지만,
-  // 그것만으로 세션이 발급되면 남의 handle 을 아는 사람이 계정을 가져갑니다.
-  // 페어링 비밀을 함께 확인합니다.
-  ok('같은 handle + 올바른 비밀 = 같은 계정',
+  ok('아이디 없으면 400', (await call('POST', '/auth/signin', {})).status === 400);
+  ok('가입 코드 없으면 401', (await fetch(B + '/auth/signup', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ handle: 'nopair', password: PW })
+  })).status === 401);
+  ok('짧은 비밀번호 거부', (await fetch(B + '/auth/signup', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ handle: 'shortpw', password: 'abc', pairSecret: PAIR })
+  })).status === 400);
+  ok('같은 아이디로 두 번 가입 불가',
+     (await call('POST', '/auth/signup', { handle: 'gayoung' })).json.ok === false);
+  // 예전엔 handle 만으로 세션이 발급됐습니다 — 남의 아이디를 아는 사람이
+  // 계정을 그대로 가져갈 수 있었습니다. 이제 비밀번호를 확인합니다.
+  ok('맞는 비밀번호로 로그인 = 같은 계정',
      (await call('POST', '/auth/signin', { handle: 'gayoung' })).json.user.id === A.json.user.id);
-  const noSecret = await fetch(B + '/auth/signin', {
+  const noPw = await fetch(B + '/auth/signin', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ handle: 'gayoung' })
   });
-  ok('페어링 비밀 없이는 로그인 불가', noSecret.status === 401);
-  const badSecret = await fetch(B + '/auth/signin', {
+  ok('비밀번호 없이는 로그인 불가', noPw.status === 401);
+  const badPw = await fetch(B + '/auth/signin', {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ handle: 'gayoung', pairSecret: 'wrong-value-here' })
+    body: JSON.stringify({ handle: 'gayoung', password: 'wrong-password-x' })
   });
-  ok('틀린 페어링 비밀도 불가', badSecret.status === 401);
+  ok('틀린 비밀번호도 불가', badPw.status === 401);
+  ok('없는 아이디도 같은 답 (계정 존재 여부를 흘리지 않음)',
+     (await fetch(B + '/auth/signin', {
+       method: 'POST', headers: { 'content-type': 'application/json' },
+       body: JSON.stringify({ handle: 'nosuchuser', password: 'whatever-123' })
+     })).status === 401);
 
   const meA = (await call('GET', '/me', null, ta)).json.user;
   const meB = (await call('GET', '/me', null, tb)).json.user;
@@ -141,7 +158,7 @@ async function main() {
   console.log('\n[6] 보안 회귀 — 한 번 열렸던 구멍들');
 
   // 차단 우회: 차단당한 사람이 "친구 끊기"로 자기를 막고 있는 행을 지웠습니다
-  const V = await call('POST', '/auth/signin', { handle: 'victim', displayName: '차단당함' });
+  const V = await call('POST', '/auth/signup', { handle: 'victim', displayName: '차단당함' });
   const tv = V.json.token, meV = (await call('GET', '/me', null, tv)).json.user;
   await call('POST', '/friends/request', { inviteCode: meV.inviteCode }, ta);
   await call('POST', '/friends/accept', { userId: meA.id }, tv);
@@ -201,7 +218,7 @@ async function main() {
      (await call('POST', '/friends/block', {}, tv)).status === 400);
 
   console.log('\n[7] 탈퇴 뒷정리');
-  const C = await call('POST', '/auth/signin', { handle: 'temp', displayName: '임시' });
+  const C = await call('POST', '/auth/signup', { handle: 'temp', displayName: '임시' });
   ok('탈퇴', (await call('DELETE', '/me', null, C.json.token)).json.ok === true);
   ok('탈퇴하면 토큰이 죽는다', (await call('GET', '/me', null, C.json.token)).status === 401);
   ok('탈퇴한 계정 코드로는 친구 요청이 안 된다',

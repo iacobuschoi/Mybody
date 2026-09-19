@@ -17,15 +17,12 @@
           h('div.muted', { style: { marginTop: '6px' },
             text: '기기를 바꿔도 기록이 남습니다. 친구와 함께 하려면 필요합니다.' }),
           h('div.btn-row.btn-row--stack', { style: { marginTop: '14px' } }, [
-            h('button.btn.btn--primary.btn--block', { text: '카카오로 시작',
-              uid: 'P14-B01', uidLabel: '카카오 로그인',
-              onClick: function () { doSignIn('kakao'); } }),
-            h('button.btn.btn--block', { text: 'Apple로 시작',
-              uid: 'P14-B02', uidLabel: '애플 로그인',
-              onClick: function () { doSignIn('apple'); } }),
-            h('button.btn.btn--ghost.btn--block', { text: '이메일로 시작',
-              uid: 'P14-B03', uidLabel: '이메일 로그인',
-              onClick: function () { doSignIn('email'); } })
+            h('button.btn.btn--primary.btn--block', { text: '로그인 / 가입',
+              uid: 'P14-B01', uidLabel: '로그인',
+              onClick: function () { global.MB_MODALS.signIn(function () { A.refresh(); }); } }),
+            h('button.btn.btn--ghost.btn--block', { text: '서버 주소 바꾸기',
+              uid: 'P14-B02', uidLabel: '서버 주소',
+              onClick: function () { global.MB_MODALS.serverAddress(function () { A.refresh(); }); } })
           ])
         ]));
         wrap.appendChild(h('div.note', { uid: 'P14-C02', uidLabel: '프로토타입 안내',
@@ -54,7 +51,13 @@
                      h('span.kv__v', { style: { fontFamily: 'ui-monospace, monospace' }, text: me.inviteCode })]),
         h('div.btn-row', { style: { marginTop: '12px' } }, [
           h('button.btn.btn--sm', { text: '로그아웃', uid: 'P14-B04', uidLabel: '로그아웃',
-            onClick: function () { B().signOut(); global.MB_UID.toast('로그아웃했습니다'); A.refresh(); } })
+            onClick: function () {
+              var S2 = global.MB_SYNC;
+              var done = (S2 && S2.status().signedIn) ? S2.signOut() : Promise.resolve(B().signOut());
+              done.then(function () { global.MB_UID.toast('로그아웃했습니다'); A.refresh(); });
+            } }),
+          h('button.btn.btn--sm', { text: '비밀번호 변경', uid: 'P14-B07', uidLabel: '비밀번호 변경',
+            onClick: function () { global.MB_MODALS.changePassword(); } })
         ])
       ]));
 
@@ -88,11 +91,7 @@
           } });
         return i;
       }
-      function doSignIn(provider) {
-        var u = B().signIn({ provider: provider });
-        global.MB_UID.toast(u.displayName + '으로 로그인했습니다');
-        A.refresh();
-      }
+
     }
   });
 
@@ -398,10 +397,14 @@
           h('div.muted', { style: { marginTop: '6px' },
             text: '로그인해도 몸에 대한 숫자는 자동으로 나가지 않습니다. 친구를 맺으면 이번 주에 기록을 했는지 여부만 기본으로 나가고, 나머지는 친구마다 직접 켜야 합니다.' }),
           h('div.btn-row.btn-row--stack', { style: { marginTop: '14px' } }, [
-            signInBtn('카카오로 시작', 'kakao', 'P15-B20'),
-            signInBtn('Apple로 시작', 'apple', 'P15-B21'),
-            signInBtn('이메일로 시작', 'email', 'P15-B22')
-          ])
+            h('button.btn.btn--primary.btn--block', { text: '로그인 / 가입',
+              uid: 'P15-B20', uidLabel: '로그인',
+              onClick: function () { global.MB_MODALS.signIn(function () { A.refresh(); }); } }),
+            h('button.btn.btn--ghost.btn--block', { text: '서버 주소 바꾸기',
+              uid: 'P15-B21', uidLabel: '서버 주소',
+              onClick: function () { global.MB_MODALS.serverAddress(function () { A.refresh(); }); } })
+          ]),
+          serverLine()
         ]));
         w.appendChild(h('div.card.card--flat', { uid: 'P15-C24', uidLabel: '보낼 수 있는 것' }, [
           h('div.card__title', { text: '친구에게 보낼 수 있는 것' }),
@@ -413,17 +416,12 @@
         w.appendChild(h('div.note', { uid: 'P15-C02', uidLabel: '공유 원칙',
           text: '친구 찾기는 초대 코드로만 됩니다. 전화번호나 이메일로는 찾을 수 없습니다.' }));
 
-        function signInBtn(label, provider, uid) {
-          return h('button.btn.btn--block' + (provider === 'kakao' ? '.btn--primary' : ''), {
-            text: label, uid: uid, uidLabel: label,
-            onClick: function () {
-              var u = B().signIn({ provider: provider });
-              // 로그인은 save() 를 안 거치므로 여기서 직접 한 행을 올립니다.
-              // 이게 없으면 "시드 → 로그인 → 친구 수락" 순서에서 상대 화면이 계속 빕니다.
-              S.publishWeekly();
-              global.MB_UID.toast(u.displayName + '으로 로그인했습니다');
-              A.refresh();       // 같은 화면에 머뭅니다 — 돌아갈 곳이 없습니다
-            } });
+        /** 지금 어느 서버를 보고 있는지 — 자가호스팅이라 이게 보여야 합니다. */
+        function serverLine() {
+          var st = global.MB_SYNC ? global.MB_SYNC.status() : { configured: false };
+          return h('div.muted', { style: { marginTop: '10px' },
+            text: st.configured ? '서버: ' + st.baseUrl
+                                : '서버가 설정되지 않았습니다. 이 기기에만 저장됩니다.' });
         }
       }
     }

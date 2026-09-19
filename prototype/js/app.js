@@ -173,6 +173,8 @@
 
   /* --- 부팅 --------------------------------------------------------------- */
   function boot() {
+    // 서버가 설정돼 있으면 붙습니다. 안 돼 있으면 로컬만으로 그대로 동작합니다.
+    try { if (global.MB_SYNC) global.MB_SYNC.boot(); } catch (e) {}
     S.load();
     buildShell();
     global.MB_UID.init();

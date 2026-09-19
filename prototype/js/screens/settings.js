@@ -226,7 +226,7 @@
         });
         var err = h('div.field__err', { style: { display: 'none' } });
         UI.openModal({
-          uid: 'M20', title: '데이터 가져오기',
+          uid: 'M44', title: '데이터 가져오기',
           sub: '지금 저장된 내용은 덮어씌워집니다',
           body: [
             h('p', { text: '다른 기기에서 내보낸 JSON을 붙여넣으면 측정 기록 · 목표 · 플랜이 그대로 복원됩니다.' }),

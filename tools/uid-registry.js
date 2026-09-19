@@ -27,8 +27,17 @@ function walk(dir) {
 // uid: 'P05-B01', uidLabel: '강도 고르기'   /   uid: 'P05-B01' 단독
 const RE_PAIR = /uid:\s*'([^']+)'(?:\s*\+\s*[^,]+)?\s*,\s*uidLabel:\s*'([^']*)'/g;
 const RE_SOLO = /uid:\s*'([^']+)'/g;
+/* 모달은 uidLabel 이 아니라 title 로 이름을 답니다 (UI.openModal 이 그걸 씁니다).
+   RE_PAIR 만 보면 모달 이름을 하나도 못 읽고, 번호 재사용도 못 잡습니다. */
+const RE_MODAL = /uid:\s*'(M\d{2})'\s*,\s*title:\s*'([^']*)'/g;
 
 const found = new Map();   // uid -> {label, file}
+/* 같은 번호가 서로 다른 뜻으로 두 번 선언되는 것을 잡습니다.
+   found 는 Map 이라 중복이 조용히 뭉개집니다 — 그래서 여기서 따로 셉니다.
+   번호를 재사용하면 그 번호에 달아 둔 피드백 메모가 엉뚱한 요소를 가리킵니다.
+   모달은 화면별 스모크로 잡히지 않습니다: 서로 다른 화면에 있으면
+   한 번에 같이 뜨는 일이 없기 때문입니다. */
+const declared = new Map();   // uid -> Set(label)
 const files = walk(SRC);
 
 for (const f of files) {
@@ -39,6 +48,17 @@ for (const f of files) {
   while ((m = RE_PAIR.exec(src))) {
     const uid = m[1].replace(/'\s*\+.*$/, '').trim();
     if (!found.has(uid) || !found.get(uid).label) found.set(uid, { label: m[2], file: rel });
+    if (/^[PMA]\d{2}$/.test(uid)) {
+      if (!declared.has(uid)) declared.set(uid, new Map());
+      declared.get(uid).set(m[2], rel);
+    }
+  }
+  RE_MODAL.lastIndex = 0;
+  while ((m = RE_MODAL.exec(src))) {
+    const uid = m[1];
+    if (!found.has(uid) || !found.get(uid).label) found.set(uid, { label: m[2], file: rel });
+    if (!declared.has(uid)) declared.set(uid, new Map());
+    declared.get(uid).set(m[2], rel);
   }
   RE_SOLO.lastIndex = 0;
   while ((m = RE_SOLO.exec(src))) {
@@ -77,6 +97,24 @@ const SCREEN_NAMES = {
   P17: '(회수됨 — 공유 설정은 M27/M28 모달)',
   P18: '식단 기록', P19: '음식 고르기', P20: '사진 식단 기록', P21: '식단 달성률'
 };
+
+/* 번호 재사용 검사 — 파싱 단계에서 모은 declared 로 판정합니다. */
+{
+  const clashes = [];
+  for (const [uid, labels] of declared) {
+    if (labels.size > 1) clashes.push([uid, labels]);
+  }
+  if (clashes.length) {
+    console.error('번호가 두 가지 뜻으로 쓰이고 있습니다:\n');
+    clashes.forEach(([uid, labels]) => {
+      console.error('  ' + uid);
+      for (const [label, file] of labels) console.error('    · ' + label + '   (' + file + ')');
+    });
+    console.error('\n빈 번호를 쓰세요. 번호를 재사용하면 그 번호에 달린');
+    console.error('피드백 메모가 엉뚱한 요소를 가리킵니다.');
+    process.exit(1);
+  }
+}
 
 const containers = [...groups.keys()].sort();
 const total = [...groups.values()].reduce((n, g) => n + g.length, 0);

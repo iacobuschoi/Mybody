@@ -125,7 +125,10 @@
     }
     function updateProfile(patch) {
       var me = requireUser();
-      if (patch.displayName) db.users[me].displayName = String(patch.displayName).slice(0, 20);
+      if (patch.displayName) {
+        db.users[me].displayName = String(patch.displayName).slice(0, 20);
+        push('updateMe', { displayName: db.users[me].displayName });
+      }
       save();
       return currentUser();
     }
@@ -182,6 +185,7 @@
         requestedBy: me, createdAt: now(), respondedAt: null
       });
       save();
+      push('sendRequest', { inviteCode: String(inviteCode || '').toUpperCase() });
       return { ok: true, status: 'pending' };
     }
 
@@ -196,6 +200,7 @@
       if (!db.shares[shareKey(me, otherId)]) db.shares[shareKey(me, otherId)] = blankShare();
       if (!db.shares[shareKey(otherId, me)]) db.shares[shareKey(otherId, me)] = blankShare();
       save();
+      push('accept', { userId: otherId });
       return { ok: true, status: 'accepted' };
     }
 
@@ -205,6 +210,7 @@
       if (!e || e.status !== 'pending') return { ok: false, reason: '받은 요청이 없습니다' };
       db.friendships = db.friendships.filter(function (f) { return f !== e; });
       save();
+      push('decline', { userId: otherId });
       return { ok: true };
     }
 
@@ -222,6 +228,7 @@
       delete db.shares[shareKey(otherId, me)];
       // 끊으면 상대가 받아간 스냅샷도 더는 읽히지 않는다
       save();
+      push('removeFriend', { userId: otherId });
       return { ok: true };
     }
 
@@ -242,6 +249,7 @@
       delete db.shares[shareKey(me, otherId)];
       delete db.shares[shareKey(otherId, me)];
       save();
+      push('block', { userId: otherId });
       return { ok: true };
     }
 
@@ -253,6 +261,7 @@
       if (e.blockedBy !== me) return { ok: false, reason: '내가 차단한 상대가 아닙니다' };
       db.friendships = db.friendships.filter(function (f) { return f !== e; });
       save();
+      push('unblock', { userId: otherId });
       return { ok: true };
     }
 
@@ -304,6 +313,9 @@
       cur.updatedAt = now();
       db.shares[shareKey(me, viewerId)] = cur;
       save();
+      // 서버에는 patch 만 보냅니다 — 전체를 보내면 로컬이 서버보다 오래된
+      // 값을 갖고 있을 때 다른 항목을 되돌려 버립니다.
+      push('setShare', { userId: viewerId, patch: JSON.parse(JSON.stringify(patch)) });
       return { ok: true, share: JSON.parse(JSON.stringify(cur)) };
     }
     function shareSummary(ownerId, viewerId) {
@@ -332,6 +344,7 @@
       if (!existing) db.snapshots.push(row);
       if (db.snapshots.length > 20000) db.snapshots.shift();
       save();
+      push('snapshot', { weekStart: weekStart, payload: row.payload });
       return { ok: true };
     }
 
@@ -340,6 +353,22 @@
       var me = requireUser();
       if (!areFriends(me, ownerId)) return { ok: false, reason: '친구가 아닙니다', rows: [] };
       var s = db.shares[shareKey(ownerId, me)] || blankShare();
+
+      /* 서버에서 온 행은 이미 걸러진 값입니다. 여기서 다시 거르면
+         로컬 설정이 서버 설정보다 앞서 적용되어, 서버가 허용한 것을
+         로컬이 숨기거나(혼란) 그 반대가 됩니다. */
+      var fromServer = db.snapshots.filter(function (x) {
+        return x.ownerId === ownerId && x.serverFiltered;
+      });
+      if (fromServer.length) {
+        var srvRows = fromServer
+          .sort(function (a, b) { return a.weekStart < b.weekStart ? 1 : -1; })
+          .slice(0, limit || 26)
+          .map(function (x) { return x.payload; });
+        return { ok: true, rows: srvRows,
+                 allowed: (db.serverAllowed && db.serverAllowed[ownerId]) || s };
+      }
+
       var rows = db.snapshots
         .filter(function (x) { return x.ownerId === ownerId; })
         .sort(function (a, b) { return a.weekStart < b.weekStart ? 1 : -1; })
@@ -368,6 +397,70 @@
     function reset() { db = blankDb(); save(); }
     function raw() { return db; }
 
+    /* --- 서버 상태를 로컬 거울에 쓴다 -----------------------------------
+     * sync.js 가 서버에서 받아온 것을 여기로 넣습니다. 화면은 계속
+     * 동기로 읽고, 그 값은 서버가 이미 공유 설정으로 걸러 준 것입니다.
+     *
+     * 중요: 여기서 권한을 다시 판정하지 않습니다. 서버가 안 준 값은
+     * 애초에 없습니다 — 로컬이 "이건 보여도 되나"를 다시 계산하면
+     * 두 판정이 어긋날 때 더 관대한 쪽이 이깁니다.
+     * ------------------------------------------------------------------ */
+    function mirror(snap) {
+      if (!snap || !snap.me) return;
+      var meId = snap.me.id;
+      db.users = db.users || {};
+      db.users[meId] = {
+        id: meId, handle: snap.me.handle, provider: snap.me.provider || 'local',
+        displayName: snap.me.displayName, inviteCode: snap.me.inviteCode,
+        createdAt: snap.me.createdAt
+      };
+      db.session = meId;
+
+      var f = snap.friends || {};
+      db.friendships = [];
+      db.shares = {};
+      function put(list, status) {
+        (list || []).forEach(function (r) {
+          db.users[r.id] = db.users[r.id] ||
+            { id: r.id, handle: null, provider: 'local', displayName: r.displayName,
+              inviteCode: null, createdAt: r.since };
+          db.users[r.id].displayName = r.displayName;
+          db.friendships.push({
+            id: 'srv_' + r.id, aId: meId, bId: r.id, status: status,
+            requestedBy: status === 'outgoing' ? meId : r.id,
+            blockedBy: status === 'blocked' ? meId : null,
+            createdAt: r.since, respondedAt: r.since
+          });
+          // 내가 이 친구에게 무엇을 보내는지 — 서버가 준 설정 그대로
+          if (r.iShare && r.iShare.settings) db.shares[shareKey(meId, r.id)] = r.iShare.settings;
+          if (r.theyShare && r.theyShare.settings) db.shares[shareKey(r.id, meId)] = r.theyShare.settings;
+        });
+      }
+      put(f.accepted, 'accepted');
+      put(f.incoming, 'pending');
+      put(f.outgoing, 'outgoing');
+      put(f.blocked, 'blocked');
+
+      // 서버가 걸러서 준 친구 스냅샷. 내 것은 publishWeekly 가 따로 올립니다.
+      db.snapshots = (db.snapshots || []).filter(function (x) { return x.ownerId === meId; });
+      (snap.snapshots || []).forEach(function (s2) {
+        (s2.rows || []).forEach(function (row) {
+          db.snapshots.push({ id: 'srv_' + s2.id + '_' + row.weekStart,
+                              ownerId: s2.id, weekStart: row.weekStart,
+                              payload: row, serverFiltered: true });
+        });
+        db.serverAllowed = db.serverAllowed || {};
+        db.serverAllowed[s2.id] = s2.allowed || {};
+      });
+      save();
+    }
+
+    /** 서버에 보낼 작업을 큐에 넣는다. 로그인 안 했으면 아무 일도 안 일어난다. */
+    function push(op, args) {
+      var S = global.MB_SYNC;
+      if (S && S.enqueue) { try { S.enqueue(op, args); } catch (e) {} }
+    }
+
     return {
       SHARE_FIELDS: SHARE_FIELDS, blankShare: blankShare,
       signIn: signIn, signOut: signOut, currentUser: currentUser,
@@ -378,7 +471,7 @@
       listFriends: listFriends, areFriends: areFriends,
       getShare: getShare, setShare: setShare, shareSummary: shareSummary,
       publishSnapshot: publishSnapshot, getFriendSnapshots: getFriendSnapshots,
-      reset: reset, raw: raw,
+      reset: reset, raw: raw, mirror: mirror,
       _setSession: function (id) { db.session = id; save(); }   // 시뮬레이션용
     };
   }

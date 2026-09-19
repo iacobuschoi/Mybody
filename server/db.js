@@ -24,13 +24,19 @@ function open(file) {
       provider TEXT NOT NULL,
       display_name TEXT NOT NULL,
       invite_code TEXT UNIQUE NOT NULL,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      -- 비밀번호는 scrypt 해시로만 저장합니다. 원문은 어디에도 남지 않습니다.
+      pw_hash TEXT,
+      pw_salt TEXT,
+      pw_n INTEGER
     );
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       created_at TEXT NOT NULL,
-      last_seen TEXT NOT NULL
+      last_seen TEXT NOT NULL,
+      -- 세션에 만료를 둡니다. 예전엔 무기한이라 한 번 샌 토큰이 영원히 살았습니다.
+      expires_at TEXT
     );
     CREATE TABLE IF NOT EXISTS friendships (
       a_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -68,8 +74,48 @@ function open(file) {
     CREATE INDEX IF NOT EXISTS idx_records_sync ON records(user_id, updated_at, kind, id);
     CREATE INDEX IF NOT EXISTS idx_snapshots_owner ON snapshots(owner_id, week_start DESC);
   `);
+  /* 이미 만들어진 DB 에 컬럼을 더합니다. ALTER 가 실패하면 이미 있다는 뜻입니다. */
+  for (const stmt of ['ALTER TABLE users ADD COLUMN pw_hash TEXT',
+                      'ALTER TABLE users ADD COLUMN pw_salt TEXT',
+                      'ALTER TABLE users ADD COLUMN pw_n INTEGER',
+                      'ALTER TABLE sessions ADD COLUMN expires_at TEXT']) {
+    try { db.exec(stmt); } catch { /* 이미 있음 */ }
+  }
   return db;
 }
+
+/* ---------------------------------------------------------------------------
+ * 비밀번호 — scrypt (node:crypto 내장). 의존성 0 을 유지합니다.
+ * ------------------------------------------------------------------------- */
+const SCRYPT_N = 16384, SCRYPT_r = 8, SCRYPT_p = 1, KEYLEN = 64;
+
+function hashPassword(plain, saltHex, n) {
+  const salt = saltHex ? Buffer.from(saltHex, 'hex') : crypto.randomBytes(16);
+  const cost = n || SCRYPT_N;
+  const key = crypto.scryptSync(String(plain), salt, KEYLEN,
+                                { N: cost, r: SCRYPT_r, p: SCRYPT_p, maxmem: 256 * 1024 * 1024 });
+  return { hash: key.toString('hex'), salt: salt.toString('hex'), n: cost };
+}
+
+/** 길이가 달라도 타이밍이 새지 않게 비교합니다. */
+function verifyPassword(plain, user) {
+  if (!user || !user.pw_hash || !user.pw_salt) return false;
+  const got = hashPassword(plain, user.pw_salt, user.pw_n || SCRYPT_N).hash;
+  const a = Buffer.from(got, 'hex'), b = Buffer.from(user.pw_hash, 'hex');
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+/** 비밀번호 정책. 짧은 것만 막습니다 — 복잡도 규칙은 실제로 더 나쁜 비밀번호를 만듭니다. */
+function passwordProblem(plain) {
+  const s = String(plain == null ? '' : plain);
+  if (s.length < 8) return '비밀번호는 8자 이상이어야 합니다';
+  if (s.length > 200) return '비밀번호가 너무 깁니다';
+  if (/^\d+$/.test(s)) return '숫자만으로는 안 됩니다';
+  return null;
+}
+
+const SESSION_DAYS = 90;
 
 function nowISO() { return new Date().toISOString(); }
 function id(prefix) { return prefix + '_' + crypto.randomBytes(9).toString('hex'); }
@@ -99,7 +145,9 @@ function makeApi(db) {
     updateName: db.prepare('UPDATE users SET display_name = ? WHERE id = ?'),
     deleteUser: db.prepare('DELETE FROM users WHERE id = ?'),
 
-    insertSession: db.prepare('INSERT INTO sessions (token, user_id, created_at, last_seen) VALUES (?,?,?,?)'),
+    insertSession: db.prepare('INSERT INTO sessions (token, user_id, created_at, last_seen, expires_at) VALUES (?,?,?,?,?)'),
+    deleteSessionsOf: db.prepare('DELETE FROM sessions WHERE user_id = ?'),
+    setPassword: db.prepare('UPDATE users SET pw_hash=?, pw_salt=?, pw_n=? WHERE id=?'),
     sessionByToken: db.prepare('SELECT * FROM sessions WHERE token = ?'),
     touchSession: db.prepare('UPDATE sessions SET last_seen = ? WHERE token = ?'),
     deleteSession: db.prepare('DELETE FROM sessions WHERE token = ?'),
@@ -144,17 +192,70 @@ function makeApi(db) {
   return {
     SHARE_FIELDS, blankShare,
 
-    signIn({ provider = 'kakao', handle, displayName }) {
-      if (!handle) throw Object.assign(new Error('handle 이 필요합니다'), { status: 400 });
-      let u = q.userByHandle.get(handle);
-      if (!u) {
-        const uid = id('user');
-        q.insertUser.run(uid, handle, provider,
-          (displayName || '사용자').slice(0, 20), inviteCode(), nowISO());
-        u = q.userById.get(uid);
+    /* --- 계정 만들기 -------------------------------------------------
+     * 카카오·애플 같은 외부 제공자를 쓰지 않습니다. 이 서버가 직접 계정을
+     * 관리합니다. 외부 OAuth 는 사업자 등록과 앱 심사가 필요하고,
+     * 자가호스팅이라는 이 앱의 전제와도 맞지 않습니다.
+     *
+     * 아이디는 이메일이 아니라 임의 문자열입니다 — 이메일을 받으면
+     * 보관해야 하는 개인정보가 하나 늘어나는데, 이 서버는 비밀번호 재발송을
+     * 하지 않으므로 이메일이 할 일이 없습니다.
+     * ----------------------------------------------------------------- */
+    signUp({ handle, password, displayName }) {
+      const h = String(handle || '').trim().toLowerCase();
+      if (!/^[a-z0-9_.-]{3,32}$/.test(h)) {
+        return { ok: false, reason: '아이디는 영문·숫자·(_ . -) 3~32자입니다' };
       }
+      const pwBad = passwordProblem(password);
+      if (pwBad) return { ok: false, reason: pwBad };
+      if (q.userByHandle.get(h)) return { ok: false, reason: '이미 있는 아이디입니다' };
+
+      const pw = hashPassword(password);
+      const uid = id('user');
+      q.insertUser.run(uid, h, 'local', (displayName || h).slice(0, 20), inviteCode(), nowISO());
+      q.setPassword.run(pw.hash, pw.salt, pw.n, uid);
+      const u = q.userById.get(uid);
+      return Object.assign({ ok: true }, this._newSession(u));
+    },
+
+    signIn({ handle, password }) {
+      const h = String(handle || '').trim().toLowerCase();
+      const u = q.userByHandle.get(h);
+      /* 아이디가 없을 때도 해시 계산을 한 번 돌립니다. 안 그러면 응답 시간만으로
+         "이 아이디가 존재하는가"를 알아낼 수 있습니다. */
+      if (!u) { hashPassword(String(password || ''), null, SCRYPT_N); }
+      if (!u || !verifyPassword(password, u)) {
+        // 어느 쪽이 틀렸는지 알려주지 않습니다
+        return { ok: false, reason: '아이디 또는 비밀번호가 맞지 않습니다' };
+      }
+      return Object.assign({ ok: true }, this._newSession(u));
+    },
+
+    changePassword(uid, { current, next }) {
+      const u = q.userById.get(uid);
+      if (!u) return { ok: false, reason: '없는 계정입니다' };
+      if (!verifyPassword(current, u)) return { ok: false, reason: '지금 비밀번호가 맞지 않습니다' };
+      const bad = passwordProblem(next);
+      if (bad) return { ok: false, reason: bad };
+      const pw = hashPassword(next);
+      q.setPassword.run(pw.hash, pw.salt, pw.n, uid);
+      // 비밀번호를 바꾸면 다른 기기의 세션을 전부 끊습니다
+      q.deleteSessionsOf.run(uid);
+      const fresh = q.userById.get(uid);
+      return Object.assign({ ok: true }, this._newSession(fresh));
+    },
+
+    /** 모든 기기에서 로그아웃 — 토큰이 샜을 때의 유일한 복구 수단입니다. */
+    signOutEverywhere(uid) {
+      q.deleteSessionsOf.run(uid);
+      return { ok: true };
+    },
+
+    _newSession(u) {
       const t = token();
-      q.insertSession.run(t, u.id, nowISO(), nowISO());
+      const now = new Date();
+      const exp = new Date(now.getTime() + SESSION_DAYS * 86400000);
+      q.insertSession.run(t, u.id, now.toISOString(), now.toISOString(), exp.toISOString());
       return { token: t, user: pub(u) };
     },
     signOut(t) { q.deleteSession.run(t); },
@@ -162,6 +263,8 @@ function makeApi(db) {
       if (!t) return null;
       const s = q.sessionByToken.get(t);
       if (!s) return null;
+      // 만료된 세션은 그 자리에서 지웁니다. 예전엔 만료가 아예 없었습니다.
+      if (s.expires_at && s.expires_at < nowISO()) { q.deleteSession.run(t); return null; }
       q.touchSession.run(nowISO(), t);
       return q.userById.get(s.user_id) || null;
     },
