@@ -516,8 +516,9 @@
               onClick: function () { A.go('P19', { meal: meal, date: date }); } })
           ])
         ]));
-        body.appendChild(h('div.note', { uid: 'P20-C03', uidLabel: '프로토타입 안내',
-          text: '프로토타입이라 실제 인식은 하지 않습니다. 내장 샘플로 흐름만 보여드립니다.' }));
+        body.appendChild(h('div.note', { uid: 'P20-C03', uidLabel: '사진 인식 안내',
+          text: '사진으로 음식을 맞히는 기능은 아직 없습니다. 내장 샘플로 흐름만 보여드립니다 — ' +
+                '검색해서 고르는 쪽이 지금은 더 빠르고 정확합니다.' }));
       }
 
       function drawParsing() {

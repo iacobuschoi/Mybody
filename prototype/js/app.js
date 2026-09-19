@@ -198,6 +198,11 @@
     requireScan: requireScan, requirePlan: requirePlan,
     get current() { return current; },
     get params() { return params; },
+    /* 등록된 화면 목록. 검증 도구(tools/test-interactions.js)가 "이 버튼이
+       보내는 곳이 실제로 존재하는가" 를 묻는 데 씁니다. 읽기 전용 사본을
+       주는 이유는 밖에서 screens 를 건드려 화면을 지우는 일이 없게 하려는
+       것입니다. */
+    get screenIds() { return Object.keys(screens); },
     TABS: TABS
   };
 })(window);

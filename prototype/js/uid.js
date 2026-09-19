@@ -28,8 +28,15 @@
     C: '카드', T: '탭', N: '내비', L: '리스트', G: '차트', S: '상태'
   };
 
+  /* 배지는 개발 빌드에서만 기본으로 켜집니다.
+     배포 빌드에서 모든 버튼에 'P02-B17' 같은 딱지가 붙어 있으면, 쓰는
+     사람에게는 그냥 미완성 앱으로 보입니다. 이건 저한테 어디가 이상한지
+     말해 주시라고 만든 도구지 제품의 일부가 아닙니다.
+     끄더라도 코드는 남습니다 — data-uid 속성은 그대로라서 검증 도구는
+     배포 빌드에서도 똑같이 돌아갑니다. */
+  var TOOLS = !!(global.MB_BUILD && global.MB_BUILD.tools);
   var state = {
-    on: true,
+    on: TOOLS,
     feedbackMode: false,
     notes: [],
     prefs: { badgeSize: 9, showLabels: false }
@@ -396,6 +403,9 @@
   function onKeydown(e) {
     if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
     if (e.metaKey || e.ctrlKey || e.altKey) return;
+    // 배포 빌드에서는 i · f 가 아무것도 안 합니다. 쓰는 사람이 타이핑하다가
+    // 개발자 도구를 켜게 되는 일이 없어야 합니다.
+    if (!TOOLS) return;
     if (e.key === 'i' || e.key === 'ㅑ') { toggle(); }
     else if (e.key === 'f' || e.key === 'ㄹ') { setFeedbackMode(!state.feedbackMode); }
     else if (e.key === '?') { showHelp(); }

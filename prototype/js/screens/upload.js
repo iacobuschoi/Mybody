@@ -180,20 +180,22 @@
             text: '사진 없이 직접 입력', uid: 'P03-B04', uidLabel: '사진 없이 직접 입력',
             onClick: goManual
           }),
-          h('button.btn.btn--ghost.btn--block', {
+          global.MB_BUILD.tools ? h('button.btn.btn--ghost.btn--block', {
             text: '내장 샘플로 판독 (프로토타입)',
             uid: 'P03-B03', uidLabel: '내장 샘플로 판독',
             onClick: function () { startParsing('내장 샘플 (InBody270 결과지)'); }
-          })
+          }) : null
         ]));
 
-        body.appendChild(h('div', { style: { textAlign: 'center', marginTop: '2px' } }, [
-          h('button.btn.btn--ghost.btn--sm', {
-            text: '판독 실패 화면 보기 (프로토타입)',
-            uid: 'P03-B09', uidLabel: '판독 실패 시연',
-            onClick: fail
-          })
-        ]));
+        if (global.MB_BUILD.tools) {
+          body.appendChild(h('div', { style: { textAlign: 'center', marginTop: '2px' } }, [
+            h('button.btn.btn--ghost.btn--sm', {
+              text: '판독 실패 화면 보기 (프로토타입)',
+              uid: 'P03-B09', uidLabel: '판독 실패 시연',
+              onClick: fail
+            })
+          ]));
+        }
       }
 
       /* --- shot: 0층 ------------------------------------------------------ */

@@ -88,6 +88,11 @@
   }
 
   /* ======================= 화면 ======================= */
+  /* P13 은 만드는 사람용 화면입니다. 배포 빌드에서는 등록조차 하지 않습니다 —
+     주소창에 남은 #P13 으로도 들어올 수 없게. (app.js 의 boot() 이 해시를
+     읽어 화면을 정하기 때문에, 카드만 숨겨서는 막히지 않습니다.) */
+  if (!(global.MB_BUILD && global.MB_BUILD.tools)) return;
+
   A.register('P13', {
     title: 'ID 목록', label: '고유번호 인덱스',
     render: function (wrap, ctx) {
@@ -343,9 +348,18 @@
         h('button.btn.btn--danger.btn--block', {
           text: '🗑 메모 모두 지우기', uid: 'P13-B12', uidLabel: '피드백 모두 지우기',
           onClick: function () {
-            if (!global.MB_UID.notes.length) { global.MB_UID.toast('지울 메모가 없습니다'); return; }
-            global.MB_UID.clearAll();
-            A.refresh();
+            var n = global.MB_UID.notes.length;
+            if (!n) { global.MB_UID.toast('지울 메모가 없습니다'); return; }
+            global.MB_MODALS.confirmClear({
+              title: '메모를 모두 지울까요?',
+              warn: '화면에 남긴 메모 ' + n + '개가 전부 사라지고 되돌릴 수 없습니다.',
+              keep: '측정 기록과 계획은 그대로 남습니다.',
+              onConfirm: function () {
+                global.MB_UID.clearAll();
+                global.MB_UID.toast('메모 ' + n + '개를 지웠습니다');
+                A.refresh();
+              }
+            });
           }
         })
       ]));

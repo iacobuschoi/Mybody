@@ -41,6 +41,10 @@ Mybody 서버 실행 중
 | `STATIC` | `../prototype` | 정적 파일 폴더 |
 | `ORIGIN` | `*` | CORS 허용 출처. 인터넷에 열 때는 실제 도메인으로 좁히세요 |
 | `PAIR_SECRET` | (없으면 시작 안 함) | 가입 코드. 이걸 아는 사람만 계정을 만들 수 있습니다 |
+| `ANTHROPIC_API_KEY` | (없음) | 결과지 자동 판독용 키. **없으면 자동 판독만 꺼집니다** — 앱은 그대로 돕니다 |
+| `OCR_MODEL` | `claude-opus-5` | 판독에 쓸 모델 |
+| `OCR_PER_DAY` | `40` | 사람당 하루 판독 횟수. 사진 한 장이 돈이 드는 요청이라 막아 둡니다 |
+| `OCR_API_URL` | 앤트로픽 API | 사내 프록시를 거쳐야 할 때만 바꾸세요 |
 
 ```bash
 PORT=3000 DB=~/mybody.db ORIGIN=https://mybody.example.com node server/server.js
@@ -110,7 +114,8 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 - 친구가 아닌 사람은 남의 스냅샷을 못 읽습니다. 친구여도 **상대가 켜 둔 항목만** 나갑니다.
 - 요청 속도 제한이 걸려 있습니다 (IP당 분당 300회).
 - 인터넷에 열 때는 `ORIGIN`을 실제 도메인으로 좁히세요.
-- 지금 로그인은 프로토타입용 목업입니다. 실제 카카오 로그인은 아래 "다음에 할 일" 참고.
+- 사진은 기본적으로 **기기 밖으로 나가지 않습니다.** 사용자가 설정에서 자동 판독을
+  켜고 판독 버튼을 누를 때만 이 서버로 올라갑니다. 키가 없으면 그 경로 자체가 없습니다.
 
 ## API
 
@@ -118,8 +123,12 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
-| `POST` | `/api/auth/signin` | `{provider, handle, displayName}` → `{token, user}` |
-| `POST` | `/api/auth/signout` | 토큰 폐기 |
+| `GET` | `/api/health` | 살아 있는지 (로그인 불필요) |
+| `POST` | `/api/auth/signup` | `{handle, password, displayName, pairSecret}` → `{token, user}` (로그인 불필요) |
+| `POST` | `/api/auth/signin` | `{handle, password}` → `{token, user}` (로그인 불필요) |
+| `POST` | `/api/auth/signout` | 이 토큰만 폐기 |
+| `POST` | `/api/auth/signout-all` | 모든 기기 로그아웃 |
+| `POST` | `/api/auth/password` | `{current, next}` 비밀번호 변경 (다른 기기 전부 로그아웃) |
 | `GET` | `/api/me` | 내 정보 + 기록 수 |
 | `PATCH` | `/api/me` | `{displayName}` |
 | `DELETE` | `/api/me` | 계정 삭제 (친구·공유·스냅샷·기록 연쇄 삭제) |
@@ -135,10 +144,15 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 | `GET` | `/api/snapshots/:ownerId` | 친구가 **나에게 허용한 항목만** |
 | `POST` | `/api/sync/push` | `{records:[{kind,id,updatedAt,deleted,payload}]}` |
 | `GET` | `/api/sync/pull?since=` | 그 시각 이후 변경분 |
+| `POST` | `/api/ocr` | `{mediaType, data}` (base64 사진) → `{fields}` 결과지 판독 초안 |
 
 ## 검증
 
 ```bash
+node tools/test-social.js        # 친구·공유 권한 (서버를 띄워 실제 요청)
+node tools/test-ocr.js           # 판독 프록시 (가짜 모델 API 로)
+node tools/test-crosscheck.js    # 결과지 검산
+node tools/validate.js           # 엔진 예측 대 실제 논문 (게이트)
 USERS=100 YEARS=3 node tools/simulate.js
 ```
 
@@ -148,9 +162,11 @@ USERS=100 YEARS=3 node tools/simulate.js
 
 ## 다음에 할 일
 
-- **실제 카카오 로그인**: 카카오 개발자 콘솔에서 앱 등록 → REST API 키 발급 →
-  `/api/auth/kakao/callback` 라우트를 추가해 인가 코드를 토큰으로 교환하고,
-  카카오 사용자 ID를 `handle` 로 쓰면 됩니다. 지금 구조에서 라우트 하나만 추가하면 됩니다.
+- **비밀번호 찾기**: 지금은 잊으면 되돌릴 방법이 없습니다. 나와 친구 몇 명은
+  괜찮지만 남에게 주려면 이게 먼저입니다. 메일을 보내려면 보관할 개인정보가
+  하나 늘어나므로, 복구 코드를 가입 때 한 번 보여주는 쪽이 이 앱에 맞습니다.
+  (외부 OAuth 는 쓰지 않기로 했습니다 — 사업자 등록과 앱 심사가 필요하고
+  자가호스팅이라는 전제와도 맞지 않습니다.)
 - **HTTPS 직접 종료**: 터널을 쓰면 필요 없습니다. 직접 하려면 Caddy 한 줄이 가장 쉽습니다.
 - **스냅샷을 보는 사람별로 미리 걸러 저장**: 지금은 읽을 때 거릅니다. 읽기 경로가
   하나 뚫려도 허용 안 된 값이 애초에 없도록 하려면 저장할 때 걸러야 합니다.

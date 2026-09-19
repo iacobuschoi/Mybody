@@ -39,11 +39,11 @@
           h('div.empty__d', { text: '사진 한 장이면 현재 상태를 읽고 계획을 만듭니다.' }),
           h('button.btn.btn--primary', { text: '인바디 올리기', uid: 'P02-B01',
             uidLabel: '인바디 올리기', onClick: function () { A.go('P03'); } }),
-          h('div', { style: { marginTop: '10px' } }, [
+          global.MB_BUILD.tools ? h('div', { style: { marginTop: '10px' } }, [
             h('button.btn.btn--ghost.btn--sm', { text: '내 실제 데이터로 채우기 (프로토타입)',
               uid: 'P02-B02', uidLabel: '시드 데이터 주입',
               onClick: function () { S.seed(); global.MB_UID.toast('실제 인바디 3건을 불러왔습니다'); A.refresh(); } })
-          ])
+          ]) : null
         ]));
         return;
       }

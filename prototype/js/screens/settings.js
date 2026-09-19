@@ -141,9 +141,16 @@
               text: '저장된 사진 모두 지우기', uid: 'P12-B14', uidLabel: '사진 모두 지우기',
               style: { marginTop: '4px' },
               onClick: function () {
-                global.MB_PHOTO.clearAll();
-                global.MB_UID.toast('사진을 모두 지웠습니다 — 숫자 기록은 그대로입니다');
-                A.refresh();
+                global.MB_MODALS.confirmClear({
+                  title: '사진을 모두 지울까요?',
+                  warn: '이 기기에 저장된 결과지 사진 ' + shots + '장이 사라지고 되돌릴 수 없습니다.',
+                  keep: '측정 숫자는 그대로 남습니다. 사라지는 것은 나중에 원본과 대조할 사진뿐입니다.',
+                  onConfirm: function () {
+                    global.MB_PHOTO.clearAll();
+                    global.MB_UID.toast('사진 ' + shots + '장을 지웠습니다 — 숫자 기록은 그대로입니다');
+                    A.refresh();
+                  }
+                });
               }
             }));
           }
@@ -227,9 +234,11 @@
             text: '"내 실제 인바디로 채우기"와 "전체 초기화"는 지금 저장된 내용을 덮어씁니다.' })
         ]));
 
-        /* ===== C05 프로토타입 도구 ====================================== */
+        /* ===== C05 프로토타입 도구 ======================================
+           고유번호 배지 · 피드백 메모 · ID 목록은 이 앱을 만드는 동안
+           쓰는 것들입니다. 배포 빌드에는 통째로 들어가지 않습니다. */
         var noteCount = (global.MB_UID && global.MB_UID.notes) ? global.MB_UID.notes.length : 0;
-        body.appendChild(h('div.card', { uid: 'P12-C05', uidLabel: '프로토타입 도구 카드' }, [
+        if (global.MB_BUILD.tools) body.appendChild(h('div.card', { uid: 'P12-C05', uidLabel: '프로토타입 도구 카드' }, [
           h('div.card__head', [
             h('div.card__title', { text: '프로토타입 도구' }),
             h('span.badge' + (noteCount ? '.badge--accent' : ''), { text: '피드백 ' + noteCount + '건' })
@@ -248,7 +257,18 @@
             h('button.btn.btn--block', {
               text: '피드백 모두 지우기', uid: 'P12-B09', uidLabel: '피드백 모두 지우기',
               disabled: noteCount === 0,
-              onClick: function () { global.MB_UID.clearAll(); A.refresh(); }
+              onClick: function () {
+                global.MB_MODALS.confirmClear({
+                  title: '메모를 모두 지울까요?',
+                  warn: '화면에 남긴 메모 ' + noteCount + '개가 전부 사라지고 되돌릴 수 없습니다.',
+                  keep: '측정 기록과 계획은 그대로 남습니다.',
+                  onConfirm: function () {
+                    global.MB_UID.clearAll();
+                    global.MB_UID.toast('메모 ' + noteCount + '개를 지웠습니다');
+                    A.refresh();
+                  }
+                });
+              }
             }),
             h('button.btn.btn--ghost.btn--block', {
               text: '단축키 도움말', uid: 'P12-B10', uidLabel: '단축키 도움말',

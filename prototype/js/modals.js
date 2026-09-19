@@ -1179,5 +1179,26 @@
     });
   };
 
+  /* M47 "모두 지우기" 공통 확인.
+     되돌릴 수 없는 삭제는 버튼 한 번으로 일어나면 안 됩니다. 특히 손가락이
+     미끄러지기 쉬운 폰에서요. 전체 초기화(M18)는 "초기화" 를 타이핑하게
+     하는데, 메모·사진은 그 정도까지는 아니라 한 번 물어보는 것으로 합니다.
+     지울 것이 몇 개인지 반드시 같이 보여 줍니다 — 숫자가 없으면 사용자는
+     자기가 무엇을 잃는지 모른 채 누릅니다. */
+  M.confirmClear = function (o) {
+    UI.openModal({
+      uid: 'M47', title: o.title,
+      body: [
+        h('div.note.note--bad', { text: o.warn }),
+        o.keep ? h('div.muted', { style: { marginTop: '8px' }, text: o.keep }) : null
+      ],
+      actions: [
+        { label: '취소', kind: 'ghost' },
+        { label: o.confirmLabel || '지우기', kind: 'danger',
+          onClick: function () { o.onConfirm(); } }
+      ]
+    });
+  };
+
   global.MB_MODALS = M;
 })(window);
