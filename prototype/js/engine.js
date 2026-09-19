@@ -176,6 +176,30 @@
   /* 3. 속도 모델                                                             */
   /* ---------------------------------------------------------------------- */
 
+  /**
+   * 운동 처방은 식단 공격성(a)이 아니라 "사용자가 낼 수 있는 시간"과 "목표"가 결정한다.
+   * 식단을 여유롭게 간다고 운동까지 줄일 이유는 없다 — 오히려 근육 목표가 있으면
+   * 볼륨은 지켜야 한다. a가 건드리는 건 유산소 분량과 세션 길이의 미세 조정뿐이다.
+   */
+  function resolveTraining(profile, params, goalInfo) {
+    var days = Math.min(6, Math.max(3, profile.daysPerWeek || params.days));
+    var sessionMin = profile.sessionMinutes || params.sessionMin;
+    var sets = params.setsPerMuscle;
+    var reason = [];
+    if (goalInfo && goalInfo.dSmmKg > 0.3) {
+      // 근육 증가가 목표면 주당 세트 수를 성장 구간(12~20)으로 끌어올린다
+      sets = Math.max(sets, 12);
+      reason.push('근육 증가가 목표라 근육군당 주 ' + sets + '세트를 유지합니다');
+    }
+    if (goalInfo && goalInfo.dBfmKg < -0.3) {
+      reason.push('감량 중에는 볼륨을 유지하는 것이 근손실을 막는 가장 강력한 수단입니다');
+    }
+    // 유산소만 강도를 따라간다 (적자를 칼로리로만 만들지 않기 위해)
+    var cardioMin = params.cardioMin;
+    return { days: days, sessionMin: sessionMin, setsPerMuscle: sets,
+             cardioMin: cardioMin, reason: reason };
+  }
+
   function ageFactor(age) {
     if (age >= 50) return 0.65;
     if (age >= 40) return 0.80;
@@ -463,6 +487,7 @@
       }
       var sim = chosen.sim;
       var macros = macrosFor(sim, cur, profile);
+      var training = resolveTraining(profile, sim.params, goalInfo);
       var feas = feasibility(sim, goalInfo, cur, profile, deadlineWeeks);
       return {
         level: spec.key, label: spec.label, title: spec.title, blurb: spec.blurb,
@@ -474,10 +499,11 @@
         sim: sim, macros: macros, feasibility: feas,
         difficulty: sim.params.difficulty,
         difficultyLabel: sim.params.difficultyLabel,
-        daysPerWeek: sim.params.days,
-        sessionMin: sim.params.sessionMin,
-        cardioMin: sim.params.cardioMin,
-        setsPerMuscle: sim.params.setsPerMuscle,
+        training: training,
+        daysPerWeek: training.days,
+        sessionMin: training.sessionMin,
+        cardioMin: training.cardioMin,
+        setsPerMuscle: training.setsPerMuscle,
         cheatMeals: sim.params.cheatMealsPerWeek,
         tracking: sim.params.tracking,
         muscleLossRisk: sim.params.muscleLossRisk,
@@ -580,9 +606,10 @@
     6: { name: 'PPL 2회전',    days: ['푸시 A', '풀 A', '레그 A', '푸시 B', '풀 B', '레그 B', '휴식'] }
   };
 
-  function workoutFor(sim, cur, profile, scan) {
+  function workoutFor(sim, cur, profile, scan, goalInfo) {
     var p = sim.params;
-    var days = Math.min(6, Math.max(3, profile.daysPerWeek || p.days));
+    var tr = resolveTraining(profile, p, goalInfo);
+    var days = tr.days;
     var split = SPLITS[days] || SPLITS[4];
     var E = global.MB_DATA.EXERCISES;
 
@@ -624,24 +651,26 @@
           var isCompound = /스쿼트|데드|벤치|프레스|로우|풀업|딥스/.test(item.name);
           ex.push({
             name: item.name, equip: item.equip, note: item.note, group: g[0],
-            sets: isCompound ? (p.difficulty >= 3 ? 4 : 3) : 3,
+            sets: isCompound ? (tr.setsPerMuscle >= 16 ? 4 : 3) : 3,
             reps: isCompound ? '5-8' : '10-15',
             restSec: isCompound ? 150 : 75,
             rpe: p.difficulty >= 3 ? '8-9' : (p.difficulty === 2 ? '7-8' : '6-8')
           });
         });
       });
-      return { day: i, label: label, rest: false, exercises: ex, minutes: p.sessionMin };
+      return { day: i, label: label, rest: false, exercises: ex, minutes: tr.sessionMin };
     });
+
+    tr.reason.forEach(function (r) { bias.push(r); });
 
     return {
       splitName: split.name,
       daysPerWeek: days,
-      sessionMinutes: p.sessionMin,
-      setsPerMuscle: p.setsPerMuscle,
-      cardioMinPerWeek: p.cardioMin,
-      cardioPlan: p.cardioMin >= 180 ? 'Z2 저강도 40분 × 4회 + HIIT 15분 × 2회'
-                : (p.cardioMin >= 120 ? 'Z2 저강도 45분 × 3회' : 'Z2 저강도 40분 × 2회'),
+      sessionMinutes: tr.sessionMin,
+      setsPerMuscle: tr.setsPerMuscle,
+      cardioMinPerWeek: tr.cardioMin,
+      cardioPlan: tr.cardioMin >= 180 ? 'Z2 저강도 40분 × 4회 + HIIT 15분 × 2회'
+                : (tr.cardioMin >= 120 ? 'Z2 저강도 45분 × 3회' : 'Z2 저강도 40분 × 2회'),
       deloadEvery: p.deloadEvery,
       progression: '더블 프로그레션 — 목표 반복 상단에 도달하면 다음 세션에 중량 2.5~5kg 증가',
       inbodyBias: bias,
@@ -741,7 +770,7 @@
       trajectory: r.sim.trajectory,
       bottleneck: comparison.bottleneckNote,
       macros: r.macros,
-      workout: workoutFor(r.sim, comparison.current, profile, scan),
+      workout: workoutFor(r.sim, comparison.current, profile, scan, comparison.goalInfo),
       diet: dietFor(r.macros, profile),
       feasibility: r.feasibility,
       capWarning: r.capWarning || null,
@@ -832,7 +861,7 @@
     CUT_RANGE: CUT_RANGE, BULK_RANGE: BULK_RANGE, paramsAt: paramsAt,
     derive: derive, classifyGoal: classifyGoal, compareLevels: compareLevels,
     buildPlan: buildPlan, checkinAdvice: checkinAdvice,
-    macrosFor: macrosFor, workoutFor: workoutFor, dietFor: dietFor,
+    macrosFor: macrosFor, workoutFor: workoutFor, dietFor: dietFor, resolveTraining: resolveTraining,
     baseSmmRatePerWeek: baseSmmRatePerWeek,
     addWeeks: addWeeks, toISODate: toISODate, daysUntil: daysUntil, r1: r1
   };

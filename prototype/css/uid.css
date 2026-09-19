@@ -158,3 +158,16 @@ body.uid-feedback-mode [data-uid]:hover {
 .uid-index__id[data-k="G"] { background: var(--uid-G); } .uid-index__id[data-k="A"] { background: var(--uid-A); }
 .uid-index__label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .uid-index__meta { color: var(--text-3); font-size: 11px; }
+
+/* 독 접기 — 기본은 접힌 상태(#) 로 두어 화면을 가리지 않는다 */
+.uid-dock__fab {
+  background: #1f2430; color: #fff; border: none; cursor: pointer;
+  width: 38px; height: 38px; border-radius: 50%; font-size: 16px; font-weight: 800;
+  box-shadow: 0 3px 14px rgba(0,0,0,.3); opacity: .75; position: relative;
+  display: grid; place-items: center;
+}
+.uid-dock__fab:hover { opacity: 1; }
+.uid-dock__fab .uid-dock__count {
+  position: absolute; top: -3px; right: -3px; font-size: 9px;
+}
+.uid-dock.is-collapsed .uid-dock__btn { display: none; }

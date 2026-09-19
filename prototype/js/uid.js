@@ -186,8 +186,8 @@
       if (span) span.textContent = c ? '●' + c : '';
       badges[i].classList.toggle('has-note', c > 0);
     }
-    var b = document.getElementById('uid-note-count');
-    if (b) b.textContent = state.notes.length ? String(state.notes.length) : '';
+    [document.getElementById('uid-note-count'), document.getElementById('uid-note-count2')]
+      .forEach(function (b) { if (b) b.textContent = state.notes.length ? String(state.notes.length) : ''; });
   }
 
   function openNoteDialog(uid, label) {
@@ -374,8 +374,9 @@
   /* --- 개발자 독 (화면 우하단) --------------------------------------------- */
   function buildDock() {
     var dock = document.createElement('div');
-    dock.className = 'uid-dock';
+    dock.className = 'uid-dock is-collapsed';
     dock.innerHTML =
+      '<button id="uid-dock-fab" class="uid-dock__fab" title="프로토타입 도구 (열기/닫기)">#<span id="uid-note-count2" class="uid-dock__count"></span></button>' +
       '<button id="uid-toggle-btn" class="uid-dock__btn is-on" title="배지 켜기/끄기 (i)">번호 ON</button>' +
       '<button id="uid-fb-btn" class="uid-dock__btn" title="피드백 모드 (f)">피드백<span id="uid-note-count" class="uid-dock__count"></span></button>' +
       '<button id="uid-idx-btn" class="uid-dock__btn" title="ID 인덱스">ID 목록</button>' +
@@ -387,6 +388,9 @@
       if (global.MB_APP && global.MB_APP.go) global.MB_APP.go('P13');
     });
     dock.querySelector('#uid-exp-btn').addEventListener('click', exportAll);
+    dock.querySelector('#uid-dock-fab').addEventListener('click', function () {
+      dock.classList.toggle('is-collapsed');
+    });
   }
 
   function onKeydown(e) {

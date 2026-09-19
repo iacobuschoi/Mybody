@@ -88,30 +88,40 @@
                    h('span.kv__v', { text: m.pctProtein + ' / ' + m.pctCarb + ' / ' + m.pctFat + ' %' })])
     ]));
 
-    /* 궤적 차트 */
+    /* 궤적 차트 — 지표마다 스케일이 달라서(체중 86 / 근육 38 / 지방 20)
+       한 축에 겹쳐 그리면 선이 전부 눌린다. 지표별로 나눠 그린다. */
     var traj = plan.trajectory;
-    wrap.appendChild(h('div.card', { uid: 'P07-C06', uidLabel: '예상 궤적 차트' }, [
+    var phaseMarks = (plan.phases || []).filter(function (p) { return p.from > 0; })
+      .map(function (p) { return { x: p.from, label: (p.name.split(' · ')[1] || p.name) }; });
+
+    var METRICS = [
+      { key: 'weightKg', label: '체중',     color: 'var(--weight)', goal: goal.weightKg, uid: 'P07-G01' },
+      { key: 'smmKg',    label: '골격근량', color: 'var(--muscle)', goal: goal.smmKg,    uid: 'P07-G02' },
+      { key: 'bfmKg',    label: '체지방량', color: 'var(--fat)',    goal: goal.bfmKg,    uid: 'P07-G03' }
+    ];
+
+    var chartCard = h('div.card', { uid: 'P07-C06', uidLabel: '예상 궤적 차트' }, [
       h('div.card__head', [h('div.card__title', { text: '예상 궤적' }),
-                           h('div.card__sub', { text: '계획을 지켰을 때' })]),
-      UI.lineChart({
-        uid: 'P07-G01', label: '체중·근육·지방 궤적', height: 175,
-        series: [
-          { key: 'w', label: '체중', color: 'var(--weight)', dots: false,
-            points: traj.map(function (t) { return { x: t.week, y: t.weightKg }; }) },
-          { key: 's', label: '골격근량', color: 'var(--muscle)', dots: false,
-            points: traj.map(function (t) { return { x: t.week, y: t.smmKg }; }) },
-          { key: 'f', label: '체지방량', color: 'var(--fat)', dots: false,
-            points: traj.map(function (t) { return { x: t.week, y: t.bfmKg }; }) }
-        ],
-        goal: [
-          { y: goal.bfmKg, color: 'var(--fat)', label: '지방 목표' },
-          { y: goal.smmKg, color: 'var(--muscle)', label: '근육 목표' }
-        ],
-        markers: (plan.phases || []).filter(function (p) { return p.from > 0; })
-          .map(function (p) { return { x: p.from, label: p.name.split(' · ')[1] || p.name }; }),
-        xTickFmt: function (v) { return Math.round(v) + '주'; }
-      })
-    ]));
+                           h('div.card__sub', { text: '계획을 지켰을 때 · 점선 = 목표' })])
+    ]);
+    METRICS.forEach(function (met) {
+      chartCard.appendChild(h('div', { style: { marginBottom: '14px' } }, [
+        h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+                            fontSize: '12px', marginBottom: '2px' } }, [
+          h('span', { style: { fontWeight: '700', color: met.color }, text: met.label }),
+          h('span.muted.num', { text: UI.n1(traj[0][met.key]) + ' → ' + UI.n1(met.goal) + ' kg' })
+        ]),
+        UI.lineChart({
+          uid: met.uid, label: met.label + ' 궤적', height: 92, legend: false,
+          series: [{ key: met.key, label: met.label, color: met.color, dots: false,
+                     points: traj.map(function (t) { return { x: t.week, y: t[met.key] }; }) }],
+          goal: [{ y: met.goal, color: met.color, label: '목표' }],
+          markers: phaseMarks,
+          xTickFmt: function (v) { return Math.round(v) + '주'; }
+        })
+      ]));
+    });
+    wrap.appendChild(chartCard);
 
     /* 단계 타임라인 */
     if (plan.phases && plan.phases.length > 1) {
