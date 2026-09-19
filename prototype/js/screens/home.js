@@ -114,6 +114,21 @@
           ])
         ]));
 
+        /* 기간 탭. 측정이 없거나 계획 시작 전이면 탭 자체를 안 만듭니다 —
+           누를 때마다 "측정이 없습니다"만 나오는 탭은 없느니만 못합니다. */
+        var GSCOPES = [
+          { key: 'all',   label: '전체',   uid: 'P02-B17' },
+          { key: 'week',  label: '이번주', uid: 'P02-B18' },
+          { key: 'month', label: '이번달', uid: 'P02-B19' }
+        ];
+        var gscope = 'all';
+        var gbody = h('div');
+        var showTabs = scans.length >= 1 && plan.trajectory && plan.trajectory.length > 1;
+        var gtabs = showTabs
+          ? scopeTabs(GSCOPES, gscope, function (k) { gscope = k; drawGoal(); }, '목표')
+          : null;
+        if (gtabs) { gtabs.style.marginBottom = '4px'; card.appendChild(gtabs); }
+
         card.appendChild(h('div', { style: { display: 'flex', gap: '14px', alignItems: 'center' } }, [
           UI.donut(overall, 'var(--accent)', 62),
           h('div', { style: { flex: '1', minWidth: '0' } }, [
@@ -165,14 +180,128 @@
         }
 
         card.appendChild(h('hr.sep'));
-        card.appendChild(progressRow('체지방', d.bfmKg, targetBfm, 'kg', doneFat, 'fat'));
-        card.appendChild(progressRow('골격근', d.smmKg, targetSmm, 'kg', doneSmm, 'muscle'));
+        card.appendChild(gbody);
         card.appendChild(h('div.btn-row', { style: { marginTop: '12px' } }, [
           h('button.btn.btn--sm', { text: '플랜 보기', uid: 'P02-B03', uidLabel: '플랜 보기',
             onClick: function () { A.go('P07'); } }),
           h('button.btn.btn--sm', { text: '목표 변경', uid: 'P02-B04', uidLabel: '목표 변경',
             onClick: function () { A.go('P05'); } })
         ]));
+
+        var lastScanISO = scans.length ? scans[scans.length - 1].measuredAt : null;
+        var dist = distinguishableDay(plan, lastScanISO);
+
+        function drawGoal() {
+          gbody.textContent = '';
+          if (gscope === 'all') return drawAll();
+          if (gscope === 'week') return drawWeek();
+          return drawMonth();
+        }
+
+        /* --- 전체 --- */
+        function drawAll() {
+          gbody.appendChild(progressRow('체지방', d.bfmKg, targetBfm, 'kg', doneFat, 'fat'));
+          gbody.appendChild(progressRow('골격근', d.smmKg, targetSmm, 'kg', doneSmm, 'muscle'));
+        }
+
+        /* --- 이번주: 날짜만. kg 은 한 글자도 안 나옵니다 ---
+           도착일이 며칠 움직였는지는 적지 않습니다. 측정 오차 ±1.0kg 만으로
+           그 날짜가 6주 넘게 흔들리고 부호까지 뒤집힙니다(실측 확인).
+           이동 일수를 적으면 몸이 아니라 물 한 병을 재는 숫자가 됩니다. */
+        function drawWeek() {
+          var wkStart = S.weekStartOf();
+          var thisWeek = scans.filter(function (x) {
+            return S.weekStartOf(x.measuredAt) === wkStart;
+          });
+          var lastK = lastScanISO ? UI.dateK(lastScanISO) : null;
+
+          gbody.appendChild(h('div.note', { style: { marginBottom: '10px' },
+            text: thisWeek.length
+              ? '이번 주에 ' + thisWeek.length + '번 쟀습니다 — ' + UI.dateK(thisWeek[thisWeek.length - 1].measuredAt)
+              : '이번 주에 잰 것이 없습니다.' }));
+
+          if (drift && drift.axis === null) {
+            gbody.appendChild(h('div', { style: { fontWeight: '700' }, text: '유지 범위 안입니다.' }));
+            gbody.appendChild(h('div.muted', { style: { marginTop: '4px' },
+              text: '이 계획은 목표로 삼은 변화가 인바디 오차보다 작습니다. 위의 D−는 계획 기간이 끝나는 날까지의 일수이지, 몸이 목표에 얼마나 가까운지가 아닙니다.' }));
+            return;
+          }
+
+          if (!projected) {
+            gbody.appendChild(h('div', { style: { fontWeight: '700' }, text: '도착 예정일을 지금 계산할 수 없습니다.' }));
+            gbody.appendChild(h('div.muted', { style: { marginTop: '4px' },
+              text: '마지막 측정으로는 남은 거리가 다시 계산되지 않았습니다. 위에 보이는 날짜는 원래 계획의 목표일입니다.' }));
+          } else {
+            gbody.appendChild(h('div', { style: { fontWeight: '700' },
+              text: '도착 예정일 ' + UI.dateK(projected) }));
+            gbody.appendChild(h('div.muted', { style: { marginTop: '2px' },
+              text: thisWeek.length ? '이 측정이 다시 계산한 날짜입니다.'
+                                    : '이번 주에 한 번도 안 움직였습니다.' }));
+            gbody.appendChild(h('div.muted', { style: { marginTop: '6px' },
+              text: thisWeek.length
+                ? '이 날짜가 며칠 움직였는지는 적지 않습니다. 인바디 오차 ±1.0kg 만으로도 이 날짜가 ' +
+                  (dist ? dist.weeks : 6) + '주 넘게 움직입니다.'
+                : '이 날짜는 ' + lastK + ' 측정이 정했고, 그 뒤로 새 측정이 없습니다. ' +
+                  'D−는 줄었지만 그건 날짜가 지나간 것이지 몸이 가까워진 게 아닙니다.' }));
+          }
+
+          if (dist) {
+            var left = dist.daysLeft;
+            var pct = Math.max(0, Math.min(100, Math.round((dist.moveDays - left) / dist.moveDays * 100)));
+            gbody.appendChild(h('div', { uid: 'P02-G05', uidLabel: '측정 대기',
+              style: { marginTop: '12px' } }, [
+              h('div.bar', [h('div.bar__fill', { style: { width: pct + '%',
+                background: left > 0 ? 'var(--accent)' : 'var(--ok)' } })]),
+              h('div.muted', { style: { marginTop: '6px' },
+                text: left > 0
+                  ? UI.dateK(dist.date) + ' 이후에 재면, 그때까지의 변화가 인바디 오차보다 커집니다. 계획대로 갔을 때 기준이고, ' + left + '일 남았습니다.'
+                  : UI.dateK(dist.date) + '이 지났습니다. 지금 재면 이전 측정과의 차이를 인바디 오차와 구분해서 읽을 수 있습니다.' })
+            ]));
+            if (left <= 0) {
+              gbody.appendChild(h('button.btn.btn--sm.btn--primary', { text: '지금 재기',
+                style: { marginTop: '8px' }, uid: 'P02-B21', uidLabel: '지금 재기',
+                onClick: function () { A.go('P03'); } }));
+            }
+          } else {
+            gbody.appendChild(h('div.muted', { style: { marginTop: '10px' },
+              text: '이 구간은 계획상 체지방 변화가 인바디 오차보다 느립니다. 언제부터 구분되는지 날짜로 말할 수 없습니다.' }));
+          }
+        }
+
+        /* --- 이번달: kg 만. 도착일·D− 는 안 나옵니다 --- */
+        function drawMonth() {
+          var prof2 = st.profile || global.MB_DATA.SEED_PROFILE;
+          var win = scansInWindow(scans, 28, prof2);
+          if (!win.delta) {
+            gbody.appendChild(h('div.note', { text: '비교할 측정이 두 번 필요합니다.' }));
+            gbody.appendChild(h('div.muted', { style: { marginTop: '6px' },
+              text: scans.length < 2
+                ? '측정이 한 번뿐이라 아직 변화를 말할 수 없습니다.'
+                : '최근 4주 안에 잰 것이 없고, 그 전 측정과 짝을 지을 수도 없습니다.' }));
+            return;
+          }
+          gbody.appendChild(h('div.card__sub', { style: { marginBottom: '8px' },
+            text: '잰 구간 ' + UI.dateShort(win.fromAt) + ' → ' +
+                  UI.dateShort(win.toAt) + ' · ' + win.spanDays + '일 · 측정 ' +
+                  win.inWindow + '회' + (win.usedBefore ? ' (직전 측정과 비교)' : '') }));
+
+          var DF = diffFloor();
+          [['체지방', 'bfmKg', DF.bfm, 'var(--fat)'],
+           ['체중', 'weightKg', DF.weight, 'var(--weight)'],
+           ['골격근', 'smmKg', DF.smm, 'var(--muscle)']].forEach(function (row) {
+            var v = win.delta[row[1]];
+            var under = Math.abs(v) < row[2];
+            gbody.appendChild(h('div.kv', [
+              h('span.kv__k', { text: row[0] }),
+              h('span.kv__v', { style: { color: under ? 'var(--text-3)' : row[3] },
+                text: UI.sign(v) + 'kg' + (under ? '*' : '') })
+            ]));
+          });
+          gbody.appendChild(h('div.muted', { style: { marginTop: '8px' },
+            text: '별표(*)는 두 측정의 차이가 인바디 오차 안이라는 뜻입니다. 그 항목은 변했는지 아닌지 이 두 번의 측정으로는 알 수 없습니다.' }));
+        }
+
+        drawGoal();
         wrap.appendChild(card);
       } else {
         wrap.appendChild(h('div.card', { uid: 'P02-C03', uidLabel: '목표 미설정 안내' }, [
@@ -294,13 +423,23 @@
       return Date.parse(s2.measuredAt) < cut;
     }).slice(-1)[0] || null;
 
-    var out = { inWindow: inWin.length, from: null, to: null, spanDays: 0, delta: null };
-    var a = before || inWin[0];
-    var b = inWin[inWin.length - 1];
+    /* 짝짓기 규칙:
+       창 안에 2개 이상이면 창 안에서 비교합니다 — 창 밖을 끌어오면
+       "28일 창"이라고 해 놓고 81일 구간을 돌려주게 됩니다(실제로 그랬습니다).
+       창 안에 1개뿐이면 그때만 창 직전 측정을 끌어옵니다. 비교 대상이
+       없으면 이 기간에 대해 아무 말도 할 수 없기 때문입니다. */
+    var out = { inWindow: inWin.length, from: null, to: null, spanDays: 0,
+                delta: null, usedBefore: false };
+    var a, b = inWin[inWin.length - 1];
+    if (inWin.length >= 2) { a = inWin[0]; }
+    else { a = before; out.usedBefore = !!before; }
     if (!a || !b || a === b) return out;
 
     var da = E.derive(a, profile), db2 = E.derive(b, profile);
+    // derive() 는 측정일을 안 돌려줍니다. 구간 머리에 날짜를 찍으려면
+    // 원본 스캔을 같이 들고 있어야 합니다.
     out.from = da; out.to = db2;
+    out.fromAt = a.measuredAt; out.toAt = b.measuredAt;
     out.spanDays = Math.round((Date.parse(b.measuredAt) - Date.parse(a.measuredAt)) / 86400000);
     out.delta = {
       weightKg: Math.round((db2.weightKg - da.weightKg) * 10) / 10,
@@ -313,6 +452,41 @@
   /** 지표별 오차 바닥. 이 안이면 "변했다"고 말할 수 없습니다. */
   function noiseFloor() {
     return (global.MB_MODES && global.MB_MODES.NOISE) || { weight: 1.0, smm: 0.6, bfm: 1.0 };
+  }
+
+  /* 두 측정의 "차이"를 판정할 때 쓰는 바닥.
+     오차가 두 번 들어가므로 √2 배입니다. 이걸 빼먹으면 일주일 일찍
+     "이제 재도 된다"고 말하게 됩니다. */
+  function diffFloor() {
+    var n = noiseFloor();
+    return { weight: n.weight * Math.SQRT2, smm: n.smm * Math.SQRT2, bfm: n.bfm * Math.SQRT2 };
+  }
+
+  /**
+   * "구분되는 날" — 계획대로 갔을 때, 언제부터 변화가 측정 오차보다 커지는가.
+   *
+   * 이 카드가 새로 들이는 유일한 숫자입니다. 도착일이 며칠 움직였는지를
+   * 말하지 않는 대신 이걸 말합니다 — 도착일 이동은 측정 오차 ±1.0kg 만으로
+   * 6주 넘게 흔들리고 부호까지 뒤집히지만, 이 날짜는 계획의 기울기에서
+   * 나오므로 측정 노이즈와 무관합니다.
+   */
+  function distinguishableDay(plan, lastScanISO) {
+    if (!plan || !plan.trajectory || !lastScanISO) return null;
+    var t = plan.trajectory;
+    var wk = planWeek(plan);
+    var a = t[Math.min(t.length - 1, wk)];
+    var b = t[Math.min(t.length - 1, wk + 2)];
+    if (!a || !b) return null;
+    var slope = Math.abs(b.bfmKg - a.bfmKg) / 2;          // kg/주
+    if (!(slope > 0.001)) return null;                     // 유지 구간 — 날짜로 말할 수 없습니다
+    var rawDays = Math.ceil(diffFloor().bfm / slope * 7);
+    if (rawDays > 84) return null;                         // 12주 넘으면 날짜를 지어내지 않습니다
+    // 28일 하한 — modes.js 가 "4주 미만 간격은 추세로 쓰지 않는다"를 이미 선언했습니다.
+    var moveDays = Math.max(28, rawDays);
+    var when = new Date(Date.parse(lastScanISO) + moveDays * 86400000);
+    return { moveDays: moveDays, date: E.toISODate(when),
+             daysLeft: Math.ceil((when - Date.now()) / 86400000),
+             weeks: Math.round(moveDays / 7) };
   }
 
   /* 기간 탭 한 줄. 목표 카드와 플랜 카드가 같은 것을 씁니다 —

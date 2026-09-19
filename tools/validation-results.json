@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-09-19T10:59:34.586Z",
+  "generatedAt": "2026-09-19T11:18:36.741Z",
   "engine": "prototype/js/engine.js",
   "engineChange": "one export added: MB_ENGINE.stepWeek (no parameter or logic change)",
   "provenance": {
-    "engineSha": "26cb3842bf15d8d2e9a8f1c0d7c9563eefc40fb7",
+    "engineSha": "1234cd7b50f76f1b70a3a87a750359fb2a622913",
     "engineDirty": true,
     "warning": "engine.js 에 커밋되지 않은 변경이 있습니다 — 이 결과는 재현 불가"
   },

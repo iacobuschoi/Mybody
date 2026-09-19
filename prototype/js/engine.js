@@ -1259,7 +1259,13 @@
       headline = '계획대로 가고 있습니다.';
     } else if (weeksAhead > 0) {
       status = 'ahead';
-      headline = '계획보다 ' + Math.round(absAhead) + '주 빠릅니다.';
+      headline = Math.round(absAhead) === 0 ? '계획보다 조금 빠릅니다.'
+                                            : '계획보다 ' + Math.round(absAhead) + '주 빠릅니다.';
+    } else if (Math.round(absAhead) === 0) {
+      /* 반올림하면 0 인데 "0주 느립니다"라고 말하고 있었습니다.
+         축의 차이는 노이즈를 넘었지만 주차로는 한 주도 안 되는 경우입니다. */
+      status = 'behind';
+      headline = '계획보다 조금 느립니다.';
     } else {
       status = absAhead >= 4 ? 'off' : 'behind';
       headline = '계획보다 ' + Math.round(absAhead) + '주 느립니다.';
