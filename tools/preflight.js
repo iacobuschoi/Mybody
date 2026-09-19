@@ -140,6 +140,20 @@ function staticChecks() {
     detail: dirty ? '커밋 안 된 변경 ' + dirty.split('\n').length + '개 — 되돌릴 지점이 없습니다'
                   : '작업 트리가 깨끗합니다' });
 
+  /* (4.5) 개인정보처리방침의 운영자 칸.
+     늦게 알면 다시 빌드해야 하므로 여기서 먼저 말합니다. 실제 판정은
+     배포 빌드를 실제로 열어 보는 test-release 가 합니다. */
+  {
+    const owner = (process.env.OWNER || '').trim();
+    const contact = (process.env.OWNER_CONTACT || '').trim();
+    out.push({ id: '방침 운영자', level: 'BLOCK', ok: !!(owner && contact),
+      detail: (owner && contact)
+        ? owner + ' · ' + contact + ' 로 방침에 박힙니다'
+        : 'OWNER · OWNER_CONTACT 를 넣고 다시 돌리세요 — 개인정보처리방침에 ' +
+          '"누구에게 말하면 되는지" 가 비어 있으면 권리를 행사할 길이 없습니다 ' +
+          '(docs/DEPLOY.md 0번)' });
+  }
+
   // (5) 알고 올리는 것들
   /* 복구 코드가 실제로 붙어 있는지 눈으로 확인합니다. 문구만 고치고
      기능을 안 붙인 채 배포하면, 사용자는 "코드로 돌아올 수 있다" 고

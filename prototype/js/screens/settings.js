@@ -304,7 +304,14 @@
             h('button.btn.btn--block', {
               text: '용어 사전', uid: 'P12-B12', uidLabel: '용어 사전',
               onClick: function () { global.MB_MODALS.glossary(); }
-            })
+            }),
+            /* 방침은 앱 화면이 아니라 따로 열리는 문서입니다.
+               로그인하지 않아도, 자바스크립트가 꺼져 있어도 읽혀야
+               하기 때문입니다 — 읽을 수 없는 방침은 없는 것과 같습니다.
+               그래서 button 이 아니라 a 입니다. */
+            h('a.btn.btn--block', {
+              text: '개인정보처리방침', href: './privacy.html', target: '_blank',
+              rel: 'noopener', uid: 'P12-B15', uidLabel: '개인정보처리방침' })
           ]),
           h('hr.sep'),
           h('div.muted', { text: VERSION_LINE }),

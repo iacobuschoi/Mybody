@@ -93,6 +93,39 @@ if (probe.MB_BUILD.version !== V) throw new Error('버전이 안 박혔습니다
 if (!probe.MB_BUILD.builtAt) throw new Error('빌드 시각이 안 박혔습니다');
 fs.writeFileSync(path.join(OUT, 'js/build.js'), buildJs);
 
+/* --- 2.5 개인정보처리방침의 운영자 칸 --------------------------------------
+ *
+ * 이 앱은 사람마다 자기 컴퓨터에 서버를 띄웁니다. 그래서 "개인정보를
+ * 처리하는 사람" 이 누구인지는 코드가 알 수 없고, 서버를 띄우는 사람만
+ * 압니다. 그 칸을 빌드할 때 채웁니다.
+ *
+ *   OWNER="김아무개" OWNER_CONTACT="me@example.com" node tools/build-release.js
+ *
+ * 안 채우면 자리표시자를 그대로 두지 않고 "아직 적지 않았습니다" 라고
+ * 적습니다 — __OWNER_NAME__ 이 그대로 보이는 것은 사용자에게 고장으로
+ * 보이고, 고장 난 방침은 없는 것보다 나쁩니다. 대신 preflight 가
+ * 그 상태를 배포 금지로 잡습니다.
+ */
+{
+  const priv = path.join(OUT, 'privacy.html');
+  if (!fs.existsSync(priv)) throw new Error('privacy.html 이 없습니다 — 방침 없이 배포할 수 없습니다');
+  const UNSET = '아직 적지 않았습니다 (서버 주인에게 물어보세요)';
+  const owner = (process.env.OWNER || '').trim();
+  const contact = (process.env.OWNER_CONTACT || '').trim();
+  let txt = fs.readFileSync(priv, 'utf8')
+    .replace(/__OWNER_NAME__/g, esc(owner || UNSET))
+    .replace(/__OWNER_CONTACT__/g, esc(contact || UNSET));
+  if (/__OWNER_/.test(txt)) throw new Error('방침의 자리표시자를 못 바꿨습니다');
+  fs.writeFileSync(priv, txt);
+  if (!owner || !contact) {
+    console.log('  ! 방침의 운영자 칸이 비었습니다 — OWNER · OWNER_CONTACT 를 넣고 다시 빌드하세요');
+  }
+}
+
+function esc(x) {
+  return String(x).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 /* --- 3. index.html ------------------------------------------------------- */
 let html = fs.readFileSync(path.join(SRC, 'index.html'), 'utf8');
 
@@ -161,6 +194,7 @@ const problems = [];
 const outFiles = walk(OUT);
 DEV_ONLY.forEach(f => { if (outFiles.includes(f)) problems.push('개발 전용 파일이 남았습니다: ' + f); });
 if (html.includes('idindex.js')) problems.push('index.html 이 아직 idindex.js 를 부릅니다');
+if (!outFiles.includes('privacy.html')) problems.push('개인정보처리방침이 빠졌습니다');
 if (html.includes('uid.css')) problems.push('index.html 이 아직 uid.css 를 부릅니다');
 // 껍데기 목록의 파일이 실제로 있는지 — 하나라도 없으면 서비스워커 설치가 통째로 실패합니다
 shell.filter(f => f !== './').forEach(f => {

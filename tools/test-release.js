@@ -217,6 +217,61 @@ const DEV_UIDS = ['P01-B05', 'P02-B02', 'P03-B03', 'P03-B09', 'P18-B08',
   ok(`화면 ${screens.length}개가 전부 말을 하고 나갈 길이 있다`, empties.length === 0, empties);
   ok('앱 전체에서 JS 오류 0건', appErrs.length === 0, appErrs.slice(0, 3));
 
+  /* --------------------------------------------------------------------
+   * [8] 개인정보처리방침
+   *
+   * 이 앱은 건강에 관한 정보를 다룹니다. 남이 쓸 물건이 되는 순간,
+   * "무엇이 어디로 가는가" 를 읽을 수 있는 곳에 적어 두는 것은 예의가
+   * 아니라 기본입니다.
+   *
+   * 여기서 보는 것은 세 가지입니다
+   *   · 문서가 실제로 배포본에 들어갔고 주소로 열리는가
+   *   · 자리표시자가 그대로 남아 있지 않은가
+   *   · 운영자 칸이 비어 있지 않은가 — 누구에게 말해야 하는지 모르는
+   *     방침은 권리를 행사할 방법이 없다는 뜻입니다
+   * ------------------------------------------------------------------ */
+  console.log('\n[8] 개인정보처리방침');
+  {
+    const pv = await ctx.newPage();
+    const r = await pv.goto(`http://localhost:${PORT}/privacy.html`, { waitUntil: 'load' })
+      .then(x => ({ status: x.status() })).catch(e => ({ err: e.message }));
+    ok('주소로 열린다', r.status === 200, r);
+    const txt = await pv.evaluate(() => document.body.innerText).catch(() => '');
+    ok('자리표시자가 안 남아 있다', !/__OWNER_/.test(txt));
+    ok('운영자와 연락처가 적혀 있다', !txt.includes('아직 적지 않았습니다'),
+       'OWNER="이름" OWNER_CONTACT="연락처" node tools/build-release.js 로 다시 빌드하세요');
+    ok('민감정보라고 말한다', /민감정보/.test(txt));
+    ok('앱으로 돌아가는 길이 있다',
+       await pv.locator('a[href="./index.html"]').count().then(n => n > 0));
+    await pv.close();
+
+    /* 방침이 "추적 코드가 없습니다" 라고 말합니다. 글꼴 하나라도 바깥에서
+       받아 오면 그 문장이 그 자리에서 거짓이 됩니다 — 페이지를 여는 것만으로
+       남의 서버에 내 IP 가 남기 때문입니다. 말이 아니라 실제 요청을 셉니다. */
+    const out = [];
+    const pw = await ctx.newPage();
+    pw.on('request', q => {
+      const u = q.url();
+      if (!u.startsWith('http://localhost:' + PORT) && !u.startsWith('data:') && !u.startsWith('blob:')) out.push(u);
+    });
+    await pw.goto(`http://localhost:${PORT}/privacy.html`, { waitUntil: 'load' });
+    await pw.waitForTimeout(400);
+    await pw.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
+    await pw.waitForTimeout(900);
+    ok('앱과 방침이 바깥으로 요청을 안 보낸다', out.length === 0, out.slice(0, 4));
+    await pw.close();
+
+    // 앱 안에서 이 문서로 갈 수 있는가 — 주소를 아는 사람만 읽는 방침은 공개가 아닙니다
+    const linked = await p2.evaluate(() => {
+      window.MB_APP.go('P12');
+      return new Promise(res => setTimeout(() => {
+        const a = document.querySelector('[data-uid="P12-B15"]');
+        res(!!a && /privacy\.html/.test(a.getAttribute('href') || ''));
+      }, 250));
+    });
+    ok('설정에서 링크로 갈 수 있다', linked);
+  }
+
   console.log(`\n통과 ${pass} / 실패 ${fail}`);
   await browser.close(); server.close();
   process.exit(fail ? 1 : 0);

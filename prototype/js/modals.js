@@ -447,6 +447,14 @@
           h('li', { text: '인바디(생체전기임피던스)는 수분 상태에 민감해 하루 중에도 값이 흔들립니다.' }),
           h('li', { text: '로그인하지 않으면 모든 데이터가 이 기기에만 저장됩니다.' }),
           h('li', { text: '로그인하면 측정값이 내가 지정한 서버로 올라갑니다. 친구에게 무엇이 보일지는 친구마다 따로 켜야 하고, 기본값은 이번 주에 기록했는지 여부 하나뿐입니다.' })
+        ]),
+        /* 체성분은 민감정보입니다. 무엇이 어디로 가는지를 처음 화면에서
+           읽을 수 있어야 합니다 — 설정 깊숙이에만 있으면 아무도 안 봅니다. */
+        h('div', { style: { marginTop: '10px' } }, [
+          h('a', { text: '개인정보처리방침 보기', href: './privacy.html',
+                   target: '_blank', rel: 'noopener',
+                   uid: 'M24-B10', uidLabel: '개인정보처리방침',
+                   style: { fontSize: '13px', fontWeight: '700' } })
         ])
       ],
       actions: [{ label: '이해했습니다', kind: 'primary', onClick: function () {
@@ -667,6 +675,12 @@
       }
 
       body.appendChild(msg);
+      body.appendChild(h('div', { style: { marginTop: '10px' } }, [
+        h('a', { text: '무엇이 서버로 가는지 보기 (개인정보처리방침)',
+                 href: './privacy.html', target: '_blank', rel: 'noopener',
+                 uid: 'M29-B13', uidLabel: '개인정보처리방침',
+                 style: { fontSize: '13px', fontWeight: '700' } })
+      ]));
       if (mode === 'lost') {
         body.appendChild(h('div.muted', { style: { marginTop: '10px' },
           text: '가입할 때 적어 둔 코드입니다. 되찾으면 다른 기기는 모두 로그아웃되고, ' +

@@ -42,8 +42,14 @@
         // 예전 문구는 "자동으로 보이지 않습니다"였는데 blankShare() 가 streak: true 로
         // 시작하므로 거짓이었습니다. 프라이버시 앱에서 프라이버시 문구가 틀리면
         // 나머지 설명도 전부 못 믿게 됩니다.
-        wrap.appendChild(h('div.note', { uid: 'P14-C03', uidLabel: '개인정보 안내',
-          text: '체성분은 민감한 정보입니다. 친구를 맺으면 이번 주에 기록을 했는지 여부만 기본으로 나가고, 체중·골격근·체지방은 친구마다 직접 켜야 나갑니다.' }));
+        wrap.appendChild(h('div.note', { uid: 'P14-C03', uidLabel: '개인정보 안내' }, [
+          h('div', { text: '체성분은 민감한 정보입니다. 친구를 맺으면 이번 주에 기록을 했는지 여부만 기본으로 나가고, 체중·골격근·체지방은 친구마다 직접 켜야 나갑니다.' }),
+          h('a', { text: '개인정보처리방침 보기', href: './privacy.html',
+                   target: '_blank', rel: 'noopener',
+                   uid: 'P14-B09', uidLabel: '개인정보처리방침',
+                   style: { display: 'inline-block', marginTop: '8px',
+                            fontSize: '13px', fontWeight: '700' } })
+        ]));
         return;
       }
 

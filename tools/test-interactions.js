@@ -362,6 +362,20 @@ async function bootApi() {
           continue;
         }
 
+        /* 바깥 문서로 가는 링크 — 주소가 실제로 열리는지 받아 봅니다.
+           깨진 링크는 "눌러도 아무 일 없음" 보다 나쁩니다: 사용자는
+           눌렀는데 빈 탭을 봅니다. */
+        if (r.link) {
+          const st = await page.evaluate(u =>
+            fetch(u).then(x => x.status).catch(() => 0), r.link);
+          if (st !== 200) {
+            found('죽은링크', `${key}/${sid}/${el.uid}`,
+                  `${r.link} 를 여는데 ${st === 0 ? '연결이 안 됩니다' : st + ' 가 돌아옵니다'}`,
+                  { label: el.label });
+          }
+          continue;
+        }
+
         if (!reacted(before, after)) {
           if (!alreadyOn) {
             found('무반응', `${key}/${sid}/${el.uid}`,
@@ -619,6 +633,14 @@ async function clickUid(page, uid, tag, type) {
       el.dispatchEvent(new Event('input', { bubbles: true }));
       el.dispatchEvent(new Event('change', { bubbles: true }));
       return { clicked: true };
+    }
+    /* 새 탭으로 여는 링크(개인정보처리방침 등)는 누르지 않습니다.
+       누르면 팝업이 열리고 지금 페이지는 그대로라서 "무반응" 으로
+       잘못 찍힙니다. 대신 주소를 돌려주고, 부르는 쪽에서 그 주소가
+       실제로 열리는지 받아 봅니다 — 건너뛰는 것이 아니라 다르게
+       확인하는 것입니다. */
+    if (t === 'A' && el.getAttribute('href')) {
+      return { clicked: true, link: el.getAttribute('href') };
     }
     el.click();
     return { clicked: true };
