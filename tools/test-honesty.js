@@ -114,7 +114,20 @@ const ok=(n,c,d)=>{if(c){pass++;console.log('  ✓',n);}else{fail++;console.log(
   });
   await pg.screenshot({path: path.join(__dirname,'.shots','goal-range.png'), clip:box});
 
-  console.log('\n[3] JS 오류');
+  console.log('\n[3] 도착 예정일이 얼마나 단단한지 같이 말한다');
+  /* "D−153 · 2027. 2. 20. 도착 예정" 은 계획상으로는 정확하지만, 계획
+     자체가 인바디 측정 한 번 위에 서 있다. 그 측정의 체지방이 ±1.0kg
+     흔들리면 도착일이 4/10 ~ 5/1 로 3주 움직였고, 단조롭지도 않았다
+     (19.0kg 과 20.0kg 이 같은 날짜). 날짜를 지우지는 않되 그 숫자가
+     얼마나 단단한지는 같이 적어야 한다. */
+  const arr = await pg.evaluate(()=>{
+    const c=document.querySelector('[data-uid="P02-C02"]');
+    return c ? c.innerText : '';
+  });
+  ok('오차 범위를 같이 적는다', /인바디 오차만으로도 ±\d+주/.test(arr),
+     (arr.match(/.{0,40}도착 예정.{0,60}/)||[''])[0]);
+
+  console.log('\n[4] JS 오류');
   ok('오류 0건', errs.length===0, errs);
   console.log(`\n통과 ${pass} / 실패 ${fail}`);
   await b.close(); srv.close(); process.exit(fail?1:0);

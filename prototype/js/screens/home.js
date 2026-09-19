@@ -145,7 +145,12 @@
                 style: { fontSize: '10.5px' },
                 text: (baseDelta > 0 ? '−' : '+') + Math.abs(baseDelta) + '일' }) : null
             ]),
-            h('div.muted', { text: UI.dateK(projected) + ' 도착 예정' })
+            h('div.muted', { text: UI.dateK(projected) + ' 도착 예정' }),
+            (function () {
+              var sp = arrivalSpread(plan);
+              return sp ? h('div.muted', { style: { fontSize: '11px', marginTop: '2px' },
+                text: '인바디 오차만으로도 ±' + sp + '주쯤 움직이는 날짜입니다' }) : null;
+            })()
           ])
         ]));
 
@@ -488,6 +493,33 @@
     var start = new Date(plan.startDate);
     var days = Math.floor((new Date() - start) / 86400000);
     return Math.max(0, Math.min((plan.trajectory || []).length - 1, Math.floor(days / 7)));
+  }
+
+  /**
+   * 도착 예정일이 측정 오차만으로 얼마나 흔들리는가.
+   *
+   * 화면은 "D−153 · 2027. 2. 20. 도착 예정" 을 한 날짜로 보여줍니다.
+   * 그 날짜는 계획상으로는 정확하지만, 계획 자체가 인바디 측정 한 번
+   * 위에 서 있습니다. 그 측정의 체지방이 ±1.0kg 흔들리면 도착일이
+   * 몇 주씩 움직입니다 — 실측으로 확인해 보니 4/10 ~ 5/1 이었고,
+   * 단조롭지도 않았습니다(19.0kg 과 20.0kg 이 같은 날짜).
+   *
+   * 날짜를 지우지는 않습니다. 목표가 있는 사람에게 "언제쯤" 은 필요한
+   * 숫자입니다. 대신 그 숫자가 얼마나 단단한지를 같이 적습니다.
+   *
+   * 계산: 계획이 주당 r kg 의 지방을 뺀다면, 시작값의 오차 n kg 은
+   * n/r 주만큼의 도착일 오차가 됩니다. 매번 계획을 다시 돌리지 않고
+   * 궤적의 기울기만 봅니다.
+   */
+  function arrivalSpread(plan) {
+    var t = (plan && plan.trajectory) || [];
+    if (t.length < 3) return null;
+    var n = Math.min(8, t.length - 1);
+    var rate = Math.abs(t[0].bfmKg - t[n].bfmKg) / n;      // kg/주
+    if (!(rate > 0.02)) return null;                        // 유지 계획 — 날짜 이야기가 아닙니다
+    var weeks = noiseFloor().bfm / rate;
+    if (!isFinite(weeks) || weeks > 26) return null;         // 너무 넓으면 숫자로 말하지 않습니다
+    return Math.max(1, Math.round(weeks));
   }
 
   /**
