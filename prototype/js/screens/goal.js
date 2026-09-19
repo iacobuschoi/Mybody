@@ -81,17 +81,18 @@
         /* --- F05 목표 시점 (선택) --- */
         form.appendChild(h('div.field', [
           h('div.field__label', { text: '희망 기간 (선택)' }),
-          h('div.chips', [8, 12, 16, 24, 36, 52].map(function (w) {
-            return h('button.chip' + (deadlineWeeks === w ? '.is-on' : ''), {
-              text: w + '주', uid: 'P05-F05', uidLabel: '희망 기간 칩',
-              onClick: function () { deadlineWeeks = (deadlineWeeks === w ? null : w); draw(); }
-            });
-          }).concat([
-            h('button.chip' + (deadlineWeeks == null ? '.is-on' : ''), {
-              text: '기간 안 정함', uid: 'P05-B02', uidLabel: '기간 미지정',
-              onClick: function () { deadlineWeeks = null; draw(); }
-            })
-          ])),
+          h('div.chips', { uid: 'P05-F05', uidLabel: '희망 기간 선택' },
+            [8, 12, 16, 24, 36, 52].map(function (w) {
+              return h('button.chip' + (deadlineWeeks === w ? '.is-on' : ''), {
+                text: w + '주',
+                onClick: function () { deadlineWeeks = (deadlineWeeks === w ? null : w); draw(); }
+              });
+            }).concat([
+              h('button.chip' + (deadlineWeeks == null ? '.is-on' : ''), {
+                text: '기간 안 정함', uid: 'P05-B02', uidLabel: '기간 미지정',
+                onClick: function () { deadlineWeeks = null; draw(); }
+              })
+            ])),
           h('div.field__hint', { text: deadlineWeeks
             ? '이 기간 안에 가능한지 아래에서 판정합니다. 강도별 실제 소요 기간은 다음 화면에서 봅니다.'
             : '비워두면 각 강도가 필요로 하는 기간을 그대로 보여줍니다.' })
@@ -100,11 +101,11 @@
         /* --- F06 우선순위 --- */
         form.appendChild(h('div.field', [
           h('div.field__label', { text: '우선순위' }),
-          h('div.chips', [
+          h('div.chips', { uid: 'P05-F06', uidLabel: '우선순위 선택' }, [
             ['fat', '체지방 감량 우선'], ['muscle', '근육 증가 우선'], ['balanced', '균형']
           ].map(function (p) {
             return h('button.chip' + ((g.priority || 'balanced') === p[0] ? '.is-on' : ''), {
-              text: p[1], uid: 'P05-F06', uidLabel: '우선순위 선택',
+              text: p[1],
               onClick: function () { g.priority = p[0]; draw(); }
             });
           }))
