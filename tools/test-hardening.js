@@ -126,6 +126,33 @@ process.on('exit',()=>srv.kill());
     sep.kill();
   }
 
+  /* --- 만료 컬럼 이전에 발급된 토큰 -------------------------------------
+   * userForToken 의 검사가 `s.expires_at && ...` 이라, 컬럼이 생기기 전에
+   * 발급된 세션(expires_at = NULL)은 검사를 통째로 건너뛰고 영원히
+   * 살았습니다. 하필 가장 오래된, 그래서 샜을 가능성이 제일 높은
+   * 토큰들입니다. 만료를 붙인 이유가 정확히 그건데 그 대상만 빠졌습니다. */
+  console.log('\n  옛 세션');
+  {
+    const { open, makeApi } = require(path.join(__dirname, '..', 'server', 'db.js'));
+    const f = path.join(base, 'sess.db');
+    const sdb = open(f);
+    const sapi = makeApi(sdb);
+    const u = sapi.signUp({ handle: 'legacy', password: 'legacy-password-1', displayName: 'L' });
+    const tok = u.token;
+    if (sapi.userForToken(tok)) console.log('    ✓ 정상 토큰은 통과한다');
+    else { console.log('    ✗ 정상 토큰이 막힌다'); lockFail++; }
+    sdb.exec('UPDATE sessions SET expires_at = NULL');
+    if (!sapi.userForToken(tok)) console.log('    ✓ expires_at 없는 토큰은 죽는다');
+    else { console.log('    ✗ expires_at 없는 토큰이 살아 있다'); lockFail++; }
+    // 다시 열면 마이그레이션이 채워 줍니다 (만든 날 + 90일)
+    const u2 = sapi.signUp({ handle: 'legacy2', password: 'legacy-password-1', displayName: 'L2' });
+    sdb.exec('UPDATE sessions SET expires_at = NULL');
+    const sdb2 = open(f);
+    const sapi2 = makeApi(sdb2);
+    if (sapi2.userForToken(u2.token)) console.log('    ✓ 다시 열면 만료일이 채워져 살아난다');
+    else { console.log('    ✗ 마이그레이션이 만료일을 안 채운다'); lockFail++; }
+  }
+
   const bad = leak + lockFail;
   console.log(bad ? `\n실패 ${bad}건` : '\n통과');
   srv.kill();

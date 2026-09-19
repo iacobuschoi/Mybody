@@ -219,7 +219,8 @@
            그리고 오차 안이면 별표 + 흐리게. 전체 탭의 규칙과 같습니다. */
         function periodRows(win) {
           var DF = diffFloor();
-          var seg = planSegment(plan, win.fromAt, win.toAt);
+          var segRaw = planSegment(plan, win.fromAt, win.toAt);
+          var seg = (segRaw && !segRaw.none) ? segRaw : null;
 
           [['체지방', 'bfmKg', DF.bfm, 'fat'],
            ['골격근', 'smmKg', DF.smm, 'muscle'],
@@ -281,8 +282,17 @@
           });
 
           if (!seg) {
+            var why = segRaw && segRaw.none;
             gbody.appendChild(h('div.muted', { style: { marginTop: '8px' },
-              text: '이 구간은 계획을 세우기 전입니다. 비교할 계획분이 없어 막대를 비워 뒀습니다.' }));
+              text: why === 'after'
+                ? '이 구간은 계획이 끝난 뒤입니다. 비교할 계획분이 없어 막대를 비워 뒀습니다.'
+                : why === 'short'
+                ? '이 구간이 계획과 겹치는 기간이 사흘도 안 됩니다. 비교할 계획분이 없습니다.'
+                : '이 구간은 계획을 세우기 전입니다. 비교할 계획분이 없어 막대를 비워 뒀습니다.' }));
+          } else if (seg.partial) {
+            gbody.appendChild(h('div.muted', { style: { marginTop: '8px' },
+              text: '잰 구간 ' + seg.windowDays + '일 중 ' + seg.days + '일만 계획과 겹칩니다. ' +
+                    '위의 "계획" 은 겹치는 기간의 몫입니다.' }));
           }
           gbody.appendChild(h('div.muted', { style: { marginTop: '8px' },
             text: '별표(*)는 두 측정의 차이가 인바디 오차 안이라는 뜻입니다. ' +
@@ -300,16 +310,37 @@
 
         /** 비교할 측정이 없을 때 — 대부분의 주가 여기입니다. */
         function noPair(days) {
-          gbody.appendChild(h('div.note', { text: '비교할 측정이 두 번 필요합니다.' }));
+          /* 예전 문구는 "그 전 측정과 짝을 지을 수도 없습니다" 였습니다.
+             측정이 여러 번 있는데도 그렇게 말했습니다 — 짝지을 수 없는
+             게 아니라, 이 기간 안에 잰 것이 없어서 이 기간에 대해 할
+             말이 없는 것입니다. 둘은 다릅니다. 앞의 말은 "네 기록으로는
+             아무것도 알 수 없다" 로 들리고, 뒤의 말은 "다른 탭에 가면
+             있다" 입니다. */
+          var n = scans.length;
+          gbody.appendChild(h('div.note', { text: n < 2
+            ? '비교할 측정이 두 번 필요합니다.'
+            : '최근 ' + days + '일 안에 잰 측정이 없습니다.' }));
           gbody.appendChild(h('div.muted', { style: { marginTop: '6px' },
-            text: scans.length < 2
+            text: n < 2
               ? '측정이 한 번뿐이라 아직 변화를 말할 수 없습니다.'
-              : '최근 ' + days + '일 안에 잰 것이 없고, 그 전 측정과 짝을 지을 수도 없습니다.' }));
+              : '기록은 ' + n + '건 있습니다. 지금까지의 변화는 "전체" 에서 볼 수 있습니다.' }));
+          if (n >= 2) {
+            gbody.appendChild(h('button.btn.btn--sm', {
+              text: '전체 보기', style: { marginTop: '8px' },
+              uid: 'P02-B22', uidLabel: '전체 탭으로',
+              onClick: function () { gscope = 'all'; A.refresh(); }
+            }));
+          }
           measureBar();
         }
 
         /** 측정 대기 막대 — 언제 다시 재면 의미가 있는가. */
         function measureBar() {
+          if (dist && dist.ended) {
+            gbody.appendChild(h('div.muted', { style: { marginTop: '10px' },
+              text: '계획한 기간이 끝났습니다. 다시 재고 계획을 새로 세울 때입니다.' }));
+            return;
+          }
           if (!dist) {
             gbody.appendChild(h('div.muted', { style: { marginTop: '10px' },
               text: '이 구간은 계획상 체지방 변화가 인바디 오차보다 느립니다. ' +
@@ -473,10 +504,29 @@
     var WEEK = 7 * 86400000;
     var s0 = Date.parse(plan.startDate);
     var last = (t.length - 1) * WEEK;
-    var f = Math.max(0, Math.min(last, Date.parse(fromISO) - s0));
-    var o = Math.max(0, Math.min(last, Date.parse(toISO) - s0));
-    // 겹치는 구간이 사흘도 안 되면 비교할 만한 계획분이 아닙니다.
-    if (!(o - f >= 3 * 86400000)) return null;
+    var rawF = Date.parse(fromISO) - s0, rawO = Date.parse(toISO) - s0;
+    if (!isFinite(rawF) || !isFinite(rawO)) return null;
+
+    /* 창이 계획 밖으로 나가는 "방향" 을 구분합니다.
+       예전에는 양끝을 [0, last] 로 자르고 겹치는 구간이 없으면 그냥
+       null 이었습니다. 그래서 창이 계획 "이후" 일 때도 화면이
+       "이 구간은 계획을 세우기 전입니다" 라고 했습니다 — 정반대입니다.
+       계획이 끝난 뒤에 잰 것을 세우기 전이라고 하면, 사용자는 자기가
+       뭘 잘못했나 찾게 됩니다. */
+    if (rawO <= 0) return { none: 'before' };
+    if (rawF >= last) return { none: 'after' };
+
+    var f = Math.max(0, Math.min(last, rawF));
+    var o = Math.max(0, Math.min(last, rawO));
+    // 겹치는 구간이 사흘 미만이면 비교할 만한 계획분이 아닙니다.
+    if (!(o - f >= 3 * 86400000)) return { none: 'short' };
+
+    /* 창의 일부만 계획과 겹칠 수 있습니다(계획 시작을 걸치는 창).
+       그때 겹친 부분의 계획분을 창 전체의 계획인 것처럼 적으면 안 됩니다 —
+       사용자는 그 숫자로 자기를 평가합니다. 겹친 기간을 같이 돌려줘서
+       화면이 사실대로 말하게 합니다. */
+    var windowDays = Math.round((rawO - rawF) / 86400000);
+    var overlapDays = Math.round((o - f) / 86400000);
     function at(ms) {
       var w = ms / WEEK, i = Math.floor(w), r = w - i;
       var a = t[Math.min(i, t.length - 1)], b = t[Math.min(i + 1, t.length - 1)];
@@ -484,7 +534,9 @@
     }
     var A = at(f), B = at(o);
     return {
-      days: Math.round((o - f) / 86400000),
+      days: overlapDays,
+      partial: overlapDays < windowDays - 1,
+      windowDays: windowDays,
       bfmKg: B('bfmKg') - A('bfmKg'),
       smmKg: B('smmKg') - A('smmKg'),
       weightKg: B('weightKg') - A('weightKg')
@@ -561,10 +613,23 @@
     if (!plan || !plan.trajectory || !lastScanISO) return null;
     var t = plan.trajectory;
     var wk = planWeek(plan);
-    var a = t[Math.min(t.length - 1, wk)];
-    var b = t[Math.min(t.length - 1, wk + 2)];
-    if (!a || !b) return null;
-    var slope = Math.abs(b.bfmKg - a.bfmKg) / 2;          // kg/주
+    var last = t.length - 1;
+
+    /* 계획이 끝났으면 "느리다" 가 아니라 "끝났다" 입니다.
+       예전에는 마지막 주에서 a 와 b 가 같은 칸이 되어 기울기가 0 이
+       나왔고, 화면은 "이 구간은 계획상 체지방 변화가 인바디 오차보다
+       느립니다" 라고 했습니다. 느린 게 아니라 남은 계획이 없는 것이라,
+       사용자는 자기 계획이 무의미하다고 읽게 됩니다. */
+    if (wk >= last) return { ended: true };
+
+    /* 앞으로 두 주를 보되, 계획이 두 주 안 남았으면 남은 만큼만 봅니다.
+       예전에는 b 를 t[wk+2] 로 잡고 무조건 2 로 나눴습니다. 끝에서
+       두 번째 주에서는 clamp 때문에 실제로 한 주만 보면서 2 로 나눠,
+       기울기가 절반이 되고 "다시 재세요" 날짜가 두 배로 밀렸습니다. */
+    var span = Math.min(2, last - wk);
+    var a = t[wk], b = t[wk + span];
+    if (!a || !b || span < 1) return null;
+    var slope = Math.abs(b.bfmKg - a.bfmKg) / span;        // kg/주
     if (!(slope > 0.001)) return null;                     // 유지 구간 — 날짜로 말할 수 없습니다
     var rawDays = Math.ceil(diffFloor().bfm / slope * 7);
     if (rawDays > 84) return null;                         // 12주 넘으면 날짜를 지어내지 않습니다

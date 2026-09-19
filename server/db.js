@@ -81,6 +81,22 @@ function open(file) {
                       'ALTER TABLE sessions ADD COLUMN expires_at TEXT']) {
     try { db.exec(stmt); } catch { /* 이미 있음 */ }
   }
+
+  /* 만료 컬럼이 생기기 전에 발급된 세션은 expires_at 이 NULL 입니다.
+     userForToken 의 검사가 `s.expires_at && ...` 이라 NULL 은 통째로
+     건너뛰었고, 그 토큰들은 영원히 살았습니다 — 하필 가장 오래된,
+     그래서 샜을 가능성이 제일 높은 것들입니다. 만료를 붙인 이유가
+     정확히 그건데 그 대상만 빠져 있었습니다.
+     만든 날에서 90일로 채웁니다. 만든 날도 없으면 이미 만료로 봅니다 —
+     정체를 알 수 없는 토큰을 살려 둘 이유가 없습니다. */
+  try {
+    db.exec(`UPDATE sessions
+                SET expires_at = COALESCE(
+                      datetime(created_at, '+90 days'),
+                      '1970-01-01T00:00:00.000Z')
+              WHERE expires_at IS NULL`);
+  } catch { /* 빈 DB 등 */ }
+
   return db;
 }
 
@@ -263,8 +279,11 @@ function makeApi(db) {
       if (!t) return null;
       const s = q.sessionByToken.get(t);
       if (!s) return null;
-      // 만료된 세션은 그 자리에서 지웁니다. 예전엔 만료가 아예 없었습니다.
-      if (s.expires_at && s.expires_at < nowISO()) { q.deleteSession.run(t); return null; }
+      /* 만료된 세션은 그 자리에서 지웁니다.
+         expires_at 이 없는 세션도 만료로 봅니다. 마이그레이션이 채워
+         주지만, 그 사이에 들어온 요청이나 손으로 만든 행이 있을 수
+         있습니다. 모르는 토큰을 살려 두는 쪽이 항상 더 위험합니다. */
+      if (!s.expires_at || s.expires_at < nowISO()) { q.deleteSession.run(t); return null; }
       q.touchSession.run(nowISO(), t);
       return q.userById.get(s.user_id) || null;
     },
