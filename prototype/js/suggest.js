@@ -61,6 +61,16 @@
   var SIDE = ['배추김치', '시금치나물', '콩나물무침', '브로콜리 데침', '샐러드채소',
               '계란말이', '멸치볶음', '장조림', '어묵볶음', '미역국', '된장국'];
 
+  /* 찌개는 밥 없이 나온 값입니다. 식당에서 김치찌개만 먹지 않으므로
+   * 사먹기 추천에서는 공기밥을 같이 올립니다.
+   * (순대국밥은 이름 그대로 밥이 들어 있고, 삼계탕은 안에 찹쌀이 있습니다) */
+  var NEEDS_RICE = ['김치찌개', '된장찌개', '순두부찌개', '부대찌개', '설렁탕', '갈비탕'];
+
+  /* 사먹을 때 옆에 하나 더 붙일 수 있는 것. 편의점에서 집어 드는 것들입니다.
+   * 국밥에 계란 하나, 김밥에 닭가슴살 한 팩 같은 실제 행동입니다. */
+  var ADD_ON = ['계란(삶음)', '편의점 닭가슴살', '두유(무가당)', '우유',
+                '그릭요거트 무가당', '프로틴 1스쿱', '참치캔(기름뺀)'];
+
   /** 그 자체로 한 끼가 되는 것. 다른 것과 묶지 않습니다. */
   var ONE_DISH = [
     '비빔밥', '제육덮밥', '돈까스덮밥', '김치볶음밥', '김밥', '참치김밥',
@@ -98,9 +108,13 @@
 
   /** 사람이 읽는 분량 표기. "1.5배"가 아니라 단위로 풀어씁니다. */
   function portionText(item) {
-    if (item.mult === 1) return item.unit;
-    if (item.mult === 0.5) return item.unit + ' 반';
-    return item.unit + ' × ' + (item.mult % 1 === 0 ? item.mult : item.mult.toFixed(1));
+    // 이름이 이미 분량을 품고 있으면(만두(고기) 5개, 삼겹살 1인분) 또 붙이지 않습니다.
+    var dup = item.name && item.name.indexOf(item.unit) >= 0;
+    var base = dup ? '' : item.unit;
+    if (item.mult === 1) return base;
+    if (item.mult === 0.5) return (base ? base + ' ' : '') + '반';
+    var x = '× ' + (item.mult % 1 === 0 ? item.mult : item.mult.toFixed(1));
+    return base ? base + ' ' + x : x;
   }
 
   function pool(role, avoid) {
@@ -152,7 +166,7 @@
 
   function finish(cands, needP, limit, aim) {
     cands.forEach(function (c) {
-      c.score = score(c.totalP, c.totalKcal, needP, aim);
+      c.score = score(c.totalP, c.totalKcal, needP, aim) + (c.extra || 0);
       c.coversPct = needP > 0 ? Math.round(c.totalP / needP * 100) : 100;
     });
     cands.sort(function (a, b) { return a.score - b.score; });
@@ -216,7 +230,64 @@
   }
 
   /* ---------------------------------------------------------------------- */
-  /* 한 끼 — 실제 상차림 형태로                                              */
+  /* 사먹기 — 점심·저녁은 대개 밖에서 먹습니다                               */
+  /*                                                                         */
+  /* 집밥 추천(밥+주요리+반찬)은 식당에서 시킬 수 있는 형태가 아닙니다.      */
+  /* 여기서는 메뉴판에 있는 단품 하나를 고르고, 모자라면 편의점에서 하나     */
+  /* 더 집는 실제 행동을 모델로 합니다.                                       */
+  /* ---------------------------------------------------------------------- */
+  function suggestEatOut(opts) {
+    var F = global.MB_FOOD;
+    var dayP = Math.max(0, opts.remainP || 0);
+    var budget = opts.remainKcal;
+    var limit = opts.limit || 3;
+    if (dayP <= 0) return { done: true, options: [] };
+    if (budget <= 0) return { overBudget: true, needP: dayP, options: [] };
+    var needP = opts.aimP || Math.round(dayP / Math.max(1, opts.mealsLeft || 1));
+
+    var rice = F.byName ? F.byName('공기밥(백미)') : null;
+    if (!rice) F.FOODS.forEach(function (x) { if (x.name === '공기밥(백미)') rice = x; });
+
+    var dishes = pool(ONE_DISH, opts.avoid);
+    var addons = pool(ADD_ON, opts.avoid);
+    var cands = [];
+
+    dishes.forEach(function (d) {
+      var items = [scale(d, 1)];
+      if (inList(NEEDS_RICE, d.name) && rice) items.push(scale(rice, 1));
+      var kc = items.reduce(function (t, x) { return t + x.kcal; }, 0);
+      var pp = Math.round(items.reduce(function (t, x) { return t + x.p; }, 0) * 10) / 10;
+      if (kc > budget) return;
+      // 사먹을 때는 "숫자를 맞췄는가"보다 "메뉴가 단백질이 좋은가"가 중요합니다.
+      // 이게 없으면 파스타에 프로틴 쉐이크를 얹는 조합이 갈비탕을 이깁니다.
+      var dishPenalty = Math.max(0, 8 - density(d)) * 3;
+      cands.push({ items: items, totalP: pp, totalKcal: kc, shape: '단품', extra: dishPenalty });
+
+      // 단품 하나로 모자라면 옆에 하나 더. 두 개까지만 — 그 이상은 사먹는 모습이 아닙니다.
+      if (pp >= needP * 0.95) return;
+      addons.forEach(function (a) {
+        for (var m = 0; m < MULTS.length; m++) {
+          var ad = scale(a, MULTS[m]);
+          var kc2 = kc + ad.kcal;
+          if (kc2 > budget) continue;
+          var p2 = Math.round((pp + ad.p) * 10) / 10;
+          // 옆에 하나 더 붙이는 건 차선책입니다. 단품 하나로 되면 그게 낫습니다.
+          cands.push({ items: items.concat([ad]), totalP: p2, totalKcal: kc2,
+                       shape: '단품 + 추가', extra: dishPenalty + 8 });
+        }
+      });
+    });
+
+    var aim = opts.aimKcal || Math.min(budget, Math.round(budget / Math.max(1, opts.mealsLeft || 1)));
+    if (aim > 900) aim = 900;
+    var out = finish(cands, needP, limit, aim);
+    return { options: out, needP: needP, dayP: dayP, budget: budget, aim: aim,
+             ceiling: ceilingProtein(budget, opts.avoid),
+             feasible: out.length > 0 && out[0].totalP >= needP * 0.9 };
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* 집밥 한 끼 — 실제 상차림 형태로                                          */
   /*                                                                         */
   /* 밥 + 주요리 (+ 반찬) 이거나, 그 자체로 한 끼인 단품입니다.              */
   /* 주요리 두 개를 겹쳐 놓는 조합은 만들지 않습니다 — 산술은 맞아도         */
@@ -234,15 +305,7 @@
     var bases = pool(BASE, opts.avoid);
     var mains = pool(MAIN, opts.avoid);
     var sides = pool(SIDE, opts.avoid);
-    var singles = pool(ONE_DISH, opts.avoid);
     var cands = [], bi, mi, si, a;
-
-    // 단품 한 끼
-    singles.forEach(function (x) {
-      var s = scale(x, 1);
-      if (s.kcal > budget) return;
-      cands.push({ items: [s], totalP: s.p, totalKcal: s.kcal, shape: '단품' });
-    });
 
     // 밥 + 주요리 (+ 반찬 하나)
     for (bi = 0; bi < bases.length; bi++) {
@@ -309,9 +372,10 @@
   }
 
   global.MB_SUGGEST = {
-    suggestSnack: suggestSnack, suggestMeal: suggestMeal,
+    suggestSnack: suggestSnack, suggestMeal: suggestMeal, suggestEatOut: suggestEatOut,
     summaryText: summaryText, portionText: portionText, density: density,
     SNACKABLE: SNACKABLE, BASE: BASE, MAIN: MAIN, SIDE: SIDE, ONE_DISH: ONE_DISH,
+    NEEDS_RICE: NEEDS_RICE, ADD_ON: ADD_ON,
     MIN_PROTEIN_G: MIN_PROTEIN_G
   };
 })(window);

@@ -12,24 +12,30 @@
   /* ---------------------------------------------------------------------- */
   function suggestCard(remainP, remainK, date) {
     var SG = global.MB_SUGGEST;
-    var mode = 'snack';
+    // 점심·저녁은 대개 밖에서 사먹습니다. 그 시간대면 사먹기를 먼저 보여줍니다.
+    var nextMeal = guessMeal();
+    var mode = (nextMeal === '점심' || nextMeal === '저녁') ? 'out'
+             : (nextMeal === '간식' ? 'snack' : 'home');
     var card = h('div.card', { uid: 'P18-C10', uidLabel: '뭘 먹을까' });
     var body = h('div');
 
-    var tabs = h('div.chips', { style: { marginBottom: '10px' } }, [
-      chip('간식', 'snack', 'P18-B10'), chip('한 끼', 'meal', 'P18-B11')
-    ]);
-    function chip(label, key, uid) {
-      return h('button.chip' + (key === mode ? '.is-on' : ''), {
-        text: label, uid: uid, uidLabel: label + ' 추천',
-        onClick: function () {
-          mode = key;
-          tabs.querySelectorAll('.chip').forEach(function (x, i) {
-            x.classList.toggle('is-on', (i === 0) === (key === 'snack'));
-          });
-          render();
-        } });
-    }
+    var MODES = [
+      { key: 'out', label: '사먹기', uid: 'P18-B10', fn: 'suggestEatOut' },
+      { key: 'home', label: '집밥', uid: 'P18-B11', fn: 'suggestMeal' },
+      { key: 'snack', label: '간식', uid: 'P18-B13', fn: 'suggestSnack' }
+    ];
+    var tabs = h('div.chips', { style: { marginBottom: '10px' } },
+      MODES.map(function (m) {
+        return h('button.chip' + (m.key === mode ? '.is-on' : ''), {
+          text: m.label, uid: m.uid, uidLabel: m.label + ' 추천',
+          onClick: function () {
+            mode = m.key;
+            tabs.querySelectorAll('.chip').forEach(function (x, i) {
+              x.classList.toggle('is-on', MODES[i].key === mode);
+            });
+            render();
+          } });
+      }));
 
     card.appendChild(h('div.card__head', [
       h('div.card__title', { text: '뭘 먹을까' }),
@@ -50,7 +56,8 @@
       S.logsForDate(date).forEach(function (log) { loggedMeals[log.meal] = true; });
       var mealsLeft = ['아침', '점심', '저녁'].filter(function (m) { return !loggedMeals[m]; }).length;
 
-      var res = (mode === 'snack' ? SG.suggestSnack : SG.suggestMeal)({
+      var fn = SG[(MODES.filter(function (m) { return m.key === mode; })[0] || MODES[0]).fn];
+      var res = fn({
         remainP: remainP, remainKcal: remainK, avoid: Object.keys(eaten),
         mealsLeft: Math.max(1, mealsLeft), limit: 3
       });
@@ -74,7 +81,9 @@
         var row = h('div', { style: { padding: '10px 0',
           borderTop: i ? '1px solid var(--border)' : 'none' } });
         row.appendChild(h('div', { style: { fontWeight: '700', marginBottom: '2px' },
-          text: opt.items.map(function (x) { return x.name + ' ' + SG.portionText(x); }).join(' + ') }));
+          text: opt.items.map(function (x) {
+            return (x.name + ' ' + SG.portionText(x)).trim();
+          }).join(' + ') }));
         row.appendChild(h('div.muted', {
           text: '단백질 ' + opt.totalP + 'g · ' + opt.totalKcal + 'kcal' +
                 (opt.shape ? ' · ' + opt.shape : '') }));
@@ -82,7 +91,7 @@
           text: '기록에 담기', style: { marginTop: '6px' },
           uid: 'P18-B12#' + (i + 1), uidLabel: '추천 담기 ' + (i + 1),
           onClick: function () {
-            var meal = mode === 'snack' ? '간식' : guessMeal();
+            var meal = mode === 'snack' ? '간식' : nextMeal;
             S.addFoodLog({ date: date, meal: meal, source: 'suggest',
               items: opt.items.map(function (x) {
                 return { name: x.name, g: x.g, kcal: x.kcal, p: x.p, c: x.c, f: x.f };
