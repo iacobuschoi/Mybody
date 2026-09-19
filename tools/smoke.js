@@ -29,7 +29,7 @@ const server = http.createServer((req, res) => {
   res.end(fs.readFileSync(f));
 });
 
-const SCREENS = ['P01','P02','P03','P04','P05','P06','P07','P08','P09','P10','P11','P12','P13','P14','P15','P16','P17','P18','P19','P20','P21'];
+const SCREENS = ['P01','P02','P03','P04','P05','P06','P07','P08','P09','P10','P11','P12','P13','P14','P15','P16','P18','P19','P20','P21'];
 const UID_RE = /^(P\d{2}|M\d{2}|A\d{2})(-[A-Z]\d{2})?(#\d+)?$/;
 
 (async () => {
@@ -196,6 +196,71 @@ const UID_RE = /^(P\d{2}|M\d{2}|A\d{2})(-[A-Z]\d{2})?(#\d+)?$/;
     return { offHides: hidden, liveIndex: window.MB_UID.liveIndex().length };
   });
 
+  /* ── 소셜 2차 패스 ───────────────────────────────────────────────
+     1차 패스는 로그아웃 상태입니다 — 신규 설치의 기본 상태이고, 지금까지
+     친구 화면이 자동 검증된 유일한 상태였습니다. 문제는 그게 "로그인이
+     필요합니다" 빈 화면만 찍고 통과했다는 것입니다. 친구가 실제로 있는
+     화면은 한 번도 검증된 적이 없습니다. ------------------------------- */
+  const socialProblems = [];
+  const social = await page.evaluate(() => {
+    window.MB_BACKEND.reset();
+    const u = window.MB_BACKEND.signIn({ provider: 'kakao' });
+    window.MB_STORE.publishWeekly();
+    window.MB_APP.go('P15');
+    const d = window.MB_SOCIAL.makeDemoFriend();
+    window.MB_APP.refresh();
+    return { me: u.id, demo: d && d.id, session: window.MB_BACKEND.currentUser().id };
+  });
+  await page.waitForTimeout(400);
+
+  // 데모 친구를 만드는 동안 세션이 데모로 바뀌었다가 반드시 돌아와야 합니다.
+  if (social.session !== social.me) socialProblems.push('데모 친구 생성 후 세션이 안 돌아옴');
+  if (!social.demo) socialProblems.push('데모 친구 생성 실패');
+
+  const SOCIAL_CASES = [
+    { name: 'P15 친구1명', go: () => window.MB_APP.go('P15') },
+    { name: 'P16 친구상세', go: (d) => window.MB_APP.go('P16', { friendId: d }) },
+    { name: 'P16 없는친구', go: () => window.MB_APP.go('P16', { friendId: 'nope_999' }) }
+  ];
+  for (let i = 0; i < SOCIAL_CASES.length; i++) {
+    const before = errors.length;
+    await page.evaluate(([idx, demo]) => {
+      const F = [
+        () => window.MB_APP.go('P15'),
+        () => window.MB_APP.go('P16', { friendId: demo }),
+        () => window.MB_APP.go('P16', { friendId: 'nope_999' })
+      ];
+      F[idx]();
+    }, [i, social.demo]);
+    await page.waitForTimeout(350);
+    const info = await page.evaluate(() => ({
+      title: document.getElementById('appbar-title').textContent,
+      text: document.querySelector('#main').innerText.length,
+      // 누를 수 있는데 번호가 없는 카드 — 사용자의 유일한 피드백 수단이 빠진 자리
+      noUid: document.querySelectorAll('#main .card[data-clickable]:not([data-uid])').length,
+      uids: [...document.querySelectorAll('#main [data-uid]')].map(e => e.getAttribute('data-uid'))
+    }));
+    await page.screenshot({ path: path.join(OUT, 'social-' + i + '.png'), fullPage: true });
+    console.log('  ' + SOCIAL_CASES[i].name.padEnd(14) +
+                ' 제목=' + info.title.padEnd(8) + ' 글자=' + String(info.text).padStart(5) +
+                ' 번호없는카드=' + info.noUid + ' 오류=' + (errors.length - before));
+    if (info.noUid) socialProblems.push(SOCIAL_CASES[i].name + ': 번호 없는 클릭 카드 ' + info.noUid + '개');
+    info.uids.forEach(u => {
+      const bare = u.split('#')[0];
+      if (!UID_RE.test(u)) socialProblems.push(SOCIAL_CASES[i].name + ': 형식 위반 ' + u);
+      allUids.set(bare, allUids.get(bare) || '');
+    });
+  }
+  // 없는 친구로 들어가면 앱바에 이전 친구 이름이 남으면 안 됩니다
+  const ghostTitle = await page.evaluate(() => document.getElementById('appbar-title').textContent);
+  if (ghostTitle === '데모친구') socialProblems.push('없는 친구 화면에 이전 친구 이름이 남음');
+
+  if (socialProblems.length) {
+    console.log('\n=== 소셜 문제 ' + socialProblems.length + '건 ===');
+    socialProblems.forEach(p => console.log('  ' + p));
+  } else console.log('\n소셜 화면 문제 없음');
+
+
   await browser.close();
   server.close();
 
@@ -226,7 +291,7 @@ const UID_RE = /^(P\d{2}|M\d{2}|A\d{2})(-[A-Z]\d{2})?(#\d+)?$/;
   fs.writeFileSync(path.join(OUT, 'uids.json'),
     JSON.stringify([...allUids].map(([uid, label]) => ({ uid, label })), null, 1));
 
-  const failed = errors.length || uidProblems.length ||
+  const failed = errors.length || uidProblems.length || socialProblems.length ||
                  rows.some(r => r.reached !== r.id) || !planInfo;
   console.log('\n' + (failed ? '실패' : '통과'));
   process.exit(failed ? 1 : 0);

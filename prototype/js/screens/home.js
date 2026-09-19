@@ -11,6 +11,27 @@
       var scans = S.sortedScans();
       var scan = S.latestScan();
 
+      /* --- C20 이사 안내 ---
+         설정이 탭에서 앱바 톱니로 옮겨갔습니다. 토스트로 알리면 놓쳤을 때
+         다시 볼 방법이 없고, 하필 "설정이 사라졌다"고 느끼는 순간에 없습니다.
+         닫을 수 있는 카드로 두고 3번 보면 스스로 사라집니다. */
+      (function () {
+        var se = st.settings || {};
+        if (se.gearHintDismissed || (se.gearHintSeen || 0) >= 3) return;
+        S.set({ settings: Object.assign({}, se, { gearHintSeen: (se.gearHintSeen || 0) + 1 }) });
+        var note = h('div.note', { uid: 'P02-C20', uidLabel: '설정 이사 안내' }, [
+          h('b', { text: '설정은 오른쪽 위 ⚙️ 로 옮겼습니다.' }),
+          h('div', { style: { marginTop: '3px' }, text: '다섯 번째 탭은 이제 친구입니다.' }),
+          h('button.btn.btn--ghost.btn--sm', { text: '알겠습니다', style: { marginTop: '8px' },
+            uid: 'P02-B20', uidLabel: '안내 닫기',
+            onClick: function () {
+              S.set({ settings: Object.assign({}, S.get().settings, { gearHintDismissed: true }) });
+              A.refresh();
+            } })
+        ]);
+        wrap.appendChild(note);
+      })();
+
       if (!scan) {
         wrap.appendChild(h('div.empty', { uid: 'P02-S01', uidLabel: '첫 인바디 유도 빈 상태' }, [
           h('div.empty__ico', { text: '📷' }),

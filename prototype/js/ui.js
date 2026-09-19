@@ -28,6 +28,9 @@
         else if (k === 'style' && typeof v === 'object') { Object.assign(el.style, v); }
         else if (k.slice(0, 2) === 'on' && typeof v === 'function') {
           el.addEventListener(k.slice(2).toLowerCase(), v);
+          // 핸들러는 addEventListener 로 붙어서 DOM 에 흔적이 없습니다.
+          // 그래서 "누를 수 있는데 고유번호가 없는 요소"를 아무도 못 잡았습니다.
+          el.setAttribute('data-clickable', '');
         } else { el.setAttribute(k, v === true ? '' : v); }
       });
     }

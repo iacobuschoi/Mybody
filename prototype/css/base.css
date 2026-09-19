@@ -102,6 +102,14 @@ kbd { font-family: ui-monospace, monospace; font-size:.85em; background:var(--su
 
 .main { flex: 1; padding: 16px 16px 96px; }
 
+/* 앱바 컨트롤은 한 손 엄지가 가장 못 닿는 자리에 있다 — 타깃을 키운다 */
+.appbar { min-height: 56px; }
+.appbar__actions .btn,
+.appbar__back {
+  min-width: 40px; min-height: 40px; padding: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+
 .tabbar {
   position: sticky; bottom: 0; z-index: 40;
   display: grid; grid-template-columns: repeat(5, 1fr);
@@ -117,6 +125,11 @@ kbd { font-family: ui-monospace, monospace; font-size:.85em; background:var(--su
   position: relative;
 }
 .tabbar__item .ico { font-size:18px; line-height:1; }
+/* 받은 친구 요청 표시. uid 배지가 top:-5px right:-5px 에 뜨므로 겹치지 않게 아이콘 옆에 둔다 */
+.tabbar__item.has-dot::after {
+  content:''; position:absolute; top:4px; left:50%; margin-left:9px;
+  width:7px; height:7px; border-radius:50%; background: var(--bad);
+}
 .tabbar__item.is-active { color: var(--accent); }
 .tabbar__item:hover { background: var(--surface-2); }
 

@@ -585,6 +585,179 @@
   };
 
   /* M37 친구 끊기 */
+  /* ======================================================================
+   * M27 — 이 친구에게 보낼 것
+   *
+   * 예전에는 P17 이라는 화면이었습니다. 화면이면 노출 바는 위에, 토글은
+   * 2.3화면 아래라 자기 행동이 만든 상태 변화를 볼 수 없었습니다.
+   * 모달이면 루프가 한 자리에서 닫힙니다.
+   * ==================================================================== */
+  M.shareWith = function (friend, onDone) {
+    var BE = global.MB_BACKEND;
+    var me = BE.currentUser();
+    if (!me) return;
+    var body = h('div');
+
+    function draw() {
+      body.textContent = '';
+      var cur = BE.getShare(me.id, friend.id);
+      var snap = global.MB_STORE.weeklySnapshot();
+      var trendOn = cur.weightTrend || cur.smmTrend || cur.bfmTrend;
+
+      BE.SHARE_FIELDS.forEach(function (fl, i) {
+        var on = !!cur[fl.key];
+        // absolute 는 변화량이 하나라도 켜져 있어야 의미가 있습니다.
+        // 백엔드가 이미 그렇게 강제하는데, 지금까지는 조용히 되돌리면서 ok:true 를
+        // 줘서 눌러도 아무 일이 없는 버튼이었습니다. 규칙을 약하게 만드는 게 아니라
+        // 보이게 만듭니다.
+        var locked = fl.key === 'absolute' && !trendOn;
+        var uid = 'M27-F' + ('0' + (i + 1)).slice(-2);
+        var row = h('div.radio-card' + (on ? '.is-on' : ''), {
+          uid: uid, uidLabel: fl.label,
+          style: locked ? { opacity: '.5', cursor: 'not-allowed' } : { cursor: 'pointer' },
+          'aria-disabled': locked ? 'true' : null,
+          onClick: function () {
+            if (locked) {
+              global.MB_UID.toast('체중·골격근·체지방 중 하나를 먼저 켜야 합니다');
+              return;
+            }
+            var before = BE.getShare(me.id, friend.id);
+            BE.setShare(friend.id, keyed(fl.key, !on));
+            var after = BE.getShare(me.id, friend.id);
+            // absolute 연쇄 해제를 말해 줍니다. 마지막 변화량을 끄면 실제 수치도
+            // 같이 꺼지는데, 그걸 안 말하면 이 화면이 진실을 말한다는 계약이 깨집니다.
+            if (before.absolute && !after.absolute && fl.key !== 'absolute') {
+              global.MB_UID.toast('실제 수치까지도 함께 꺼졌습니다');
+            }
+            draw();
+          }
+        }, [
+          h('div', { style: { display: 'flex', justifyContent: 'space-between', gap: '8px' } }, [
+            h('div.radio-card__t', { text: (on ? '✓ ' : '· ') + fl.label }),
+            h('div.card__sub', { text: locked ? '먼저 변화량을 켜세요' : valueOf(fl.key, cur, snap) })
+          ]),
+          h('div.radio-card__d', { text: DESC[fl.key] || '' })
+        ]);
+        body.appendChild(row);
+      });
+
+      body.appendChild(h('div.note', { style: { marginTop: '10px' },
+        text: '끄면 지금까지 보여준 기록까지 상대 화면에서 사라집니다. 켜면 과거 기록도 함께 나타납니다.' }));
+    }
+
+    function keyed(k, v) { var o = {}; o[k] = v; return o; }
+
+    var DESC = {
+      weightTrend: '마지막 인바디와 그 앞 인바디 사이의 변화',
+      smmTrend: '마지막 인바디와 그 앞 인바디 사이의 변화',
+      bfmTrend: '마지막 인바디와 그 앞 인바디 사이의 변화',
+      planProgress: '목표까지 얼마나 왔는지 (%)',
+      streak: '이번 주에 기록을 했는지 여부',
+      absolute: '변화량 대신 실제 숫자로. 켠 항목에만 붙습니다.'
+    };
+
+    function valueOf(key, cur, snap) {
+      if (key === 'streak') return snap.checkedIn ? '이번 주 기록함' : '이번 주 아직';
+      if (key === 'absolute') return cur.absolute ? '켜짐' : '꺼짐';
+      var map = { weightTrend: 'dWeightKg', smmTrend: 'dSmmKg', bfmTrend: 'dBfmKg' };
+      if (key === 'planProgress') return snap.progressPct == null ? '아직 값 없음' : snap.progressPct + '%';
+      var v = snap[map[key]];
+      return v == null ? '아직 값 없음' : UI.sign(v) + 'kg';
+    }
+
+    draw();
+    UI.openModal({
+      uid: 'M27', title: friend.displayName + '님에게 보낼 것',
+      sub: friend.displayName + '님에게만 적용됩니다',
+      body: body,
+      actions: [
+        { label: '전부 끄기', kind: 'danger', uidLabel: '전부 끄기', close: false, onClick: function () {
+            M.stopSharing(friend, function () {
+              var off = {};
+              global.MB_BACKEND.SHARE_FIELDS.forEach(function (x) { off[x.key] = false; });
+              global.MB_BACKEND.setShare(friend.id, off);
+              global.MB_UID.toast(friend.displayName + '님 화면에서 사라졌습니다');
+              draw();
+            });
+            return true;   // M27 은 열어 둡니다 — 확인 모달이 그 위에 뜹니다
+          } },
+        { label: '완료', kind: 'primary', uidLabel: '완료' }
+      ],
+      onClose: function () { if (onDone) onDone(); }
+    });
+  };
+
+  /* ======================================================================
+   * M28 — 항목 하나가 지금 누구에게 나가나
+   * P15 노출 바의 칩에서 열립니다. 자기 노출 상태를 탭 루트에서 한 탭 거리에.
+   * ==================================================================== */
+  M.whoSees = function (fieldKey, onDone) {
+    var BE = global.MB_BACKEND;
+    var me = BE.currentUser();
+    if (!me) return;
+    var fl = BE.SHARE_FIELDS.filter(function (x) { return x.key === fieldKey; })[0];
+    if (!fl) return;
+    var body = h('div');
+
+    function draw() {
+      body.textContent = '';
+      var list = BE.listFriends().accepted.filter(function (r) {
+        return r.iShare.settings[fieldKey];
+      });
+      if (!list.length) {
+        body.appendChild(h('div.empty', [h('div.empty__t', { text: '지금 이 항목을 보는 사람이 없습니다' })]));
+        return;
+      }
+      list.forEach(function (r, i) {
+        body.appendChild(h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px',
+          padding: '8px 0', borderBottom: '1px solid var(--border)' } }, [
+          h('div', { style: { flex: '1', fontWeight: '700' }, text: r.displayName }),
+          h('button.btn.btn--sm', { text: '끄기',
+            uid: 'M28-B10#' + (i + 1), uidLabel: '끄기 ' + (i + 1),
+            onClick: function () {
+              var o = {}; o[fieldKey] = false;
+              BE.setShare(r.id, o);
+              global.MB_UID.toast(r.displayName + '님 화면에서 사라졌습니다');
+              draw();
+            } })
+        ]));
+      });
+      body.appendChild(h('div.muted', { style: { marginTop: '8px' },
+        text: '사람별로 정하려면 친구를 열어 주세요.' }));
+    }
+
+    draw();
+    UI.openModal({
+      uid: 'M28', title: fl.label + ' — 지금 보는 사람',
+      body: body,
+      actions: [
+        { label: '이 항목 전부 끄기', kind: 'danger', uidLabel: '이 항목 전부 끄기', close: false,
+          onClick: function () {
+            var targets = BE.listFriends().accepted.filter(function (r) {
+              return r.iShare.settings[fieldKey];
+            });
+            if (!targets.length) return true;
+            UI.openModal({
+              uid: 'M39', title: fl.label + '을 모두 끌까요?',
+              body: h('div', { text: targets.map(function (r) { return r.displayName; }).join('·') +
+                '님 화면에서 바로 사라집니다. 지금까지 보여준 기록도 함께 사라집니다.' }),
+              actions: [{ label: '취소', kind: 'ghost' },
+                        { label: '모두 끄기', kind: 'danger', onClick: function () {
+                            targets.forEach(function (r) {
+                              var o = {}; o[fieldKey] = false; BE.setShare(r.id, o);
+                            });
+                            global.MB_UID.toast(fl.label + '을 전부 껐습니다');
+                            draw();
+                          } }]
+            });
+            return true;   // M28 은 열어 둡니다
+          } },
+        { label: '닫기', uidLabel: '닫기' }
+      ],
+      onClose: function () { if (onDone) onDone(); }
+    });
+  };
+
   M.removeFriend = function (friend, onConfirm) {
     UI.openModal({
       uid: 'M37', title: friend.displayName + '님과 친구를 끊을까요?',

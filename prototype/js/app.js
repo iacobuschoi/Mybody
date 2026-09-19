@@ -21,10 +21,36 @@
     { uid: 'P00-N02', ico: '🍚', label: '식단',  to: 'P18' },
     { uid: 'P00-N03', ico: '📋', label: '플랜',  to: 'P07' },
     { uid: 'P00-N04', ico: '📈', label: '추이',  to: 'P09' },
-    { uid: 'P00-N05', ico: '⚙️', label: '설정',  to: 'P12' }
+    // 설정은 앱바 톱니(P00-B03)로 옮겼습니다. 다섯 칸을 유지하는 이유:
+    // 여섯 번째를 넣으면 탭바가 두 줄로 접혀 높이가 두 배가 되고,
+    // iOS 는 5개를 넘기면 뒤쪽을 More 로 숨깁니다.
+    // 번호는 N05 가 아니라 N06 입니다 — 사용자가 N05 에 달아둔 피드백 메모가
+    // 조용히 엉뚱한 요소를 가리키면 안 됩니다.
+    { uid: 'P00-N06', ico: '👥', label: '친구',  to: 'P15' }
   ];
 
   function register(id, def) { screens[id] = def; }
+
+  /* 받은 친구 요청이 있으면 친구 탭에 점을 켭니다.
+     지금까지 받은 요청은 설정 안 카드에만 떠서, 설정에 들어가 보기 전까지
+     몰랐고 상대는 무한정 기다렸습니다.
+
+     반드시 자체 try/catch 로 감쌉니다 — listFriends() 의 첫 줄이
+     requireUser() 라 로그아웃 상태에서 던지는데, 그게 신규 설치의 기본
+     상태입니다. 여기서 던지면 render() 뒷부분(앱바 제목·뒤로가기·탭 활성화·
+     고유번호 배지 스캔)이 모든 화면에서 멈춥니다.
+
+     점은 받은 친구 요청(관계)에만 켭니다. 내 몸 데이터를 보여달라는 요청에
+     빨간 점을 다는 건 압박입니다. 이 구분이 압박의 상한선입니다. */
+  function updateTabDot() {
+    var n = 0;
+    try {
+      var BE = global.MB_BACKEND;
+      if (BE && BE.currentUser()) n = BE.listFriends().incoming.length;
+    } catch (e) { n = 0; }
+    var el = document.querySelector('.tabbar__item[data-to="P15"]');
+    if (el) el.classList.toggle('has-dot', n > 0);
+  }
 
   /* --- 셸 ---------------------------------------------------------------- */
   function buildShell() {
@@ -37,6 +63,8 @@
           UI.h('div.appbar__sub', { id: 'appbar-sub' })
         ]),
         UI.h('div.appbar__actions', [
+          UI.h('button.btn.btn--ghost.btn--sm', { text: '⚙️', uid: 'P00-B03', uidLabel: '설정',
+            title: '설정', 'aria-label': '설정', onClick: function () { go('P12'); } }),
           UI.h('button.btn.btn--ghost.btn--sm', { text: '?', uid: 'P00-B02', uidLabel: '단축키 도움말',
             title: '단축키 (?)', onClick: function () { global.MB_UID.showHelp(); } })
         ])
@@ -82,7 +110,10 @@
     var main = document.getElementById('main');
     UI.clear(main);
 
-    var wrap = UI.h('div.screen.is-active', { uid: current, uidLabel: def.label || def.title });
+    var wrap = UI.h('div.screen.is-active', {
+      uid: current,
+      uidLabel: def.label || (typeof def.title === 'string' ? def.title : current)
+    });
     try {
       def.render(wrap, { params: params, go: go, back: back, state: S.get() });
     } catch (e) {
@@ -91,7 +122,13 @@
     }
     main.appendChild(wrap);
 
-    document.getElementById('appbar-title').textContent = def.title || 'Mybody';
+    /* title 이 함수면 params 로 부릅니다. 화면이 레지스트리 객체의 title 을
+       직접 덮어쓰던 방식은, 없는 친구로 들어갔을 때 앱바에 이전 친구 이름이
+       남는 버그를 만들었습니다. */
+    try {
+      var t = (typeof def.title === 'function') ? def.title(params) : def.title;
+      document.getElementById('appbar-title').textContent = t || 'Mybody';
+    } catch (e) { document.getElementById('appbar-title').textContent = 'Mybody'; }
     document.getElementById('appbar-sub').textContent = def.sub || '';
     document.getElementById('appbar-back').style.visibility = history.length ? 'visible' : 'hidden';
 
@@ -101,6 +138,7 @@
     }
     document.querySelector('.tabbar').style.display = def.hideTabs ? 'none' : '';
 
+    updateTabDot();
     global.MB_UID.scan(main);
   }
 
