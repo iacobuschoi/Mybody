@@ -444,20 +444,42 @@ function makeApi(db) {
       return { ok: true, rows, allowed: s };
     },
 
+    /* 한 번에 받을 수 있는 레코드 수.
+       클라이언트 큐 상한이 500 이라 넉넉합니다. 상한이 없으면 2MB
+       본문에 수만 건을 담아 보낼 수 있고, node:sqlite 는 동기라서
+       그동안 서버 전체가 — 다른 사람의 로그인까지 — 멈춥니다.
+       노드는 스레드가 하나입니다. */
+    PUSH_MAX: 1000,
+
     push(me, records) {
       if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다', accepted: 0, rejected: [] };
+      const list = Array.isArray(records) ? records : [];
+      if (list.length > this.PUSH_MAX) {
+        return { ok: false, reason: '한 번에 ' + this.PUSH_MAX + '건까지 보낼 수 있습니다',
+                 accepted: 0, rejected: [], max: this.PUSH_MAX };
+      }
       let n = 0;
       const rejected = [];
-      for (const r of records || []) {
-        if (!r || !r.kind || !r.id || !r.updatedAt) { rejected.push({ id: r && r.id, why: '필수 필드 누락' }); continue; }
-        // updatedAt 을 검증하고 정규화합니다. 예전엔 'zzzz' 같은 값이 그대로 저장됐고,
-        // 그게 모든 ISO 문자열보다 큰 값이라 커서가 그 위로 올라가면
-        // 그 계정의 동기화가 영구히 멈췄습니다.
-        const t = Date.parse(r.updatedAt);
-        if (!Number.isFinite(t)) { rejected.push({ id: r.id, why: 'updatedAt 이 날짜가 아닙니다' }); continue; }
-        q.upsertRecord.run(me, String(r.kind), String(r.id), new Date(t).toISOString(),
-                           r.deleted ? 1 : 0, JSON.stringify(r.payload || {}));
-        n++;
+      /* 하나씩 커밋하면 건당 디스크 동기화가 일어납니다. 500건이면
+         500번입니다. 트랜잭션으로 묶으면 한 번이고, 중간에 실패해도
+         반쯤 들어간 상태가 남지 않습니다. */
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        for (const r of list) {
+          if (!r || !r.kind || !r.id || !r.updatedAt) { rejected.push({ id: r && r.id, why: '필수 필드 누락' }); continue; }
+          // updatedAt 을 검증하고 정규화합니다. 예전엔 'zzzz' 같은 값이 그대로 저장됐고,
+          // 그게 모든 ISO 문자열보다 큰 값이라 커서가 그 위로 올라가면
+          // 그 계정의 동기화가 영구히 멈췄습니다.
+          const t = Date.parse(r.updatedAt);
+          if (!Number.isFinite(t)) { rejected.push({ id: r.id, why: 'updatedAt 이 날짜가 아닙니다' }); continue; }
+          q.upsertRecord.run(me, String(r.kind), String(r.id), new Date(t).toISOString(),
+                             r.deleted ? 1 : 0, JSON.stringify(r.payload || {}));
+          n++;
+        }
+        db.exec('COMMIT');
+      } catch (e) {
+        try { db.exec('ROLLBACK'); } catch {}
+        throw e;
       }
       return { ok: true, accepted: n, rejected: rejected };
     },

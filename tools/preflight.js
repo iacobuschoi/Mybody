@@ -32,6 +32,8 @@ const CHECKS = [
     why: '안 켠 항목이 친구에게 새면 돌이킬 수 없습니다' },
   { id: '판독 프록시', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-ocr.js'],
     why: '모델이 내놓은 헛소리가 그대로 저장되면 안 됩니다' },
+  { id: '서버 굳히기', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-hardening.js'],
+    why: '인터넷에 여는 서버입니다 — 경로 탈출 하나면 옆 폴더가 통째로 열립니다' },
   { id: '고유번호', level: 'BLOCK', slow: false, cmd: ['node', 'tools/uid-registry.js'],
     why: '번호가 겹치면 남겨둔 피드백 메모가 엉뚱한 곳에 붙습니다' },
   { id: '장기 시뮬레이션', level: 'BLOCK', slow: false, cmd: ['node', 'tools/simulate.js'],

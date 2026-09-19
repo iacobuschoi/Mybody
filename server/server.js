@@ -58,16 +58,44 @@ function idParam(v) {
 const db = open(DB_FILE);
 const api = makeApi(db);
 
-/* --- 간단한 속도 제한: 인터넷에 열어두면 반드시 필요합니다 ---------------- */
+/* --- 속도 제한 ---------------------------------------------------------------
+ *
+ * 누가 누구인지: 소켓 주소를 씁니다. 그런데 README 가 권하는
+ * Cloudflare Tunnel 뒤에서는 그 주소가 전부 127.0.0.1 입니다 —
+ * 모든 사용자가 한 버킷을 나눠 쓰게 되고, 친구 셋이 동시에 앱을
+ * 열면 서로를 막습니다.
+ *
+ * x-forwarded-for 를 그냥 믿으면 아무나 헤더 한 줄로 제한을 피합니다.
+ * 그래서 TRUST_PROXY=1 을 켠 사람만 믿습니다. 터널이나 리버스
+ * 프록시를 쓰는 사람이 직접 켜는 것이고, 안 켜면 지금처럼 동작합니다.
+ */
+const TRUST_PROXY = process.env.TRUST_PROXY === '1';
+
+function clientIp(req) {
+  if (TRUST_PROXY) {
+    const xff = req.headers['x-forwarded-for'];
+    if (xff) return String(xff).split(',')[0].trim();
+  }
+  return req.socket.remoteAddress || 'unknown';
+}
+
+/* 분당 허용 요청 수. LAN 안에서만 쓰거나 검증 도구를 돌릴 때 올립니다.
+   인터넷에 열 때는 기본값 그대로 두세요. */
+const RATE_MAX = Number(process.env.RATE_MAX || 300);
+
 const hits = new Map();
 function rateLimited(ip) {
   const now = Date.now();
-  const win = 60_000, max = 300;
+  const win = 60_000, max = RATE_MAX;
   const rec = hits.get(ip) || { t: now, n: 0 };
   if (now - rec.t > win) { rec.t = now; rec.n = 0; }
   rec.n++;
   hits.set(ip, rec);
-  if (hits.size > 5000) hits.clear();
+  // 통째로 비우면 지금 제한에 걸려 있던 사람까지 풀려납니다.
+  // 지난 것만 골라 버립니다.
+  if (hits.size > 5000) {
+    for (const [k, v] of hits) { if (now - v.t > win) hits.delete(k); }
+  }
   return rec.n > max;
 }
 
@@ -97,6 +125,36 @@ async function runOcr(body) {
 const loginFails = new Map();
 const LOGIN = { max: 8, windowMs: 15 * 60_000 };
 
+/* 로그인만 따로, 더 빡빡하게 셉니다.
+ *
+ * 비밀번호 확인은 scrypt 입니다 — 건당 약 46ms 를 씁니다. 느린 것이
+ * 의도고, 그래서 무차별 대입이 어렵습니다. 그런데 노드는 스레드가
+ * 하나라 그 46ms 동안 서버 전체가 멈춥니다. 로그인도 안 한 사람이
+ * 요청을 쏟아부으면 서버가 그냥 묶입니다 — 검증 도구로 5400번을
+ * 보내 봤더니 4분이 넘게 걸렸습니다.
+ *
+ * 일반 제한(분당 300)으로는 모자랍니다. 300 × 46ms = 14초입니다.
+ * 로그인·가입은 IP 당 분당 20번이면 사람이 쓰기에 충분하고, 그 위는
+ * scrypt 를 돌리기 전에 잘라냅니다. 아이디별 잠금(8번/15분)은 그대로
+ * 남아서 한 계정을 여러 IP 로 때리는 것을 막습니다. */
+const AUTH_MAX = Number(process.env.AUTH_MAX || 20);
+/* 실패 기록 맵의 상한. 검증 도구가 이걸 작게 줄여서, scrypt 를 5000번
+   돌리지 않고도 "상한을 넘겼을 때 잠금이 풀리는가" 를 확인합니다. */
+const LOGIN_MAP_MAX = Number(process.env.LOGIN_MAP_MAX || 5000);
+const authHits = new Map();
+
+function authLimited(ip) {
+  const now = Date.now(), win = 60_000;
+  const rec = authHits.get(ip) || { t: now, n: 0 };
+  if (now - rec.t > win) { rec.t = now; rec.n = 0; }
+  rec.n++;
+  authHits.set(ip, rec);
+  if (authHits.size > 5000) {
+    for (const [k, v] of authHits) { if (now - v.t > win) authHits.delete(k); }
+  }
+  return rec.n > AUTH_MAX;
+}
+
 function loginBlocked(handle) {
   const rec = loginFails.get(handle);
   if (!rec) return 0;
@@ -108,7 +166,34 @@ function noteLoginFail(handle) {
   if (Date.now() - rec.t > LOGIN.windowMs) { rec.t = Date.now(); rec.n = 0; }
   rec.n++;
   loginFails.set(handle, rec);
-  if (loginFails.size > 5000) loginFails.clear();
+  /* 맵이 넘칠 때 무엇을 버리는가 — 여기가 공격 지점입니다.
+   *
+   * 처음엔 loginFails.clear() 였습니다. 아무 아이디로 5000번을 흘리면
+   * 맵이 통째로 비워지고 진짜 계정의 잠금까지 풀렸습니다.
+   *
+   * 그래서 "가장 오래된 것부터" 로 바꿨는데, 그게 더 나빴습니다.
+   * 공격자가 밀어 넣는 쓰레기는 전부 방금 만들어진 최신 기록이고,
+   * 지키려던 잠금은 조금 전에 생긴 오래된 기록입니다. 정확히 지켜야
+   * 할 것부터 버리게 됩니다. 5000번이 필요하던 공격이 상한+1 번으로
+   * 싸졌습니다.
+   *
+   * 지금 규칙: 잠겨 있는 기록(n >= max)은 만료되기 전까지 버리지
+   * 않습니다. 만료된 것 → 아직 안 잠긴 것 순으로 버리고, 그래도
+   * 자리가 없으면 새 기록을 아예 안 받습니다. 안 받아도 손해가
+   * 없습니다 — 추적 안 되는 아이디는 원래 주는 8번을 받을 뿐입니다.
+   */
+  if (loginFails.size > LOGIN_MAP_MAX) {
+    const now = Date.now();
+    for (const [k, v] of loginFails) {
+      if (now - v.t > LOGIN.windowMs) loginFails.delete(k);
+    }
+    for (const [k, v] of loginFails) {
+      if (loginFails.size <= LOGIN_MAP_MAX) break;
+      if (k !== handle && v.n < LOGIN.max) loginFails.delete(k);
+    }
+    // 전부 잠긴 기록뿐이면 지금 것을 도로 뺍니다 — 남의 잠금을 밀어내지 않습니다.
+    if (loginFails.size > LOGIN_MAP_MAX && rec.n < LOGIN.max) loginFails.delete(handle);
+  }
 }
 function clearLoginFails(handle) { loginFails.delete(handle); }
 
@@ -170,6 +255,7 @@ function bearer(req) {
 
 /* --- 라우팅 --------------------------------------------------------------- */
 async function handleApi(req, res, url) {
+  const reqIp = clientIp(req);
   const p = url.pathname.replace(/^\/api/, '') || '/';
   const method = req.method;
 
@@ -178,6 +264,11 @@ async function handleApi(req, res, url) {
   /* 계정 만들기 — 페어링 비밀이 필요합니다.
      이 서버는 주인 것이지 공개 가입 서비스가 아닙니다. 비밀을 아는 사람만
      계정을 만들 수 있고, 그 비밀은 주인이 초대하고 싶은 사람에게만 줍니다. */
+  if ((p === '/auth/signup' || p === '/auth/signin') && method === 'POST' && authLimited(reqIp)) {
+    // scrypt 를 돌리기 전에 잘라냅니다 — 비싼 것은 그 다음 줄입니다.
+    return send(res, 429, { ok: false, reason: '로그인 시도가 너무 잦습니다. 잠시 뒤에 다시 해 주세요' });
+  }
+
   if (p === '/auth/signup' && method === 'POST') {
     const b = await readBody(req);
     if (!pairOk(b.pairSecret)) {
@@ -269,7 +360,11 @@ async function handleApi(req, res, url) {
   }
 
   if (p === '/sync/push' && method === 'POST') {
-    const b = await readBody(req); return send(res, 200, api.push(me, b.records));
+    const b = await readBody(req);
+    const r = api.push(me, b.records);
+    // 거절이면 200 으로 보내면 안 됩니다 — 클라이언트가 성공으로 읽고
+    // 큐에서 지워 버립니다.
+    return send(res, r.ok ? 200 : 400, r);
   }
   if (p === '/sync/pull' && method === 'GET') {
     return send(res, 200, api.pull(me, url.searchParams.get('since') || '',
@@ -300,11 +395,33 @@ async function handleApi(req, res, url) {
   return send(res, 404, { ok: false, reason: '그런 경로가 없습니다' });
 }
 
+/* 정적 파일 내보내기.
+ *
+ * 경계 검사가 file.startsWith(STATIC_DIR) 이었습니다. 구분자가 없어서
+ * STATIC_DIR 이 /srv/webroot 이면 /srv/webroot-x/z.txt 가 통과했습니다.
+ * 이름이 접두사로 겹치는 형제 디렉터리가 그대로 열렸습니다 —
+ * prototype 과 prototype-old 같은 조합이면 바로 새어 나갑니다.
+ *
+ * 이제 양쪽을 resolve 해서 절대경로로 만들고, 뒤에 구분자를 붙여
+ * 비교합니다. 그러면 /srv/webroot- 로 시작하는 것은 안 걸립니다.
+ * %2e%2e%2f 류는 path.join 이 정규화한 뒤 이 검사에 걸립니다. */
+const STATIC_ROOT = path.resolve(STATIC_DIR);
+
+function insideRoot(file) {
+  const f = path.resolve(file);
+  return f === STATIC_ROOT || f.startsWith(STATIC_ROOT + path.sep);
+}
+
 function serveStatic(req, res, url) {
-  let rel = decodeURIComponent(url.pathname);
+  let rel;
+  try { rel = decodeURIComponent(url.pathname); }
+  catch (e) { return send(res, 400, 'bad path', { 'Content-Type': 'text/plain; charset=utf-8' }); }
   if (rel === '/') rel = '/index.html';
-  const file = path.join(STATIC_DIR, rel);
-  if (!file.startsWith(STATIC_DIR) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
+  if (rel.indexOf('\0') >= 0) {
+    return send(res, 400, 'bad path', { 'Content-Type': 'text/plain; charset=utf-8' });
+  }
+  const file = path.join(STATIC_ROOT, rel);
+  if (!insideRoot(file) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) {
     return send(res, 404, 'not found', { 'Content-Type': 'text/plain; charset=utf-8' });
   }
   send(res, 200, fs.readFileSync(file),
@@ -312,8 +429,13 @@ function serveStatic(req, res, url) {
 }
 
 const server = http.createServer(async (req, res) => {
-  const ip = req.socket.remoteAddress || 'unknown';
-  if (rateLimited(ip)) return send(res, 429, { ok: false, reason: '요청이 너무 많습니다' });
+  const ip = clientIp(req);
+  /* 정적 파일은 제한에서 뺍니다. 앱 하나가 <script> 30개를 부르는데,
+     그걸 세면 앱을 한 번 여는 것만으로 분당 제한의 10%를 씁니다 —
+     터널 뒤에서 모두가 한 버킷일 때는 앱이 아예 안 열렸습니다.
+     비싼 것은 /api 이고, 정적 파일은 서비스워커가 캐시합니다. */
+  const isApi = req.url.startsWith('/api/') || req.url.split('?')[0] === '/health';
+  if (isApi && rateLimited(ip)) return send(res, 429, { ok: false, reason: '요청이 너무 많습니다' });
   if (req.method === 'OPTIONS') return send(res, 204, '');
   const url = new URL(req.url, 'http://localhost');
   try {

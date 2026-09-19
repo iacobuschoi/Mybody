@@ -152,11 +152,43 @@
     snapshot:     function (a) { return api('/snapshots', { method: 'POST', body: { weekStart: a.weekStart, payload: a.payload } }); }
   };
 
+  var QUEUE_MAX = 500;
+
   function enqueue(op, args) {
     if (!cfg.token) return;          // 로그인 안 했으면 서버에 보낼 것이 없습니다
     if (!OPS[op]) { console.warn('알 수 없는 동기화 작업:', op); return; }
+
+    /* 같은 주 스냅샷은 겹쳐 쌓지 않습니다.
+     *
+     * store.save() 가 저장할 때마다 publishWeekly() 를 부르고, 그게
+     * snapshot 작업을 큐에 넣습니다. 검수 화면에서 숫자 몇 개를 고치면
+     * 같은 주에 대한 똑같은 작업이 수십 개 쌓였습니다. 서버는 같은
+     * weekStart 를 덮어쓰므로 마지막 하나만 의미가 있습니다.
+     *
+     * 오프라인에서 이게 왜 위험했냐면 — 큐가 500 을 넘으면 shift() 로
+     * 제일 오래된 것부터 버렸습니다. 제일 오래된 것은 사용자가 실제로
+     * 한 일(친구 수락 · 공유 켜기)이고, 쌓인 쪽은 전부 같은 스냅샷의
+     * 복사본이었습니다. 중요한 걸 버리고 쓸모없는 걸 지킨 셈입니다. */
+    if (op === 'snapshot') {
+      for (var i = cfg.queue.length - 1; i >= 0; i--) {
+        var j = cfg.queue[i];
+        if (j.op === 'snapshot' && j.args && args && j.args.weekStart === args.weekStart) {
+          cfg.queue.splice(i, 1);
+        }
+      }
+    }
+
     cfg.queue.push({ op: op, args: args, at: Date.now() });
-    if (cfg.queue.length > 500) cfg.queue.shift();
+
+    /* 그래도 넘치면, 버리는 순서를 정합니다.
+       스냅샷은 다음 저장 때 다시 만들어지지만 친구 수락은 안 그렇습니다. */
+    while (cfg.queue.length > QUEUE_MAX) {
+      var drop = -1;
+      for (var k = 0; k < cfg.queue.length - 1; k++) {
+        if (cfg.queue[k].op === 'snapshot') { drop = k; break; }
+      }
+      cfg.queue.splice(drop >= 0 ? drop : 0, 1);
+    }
     saveCfg(cfg); emit();
     flush();
   }
