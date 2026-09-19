@@ -86,6 +86,13 @@
   }
 
   function attachBadge(el) {
+    /* 배포 빌드에서는 배지를 아예 만들지 않습니다.
+       처음엔 CSS 로 숨기려 했는데, 배포본에서 uid.css 를 빼고 나니
+       숨길 것이 없어져서 배지 14개가 스타일 없이 그대로 떴습니다.
+       "만들고 숨기기" 는 숨기는 쪽이 하나만 빠져도 드러납니다.
+       data-uid 속성 자체는 그대로 둡니다 — 검증 도구가 배포 빌드에서도
+       똑같이 돌아야 하니까요. */
+    if (!TOOLS) return null;
     if (el.__uidBadge && el.__uidBadge.isConnected) return el.__uidBadge;
     var uid = el.getAttribute('data-uid');
     if (!uid) return null;
@@ -436,6 +443,7 @@
   /* --- 부팅 -------------------------------------------------------------- */
   function init() {
     loadPrefs(); loadNotes();
+    if (!TOOLS) return;          // 도크도 단축키도 배포 빌드에는 없습니다
     buildDock();
     document.addEventListener('click', onCaptureClick, true);
     document.addEventListener('keydown', onKeydown);

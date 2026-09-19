@@ -23,7 +23,9 @@ const fs = require('fs');
 const path = require('path');
 
 const DIR = process.env.OUT || path.join(__dirname, '..', 'release');
-const PORT = Number(process.env.PORT || 8761);
+/* 포트를 0 으로 열면 커널이 빈 포트를 줍니다. 고정 포트를 쓰면
+   검증 도구 두 개를 같이 돌릴 때 서로를 막습니다 — 실제로 막혔습니다. */
+let PORT = Number(process.env.PORT || 0);
 const CHROME = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -54,6 +56,7 @@ const DEV_UIDS = ['P02-B02', 'P03-B03', 'P03-B09', 'P12-C05', 'P12-B07', 'P12-B0
 (async () => {
   if (!fs.existsSync(DIR)) { console.error('release/ 가 없습니다. 먼저 node tools/build-release.js'); process.exit(1); }
   await new Promise(r => server.listen(PORT, r));
+  PORT = server.address().port;
   const browser = await chromium.launch({ executablePath: CHROME });
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await ctx.newPage();

@@ -65,11 +65,32 @@ all.forEach(rel => {
 /* --- 2. 빌드 플래그 -------------------------------------------------------- */
 const V = version();
 const NOW = new Date().toISOString();
+
+/* 속성만 정확히 집어서 바꿉니다.
+ *
+ * 처음엔 /release:\s*false/ 를 그냥 치환했는데, 이 파일 머리 주석에
+ * "개발 빌드 (release: false)" 라는 설명이 있어서 그쪽이 먼저 바뀌었습니다.
+ * 진짜 플래그는 false 로 남았고, 뒤이은 /release:\s*true/ 검사는 방금
+ * 바뀐 그 주석을 보고 통과했습니다. 빌드는 "통과" 라고 말했고 배포본에는
+ * 고유번호 배지가 전부 떠 있었습니다.
+ *
+ * 그래서 두 가지를 바꿨습니다.
+ *   (가) 들여쓰기까지 포함해 속성 줄만 집는다
+ *   (나) 바뀌었는지를 정규식으로 묻지 않고, 만든 파일을 실제로 실행해서
+ *        MB_BUILD.release 를 읽어 본다
+ * 그렇게 적혀 있나를 보는 것은 확인이 아닙니다. */
 const buildJs = fs.readFileSync(path.join(SRC, 'js/build.js'), 'utf8')
-  .replace(/release:\s*false/, 'release: true')
-  .replace(/version:\s*'dev'/, `version: ${JSON.stringify(V)}`)
-  .replace(/builtAt:\s*null/, `builtAt: ${JSON.stringify(NOW)}`);
-if (!/release:\s*true/.test(buildJs)) throw new Error('build.js 의 release 플래그를 못 바꿨습니다');
+  .replace(/^(\s*)release:\s*false,$/m, '$1release: true,')
+  .replace(/^(\s*)version:\s*'dev',$/m, `$1version: ${JSON.stringify(V)},`)
+  .replace(/^(\s*)builtAt:\s*null,$/m, `$1builtAt: ${JSON.stringify(NOW)},`);
+
+const probe = { MB_BUILD: null };
+new Function('window', buildJs)(probe);
+if (!probe.MB_BUILD) throw new Error('build.js 가 MB_BUILD 를 만들지 않습니다');
+if (probe.MB_BUILD.release !== true) throw new Error('배포 플래그가 켜지지 않았습니다');
+if (probe.MB_BUILD.tools !== false) throw new Error('개발 도구 플래그가 꺼지지 않았습니다');
+if (probe.MB_BUILD.version !== V) throw new Error('버전이 안 박혔습니다');
+if (!probe.MB_BUILD.builtAt) throw new Error('빌드 시각이 안 박혔습니다');
 fs.writeFileSync(path.join(OUT, 'js/build.js'), buildJs);
 
 /* --- 3. index.html ------------------------------------------------------- */

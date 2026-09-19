@@ -32,7 +32,9 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = path.join(__dirname, '..', 'prototype');
-const PORT = Number(process.env.PORT || 8751);
+/* 포트를 0 으로 열면 커널이 빈 포트를 줍니다. 고정 포트를 쓰면
+   검증 도구 두 개를 같이 돌릴 때 서로를 막습니다 — 실제로 막혔습니다. */
+let PORT = Number(process.env.PORT || 0);
 const CHROME = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 const OUT = process.env.SHOT_DIR || path.join(__dirname, '.shots');
 fs.mkdirSync(OUT, { recursive: true });
@@ -140,6 +142,7 @@ const onlyScreens = (process.env.ONLY || '').split(',').filter(Boolean);
 
 (async () => {
   await new Promise(r => server.listen(PORT, r));
+  PORT = server.address().port;
   const browser = await chromium.launch({ executablePath: CHROME });
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await ctx.newPage();
@@ -182,6 +185,21 @@ const onlyScreens = (process.env.ONLY || '').split(',').filter(Boolean);
       }
       screensSeen++;
 
+      /* 접혀 있는 카드 안의 입력은 크기가 0이라 눌러볼 수가 없습니다.
+         접힌 채로 두면 P04 의 체수분·단백질·무기질 같은 칸이 한 번도
+         검사되지 않습니다 — 안 본 것을 통과로 세면 안 됩니다. */
+      await page.evaluate(() => {
+        document.querySelectorAll('#main [data-uid]').forEach(e => {
+          const t = (e.innerText || '');
+          if (e.tagName === 'BUTTON' && /펼치기|접기|더 보기|자세히/.test(t)) {
+            const box = e.closest('.card') || document;
+            const hidden = [...box.querySelectorAll('input')].some(i => !i.offsetParent);
+            if (hidden) e.click();
+          }
+        });
+      });
+      await page.waitForTimeout(220);
+
       const shape = await page.evaluate(() => {
         const main = document.getElementById('main');
         const txt = (main.innerText || '').replace(/\s+/g, ' ').trim();
@@ -222,6 +240,23 @@ const onlyScreens = (process.env.ONLY || '').split(',').filter(Boolean);
         await restore(page, snapshot);
         const back = await goTo(page, sid);
         if (!back.ok) break;
+        await page.evaluate(() => {
+          document.querySelectorAll('#main button[data-uid]').forEach(e => {
+            const t = (e.innerText || '');
+            if (/펼치기|접기|더 보기|자세히/.test(t)) {
+              const box = e.closest('.card') || document;
+              if ([...box.querySelectorAll('input')].some(i => !i.offsetParent)) e.click();
+            }
+          });
+        });
+        await page.waitForTimeout(160);
+
+        // 이미 선택된 탭·칩을 누르면 아무 일도 안 일어나는 게 맞습니다.
+        const alreadyOn = await page.evaluate(u => {
+          const e = document.querySelector('#main [data-uid="' + CSS.escape(u) + '"]');
+          return !!e && (e.classList.contains('is-on') || e.classList.contains('is-active') ||
+                         e.getAttribute('aria-selected') === 'true');
+        }, el.uid);
 
         const before = await snapshotUi(page);
         errors = [];
@@ -240,11 +275,11 @@ const onlyScreens = (process.env.ONLY || '').split(',').filter(Boolean);
           continue;
         }
 
-        const changed = before.screen !== after.screen || before.modal !== after.modal ||
-                        before.html !== after.html || after.toast !== before.toast;
-        if (!changed) {
-          found('무반응', `${key}/${sid}/${el.uid}`,
-                '눌러도 화면 · 모달 · 토스트 · 본문이 전혀 안 바뀝니다', { label: el.label });
+        if (!reacted(before, after)) {
+          if (!alreadyOn) {
+            found('무반응', `${key}/${sid}/${el.uid}`,
+                  '눌러도 화면 · 모달 · 토스트 · 본문 · 포커스가 전혀 안 바뀝니다', { label: el.label });
+          }
           continue;
         }
 
@@ -383,21 +418,45 @@ async function restore(page, snap) {
   await page.waitForTimeout(120);
 }
 
+/* 무엇을 "반응" 으로 볼 것인가.
+ *
+ * 처음엔 본문 앞 400자만 비교했는데, 그러면 화면 아래쪽이 바뀌는 버튼이
+ * 전부 "무반응" 으로 찍혔습니다. 46건이 나왔고 그중 진짜는 몇 개뿐이라,
+ * 목록 자체를 안 보게 되는 상태였습니다. 거짓 경보가 많은 검사는 검사가
+ * 아닙니다.
+ *
+ * 그래서 사람이 "뭔가 일어났다" 고 느끼는 것을 전부 셉니다:
+ *   화면 이동 · 모달 · 토스트 · 본문 변화(전체) · 포커스 이동 ·
+ *   입력값 변화 · 선택 상태 변화(탭/칩)
+ * 포커스 이동이 특히 중요합니다 — "체중 입력하러 가기" 같은 버튼은
+ * 하는 일이 포커스를 옮기는 것뿐입니다. */
 async function snapshotUi(page) {
   return page.evaluate(() => {
     const main = document.getElementById('main');
     /* 떠오르는 것이 .modal 만 있는 게 아닙니다 — 단축키 도움말과 메모
-       입력은 .uid-note-backdrop 이라는 자기 레이어를 씁니다. 이걸 안 보면
-       멀쩡히 동작하는 버튼이 "무반응" 으로 찍힙니다. */
+       입력은 .uid-note-backdrop 이라는 자기 레이어를 씁니다. */
     const over = document.querySelector('.modal, .uid-note-backdrop, [role="dialog"]');
+    const a = document.activeElement;
+    let h = 0;
+    const txt = (main.innerText || '') + '|' + (main.innerHTML || '').length;
+    for (let i = 0; i < txt.length; i++) { h = ((h << 5) - h + txt.charCodeAt(i)) | 0; }
     return {
       screen: window.MB_APP.current,
       modal: !!over,
-      overClass: over ? over.className : '',
       toast: (document.querySelector('.toast') || {}).textContent || '',
-      html: (main.innerHTML || '').length + ':' + (main.innerText || '').slice(0, 400)
+      body: h,
+      focus: a ? (a.getAttribute('data-uid') || a.tagName + ':' + (a.className || '')) : '',
+      values: [...main.querySelectorAll('input, select, textarea')]
+        .map(e => (e.getAttribute('data-uid') || '') + '=' + (e.value || '')).join('|'),
+      on: [...main.querySelectorAll('.is-on, .is-active, [aria-selected="true"]')]
+        .map(e => e.getAttribute('data-uid') || e.className).join('|')
     };
   });
+}
+
+function reacted(a, b) {
+  return a.screen !== b.screen || a.modal !== b.modal || a.toast !== b.toast ||
+         a.body !== b.body || a.focus !== b.focus || a.values !== b.values || a.on !== b.on;
 }
 
 async function clickUid(page, uid, tag, type) {
