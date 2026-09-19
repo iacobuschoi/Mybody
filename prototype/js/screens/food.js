@@ -6,6 +6,97 @@
   function F() { return global.MB_FOOD; }
 
   var MEALS = ['아침', '점심', '저녁', '간식'];
+
+  /* ---------------------------------------------------------------------- */
+  /* 뭘 먹을까 — 남은 단백질을 실제 음식으로 번역                            */
+  /* ---------------------------------------------------------------------- */
+  function suggestCard(remainP, remainK, date) {
+    var SG = global.MB_SUGGEST;
+    var mode = 'snack';
+    var card = h('div.card', { uid: 'P18-C10', uidLabel: '뭘 먹을까' });
+    var body = h('div');
+
+    var tabs = h('div.chips', { style: { marginBottom: '10px' } }, [
+      chip('간식', 'snack', 'P18-B10'), chip('한 끼', 'meal', 'P18-B11')
+    ]);
+    function chip(label, key, uid) {
+      return h('button.chip' + (key === mode ? '.is-on' : ''), {
+        text: label, uid: uid, uidLabel: label + ' 추천',
+        onClick: function () {
+          mode = key;
+          tabs.querySelectorAll('.chip').forEach(function (x, i) {
+            x.classList.toggle('is-on', (i === 0) === (key === 'snack'));
+          });
+          render();
+        } });
+    }
+
+    card.appendChild(h('div.card__head', [
+      h('div.card__title', { text: '뭘 먹을까' }),
+      h('div.card__sub', { text: '단백질 ' + UI.n0(remainP) + 'g 남음' })
+    ]));
+    card.appendChild(tabs);
+    card.appendChild(body);
+
+    function render() {
+      body.textContent = '';
+      // 오늘 이미 먹은 건 또 권하지 않습니다 — 같은 걸 세 번 권하면 추천이 아닙니다
+      var eaten = {};
+      S.logsForDate(date).forEach(function (log) {
+        (log.items || []).forEach(function (it) { eaten[it.name] = true; });
+      });
+      // 오늘 아직 안 먹은 끼니 수. 아침에 하루치를 한 끼에 몰지 않기 위해서입니다.
+      var loggedMeals = {};
+      S.logsForDate(date).forEach(function (log) { loggedMeals[log.meal] = true; });
+      var mealsLeft = ['아침', '점심', '저녁'].filter(function (m) { return !loggedMeals[m]; }).length;
+
+      var res = (mode === 'snack' ? SG.suggestSnack : SG.suggestMeal)({
+        remainP: remainP, remainKcal: remainK, avoid: Object.keys(eaten),
+        mealsLeft: Math.max(1, mealsLeft), limit: 3
+      });
+      var sum = SG.summaryText(res);
+
+      if (!res.options.length) {
+        body.appendChild(h('div.note' + (sum.tone ? '.note--' + sum.tone : ''), [
+          h('b', { text: sum.text }),
+          sum.detail ? h('div', { style: { marginTop: '3px' }, text: sum.detail }) : null
+        ]));
+        return;
+      }
+      if (sum.tone) {
+        body.appendChild(h('div.note.note--' + sum.tone, { style: { marginBottom: '10px' } }, [
+          h('b', { text: sum.text }),
+          sum.detail ? h('div', { style: { marginTop: '3px' }, text: sum.detail }) : null
+        ]));
+      }
+
+      res.options.forEach(function (opt, i) {
+        var row = h('div', { style: { padding: '10px 0',
+          borderTop: i ? '1px solid var(--border)' : 'none' } });
+        row.appendChild(h('div', { style: { fontWeight: '700', marginBottom: '2px' },
+          text: opt.items.map(function (x) { return x.name + ' ' + SG.portionText(x); }).join(' + ') }));
+        row.appendChild(h('div.muted', {
+          text: '단백질 ' + opt.totalP + 'g · ' + opt.totalKcal + 'kcal' +
+                (opt.shape ? ' · ' + opt.shape : '') }));
+        row.appendChild(h('button.btn.btn--sm', {
+          text: '기록에 담기', style: { marginTop: '6px' },
+          uid: 'P18-B12#' + (i + 1), uidLabel: '추천 담기 ' + (i + 1),
+          onClick: function () {
+            var meal = mode === 'snack' ? '간식' : guessMeal();
+            S.addFoodLog({ date: date, meal: meal, source: 'suggest',
+              items: opt.items.map(function (x) {
+                return { name: x.name, g: x.g, kcal: x.kcal, p: x.p, c: x.c, f: x.f };
+              }) });
+            global.MB_UID.toast(meal + '에 담았습니다');
+            A.refresh();
+          } }));
+        body.appendChild(row);
+      });
+    }
+    render();
+    return card;
+  }
+
   var viewDate = null;          // null = 오늘
   function curDate() { return viewDate || S.dayKey(); }
   function shiftDate(n) {
@@ -104,6 +195,12 @@
           ]));
         }
         wrap.appendChild(card);
+
+        /* --- C10 뭘 먹을까 ---
+           남은 양을 알려주는 것과 그걸 음식으로 번역해 주는 것은 다른 일입니다.
+           "단백질 40g 남음"을 보고 닭가슴살 한 팩 반을 떠올리려면 매번 계산이
+           필요하고, 하루 세 번 그 계산을 하다가 사람들이 포기합니다. */
+        if (remainP > 0) wrap.appendChild(suggestCard(remainP, remainK, date));
       }
 
       /* --- C04 끼니별 --- */
