@@ -18,8 +18,8 @@
 
   var TABS = [
     { uid: 'P00-N01', ico: '🏠', label: '홈',    to: 'P02' },
-    { uid: 'P00-N02', ico: '📋', label: '플랜',  to: 'P07' },
-    { uid: 'P00-N03', ico: '✅', label: '체크인', to: 'P08' },
+    { uid: 'P00-N02', ico: '🍚', label: '식단',  to: 'P18' },
+    { uid: 'P00-N03', ico: '📋', label: '플랜',  to: 'P07' },
     { uid: 'P00-N04', ico: '📈', label: '추이',  to: 'P09' },
     { uid: 'P00-N05', ico: '⚙️', label: '설정',  to: 'P12' }
   ];

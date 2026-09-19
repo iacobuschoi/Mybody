@@ -18,6 +18,8 @@
       plan: null,
       baselinePlan: null,
       checkins: [],
+      foodLogs: [],
+      foodFavorites: [],
       settings: { theme: 'auto', units: 'metric', checkinEveryWeeks: 1, defaultLevel: 'mid' },
       onboarded: false,
       disclaimerAccepted: false
@@ -141,6 +143,90 @@
            (g.modeId || null) === (state.goal.modeId || null);
   }
 
+  /* --- 식단 기록 ----------------------------------------------------------
+   * 핵심 규칙: 기록하지 않은 날을 0으로 치환하지 않는다.
+   * 0으로 채우면 주 평균이 폭락하고, 엔진은 "이 사람 대사가 예상보다 낮다"고
+   * 판단해 칼로리를 더 깎는다. 실제로는 목표치를 먹고 있었는데도.
+   * 그래서 미기록일은 분모에서 빼고, 뺐다는 사실을 화면에 쓴다.
+   * -------------------------------------------------------------------- */
+  function dayKey(d) {
+    var x = d ? new Date(d) : new Date();
+    return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' +
+           String(x.getDate()).padStart(2, '0');
+  }
+
+  function addFoodLog(entry) {
+    state.foodLogs = state.foodLogs || [];
+    var row = {
+      id: entry.id || ('f' + Date.now() + '_' + Math.floor(state.foodLogs.length)),
+      date: entry.date || dayKey(),
+      meal: entry.meal || '간식',
+      items: entry.items || [],
+      source: entry.source || 'manual',     // manual | photo | recent
+      at: entry.at || new Date().toISOString()
+    };
+    state.foodLogs.push(row);
+    if (state.foodLogs.length > 20000) state.foodLogs.shift();
+    save();
+    return row;
+  }
+  function removeFoodLog(id) {
+    state.foodLogs = (state.foodLogs || []).filter(function (x) { return x.id !== id; });
+    save();
+  }
+  function logsForDate(date) {
+    var k = dayKey(date);
+    return (state.foodLogs || []).filter(function (x) { return x.date === k; });
+  }
+  function sumItems(items) {
+    var t = { kcal: 0, p: 0, c: 0, f: 0 };
+    (items || []).forEach(function (i) {
+      t.kcal += i.kcal || 0; t.p += i.p || 0; t.c += i.c || 0; t.f += i.f || 0;
+    });
+    t.kcal = Math.round(t.kcal);
+    t.p = Math.round(t.p * 10) / 10;
+    t.c = Math.round(t.c * 10) / 10;
+    t.f = Math.round(t.f * 10) / 10;
+    return t;
+  }
+  function dayTotals(date) {
+    var logs = logsForDate(date);
+    var all = [];
+    logs.forEach(function (l) { all = all.concat(l.items || []); });
+    var t = sumItems(all);
+    t.logged = logs.length > 0;
+    t.entries = logs.length;
+    return t;
+  }
+  /** 기록이 하나라도 있는 날짜 목록 (미기록일 판정의 기준) */
+  function loggedDates() {
+    var set = {};
+    (state.foodLogs || []).forEach(function (x) { set[x.date] = true; });
+    return Object.keys(set).sort();
+  }
+  /** 최근에 먹은 것 — 마찰을 줄이는 가장 효과적인 장치 */
+  function recentFoods(limit) {
+    var seen = {}, out = [];
+    var logs = (state.foodLogs || []).slice().reverse();
+    for (var i = 0; i < logs.length && out.length < (limit || 12); i++) {
+      (logs[i].items || []).forEach(function (it) {
+        if (out.length >= (limit || 12)) return;
+        if (seen[it.name]) return;
+        seen[it.name] = true;
+        out.push(it);
+      });
+    }
+    return out;
+  }
+  function toggleFavorite(name) {
+    state.foodFavorites = state.foodFavorites || [];
+    var i = state.foodFavorites.indexOf(name);
+    if (i >= 0) state.foodFavorites.splice(i, 1); else state.foodFavorites.push(name);
+    save();
+    return state.foodFavorites.indexOf(name) >= 0;
+  }
+  function isFavorite(name) { return (state.foodFavorites || []).indexOf(name) >= 0; }
+
   function exportJSON() { return JSON.stringify(state, null, 2); }
   function importJSON(text) {
     var parsed = JSON.parse(text);
@@ -154,6 +240,10 @@
     onChange: onChange, latestScan: latestScan, sortedScans: sortedScans,
     addScan: addScan, removeScan: removeScan, scanById: scanById,
     setGoal: setGoal, setPlan: setPlan, planMatchesGoal: planMatchesGoal, sameGoal: sameGoal,
+    dayKey: dayKey, addFoodLog: addFoodLog, removeFoodLog: removeFoodLog,
+    logsForDate: logsForDate, dayTotals: dayTotals, sumItems: sumItems,
+    loggedDates: loggedDates, recentFoods: recentFoods,
+    toggleFavorite: toggleFavorite, isFavorite: isFavorite,
     exportJSON: exportJSON, importJSON: importJSON, blank: blank
   };
 })(window);

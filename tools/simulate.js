@@ -14,8 +14,9 @@ const fs = require('node:fs');
 global.window = global;
 require(path.join(__dirname, '..', 'prototype', 'js', 'data.js'));
 require(path.join(__dirname, '..', 'prototype', 'js', 'modes.js'));
+require(path.join(__dirname, '..', 'prototype', 'js', 'fooddb.js'));
 require(path.join(__dirname, '..', 'prototype', 'js', 'engine.js'));
-const E = global.MB_ENGINE, MODES = global.MB_MODES;
+const E = global.MB_ENGINE, MODES = global.MB_MODES, FOOD = global.MB_FOOD;
 const { open, makeApi } = require(path.join(__dirname, '..', 'server', 'db.js'));
 
 const N_USERS = Number(process.env.USERS || 100);
@@ -81,7 +82,10 @@ function makeUser(i) {
     social: between(0, 1),                 // 친구 활동성
     churnWeek: chance(0.35) ? Math.round(between(8, WEEKS)) : null,   // 도중 이탈
     returnWeek: null,
+    logHabit: between(0, 1),               // 식단을 얼마나 꾸준히 적는가
+    logDecay: between(0.994, 1.0),         // 시간이 갈수록 기록이 줄어드는 정도
     token: null, id: null,
+    foodDays: [],                          // [{date, logged, kcal, p, c, f}]
     scans: [], goal: null, plan: null, baselinePlan: null, checkins: [],
     goalHistory: [], lastScanWeek: -99, active: true, friends: new Set()
   };
@@ -180,10 +184,96 @@ function buildPlan(u, week, level) {
   return plan;
 }
 
+/* --- 식단 기록 ------------------------------------------------------------
+ * 하루 단위로 돈다. 핵심은 "안 적은 날"이 충분히 많이 생기게 하는 것 —
+ * 미기록일 처리가 이 기능의 가장 위험한 지점이기 때문이다.                  */
+function logFoodForWeek(u, week) {
+  if (!u.plan) return;
+  const target = u.plan.macros;
+  // 기록 습관은 시간이 갈수록 떨어진다 (실제 앱의 이탈 패턴)
+  const habit = u.logHabit * Math.pow(u.logDecay, week);
+  for (let d = 0; d < 7; d++) {
+    const date = new Date(START.getTime() + (week * 7 + d) * 86400000).toISOString().slice(0, 10);
+    if (!chance(habit)) { u.foodDays.push({ date, logged: false }); continue; }
+
+    // 그날 실제로 먹은 양 — 순응도에 노이즈를 얹는다
+    const drift = between(-0.28, 0.35);
+    const kcal = Math.max(300, Math.round(target.intakeKcal * (1 + drift * (1 - u.adherence * 0.6))));
+    const pRatio = between(0.55, 1.25);
+    const items = [];
+    let acc = { kcal: 0, p: 0, c: 0, f: 0 };
+    // 실제 음식으로 채운다 — 음식 DB의 값이 합쳐지는 경로도 같이 검사한다
+    let guard = 0;
+    while (acc.kcal < kcal * 0.9 && guard++ < 12) {
+      const food = pick(FOOD.FOODS);
+      const mult = pick([0.5, 1, 1, 1.5, 2]);
+      const sc = FOOD.scaled(food, mult);
+      items.push(sc);
+      acc.kcal += sc.kcal; acc.p += sc.p; acc.c += sc.c; acc.f += sc.f;
+    }
+    const day = { date, logged: true,
+                  kcal: Math.round(acc.kcal),
+                  p: Math.round(acc.p * pRatio * 10) / 10,
+                  c: Math.round(acc.c * 10) / 10,
+                  f: Math.round(acc.f * 10) / 10 };
+    u.foodDays.push(day);
+    bump('식단 기록');
+
+    // 불변식: 항목 합이 유한하고 음수가 아니어야 한다
+    if (![day.kcal, day.p, day.c, day.f].every(v => isFinite(v) && v >= 0)) {
+      fail('식단 합계 비정상', JSON.stringify(day), { user: u.i, week });
+    }
+    // 오늘 안내가 어떤 입력에도 죽지 않아야 한다
+    const nudge = E.dietNudge(day, target);
+    if (!nudge || !nudge.text) fail('dietNudge 결과 없음', JSON.stringify(day), { user: u.i, week });
+    else if (/그만|먹지|금지/.test(nudge.text)) {
+      fail('금지형 문구가 나왔다', nudge.text, { user: u.i, week });
+    }
+  }
+  if (u.foodDays.length > 1200) u.foodDays = u.foodDays.slice(-1200);
+}
+
+function checkAdherence(u, week) {
+  if (!u.plan || u.foodDays.length < 7) return;
+  const target = u.plan.macros;
+  [7, 30].forEach(n => {
+    const days = u.foodDays.slice(-n);
+    const a = E.dietAdherence(days, target);
+    const ctx = { user: u.i, week, window: n };
+    if (!a) { fail('dietAdherence 결과 없음', '', ctx); return; }
+    const loggedCount = days.filter(d => d.logged).length;
+    if (a.loggedDays !== loggedCount) fail('기록일수 계산 오류', a.loggedDays + ' vs ' + loggedCount, ctx);
+    if (a.totalDays !== days.length) fail('전체일수 계산 오류', a.totalDays + ' vs ' + days.length, ctx);
+    if (!loggedCount) {
+      if (a.avg !== null) fail('기록 없는데 평균이 나왔다', JSON.stringify(a.avg), ctx);
+      return;
+    }
+    if (!a.avg) { fail('기록이 있는데 평균이 없다', '', ctx); return; }
+    // 가장 중요한 불변식: 미기록일을 0으로 치환하면 평균이 실제보다 낮아진다.
+    // 기록한 날만의 산술평균과 정확히 같아야 한다.
+    const manual = days.filter(d => d.logged)
+      .reduce((s2, d) => s2 + d.kcal, 0) / loggedCount;
+    if (Math.abs(a.avg.kcal - Math.round(manual)) > 1) {
+      fail('평균이 기록일 기준이 아니다', a.avg.kcal + ' vs ' + Math.round(manual), ctx);
+    }
+    const naive = days.reduce((s2, d) => s2 + (d.kcal || 0), 0) / days.length;
+    if (loggedCount < days.length && Math.abs(a.avg.kcal - naive) < 1) {
+      fail('미기록일을 0으로 세고 있다', a.avg.kcal + ' == ' + Math.round(naive), ctx);
+    }
+    ['kcal', 'p', 'c', 'f'].forEach(k => {
+      if (!isFinite(a.avg[k]) || a.avg[k] < 0) fail('평균 비정상', k + '=' + a.avg[k], ctx);
+    });
+    if (a.inBandDays > loggedCount) fail('범위 안 일수가 기록일수보다 많다', '', ctx);
+    if (a.proteinHitDays > loggedCount) fail('단백질 달성일이 기록일수보다 많다', '', ctx);
+    if (a.logRatePct < 0 || a.logRatePct > 100) fail('기록률 범위 이탈', String(a.logRatePct), ctx);
+  });
+}
+
 /* --- 불변식 검사 ---------------------------------------------------------- */
 function checkPlan(u, plan, week) {
   if (!plan) return;
-  const ctx = { user: u.i, week, mode: u.goal && u.goal.modeId, level: plan.level };
+  const ctx = { user: u.i, week, mode: u.goal && u.goal.modeId, level: plan.level,
+                pal: u.profile.activityLevel, ta: u.profile.trainingAge };
   if (!(plan.weeks > 0) || !isFinite(plan.weeks)) fail('plan.weeks 비정상', String(plan.weeks), ctx);
   if (!plan.targetDate || isNaN(new Date(plan.targetDate))) fail('plan.targetDate 비정상', String(plan.targetDate), ctx);
   const m = plan.macros;
@@ -192,7 +282,9 @@ function checkPlan(u, plan, week) {
     if (!isFinite(m[k])) fail('매크로 NaN', k + '=' + m[k], ctx);
   });
   if (m.intakeKcal < 900) fail('섭취량이 너무 낮음', m.intakeKcal + 'kcal', ctx);
-  if (m.intakeKcal > 6000) fail('섭취량이 너무 높음', m.intakeKcal + 'kcal', ctx);
+  if (m.intakeKcal > 6000) fail('섭취량이 너무 높음', m.intakeKcal + 'kcal · 체중 ' +
+    Math.round(plan.trajectory[0].weightKg) + 'kg · 제지방 ' + Math.round(plan.trajectory[0].ffmKg) +
+    'kg · TDEE ' + m.tdeeKcal + ' · 활동 ' + (ctx.pal || '?'), ctx);
   if (m.proteinG < 40) fail('단백질이 너무 낮음', m.proteinG + 'g', ctx);
   if (m.proteinG / m.intakeKcal * 4 > 0.65) fail('단백질 비중이 비현실적', Math.round(m.proteinG * 4 / m.intakeKcal * 100) + '%', ctx);
   if (m.carbG < 0 || m.fatG < 0) fail('매크로 음수', JSON.stringify(m), ctx);
@@ -350,6 +442,10 @@ for (let week = 0; week < WEEKS; week++) {
         }
       }
     }
+
+    /* 식단 기록 + 달성률 */
+    logFoodForWeek(u, week);
+    if (week % 2 === 0) checkAdherence(u, week);
 
     /* 주간 스냅샷 게시 */
     if (u.scans.length >= 2) {

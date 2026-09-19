@@ -218,6 +218,28 @@
              cardioMin: cardioMin, reason: reason };
   }
 
+  /* --- 제지방량 천장 -------------------------------------------------------
+   * 근성장은 속도만 제한하면 안 된다. 절대 상한도 있어야 한다.
+   * 제지방량지수 FFMI = 제지방량(kg) / 키(m)^2 로, 약물을 쓰지 않은 사람의
+   * 상한이 대략 25 근처로 보고돼 있다 (Kouri 1995, 남성 보디빌더 조사).
+   * 이게 없으면 시뮬레이션에서 제지방 134kg 같은 값이 나온다 — 실제로 나왔다.
+   * -------------------------------------------------------------------- */
+  function ffmiOf(ffmKg, heightCm) {
+    var h = (heightCm || 175) / 100;
+    return ffmKg / (h * h);
+  }
+  function ffmiCeiling(sex) { return sex === 'female' ? 22.0 : 25.0; }
+
+  /** 천장에 가까울수록 성장률이 0으로 수렴한다 (절벽이 아니라 경사) */
+  function ffmiFactor(ffmKg, profile) {
+    var ceil = ffmiCeiling(profile.sex);
+    var cur = ffmiOf(ffmKg, profile.heightCm);
+    var taper = ceil - 2.0;
+    if (cur <= taper) return 1;
+    if (cur >= ceil) return 0;
+    return (ceil - cur) / (ceil - taper);
+  }
+
   function ageFactor(age) {
     if (age >= 50) return 0.65;
     if (age >= 40) return 0.80;
@@ -226,13 +248,14 @@
   }
 
   // 주당 SMM 증가 상한 (kg/주) — 최적 조건에서의 생리적 천장
-  function baseSmmRatePerWeek(weightKg, profile, smmToFfm) {
+  function baseSmmRatePerWeek(weightKg, profile, smmToFfm, ffmKg) {
     var base = (MUSCLE_BASE[profile.trainingAge] || MUSCLE_BASE.intermediate).pct;
     var sexFactor = profile.sex === 'male' ? 1.0 : 0.5;
     var ffmPerMonth = weightKg * (base / 100) * sexFactor;
     var smmPerMonth = ffmPerMonth * smmToFfm;
     var rate = smmPerMonth / 4.345 * ageFactor(profile.age);
     if (profile.hadPriorPeak) rate *= 2.5;   // 머슬메모리
+    if (ffmKg != null) rate *= ffmiFactor(ffmKg, profile);
     return rate;
   }
 
@@ -296,7 +319,7 @@
       var surplus = params.surplusPct * tdee;
       intake = tdee + surplus;
       deficit = -surplus;
-      smmDelta = baseSmmRatePerWeek(w, profile, k);
+      smmDelta = baseSmmRatePerWeek(w, profile, k, ffm);
       var ffmGain = smmDelta / k;
       var totalGain = ffmGain / params.leanFraction;
       fatDelta = Math.max(0, totalGain - ffmGain);
@@ -312,7 +335,7 @@
       var mult = MUSCLE_SITUATION[situation][profile.trainingAge] != null
         ? MUSCLE_SITUATION[situation][profile.trainingAge]
         : MUSCLE_SITUATION[situation].intermediate;
-      smmDelta = baseSmmRatePerWeek(w, profile, k) * mult;
+      smmDelta = baseSmmRatePerWeek(w, profile, k, ffm) * mult;
       if (phase === 'cut') {
         var ffmNow = st.smmKg / k;
         leanLoss = leanLossPerWeek(deficitRatio, params.proteinPerFFM,
@@ -824,6 +847,14 @@
   function feasibility(sim, goalInfo, cur, profile, deadlineWeeks) {
     var blockers = [];
     var essentialFat = profile.sex === 'male' ? 8 : 15;
+    // 목표 제지방량이 사람의 상한을 넘는가
+    var goalFfm = (cur.smmKg + goalInfo.dSmmKg) / cur.smmToFfm;
+    var goalFfmi = ffmiOf(goalFfm, profile.heightCm);
+    var ceil = ffmiCeiling(profile.sex);
+    if (goalFfmi > ceil) {
+      blockers.push('목표 골격근량이 약물 없이 도달 가능한 상한을 넘습니다 (제지방량지수 ' +
+        r1(goalFfmi) + ', 상한 약 ' + ceil + ').');
+    }
     if (goalInfo.targetPbfPct < essentialFat) {
       blockers.push('목표 체지방률 ' + goalInfo.targetPbfPct + '%는 필수지방(' + essentialFat + '%) 아래입니다.');
     }
@@ -1077,6 +1108,96 @@
     };
   }
 
+  /**
+   * 식단 달성률.
+   * 미기록일은 분모에서 뺀다 — 0으로 치환하면 평균이 폭락하고,
+   * 그 값을 보고 칼로리를 더 깎으면 실제로 사람을 굶기게 된다.
+   *
+   * @param days   [{date, logged, kcal, p, c, f}]  기록 유무 포함
+   * @param target {intakeKcal, proteinG, carbG, fatG}
+   */
+  function dietAdherence(days, target) {
+    if (!target) return null;
+    var loggedDays = days.filter(function (d) { return d.logged; });
+    var n = loggedDays.length;
+    var out = {
+      totalDays: days.length, loggedDays: n, missedDays: days.length - n,
+      logRatePct: days.length ? Math.round(n / days.length * 100) : 0,
+      avg: null, pct: null, inBandDays: 0, proteinHitDays: 0, band: null
+    };
+    // 칼로리는 점이 아니라 밴드다. TDEE 추정 오차와 기록 오차를 합치면
+    // ±10% 안쪽은 "맞춘 것"으로 봐야 한다. 2,400 목표에 2,500 먹고 빨간불이
+    // 켜지는 앱은 없는 정밀도를 파는 것이다.
+    out.band = { lo: Math.round(target.intakeKcal * 0.9), hi: Math.round(target.intakeKcal * 1.1) };
+    if (!n) return out;
+
+    var sum = { kcal: 0, p: 0, c: 0, f: 0 };
+    loggedDays.forEach(function (d) {
+      sum.kcal += d.kcal || 0; sum.p += d.p || 0; sum.c += d.c || 0; sum.f += d.f || 0;
+      if ((d.kcal || 0) >= out.band.lo && (d.kcal || 0) <= out.band.hi) out.inBandDays++;
+      if ((d.p || 0) >= target.proteinG * 0.9) out.proteinHitDays++;
+    });
+    out.avg = {
+      kcal: Math.round(sum.kcal / n),
+      p: Math.round(sum.p / n * 10) / 10,
+      c: Math.round(sum.c / n * 10) / 10,
+      f: Math.round(sum.f / n * 10) / 10
+    };
+    out.pct = {
+      kcal: Math.round(out.avg.kcal / target.intakeKcal * 100),
+      p: Math.round(out.avg.p / target.proteinG * 100),
+      c: target.carbG ? Math.round(out.avg.c / target.carbG * 100) : null,
+      f: target.fatG ? Math.round(out.avg.f / target.fatG * 100) : null
+    };
+    out.inBandPct = Math.round(out.inBandDays / n * 100);
+    out.proteinHitPct = Math.round(out.proteinHitDays / n * 100);
+    return out;
+  }
+
+  /**
+   * 오늘 상태에 대한 한 줄 안내.
+   * 명령이 아니라 상태 보고로 쓴다. "그만 드세요"는 앱이 내리는 지시이고,
+   * "오늘 목표치를 다 채웠습니다"는 정보다. 정보는 결정권을 사람에게 남긴다.
+   * 단백질 부족 안내는 덧셈형이라 안전하므로 그대로 둔다.
+   */
+  function dietNudge(today, target) {
+    if (!target) return null;
+    var kcal = today.kcal || 0, p = today.p || 0;
+    var remainKcal = target.intakeKcal - kcal;
+    var remainP = Math.max(0, target.proteinG - p);
+    var band = { lo: target.intakeKcal * 0.9, hi: target.intakeKcal * 1.1 };
+    var hour = new Date().getHours();
+
+    if (!today.logged) {
+      return { kind: 'none', tone: '', text: '오늘은 아직 기록이 없습니다.',
+               detail: '한 끼만 적어도 주 평균이 살아납니다.' };
+    }
+    if (remainP > 25 && hour >= 19) {
+      return { kind: 'protein', tone: 'warn',
+               text: '단백질이 ' + Math.round(remainP) + 'g 남았습니다.',
+               detail: '닭가슴살 한 팩이 약 23g, 계란 두 개가 약 12g입니다.' };
+    }
+    if (kcal > band.hi) {
+      // 초과를 빚처럼 표시하지 않는다. 상태만 알린다.
+      return { kind: 'over', tone: 'warn',
+               text: '오늘 목표 범위를 넘었습니다 (' + Math.round(kcal) + ' / ' +
+                     Math.round(target.intakeKcal) + 'kcal).',
+               detail: '하루로 계획이 무너지지 않습니다. 내일 목표대로 돌아오면 주 평균은 유지됩니다.' };
+    }
+    if (kcal >= band.lo && kcal <= band.hi && remainP <= 10) {
+      return { kind: 'done', tone: 'ok', text: '오늘 목표치를 다 채웠습니다.',
+               detail: '칼로리도 단백질도 범위 안입니다.' };
+    }
+    if (remainP > 25) {
+      return { kind: 'protein', tone: '',
+               text: '단백질이 ' + Math.round(remainP) + 'g 남았습니다.',
+               detail: '남은 끼니에 단백질 반찬을 하나 더 넣으면 채워집니다.' };
+    }
+    return { kind: 'ok', tone: '',
+             text: remainKcal > 0 ? Math.round(remainKcal) + 'kcal 남았습니다.' : '목표 범위 안입니다.',
+             detail: '단백질 ' + Math.round(p) + ' / ' + target.proteinG + 'g' };
+  }
+
   /** 주간 체크인 → 재조정 제안 */
   function checkinAdvice(plan, expected, actual, adherence) {
     var dExp = expected.weightKg - actual.weightKg;   // 예상 감소량
@@ -1142,6 +1263,8 @@
     CUT_RANGE: CUT_RANGE, BULK_RANGE: BULK_RANGE, paramsAt: paramsAt,
     derive: derive, classifyGoal: classifyGoal, compareLevels: compareLevels,
     buildPlan: buildPlan, checkinAdvice: checkinAdvice, planDrift: planDrift,
+    ffmiOf: ffmiOf, ffmiCeiling: ffmiCeiling, ffmiFactor: ffmiFactor,
+    dietAdherence: dietAdherence, dietNudge: dietNudge,
     macrosFor: macrosFor, workoutFor: workoutFor, dietFor: dietFor, resolveTraining: resolveTraining,
     baseSmmRatePerWeek: baseSmmRatePerWeek,
     stepWeek: stepWeek,            // 검증 하네스(tools/validate.js)용 노출 — 로직 변경 없음

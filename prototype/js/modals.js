@@ -593,6 +593,100 @@
     });
   };
 
+  /* M40 양 고르기 — 사진보다 이게 정확합니다 */
+  M.portion = function (food, onPick) {
+    var F = global.MB_FOOD;
+    var mult = 1;
+    var info, custom;
+    function refresh() {
+      var sc = F.scaled(food, mult);
+      info.textContent = sc.g + 'g · ' + sc.kcal + 'kcal · 단백질 ' + sc.p + 'g · 탄수 ' +
+                         sc.c + 'g · 지방 ' + sc.f + 'g';
+    }
+    var chips = h('div.chips', F.PORTIONS.map(function (p2) {
+      var b = h('button.chip' + (p2.mult === 1 ? '.is-on' : ''), { text: p2.label,
+        onClick: function () {
+          mult = p2.mult; custom.value = '';
+          chips.querySelectorAll('.chip').forEach(function (x) { x.classList.remove('is-on'); });
+          b.classList.add('is-on');
+          refresh();
+        } });
+      return b;
+    }));
+    var conf = F.CONF_LABEL[food.conf] || F.CONF_LABEL.mid;
+    var dlg = UI.openModal({
+      uid: 'M40', title: food.name,
+      sub: '기준 ' + food.unit + ' (' + food.g + 'g)',
+      body: [
+        h('div.field__label', { text: '얼마나 드셨나요' }),
+        chips,
+        h('div.field', { style: { marginTop: '10px' } }, [
+          h('div.field__label', { text: '직접 입력 (배수)' }),
+          custom = h('input.input.input--num', { type: 'number', step: '0.1', min: '0.1',
+            placeholder: '예: 1.3',
+            onInput: function () {
+              var v = parseFloat(custom.value);
+              if (v > 0) {
+                mult = v;
+                chips.querySelectorAll('.chip').forEach(function (x) { x.classList.remove('is-on'); });
+                refresh();
+              }
+            } })
+        ]),
+        info = h('div.note', { style: { marginTop: '10px' } }),
+        h('div.muted', { style: { marginTop: '8px' },
+          text: conf.text + ' — ' + conf.note }),
+        h('button.btn.btn--ghost.btn--sm', {
+          text: (S.isFavorite(food.name) ? '★ 즐겨찾기 해제' : '☆ 즐겨찾기'),
+          style: { marginTop: '8px' },
+          onClick: function (ev) {
+            var on = S.toggleFavorite(food.name);
+            ev.target.textContent = on ? '★ 즐겨찾기 해제' : '☆ 즐겨찾기';
+          } })
+      ],
+      actions: [
+        { label: '취소', kind: 'ghost' },
+        { label: '추가', kind: 'primary', onClick: function () { onPick(F.scaled(food, mult)); } }
+      ]
+    });
+    refresh();
+    return dlg;
+  };
+
+  /* M41 직접 입력 — 목록에 없는 음식 */
+  M.customFood = function (onAdd) {
+    var name, kcal, p, c, f;
+    UI.openModal({
+      uid: 'M41', title: '직접 입력',
+      sub: '포장지 라벨을 보고 적는 게 가장 정확합니다',
+      body: [
+        h('div.field', [h('div.field__label', { text: '이름' }),
+          name = h('input.input', { placeholder: '예: 회사 구내식당 점심' })]),
+        h('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } }, [
+          h('div.field', [h('div.field__label', { text: '칼로리 (kcal)' }),
+            kcal = h('input.input.input--num', { type: 'number', min: '0' })]),
+          h('div.field', [h('div.field__label', { text: '단백질 (g)' }),
+            p = h('input.input.input--num', { type: 'number', min: '0' })]),
+          h('div.field', [h('div.field__label', { text: '탄수화물 (g)' }),
+            c = h('input.input.input--num', { type: 'number', min: '0' })]),
+          h('div.field', [h('div.field__label', { text: '지방 (g)' }),
+            f = h('input.input.input--num', { type: 'number', min: '0' })])
+        ]),
+        h('div.muted', { text: '칼로리만 알아도 괜찮습니다. 비워두면 0으로 들어갑니다.' })
+      ],
+      actions: [
+        { label: '취소', kind: 'ghost' },
+        { label: '추가', kind: 'primary', onClick: function () {
+            var n = (name.value || '').trim();
+            if (!n) { global.MB_UID.toast('이름을 적어주세요'); return true; }
+            onAdd({ name: n, unit: '직접', mult: 1, g: 0,
+                    kcal: Math.round(+kcal.value || 0), p: +p.value || 0,
+                    c: +c.value || 0, f: +f.value || 0, conf: 'mid', custom: true });
+          } }
+      ]
+    });
+  };
+
   /* --- 조각 --- */
   function kv(k, v) {
     return h('div.kv', [h('span.kv__k', { text: k }), h('span.kv__v', { text: v })]);

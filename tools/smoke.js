@@ -29,7 +29,7 @@ const server = http.createServer((req, res) => {
   res.end(fs.readFileSync(f));
 });
 
-const SCREENS = ['P01','P02','P03','P04','P05','P06','P07','P08','P09','P10','P11','P12','P13','P14','P15','P16','P17'];
+const SCREENS = ['P01','P02','P03','P04','P05','P06','P07','P08','P09','P10','P11','P12','P13','P14','P15','P16','P17','P18','P19','P20','P21'];
 const UID_RE = /^(P\d{2}|M\d{2}|A\d{2})(-[A-Z]\d{2})?(#\d+)?$/;
 
 (async () => {
