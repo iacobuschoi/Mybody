@@ -151,11 +151,14 @@
           ]));
         }
 
-        // 가벼운 미리보기 — 중간 강도 기준 예상 기간
+        // 미리보기 — 선택된 모드의 제약을 그대로 반영해야 다음 화면과 숫자가 같다
+        var selEarly = selectMode(cur, g, prof, scan, deadlineWeeks, manualModeId);
         var preview = null;
-        try {
-          preview = E.compareLevels(scan, prof, g, todayISO(), deadlineWeeks);
-        } catch (e) { /* 입력이 아직 이상한 상태 */ }
+        if (!selEarly.refused) {
+          try {
+            preview = E.compareLevels(scan, prof, g, todayISO(), deadlineWeeks, selEarly.mode);
+          } catch (e) { /* 입력이 아직 이상한 상태 */ }
+        }
 
         if (preview && preview.results.length) {
           var mid = preview.results.find(function (r) { return r.level === 'mid'; });
@@ -180,7 +183,7 @@
         body.appendChild(gauge);
 
         /* --- C04 몸 만들기 모드 (자동 선택) --- */
-        var sel = selectMode(cur, g, prof, scan, deadlineWeeks, manualModeId);
+        var sel = selEarly;
         body.appendChild(modeCard(sel));
 
         /* --- 액션 --- */
@@ -273,18 +276,30 @@
 
           card.appendChild(h('div', { style: { marginTop: '10px' } }, [
             h('div.section-title', { text: '이 모드가 맞는 사람' }),
-            h('div.muted', { text: m.whoFor })
+            h('div.muted', { text: MODES.forDisplay(m.whoFor) })
           ]));
           card.appendChild(h('div', { style: { marginTop: '8px' } }, [
             h('div.section-title', { text: '이 모드가 아닌 사람' }),
-            h('div.muted', { text: m.notFor })
+            h('div.muted', { text: MODES.forDisplay(m.notFor) })
           ]));
-          if (m.expectedKo) {
-            card.appendChild(h('div.note', { style: { marginTop: '10px' },
-              text: '예상 — ' + m.expectedKo }));
+          var expected = MODES.forDisplay(m.expectedKo);
+          var risks = MODES.forDisplay(m.risksKo);
+          var training = MODES.forDisplay(m.trainingPolicyKo);
+          if (training) {
+            card.appendChild(h('div', { style: { marginTop: '8px' } }, [
+              h('div.section-title', { text: '이 모드의 운동' }),
+              h('div.muted', { text: training })
+            ]));
           }
-          if (m.risksKo) {
-            card.appendChild(h('div.note.note--warn', { text: '주의 — ' + m.risksKo }));
+          if (expected) {
+            card.appendChild(h('div.note', { style: { marginTop: '10px' }, text: '예상 — ' + expected }));
+          }
+          if (risks) {
+            card.appendChild(h('div.note.note--warn', { text: '주의 — ' + risks }));
+          }
+          if (m.exitCriteriaKo) {
+            card.appendChild(h('div.muted', { style: { marginTop: '8px' },
+              text: '끝내는 시점 — ' + MODES.forDisplay(m.exitCriteriaKo) }));
           }
 
           card.appendChild(h('div.btn-row', { style: { marginTop: '12px' } }, [
@@ -345,6 +360,15 @@
     return h('div.kv', [h('span.kv__k', { text: k }), h('span.kv__v', { text: v })]);
   }
 
+  /** 최근 추세로 지금 어느 국면인지 추정 — 증량 중이면 미니컷 규칙이 열린다 */
+  function currentPhaseFrom(trend) {
+    if (!trend || trend.weeksSpan < 4) return null;
+    var N = global.MB_MODES.NOISE;
+    if (trend.dWeightKg > N.weight && trend.dSmmKg > -N.smm) return 'bulk';
+    if (trend.dWeightKg < -N.weight) return 'cut';
+    return null;
+  }
+
   /** 입력 변화량 → 모드 자동 선택 (직접 고른 게 있으면 그걸 쓴다) */
   function selectMode(cur, g, prof, scan, deadlineWeeks, manualModeId) {
     var gi = E.classifyGoal(cur, g);
@@ -359,10 +383,10 @@
     var input = {
       dWeightKg: gi.dWeightKg, dSmmKg: gi.dSmmKg, dBfmKg: gi.dBfmKg,
       curWeightKg: cur.weightKg, curSmmKg: cur.smmKg, curBfmKg: cur.bfmKg,
-      curPbfPct: cur.pbfPct, curBmi: cur.bmi,
+      curPbfPct: cur.pbfPct, curBmi: cur.bmi, heightCm: prof.heightCm, tdeeKcal: cur.tdeeKcal,
       sex: prof.sex, age: prof.age, trainingAge: prof.trainingAge,
       hadPriorPeak: !!prof.hadPriorPeak, deadlineWeeks: deadlineWeeks || null,
-      recentTrend: trend
+      recentTrend: trend, currentPhase: currentPhaseFrom(trend)
     };
     var r = MODES.select(input);
     r.input = input;

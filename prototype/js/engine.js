@@ -45,7 +45,7 @@
   var CUT_RANGE = {
     ratePct:       [0.0015, 0.0090],  // 주당 체중 변화율 (%BW)
     deficitPct:    [0.050,  0.275],   // TDEE 대비 적자
-    proteinPerFFM: [2.0,    2.8],     // g/kg FFM — 적자에서는 단백질을 낮출 이유가 없다
+    proteinPerFFM: [2.0,    3.1],     // g/kg FFM — Helms·Zinn 2014 의 2.3~3.1 상단까지 연다
     fatPerKg:      [0.95,   0.60],    // g/kg BW
     days:          [3,      6],
     sessionMin:    [40,     85],
@@ -87,7 +87,7 @@
     p.tracking = a < 0.34 ? '단백질만 대충 기록'
                : (a < 0.7 ? '칼로리 + 단백질 기록' : '4대 매크로 전부 + 주 4회 체중');
     // 감량에서 공격적인 구간은 연속 지속 한계가 있다
-    p.maxContinuousWeeks = mode === 'cut' ? (a >= 0.7 ? 12 : (a >= 0.45 ? 20 : null)) : null;
+    p.maxContinuousWeeks = mode === 'cut' ? (a >= 0.7 ? 12 : (a >= 0.45 ? 20 : 24)) : null;
     p.muscleLossRisk = mode === 'cut'
       ? (a >= 0.7 ? '중간~높음' : (a >= 0.45 ? '낮음' : '매우 낮음'))
       : '해당 없음';
@@ -243,6 +243,23 @@
     return 'cut';
   }
 
+  /**
+   * 주당 제지방 손실 (kg). 0 이상.
+   * 적자가 깊거나, 단백질이 모자라거나, 체지방이 바닥이면 근육은 실제로 빠진다.
+   * 이 경로가 없으면 엔진은 어떤 무리한 계획에서도 "근육은 그대로"라고 답하게 된다.
+   */
+  function leanLossPerWeek(deficitRatio, proteinPerFFM, pbfPct, sex, ffm) {
+    var lean  = pbfPct < (sex === 'male' ? 10 : 18);
+    var deep  = deficitRatio > 0.20;
+    var lowP  = proteinPerFFM != null && proteinPerFFM < 2.0;
+    if (!deep && !lowP && !lean) return 0;
+    var frac = 0;                                  // 주당 제지방 손실 비율
+    if (deep) frac += Math.min(0.0010, (deficitRatio - 0.20) * 0.01);
+    if (lowP) frac += 0.0005;
+    if (lean) frac += 0.0005;
+    return Math.min(0.0015, frac) * ffm;
+  }
+
   function kcalFloor(profile, bmr) {
     return Math.max(Math.round(bmr * 1.1), profile.sex === 'male' ? 1500 : 1200);
   }
@@ -288,16 +305,24 @@
       deficit = 0;
     }
 
+    var leanLoss = 0;
     if (phase !== 'bulk') {
-      var situation = muscleSituation(deficit / tdee);
+      var deficitRatio = deficit / tdee;
+      var situation = muscleSituation(deficitRatio);
       var mult = MUSCLE_SITUATION[situation][profile.trainingAge] != null
         ? MUSCLE_SITUATION[situation][profile.trainingAge]
         : MUSCLE_SITUATION[situation].intermediate;
       smmDelta = baseSmmRatePerWeek(w, profile, k) * mult;
+      if (phase === 'cut') {
+        var ffmNow = st.smmKg / k;
+        leanLoss = leanLossPerWeek(deficitRatio, params.proteinPerFFM,
+                                   st.bfmKg / w * 100, profile.sex, ffmNow);
+        smmDelta -= leanLoss * k;          // 제지방 손실을 골격근 단위로 환산
+      }
     }
 
     var next = {
-      smmKg: st.smmKg + smmDelta,
+      smmKg: Math.max(1, st.smmKg + smmDelta),
       bfmKg: Math.max(0.5, st.bfmKg + fatDelta)
     };
     next.ffmKg = next.smmKg / k;
@@ -312,7 +337,8 @@
       capped: capped,
       floored: floored,
       fatDelta: fatDelta,
-      smmDelta: smmDelta
+      smmDelta: smmDelta,
+      leanLoss: leanLoss
     };
   }
 
@@ -342,7 +368,7 @@
     var traj = [snapshot(st, 0, phase, null)];
     var fatWeek = goalInfo.dBfmKg >= -0.3 ? 0 : null;
     var smmWeek = goalInfo.dSmmKg <= 0.3 ? 0 : null;
-    var anyCapped = false, anyFloored = false, cutWeeks = 0;
+    var anyCapped = false, anyFloored = false, cutWeeks = 0, leanLossTotal = 0;
 
     for (var wk = 1; wk <= MAX_WEEKS; wk++) {
       var r = stepWeek(st, phase, params, profile, k);
@@ -350,6 +376,7 @@
       if (phase === 'cut') cutWeeks++;
       if (r.capped) anyCapped = true;
       if (r.floored) anyFloored = true;
+      if (r.leanLoss > 0) leanLossTotal += r.leanLoss;
       traj.push(snapshot(st, wk, phase, r));
 
       if (fatWeek === null && st.bfmKg <= goal.bfmKg + 0.05) fatWeek = wk;
@@ -377,6 +404,7 @@
       trajectory: traj,
       capped: anyCapped, floored: anyFloored,
       continuousCutWeeks: cutWeeks,
+      leanLossKg: Math.round(leanLossTotal * 100) / 100,
       phases: [{ name: mode === 'cut' ? '감량' : (mode === 'bulk' ? '증량' : '유지'),
                  from: 0, to: weeks, phase: mode }]
     };
@@ -394,7 +422,7 @@
     var traj = [snapshot(st, 0, 'cut', null)];
     var wk = 0, guard = 0;
     var phaseMarks = [];
-    var anyCapped = false, anyFloored = false, longestCut = 0;
+    var anyCapped = false, anyFloored = false, longestCut = 0, leanLossTotal = 0;
 
     function run(phase, params, stop, label, maxLen) {
       var start = wk, len = 0;
@@ -404,6 +432,7 @@
         st = r.state; wk++; len++;
         if (r.capped) anyCapped = true;
         if (r.floored) anyFloored = true;
+        if (r.leanLoss > 0) leanLossTotal += r.leanLoss;
         traj.push(snapshot(st, wk, phase, r));
       }
       if (len > 0) {
@@ -428,6 +457,7 @@
       trajectory: traj,
       capped: anyCapped, floored: anyFloored,
       continuousCutWeeks: longestCut,
+      leanLossKg: Math.round(leanLossTotal * 100) / 100,
       phases: phaseMarks
     };
   }
@@ -548,7 +578,27 @@
     var uniqueA = {};
     results.forEach(function (r) { uniqueA[r.a] = (uniqueA[r.a] || 0) + 1; });
     if (Object.keys(uniqueA).length < 3) {
-      warnings.push('일부 강도가 같은 계획으로 수렴했습니다. 목표 변화량이 작아 속도를 더 낮출 여지가 없다는 뜻입니다.');
+      if (modeDef) {
+        var atFloor = results.filter(function (r) {
+          return Math.abs(r.a - modeDef.aMin) < 0.005;
+        }).length >= 2;
+        var atCeil = results.filter(function (r) {
+          return Math.abs(r.a - modeDef.aMax) < 0.005;
+        }).length >= 2;
+        if (atFloor) {
+          warnings.push('「' + modeDef.nameKo + '」는 이보다 느리게 가지 않습니다. 이 모드가 허용하는 ' +
+            '가장 여유로운 속도에 이미 닿아 있어서, 중·하가 같은 계획이 됩니다. ' +
+            '더 천천히 가고 싶으면 모드를 바꿔야 합니다.');
+        } else if (atCeil) {
+          warnings.push('「' + modeDef.nameKo + '」는 이보다 빠르게 가지 않습니다. 이 모드의 속도 상한은 ' +
+            '장식이 아니라 근육을 지키기 위한 잠금장치입니다.');
+        } else {
+          warnings.push('일부 강도가 같은 계획으로 수렴했습니다. 체지방이 줄면서 안전하게 쓸 수 있는 ' +
+            '에너지 상한에 먼저 걸려서, 강도를 올려도 속도가 더 나오지 않는 구간입니다.');
+        }
+      } else {
+        warnings.push('일부 강도가 같은 계획으로 수렴했습니다. 목표 변화량이 작아 속도를 더 낮출 여지가 없다는 뜻입니다.');
+      }
     }
 
     // 역설 탐지
@@ -562,6 +612,11 @@
       if (r.sim.params.maxContinuousWeeks && r.sim.continuousCutWeeks > r.sim.params.maxContinuousWeeks) {
         r.capWarning = '이 강도의 감량은 연속 ' + r.sim.params.maxContinuousWeeks +
           '주가 한계인데 계획상 ' + r.sim.continuousCutWeeks + '주 연속입니다. 중간에 2주 유지기를 넣으세요.';
+      }
+      if (r.sim.leanLossKg > 0.3) {
+        r.leanLossWarning = '이 속도로 가면 계획 기간 동안 제지방이 약 ' +
+          r1(r.sim.leanLossKg) + 'kg 빠질 것으로 계산됩니다. 적자가 깊거나 단백질이 부족하거나 ' +
+          '체지방이 이미 낮을 때 생깁니다.';
       }
       if (r.sim.capped) {
         r.capNote = '체지방이 줄면서 안전하게 동원 가능한 에너지 상한에 걸려, 후반부에는 계획보다 적자가 자동으로 작아집니다.';

@@ -15,8 +15,10 @@ const R = JSON.parse(fs.readFileSync(src, 'utf8'));
 const OUT = path.join(__dirname, '..', 'prototype', 'js', 'modes.js');
 
 const VARS = ['dWeightKg', 'dSmmKg', 'dBfmKg', 'curPbfPct', 'curBmi', 'curSmmKg', 'curBfmKg',
-              'curWeightKg', 'sex', 'age', 'trainingAge', 'hadPriorPeak', 'deadlineWeeks',
-              'recentTrend', 'targetPbfPct'];
+              'curWeightKg', 'heightCm', 'sex', 'age', 'trainingAge', 'hadPriorPeak',
+              'deadlineWeeks', 'recentTrend', 'currentPhase', 'tdeeKcal',
+              'targetPbfPct', 'targetBmi', 'dFfmKg', 'k',
+              'smmUp', 'smmDown', 'smmFlat', 'smmKnown', 'subNoiseAll', 'taExp', 'input'];
 
 function preamble(indent) {
   return VARS.map(v => `${indent}var ${v} = i.${v};`).join('\n');
@@ -149,6 +151,27 @@ L.push(`
     if (i.targetPbfPct == null && i.curBfmKg != null && i.curWeightKg != null) {
       i.targetPbfPct = (i.curBfmKg + (i.dBfmKg || 0)) / (i.curWeightKg + (i.dWeightKg || 0)) * 100;
     }
+    // 규칙이 쓰는 파생값 — 여기서 한 번만 계산한다
+    var ffm = (i.curWeightKg != null && i.curBfmKg != null) ? (i.curWeightKg - i.curBfmKg) : null;
+    i.k = (ffm && ffm > 0 && i.curSmmKg != null) ? (i.curSmmKg / ffm) : 0.57;
+    i.dFfmKg = (i.dSmmKg || 0) / i.k;
+    if (i.targetPbfPct == null && i.curBfmKg != null && i.curWeightKg != null) {
+      i.targetPbfPct = (i.curBfmKg + (i.dBfmKg || 0)) / (i.curWeightKg + (i.dWeightKg || 0)) * 100;
+    }
+    if (i.targetBmi == null && i.heightCm) {
+      i.targetBmi = (i.curWeightKg + (i.dWeightKg || 0)) / Math.pow(i.heightCm / 100, 2);
+    }
+    i.smmKnown = (i.dSmmKg != null && isFinite(i.dSmmKg));
+    i.smmUp    = i.smmKnown && i.dSmmKg > NOISE.smm;
+    i.smmDown  = i.smmKnown && i.dSmmKg < -NOISE.smm;
+    i.smmFlat  = i.smmKnown && Math.abs(i.dSmmKg) <= NOISE.smm;
+    i.subNoiseAll = Math.abs(i.dWeightKg || 0) < NOISE.weight &&
+                    Math.abs(i.dSmmKg || 0) < NOISE.smm &&
+                    Math.abs(i.dBfmKg || 0) < NOISE.bfm;
+    i.taExp = i.trainingAge !== 'novice';
+    if (i.currentPhase === undefined) i.currentPhase = null;
+    i.input = i;
+
     i.ratePct = (i.deadlineWeeks && i.curWeightKg)
       ? Math.abs(i.dWeightKg) / i.curWeightKg / i.deadlineWeeks * 100 : null;
     i.targetPbf = i.targetPbfPct;
@@ -158,6 +181,41 @@ L.push(`
     i.weeksSpan = i.recentTrend ? i.recentTrend.weeksSpan : null;
     i.pct = (i.recentTrend && i.curWeightKg)
       ? Math.abs(i.recentTrend.dWeightKg / i.curWeightKg * 100) : null;
+    // 문구 치환에 쓰는 파생값 — 규칙 문구가 요구하는 이름 그대로 맞춘다
+    var maleGate = i.sex === 'male';
+    i.cuttingGate = maleGate ? 18 : 26;
+    i.bulkGate = maleGate ? 18 : 26;
+    i.recompFatCapKg = Math.round(Math.max(6.5, 0.085 * (i.curWeightKg || 0)) * 10) / 10;
+    i.fatCapKcal = Math.round(31 * (i.curBfmKg || 0));
+    i.targetWeightKg = Math.round(((i.curWeightKg || 0) + (i.dWeightKg || 0)) * 10) / 10;
+    i.targetBfmKg = Math.round(((i.curBfmKg || 0) + (i.dBfmKg || 0)) * 10) / 10;
+    i.targetSmmKg = Math.round(((i.curSmmKg || 0) + (i.dSmmKg || 0)) * 10) / 10;
+    i.bulkFatCapKg = Math.round(Math.max(NOISE.bfm, i.dFfmKg / 3) * 10) / 10;
+    // 증량으로 근육 목표를 채울 때 따라붙는 체중·지방 (제지방 비율 0.6 가정)
+    i.cleanBulkWeightKg = i.dFfmKg > 0 ? Math.round(i.dFfmKg / 0.6 * 10) / 10 : 0;
+    i.cleanBulkFatKg = i.dFfmKg > 0 ? Math.round((i.cleanBulkWeightKg - i.dFfmKg) * 10) / 10 : 0;
+    // 근성장 속도 — 엔진이 있으면 같은 모델을 쓴다
+    var monthly = null;
+    if (global.MB_ENGINE && global.MB_ENGINE.baseSmmRatePerWeek && i.curWeightKg) {
+      monthly = global.MB_ENGINE.baseSmmRatePerWeek(i.curWeightKg,
+        { trainingAge: i.trainingAge, sex: i.sex, age: i.age, hadPriorPeak: i.hadPriorPeak },
+        i.k) * 4.345;
+    }
+    if (monthly && monthly > 0) {
+      i.expectedMonthlySmmKg = Math.round(monthly * 100) / 100;
+      i.smmVisibleMonths = Math.ceil(NOISE.smm / monthly);
+      i.bulkWeeks = i.dSmmKg > 0 ? Math.ceil(i.dSmmKg / (monthly / 4.345)) : 0;
+    } else {
+      i.expectedMonthlySmmKg = null; i.smmVisibleMonths = null; i.bulkWeeks = null;
+    }
+    // 완만한 적자(TDEE 15%)로 갈 때와 공격적으로 갈 때의 도착 차이 (주)
+    if (i.tdeeKcal && i.dBfmKg < 0) {
+      var mild = 0.15 * i.tdeeKcal * 7 / 7700;
+      var hard = 0.25 * i.tdeeKcal * 7 / 7700;
+      i.mildDeficitKcal = Math.round(0.15 * i.tdeeKcal);
+      i.etaDiffWeeks = Math.max(0, Math.round(Math.abs(i.dBfmKg) / mild - Math.abs(i.dBfmKg) / hard));
+    } else { i.mildDeficitKcal = null; i.etaDiffWeeks = null; }
+
     i.reason = i.hadPriorPeak ? '쉬었다 복귀한 경우'
              : (i.trainingAge === 'novice' ? '운동 입문 단계'
              : (i.curPbfPct >= (i.sex === 'male' ? 18 : 26) ? '체지방이 아직 남아 있는 상태'
@@ -238,7 +296,15 @@ L.push(`
     return null;
   }
 
+  /** ★ 뒤는 구현 노트라 화면에 내보내지 않는다 */
+  function forDisplay(text) {
+    if (!text) return '';
+    var cut = String(text).split('★')[0];
+    return cut.replace(/\\n{2,}/g, '\\n').trim();
+  }
+
   global.MB_MODES = {
+    forDisplay: forDisplay,
     NOISE: NOISE, MODES: MODES, RULES: RULES, REFUSALS: REFUSALS,
     OWNER_VERDICT: OWNER_VERDICT,
     select: select, byId: byId, whyNot: whyNot

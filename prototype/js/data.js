@@ -12,7 +12,7 @@
     age: 22,
     heightCm: 187,
     activityLevel: 'moderate',   // sedentary|light|moderate|active|veryActive
-    trainingAge: 'intermediate', // novice|intermediate|advanced|elite
+    trainingAge: 'novice',       // 첫 측정이 2026-06-30 이므로 6개월 미만 (novice|intermediate|advanced|elite)
     daysPerWeek: 4,
     sessionMinutes: 60,
     environment: 'gym',          // gym|home|hybrid

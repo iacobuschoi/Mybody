@@ -175,6 +175,12 @@
     if (r.capWarning) {
       card.appendChild(h('div.note.note--warn', { style: { marginTop: '10px' }, text: '⚠️ ' + r.capWarning }));
     }
+    if (r.leanLossWarning) {
+      card.appendChild(h('div.note.note--bad', { style: { marginTop: '10px' }, text: '⚠️ ' + r.leanLossWarning }));
+    }
+    if (r.capNote) {
+      card.appendChild(h('div.note', { style: { marginTop: '10px' }, text: r.capNote }));
+    }
 
     card.appendChild(h('div.btn-row', { style: { marginTop: '12px' } }, [
       h('button.btn', { text: '자세히', uid: 'P06-B' + (10 + n) + '', uidLabel: r.label + ' 자세히',
