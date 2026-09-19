@@ -205,6 +205,24 @@ async function main() {
   ok('세 번까지는 통과', codes.slice(0, 3).every(c => c === 200), codes);
   ok('네 번째부터 429', codes.slice(3).every(c => c === 429), codes);
   stop();
+
+  console.log('\n[9] 서버 전체 한도 — 계정을 늘려도 못 넘는다');
+  /* 사람당 한도만 두면 가입 코드를 아는 사람이 계정을 계속 만들어
+     한도를 무한정 늘릴 수 있습니다. 청구서는 서버 주인에게 갑니다. */
+  srv = boot({ ANTHROPIC_API_KEY: 'test-key', OCR_PER_DAY: '2', OCR_PER_DAY_TOTAL: '3',
+               OCR_API_URL: `http://localhost:${FAKE_PORT}/v1/messages` });
+  await waitUp(PORT);
+  nextReply = { status: 200, body: toolReply({ notInBody: false, weightKg: 86.7 }) };
+  const seen = [];
+  for (let i = 0; i < 4; i++) {
+    const u3 = await call('POST', '/auth/signup',
+      { handle: 'many' + i, password: PW, displayName: 'm' + i, pairSecret: PAIR });
+    const tk = u3.json.token || (await call('POST', '/auth/signin',
+      { handle: 'many' + i, password: PW })).json.token;
+    seen.push((await call('POST', '/ocr', shot(), tk)).status);
+  }
+  ok('새 계정으로도 서버 한도를 못 넘는다', seen.includes(429), seen);
+  stop();
 }
 
 fake.listen(FAKE_PORT);

@@ -32,7 +32,8 @@ const srv = spawn(process.execPath,[path.join(__dirname,'..','server','server.js
    /* 속도 제한을 올려 둡니다. 안 올리면 아래 잠금 검사가 429 에 먼저
       막혀서, 정작 보려던 로직을 한 번도 안 지나갑니다. 429 자체는
       올바른 방어라 그건 그것대로 두고 여기서는 잠금만 봅니다. */
-   RATE_MAX:'100000', AUTH_MAX:'100000', LOGIN_MAP_MAX:'20'},stdio:'ignore'});
+   RATE_MAX:'100000', AUTH_MAX:'100000', LOGIN_MAP_MAX:'20',
+   BODY_TIMEOUT_MS:'3000'},stdio:'ignore'});
 process.on('exit',()=>srv.kill());
 (async()=>{
   let up=false;
@@ -151,6 +152,31 @@ process.on('exit',()=>srv.kill());
     const sapi2 = makeApi(sdb2);
     if (sapi2.userForToken(u2.token)) console.log('    ✓ 다시 열면 만료일이 채워져 살아난다');
     else { console.log('    ✗ 마이그레이션이 만료일을 안 채운다'); lockFail++; }
+  }
+
+  /* --- 본문을 보내다 마는 연결 -------------------------------------------
+   * 연결만 열어 두고 본문을 끝내지 않으면, 예전에는 그 요청이 최대 2MB 를
+   * 붙든 채 영원히 남았습니다. 인증도 필요 없어서 그런 연결을 수백 개
+   * 열면 메모리가 그만큼 묶입니다. */
+  console.log('\n  느린 본문');
+  {
+    const net = require('net');
+    const t0 = Date.now();
+    const closed = await new Promise(resolve => {
+      const sock = net.connect(PORT, 'localhost', () => {
+        // Content-Length 는 100 이라고 해 놓고 10바이트만 보냅니다
+        sock.write('POST /api/auth/signin HTTP/1.1\r\nHost: x\r\n' +
+                   'Content-Type: application/json\r\nContent-Length: 100\r\n\r\n');
+        sock.write('{"handle":');
+      });
+      let got = '';
+      sock.on('data', d => { got += d.toString(); });
+      sock.on('close', () => resolve({ ms: Date.now() - t0, got: got.slice(0, 40) }));
+      sock.on('error', () => resolve({ ms: Date.now() - t0, got: 'error' }));
+      setTimeout(() => { sock.destroy(); resolve({ ms: Date.now() - t0, got: 'timeout' }); }, 12000);
+    });
+    if (closed.ms < 11000) console.log(`    ✓ ${Math.round(closed.ms/1000)}초 만에 서버가 끊는다`);
+    else { console.log('    ✗ 서버가 안 끊는다 — 연결이 계속 살아 있다'); lockFail++; }
   }
 
   const bad = leak + lockFail;

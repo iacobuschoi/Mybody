@@ -106,16 +106,30 @@ function rateLimited(ip) {
  * 반대로 한 IP 뒤의 여러 사람이 서로를 막게 됩니다. */
 /* 사람당 하루 판독 횟수. 사진 한 장이 돈이 드는 요청이라, 버그로
    같은 요청이 반복돼도 청구서가 터지지 않게 막아 둡니다. */
+/* 서버 전체의 하루 한도도 같이 둡니다.
+ *
+ * 사람당 한도만 두면, 가입 코드를 아는 사람이 계정을 계속 만들어서
+ * 한도를 무한정 늘릴 수 있습니다. 가입 코드는 친구에게 주는 값이라
+ * "친구는 악의가 없다" 를 전제로 하지만, 코드가 한 번 새면 청구서는
+ * 서버 주인에게 갑니다. 사람당 한도는 실수를 막고, 전체 한도는
+ * 청구서를 막습니다. */
+const OCR_PER_DAY_TOTAL = Number(process.env.OCR_PER_DAY_TOTAL || OCR_PER_DAY * 5);
+
 const ocrHits = new Map();
 function ocrLimited(userId) {
   const day = new Date().toISOString().slice(0, 10);
   const key = userId + '|' + day;
+  const totalKey = '*|' + day;
   const n = (ocrHits.get(key) || 0) + 1;
+  const total = (ocrHits.get(totalKey) || 0) + 1;
   ocrHits.set(key, n);
+  ocrHits.set(totalKey, total);
   if (ocrHits.size > 2000) {
     for (const k of ocrHits.keys()) { if (!k.endsWith('|' + day)) ocrHits.delete(k); }
   }
-  return n > OCR_PER_DAY;
+  if (total > OCR_PER_DAY_TOTAL) return 'total';
+  if (n > OCR_PER_DAY) return 'user';
+  return null;
 }
 
 async function runOcr(body) {
@@ -224,14 +238,32 @@ function send(res, status, body, headers = {}) {
  * 대신 남은 데이터를 버리면서 끝까지 받아 주고, 응답으로 413 을 보냅니다.
  * (그래도 무한정 받지는 않습니다 — HARD 를 넘으면 그때는 끊습니다.)
  */
+/* 본문을 기다리는 시간에 상한을 둡니다.
+ *
+ * 예전에는 시간 제한이 없었습니다. 연결만 열어 두고 본문을 끝내지
+ * 않으면 그 요청이 최대 2MB 를 붙든 채 영원히 남았습니다. 인증도
+ * 필요 없으니, 그런 연결을 수백 개 열면 메모리가 그만큼 묶입니다
+ * (slowloris). 요청을 보내다 만 것과 보내기 싫은 것은 서버가 구분할
+ * 수 없으니, 시간으로 끊습니다. */
+const BODY_TIMEOUT_MS = Number(process.env.BODY_TIMEOUT_MS || 30_000);
+
 function readBody(req, limit = 2_000_000) {
   const HARD = limit * 4;
   return new Promise((resolve, reject) => {
-    let n = 0, over = false; const chunks = [];
+    let n = 0, over = false, done = false; const chunks = [];
+    const timer = setTimeout(() => {
+      if (done) return;
+      done = true;
+      chunks.length = 0;
+      reject(Object.assign(new Error('본문이 너무 느립니다'), { status: 408 }));
+      req.destroy();
+    }, BODY_TIMEOUT_MS);
+    const finish = (fn, arg) => { if (done) return; done = true; clearTimeout(timer); fn(arg); };
     req.on('data', c => {
       n += c.length;
       if (n > HARD) {
-        if (!over) { over = true; reject(Object.assign(new Error('본문이 너무 큽니다'), { status: 413 })); }
+        over = true;
+        finish(reject, Object.assign(new Error('본문이 너무 큽니다'), { status: 413 }));
         req.destroy();
         return;
       }
@@ -239,12 +271,14 @@ function readBody(req, limit = 2_000_000) {
       chunks.push(c);
     });
     req.on('end', () => {
-      if (over) return reject(Object.assign(new Error('본문이 너무 큽니다'), { status: 413 }));
-      if (!chunks.length) return resolve({});
-      try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
-      catch { reject(Object.assign(new Error('JSON 형식이 아닙니다'), { status: 400 })); }
+      if (over) return finish(reject, Object.assign(new Error('본문이 너무 큽니다'), { status: 413 }));
+      if (!chunks.length) return finish(resolve, {});
+      try { finish(resolve, JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
+      catch { finish(reject, Object.assign(new Error('JSON 형식이 아닙니다'), { status: 400 })); }
     });
-    req.on('error', reject);
+    req.on('error', e => finish(reject, e));
+    req.on('aborted', () => finish(reject,
+      Object.assign(new Error('연결이 끊겼습니다'), { status: 400 })));
   });
 }
 
@@ -384,8 +418,11 @@ async function handleApi(req, res, url) {
     if (!ANTHROPIC_KEY) {
       return send(res, 503, { ok: false, reason: '이 서버에는 판독 키가 설정되지 않았습니다' });
     }
-    if (ocrLimited(me)) {
-      return send(res, 429, { ok: false, reason: '판독 요청이 너무 잦습니다. 잠시 뒤에 다시 해 주세요' });
+    const capped = ocrLimited(me);
+    if (capped) {
+      return send(res, 429, { ok: false, reason: capped === 'total'
+        ? '오늘 이 서버의 판독 한도를 다 썼습니다. 내일 다시 해 주세요'
+        : '오늘 판독 한도를 다 썼습니다. 내일 다시 해 주세요' });
     }
     const b = await readBody(req, 8_000_000);
     const out = await runOcr(b);

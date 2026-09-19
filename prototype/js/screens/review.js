@@ -102,8 +102,19 @@
       /* 검산이 기댈 지난 측정. 편집 중인 스캔 자신은 빼야 합니다 —
          자기 자신과 비교하면 변화량이 늘 0 이라 아무것도 못 잡습니다. */
       var prevScan = (function () {
-        var list = (st.scans || []).filter(function (x) {
-          return !src.origin || x.id !== src.origin.id;
+        /* 저장 경로(save)는 S.sortedScans() 를 쓰는데 여기는 st.scans 의
+           배열 순서를 썼습니다. 배열 순서는 "넣은 순서" 라, 지난 기록을
+           나중에 채워 넣으면(backfill) 둘이 서로 다른 스캔을 보게 됩니다.
+           검수 화면은 A 와 비교해 초록을 보여주고, 저장할 때는 B 와
+           비교해 경고가 뜨는 일이 생깁니다.
+           그리고 "직전" 은 측정일 기준이어야 합니다. 지금 편집 중인
+           측정보다 나중에 잰 것은 직전이 아닙니다. */
+        var mine = src.origin && src.origin.id;
+        var at = Date.parse(v.measuredAt || (src.origin && src.origin.measuredAt) || '');
+        var list = S.sortedScans().filter(function (x) {
+          if (mine && x.id === mine) return false;
+          if (isFinite(at)) return Date.parse(x.measuredAt) <= at;
+          return true;
         });
         return list.length ? list[list.length - 1] : null;
       })();
