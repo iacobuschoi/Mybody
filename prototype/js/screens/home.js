@@ -275,6 +275,66 @@
     return Math.max(0, Math.min((plan.trajectory || []).length - 1, Math.floor(days / 7)));
   }
 
+  /* ------------------------------------------------------------------ */
+  /* 측정 창 — 기간 보기가 쓸 재료                                        */
+  /*                                                                      */
+  /* 사용자가 인바디를 재는 주기는 제각각입니다(2~12주가 흔합니다).       */
+  /* "이번 주 변화"를 말하려면 이번 주 안에 측정이 두 번 있어야 하는데    */
+  /* 그런 일은 거의 없습니다. 그래서 창 안의 측정을 세고, 몇 개인지에     */
+  /* 따라 화면이 다른 말을 하게 합니다.                                   */
+  /* ------------------------------------------------------------------ */
+  function scansInWindow(scans, days, profile) {
+    var cut = Date.now() - days * 86400000;
+    var inWin = (scans || []).filter(function (s2) {
+      return Date.parse(s2.measuredAt) >= cut;
+    });
+    // 창 시작 직전의 측정 하나도 같이 가져옵니다 — 그게 있어야 "이 창에서
+    // 얼마나 변했나"를 말할 수 있습니다. 없으면 비교 대상이 없습니다.
+    var before = (scans || []).filter(function (s2) {
+      return Date.parse(s2.measuredAt) < cut;
+    }).slice(-1)[0] || null;
+
+    var out = { inWindow: inWin.length, from: null, to: null, spanDays: 0, delta: null };
+    var a = before || inWin[0];
+    var b = inWin[inWin.length - 1];
+    if (!a || !b || a === b) return out;
+
+    var da = E.derive(a, profile), db2 = E.derive(b, profile);
+    out.from = da; out.to = db2;
+    out.spanDays = Math.round((Date.parse(b.measuredAt) - Date.parse(a.measuredAt)) / 86400000);
+    out.delta = {
+      weightKg: Math.round((db2.weightKg - da.weightKg) * 10) / 10,
+      smmKg: Math.round((db2.smmKg - da.smmKg) * 100) / 100,
+      bfmKg: Math.round((db2.bfmKg - da.bfmKg) * 100) / 100
+    };
+    return out;
+  }
+
+  /** 지표별 오차 바닥. 이 안이면 "변했다"고 말할 수 없습니다. */
+  function noiseFloor() {
+    return (global.MB_MODES && global.MB_MODES.NOISE) || { weight: 1.0, smm: 0.6, bfm: 1.0 };
+  }
+
+  /* 기간 탭 한 줄. 목표 카드와 플랜 카드가 같은 것을 씁니다 —
+     두 벌이면 한쪽만 고치는 일이 생기고, 탭이 서로 다르게 동작하게 됩니다. */
+  function scopeTabs(scopes, initial, onPick, labelSuffix) {
+    var scope = initial;
+    var tabs = h('div.chips', { style: { marginBottom: '10px' } },
+      scopes.map(function (sc) {
+        return h('button.chip' + (sc.key === scope ? '.is-on' : ''), {
+          text: sc.label, uid: sc.uid, uidLabel: sc.label + ' ' + (labelSuffix || ''),
+          onClick: function () {
+            scope = sc.key;
+            tabs.querySelectorAll('.chip').forEach(function (x, i) {
+              x.classList.toggle('is-on', scopes[i].key === scope);
+            });
+            onPick(scope);
+          } });
+      }));
+    tabs.current = function () { return scope; };
+    return tabs;
+  }
+
   function planScopeCard(plan) {
     var scope = 'today';
     var card = h('div.card', { uid: 'P02-C04', uidLabel: '플랜 보기' });
@@ -287,18 +347,7 @@
       { key: 'week',  label: '이번주', uid: 'P02-B15' },
       { key: 'month', label: '한달',  uid: 'P02-B16' }
     ];
-    var tabs = h('div.chips', { style: { marginBottom: '10px' } },
-      SCOPES.map(function (sc) {
-        return h('button.chip' + (sc.key === scope ? '.is-on' : ''), {
-          text: sc.label, uid: sc.uid, uidLabel: sc.label + ' 플랜',
-          onClick: function () {
-            scope = sc.key;
-            tabs.querySelectorAll('.chip').forEach(function (x, i) {
-              x.classList.toggle('is-on', SCOPES[i].key === scope);
-            });
-            render();
-          } });
-      }));
+    var tabs = scopeTabs(SCOPES, scope, function (k) { scope = k; render(); }, '플랜');
 
     card.appendChild(h('div.card__head', [
       h('div.card__title', { text: '플랜' }),
