@@ -19,6 +19,11 @@
  *
  * 3. 그때 사진보다 숫자를 지킨다
  *    사진은 다시 찍을 수 있지만 지나간 측정일의 숫자는 못 되찾습니다.
+ *
+ * 4. 고치던 값을 두고 나가면 말없이 버린다
+ *    "저장하지 않고 나갈까요?" 모달(M23)이 만들어져 있었는데 부르는 곳이
+ *    한 군데도 없었습니다. 나가는 길이 탭바 · 뒤로가기 · 화면 안 버튼으로
+ *    여러 개라, 라우터에서 한 번 막습니다.
  * ========================================================================== */
 const { chromium } = require('playwright');
 const http = require('http'); const fs = require('fs'); const path = require('path');
@@ -117,7 +122,66 @@ const ok=(n,c,d)=>{if(c){pass++;console.log('  ✓',n);}else{fail++;console.log(
   ok('결국 저장에 성공한다', r3.okFlag===true, r3);
   ok('사진을 버려서 자리를 만들었다', r3.photosAfter < r3.photosBefore, r3);
 
-  console.log('\n[4] JS 오류');
+
+  console.log('\n[4] 안 고쳤으면 그냥 나간다');
+  await pg.evaluate(()=>window.MB_APP.go('P04',{manual:true})); await pg.waitForTimeout(400);
+  await pg.evaluate(()=>{const m=document.querySelector('.modal-backdrop .btn--primary'); if(m)m.click();});
+  await pg.waitForTimeout(250);
+  await pg.evaluate(()=>window.MB_APP.go('P02')); await pg.waitForTimeout(400);
+  ok('막지 않는다', (await pg.evaluate(()=>window.MB_APP.current))==='P02');
+
+  console.log('\n[5] 고치던 중이면 물어본다');
+  await pg.evaluate(()=>window.MB_APP.go('P04',{manual:true})); await pg.waitForTimeout(400);
+  await pg.evaluate(()=>{const m=document.querySelector('.modal-backdrop .btn--primary'); if(m)m.click();});
+  await pg.waitForTimeout(250);
+  await pg.evaluate(()=>{const e=document.querySelector('[data-uid="P04-F01"]');e.value='85.5';e.dispatchEvent(new Event('input',{bubbles:true}));});
+  await pg.waitForTimeout(300);
+  await pg.evaluate(()=>window.MB_APP.go('P02')); await pg.waitForTimeout(400);
+  const st = await pg.evaluate(()=>({screen:window.MB_APP.current, modal:!!document.querySelector('.modal'),
+    title:(document.querySelector('.modal__title')||{}).textContent||''}));
+  ok('화면이 안 바뀐다', st.screen==='P04', st);
+  ok('M23 모달이 뜬다', st.modal && /저장하지 않고/.test(st.title), st);
+
+  console.log('\n[6] "계속 편집" 을 누르면 값이 살아 있다');
+  await pg.evaluate(()=>{const b=[...document.querySelectorAll('.modal__actions .btn')].find(x=>/계속/.test(x.textContent)); if(b)b.click();});
+  await pg.waitForTimeout(350);
+  ok('P04 에 남아 있다', (await pg.evaluate(()=>window.MB_APP.current))==='P04');
+  ok('고치던 값이 그대로', (await pg.evaluate(()=>{const e=document.querySelector('[data-uid="P04-F01"]');return e?e.value:null;}))==='85.5');
+
+  console.log('\n[7] "나가기" 를 누르면 나간다');
+  await pg.evaluate(()=>window.MB_APP.go('P02')); await pg.waitForTimeout(350);
+  await pg.evaluate(()=>{const b=[...document.querySelectorAll('.modal__actions .btn')].find(x=>/나가기/.test(x.textContent)); if(b)b.click();});
+  await pg.waitForTimeout(450);
+  ok('P02 로 나갔다', (await pg.evaluate(()=>window.MB_APP.current))==='P02');
+
+  console.log('\n[8] 탭바로 나가도 막힌다 (나가는 길이 여러 개다)');
+  await pg.evaluate(()=>window.MB_APP.go('P04',{manual:true})); await pg.waitForTimeout(400);
+  await pg.evaluate(()=>{const m=document.querySelector('.modal-backdrop .btn--primary'); if(m)m.click();});
+  await pg.waitForTimeout(250);
+  await pg.evaluate(()=>{const e=document.querySelector('[data-uid="P04-F02"]');e.value='38.5';e.dispatchEvent(new Event('input',{bubbles:true}));});
+  await pg.waitForTimeout(300);
+  await pg.evaluate(()=>{const t=document.querySelector('.tabbar__item[data-to="P02"]'); if(t)t.click();});
+  await pg.waitForTimeout(400);
+  ok('탭바도 막힌다', (await pg.evaluate(()=>window.MB_APP.current))==='P04');
+  await pg.evaluate(()=>{const b=[...document.querySelectorAll('.modal__actions .btn')].find(x=>/나가기/.test(x.textContent)); if(b)b.click();});
+  await pg.waitForTimeout(400);
+
+  console.log('\n[9] 저장한 뒤에는 안 물어본다');
+  await pg.evaluate(()=>window.MB_APP.go('P04',{manual:true})); await pg.waitForTimeout(400);
+  await pg.evaluate(()=>{const m=document.querySelector('.modal-backdrop .btn--primary'); if(m)m.click();});
+  await pg.waitForTimeout(250);
+  await pg.evaluate(()=>{
+    const dt=document.querySelector('[data-uid="P04-F14"]'); if(dt){dt.value='2026-11-20T09:00';dt.dispatchEvent(new Event('change',{bubbles:true}));}
+    [['P04-F01','84.0'],['P04-F02','38.3'],['P04-F03','17.5']].forEach(([u,v])=>{
+      const e=document.querySelector('[data-uid="'+u+'"]'); e.value=v; e.dispatchEvent(new Event('input',{bubbles:true}));});
+  });
+  await pg.waitForTimeout(350);
+  await pg.evaluate(()=>{const b=document.querySelector('[data-uid="P04-B04"]'); if(b)b.click();});
+  await pg.waitForTimeout(700);
+  const after = await pg.evaluate(()=>({screen:window.MB_APP.current, modal:!!document.querySelector('.modal')}));
+  ok('저장 뒤 바로 나간다 (M23 안 뜸)', after.screen!=='P04' || !after.modal, after);
+
+  console.log('\n[10] JS 오류');
   ok('오류 0건', errs.length===0, errs);
 
   console.log(`\n통과 ${pass} / 실패 ${fail}`);

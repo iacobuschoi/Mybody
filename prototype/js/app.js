@@ -93,9 +93,45 @@
     document.body.appendChild(UI.h('div', { id: 'toast-host' }));
   }
 
+  /* --- 나가기 전에 물어보기 ------------------------------------------------
+   *
+   * 검수 화면에서 숫자를 고치다가 탭을 누르면 고친 게 전부 사라졌습니다.
+   * 경고도 없었습니다. M23 "저장하지 않고 나갈까요?" 모달이 만들어져
+   * 있었는데 부르는 곳이 한 군데도 없었습니다.
+   *
+   * 화면마다 go() 호출을 감싸는 방법도 있지만, 나가는 길이 탭바 ·
+   * 뒤로가기 · 화면 안 버튼 · 주소 해시로 여러 개라 한 군데만 빠져도
+   * 거기로 나갈 때 조용히 사라집니다. 그래서 라우터에 둡니다 —
+   * 빠뜨릴 수가 없는 자리입니다.
+   *
+   * 화면은 render() 안에서 A.confirmLeave(fn) 을 부르고, fn 은 "지금
+   * 나가면 잃을 게 있나" 를 돌려줍니다. 화면이 바뀌면 자동으로 풀립니다.
+   */
+  var leaveGuard = null;
+
+  function confirmLeave(fn) { leaveGuard = fn; }
+
+  function mayLeave(next) {
+    if (!leaveGuard) return true;
+    var dirty = false;
+    try { dirty = !!leaveGuard(); } catch (e) { dirty = false; }
+    if (!dirty) return true;
+    if (global.MB_MODALS && global.MB_MODALS.unsaved) {
+      global.MB_MODALS.unsaved(function () {
+        leaveGuard = null;      // 사용자가 버리기로 했습니다
+        next();
+      });
+      return false;
+    }
+    return true;                // 모달이 없으면 막지 않습니다 (막다른 길 방지)
+  }
+
   /* --- 라우팅 ------------------------------------------------------------- */
   function go(id, p, opts) {
     if (!screens[id]) { console.warn('알 수 없는 화면:', id); return; }
+    if (current === id) { leaveGuard = null; }
+    else if (!mayLeave(function () { leaveGuard = null; go(id, p, opts); })) return;
+    leaveGuard = null;
     if (current && current !== id && !(opts && opts.replace)) history.push({ id: current, params: params });
     current = id;
     params = p || {};
@@ -104,6 +140,8 @@
   }
 
   function back() {
+    if (!mayLeave(function () { leaveGuard = null; back(); })) return;
+    leaveGuard = null;
     var prev = history.pop();
     if (prev) { current = prev.id; params = prev.params; render(); }
     else { current = 'P02'; params = {}; render(); }
@@ -206,6 +244,7 @@
 
   global.MB_APP = {
     register: register, go: go, back: back, refresh: refresh, boot: boot,
+    confirmLeave: confirmLeave,
     requireScan: requireScan, requirePlan: requirePlan,
     get current() { return current; },
     get params() { return params; },

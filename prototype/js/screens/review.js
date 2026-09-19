@@ -81,6 +81,16 @@
       var origin = src.origin;      // 편집 중인 원본 스캔 (없으면 null)
 
       var touched = {};             // 사람이 손댄 필드 = 확인된 필드
+      var savedOnce = false;        // 저장하고 나면 더 지킬 것이 없습니다
+
+      /* 고치던 것을 두고 나가려 하면 물어봅니다.
+         탭바 · 뒤로가기 · 화면 안 버튼 어느 쪽으로 나가든 라우터가
+         이걸 물어봅니다 — 나가는 길마다 따로 막으면 한 군데는 꼭
+         빠지고, 거기로 나갈 때만 조용히 사라집니다. */
+      A.confirmLeave(function () {
+        if (savedOnce) return false;
+        return Object.keys(touched).length > 0;
+      });
       var rows = {};                // key -> {input, dot, note, err}
       var groups = {};              // uid -> {open, body, badge, btn}
       var warnHost, stateHost, saveBtn, laterBtn;
@@ -172,6 +182,7 @@
           h('button.btn', {
             text: '전부 직접 입력으로', uid: 'P04-B02', uidLabel: '전부 직접 입력으로 전환',
             onClick: function () {
+              savedOnce = true;   // 이미 "버리겠다" 고 확인한 뒤입니다
               global.MB_MODALS.switchToManual(function () {
                 A.go('P04', { manual: true }, { replace: true });
               });
@@ -640,6 +651,7 @@
           global.MB_MODALS.saveFailed(v);
           return;
         }
+        savedOnce = true;
         S.set({ draft: null });
         global.MB_DRAFT = null;
         global.MB_UID.toast('측정이 저장되었습니다');
