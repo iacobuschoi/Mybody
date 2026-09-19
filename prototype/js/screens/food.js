@@ -293,10 +293,19 @@
         ]));
       }
 
-      /* --- 사진 / 달성률 --- */
+      /* --- 사진 / 달성률 ---
+         "사진으로" 는 개발 빌드에서만 보입니다. 사진을 읽는 기능이
+         아직 없어서, 누르면 내장 샘플 네 가지(공기밥 · 김치찌개 ·
+         계란말이 · 배추김치)가 신뢰도까지 붙어서 나옵니다. 안내 문구는
+         있지만 네 단계짜리 진행 표시를 본 뒤에 그걸 다시 읽는 사람은
+         적습니다. 먹지도 않은 음식이 식단 기록에 들어가면 칼로리 ·
+         단백질 계산이 통째로 어긋나고, 그 위에 올라간 조언까지 틀립니다.
+         기능이 생기면 그때 켭니다. */
       wrap.appendChild(h('div.btn-row', { style: { marginTop: '4px' } }, [
-        h('button.btn', { text: '📷 사진으로', uid: 'P18-B08', uidLabel: '사진으로 기록',
-          onClick: function () { A.go('P20', { meal: guessMeal(), date: date }); } }),
+        global.MB_BUILD.tools
+          ? h('button.btn', { text: '📷 사진으로 (개발용)', uid: 'P18-B08', uidLabel: '사진으로 기록',
+              onClick: function () { A.go('P20', { meal: guessMeal(), date: date }); } })
+          : null,
         h('button.btn', { text: '📊 달성률', uid: 'P18-B09', uidLabel: '달성률 보기',
           onClick: function () { A.go('P21'); } })
       ]));
@@ -470,7 +479,9 @@
   });
 
   /* ===================== P20 사진 기록 ===================== */
-  A.register('P20', {
+  /* P20 은 사진을 실제로 읽지 못합니다. 배포 빌드에서는 등록조차 하지
+     않습니다 — 주소의 #P20 으로도 들어올 수 없게. */
+  if (global.MB_BUILD.tools) A.register('P20', {
     title: '사진으로 기록', label: '사진 식단 기록',
     render: function (wrap, ctx) {
       var meal = ctx.params.meal || guessMeal();

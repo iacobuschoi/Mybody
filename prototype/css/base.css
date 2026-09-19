@@ -183,9 +183,14 @@ kbd { font-family: ui-monospace, monospace; font-size:.85em; background:var(--su
   font-weight:600; color: var(--text-2); margin-bottom:5px; }
 .field__hint { font-size:11.5px; color: var(--text-3); margin-top:4px; }
 .field__err { font-size:11.5px; color: var(--bad); margin-top:4px; font-weight:600; }
+/* 입력 글자는 16px 밑으로 내려가면 안 됩니다.
+   iOS 사파리는 15px 이하 입력에 포커스가 가면 페이지를 확대합니다.
+   헬스장에서 숫자 세 칸을 넣는 동안 탭할 때마다 화면이 튑니다.
+   본문은 15px 로 두고 입력만 올립니다. */
 .input, .select, .textarea {
   width:100%; padding: 10px 12px; border:1px solid var(--border);
   border-radius: var(--radius-sm); background: var(--surface); outline:none;
+  font-size: 16px;
 }
 .input:focus, .select:focus, .textarea:focus {
   border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-sub);
@@ -204,6 +209,20 @@ kbd { font-family: ui-monospace, monospace; font-size:.85em; background:var(--su
   color: var(--text-2); position: relative;
 }
 .chip.is-on { background: var(--accent-sub); border-color: var(--accent); color: var(--accent); }
+
+/* 손가락이 닿는 넓이를 넓힙니다.
+   칩은 보기엔 31px 인데, 손가락 끝은 그보다 훨씬 굵습니다. 모양을
+   키우면 화면이 답답해지니 안 보이는 판을 덧대서 실제로 누를 수 있는
+   범위만 넓힙니다. 세로 45px, 가로 +8px.
+   마우스에는 필요 없으니 터치 기기에서만 켭니다. */
+@media (pointer: coarse) {
+  .chip::after, .tabbar__item::after, .btn--sm::after {
+    content:''; position:absolute; left:-4px; right:-4px; top:-7px; bottom:-7px;
+  }
+  .btn--sm { position: relative; }
+  /* 칩이 촘촘히 붙어 있으면 넓힌 판끼리 겹쳐서 옆 것이 눌립니다 */
+  .chips { gap: 10px; }
+}
 
 .radio-cards { display:grid; gap:8px; }
 .radio-card {

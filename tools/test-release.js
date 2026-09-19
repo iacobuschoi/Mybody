@@ -51,7 +51,8 @@ const ok = (n, c, d) => {
 };
 
 /* 개발 빌드에만 있어야 하는 것들 */
-const DEV_UIDS = ['P02-B02', 'P03-B03', 'P03-B09', 'P12-C05', 'P12-B07', 'P12-B08', 'P12-B09', 'P12-B10'];
+const DEV_UIDS = ['P01-B05', 'P02-B02', 'P03-B03', 'P03-B09', 'P18-B08',
+                  'P12-C05', 'P12-B07', 'P12-B08', 'P12-B09', 'P12-B10'];
 
 (async () => {
   if (!fs.existsSync(DIR)) { console.error('release/ 가 없습니다. 먼저 node tools/build-release.js'); process.exit(1); }
@@ -89,15 +90,21 @@ const DEV_UIDS = ['P02-B02', 'P03-B03', 'P03-B09', 'P12-C05', 'P12-B07', 'P12-B0
   for (const uid of DEV_UIDS) {
     const there = await page.evaluate(u => {
       // 이 버튼이 있을 만한 화면을 다 돌아봅니다
-      return ['P02', 'P03', 'P12'].some(s => {
+      return ['P01', 'P02', 'P03', 'P12', 'P18'].some(s => {
         window.MB_APP.go(s);
         return !!document.querySelector('[data-uid="' + u + '"]');
       });
     }, uid);
     ok(`${uid} 없음`, !there);
   }
-  const p13 = await page.evaluate(() => (window.MB_APP.screenIds || []).includes('P13'));
-  ok('P13 화면이 등록조차 안 됨', !p13);
+  const gated = await page.evaluate(() => {
+    const ids = window.MB_APP.screenIds || [];
+    return { P13: ids.includes('P13'), P20: ids.includes('P20') };
+  });
+  ok('P13 (ID 목록) 이 등록조차 안 됨', !gated.P13);
+  // P20 은 사진을 실제로 읽지 못합니다 — 지어낸 음식이 식단 기록에
+  // 들어가면 칼로리·단백질 계산이 통째로 어긋납니다.
+  ok('P20 (음식 사진) 이 등록조차 안 됨', !gated.P20);
   await page.goto(`http://localhost:${PORT}/#P13`, { waitUntil: 'load' });
   await page.waitForTimeout(500);
   ok('#P13 으로 들어와도 ID 목록이 아님',
