@@ -58,10 +58,27 @@
     function nextId(p) { return p + '_' + (db.seq++); }
     function code() {
       // 사람이 불러줄 수 있는 8자리. 헷갈리는 글자(0/O, 1/I)는 뺀다.
-      var A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789', s = '';
-      for (var i = 0; i < 8; i++) s += A[(db.seq * 7919 + i * 131 + Object.keys(db.users).length * 37) % A.length];
-      db.seq++;
-      return s;
+      //
+      // 예전 구현은 db.seq 로 만든 등차수열이라 세상에 코드가 16개뿐이었다.
+      // 20명 가입시키면 4명이 남의 코드를 받았고, findByInviteCode 는 마지막 사람을
+      // 돌려줬다 — 친구 요청이 생판 모르는 사람에게 간다는 뜻이다.
+      // 초대 코드는 이 앱 프라이버시 모델의 유일한 관문이라 추측 가능하면 안 된다.
+      var A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+      for (var tries = 0; tries < 50; tries++) {
+        var s = '', i;
+        var buf = null;
+        try {
+          if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+            buf = new Uint32Array(8); crypto.getRandomValues(buf);
+          }
+        } catch (e) {}
+        for (i = 0; i < 8; i++) {
+          var r = buf ? buf[i] : Math.floor(Math.random() * 0xffffffff);
+          s += A[r % A.length];
+        }
+        if (!findByInviteCode(s)) return s;   // 충돌하면 다시 뽑는다
+      }
+      return null;
     }
     function pairKey(a, b) { return a < b ? a + '|' + b : b + '|' + a; }
     function shareKey(owner, viewer) { return owner + '>' + viewer; }
@@ -70,7 +87,11 @@
     function signIn(opts) {
       opts = opts || {};
       var provider = opts.provider || 'kakao';
-      var handle = opts.handle || (provider + ':' + nextId('u'));
+      // handle 은 계정의 정체성이다. 예전엔 여기서 nextId() 로 매번 새 값을 만들어서
+      // 바로 아래 "기존 사용자 찾기"가 절대 매치되지 않았다 — 로그아웃 한 번에
+      // 초대 코드가 바뀌고 친구 목록이 통째로 사라졌다.
+      // 이 기기에서 한 제공자는 한 계정이다. 실서버에서는 OAuth 가 주는 subject 가 들어온다.
+      var handle = opts.handle || (provider + ':local');
       var found = null;
       Object.keys(db.users).forEach(function (id) {
         if (db.users[id].handle === handle) found = db.users[id];
@@ -89,7 +110,15 @@
       return JSON.parse(JSON.stringify(found));
     }
     function signOut() { db.session = null; save(); }
-    function currentUser() { return db.session ? JSON.parse(JSON.stringify(db.users[db.session])) : null; }
+    function currentUser() {
+      // 세션이 지워진 계정을 가리키면(다른 탭에서 탈퇴, localStorage 부분 삭제 등)
+      // 예전엔 JSON.parse(undefined) 가 던져서 설정 탭과 친구 화면이 통째로 죽었다.
+      // 복구 경로까지 막혀서 로그아웃 버튼조차 못 눌렀다. 조용히 로그아웃 상태로 떨어뜨린다.
+      if (!db.session) return null;
+      var u = db.users[db.session];
+      if (!u) { db.session = null; save(); return null; }
+      return JSON.parse(JSON.stringify(u));
+    }
     function requireUser() {
       if (!db.session) throw new Error('로그인이 필요합니다');
       return db.session;

@@ -40,8 +40,20 @@
     return state;
   }
 
+  var publishing = false;
+
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {}
+    // 친구에게 나갈 값이 바뀌었을 수 있으니 여기서 올린다.
+    //
+    // 호출처마다 publishWeekly() 를 넣는 방법도 있지만, 이 기능이 망가져 있던 이유가
+    // 정확히 "호출을 한 군데도 안 넣었다" 였다. 11개 호출처 중 하나를 빠뜨리면
+    // 그 경로로 바꾼 값만 친구에게 영원히 안 보이는, 찾기 어려운 버그가 된다.
+    // 저장하면 올라간다 — 빠뜨릴 수가 없는 자리에 둔다. 같은 주는 덮어쓰므로 멱등이다.
+    if (!publishing) {
+      publishing = true;
+      try { publishWeekly(); } catch (e) {} finally { publishing = false; }
+    }
     listeners.forEach(function (f) { try { f(state); } catch (e) {} });
   }
 
@@ -257,6 +269,82 @@
   }
   function isFavorite(name) { return (state.foodFavorites || []).indexOf(name) >= 0; }
 
+  /* ------------------------------------------------------------------ */
+  /* 주간 스냅샷 — 친구에게 나가는 값                                      */
+  /*                                                                      */
+  /* 이게 없어서 친구 기능의 절반이 존재하지 않았다. publishSnapshot 을    */
+  /* 앱에서 아무도 부르지 않아서, 친구가 공유 항목을 전부 켜도 상대 화면은 */
+  /* 영원히 "아직 공유한 게 없습니다" 였다. 공유 토글의 반대편이 없었다.  */
+  /* ------------------------------------------------------------------ */
+
+  /** 그 날짜가 속한 주의 월요일 (ISO 문자열) */
+  function weekStartOf(date) {
+    var d = date ? new Date(date) : new Date();
+    d.setHours(0, 0, 0, 0);
+    var dow = (d.getDay() + 6) % 7;          // 월=0
+    d.setDate(d.getDate() - dow);
+    return d.getFullYear() + '-' +
+           String(d.getMonth() + 1).padStart(2, '0') + '-' +
+           String(d.getDate()).padStart(2, '0');
+  }
+
+  /**
+   * 이번 주에 친구에게 나갈 수 있는 값 전부를 담은 꾸러미.
+   * 무엇이 실제로 나가는지는 읽는 쪽에서 친구별 공유 설정으로 거른다.
+   * 여기서 거르지 않는 이유: 한 사람이 친구마다 다른 항목을 공유하기 때문이다.
+   */
+  function weeklySnapshot() {
+    var E = global.MB_ENGINE;
+    var prof = state.profile || (global.MB_DATA && global.MB_DATA.SEED_PROFILE);
+    var scans = sortedScans();
+    var out = { dWeightKg: null, dSmmKg: null, dBfmKg: null,
+                progressPct: null, checkedIn: false };
+    if (!E || !prof) return out;
+
+    // 변화량은 직전 측정 대비. 측정이 한 번뿐이면 변화량은 "없음"이지 0 이 아니다.
+    if (scans.length >= 2) {
+      var a = E.derive(scans[scans.length - 2], prof);
+      var b = E.derive(scans[scans.length - 1], prof);
+      out.dWeightKg = Math.round((b.weightKg - a.weightKg) * 10) / 10;
+      out.dSmmKg = Math.round((b.smmKg - a.smmKg) * 100) / 100;
+      out.dBfmKg = Math.round((b.bfmKg - a.bfmKg) * 100) / 100;
+    }
+    if (scans.length) {
+      var last = E.derive(scans[scans.length - 1], prof);
+      out.weightKg = last.weightKg; out.smmKg = last.smmKg;
+      out.bfmKg = last.bfmKg; out.pbfPct = last.pbfPct;
+    }
+    if (state.plan && state.goal && scans.length && state.plan.trajectory) {
+      var cur = E.derive(scans[scans.length - 1], prof);
+      var s0 = state.plan.trajectory[0].bfmKg, t0 = state.goal.bfmKg;
+      if (Math.abs(s0 - t0) > 0.01) {
+        out.progressPct = Math.max(0, Math.min(100,
+          Math.round((s0 - cur.bfmKg) / (s0 - t0) * 100)));
+      }
+    }
+    // "이번 주에 기록했는가". 예전엔 "한 번이라도 기록했는가" 였는데
+    // 화면은 "이번 주 기록"이라고 적고 있었다 — 서로 다른 말이다.
+    var wk = weekStartOf();
+    out.checkedIn = (state.checkins || []).some(function (c) {
+      return weekStartOf(c.at) === wk;
+    });
+    return out;
+  }
+
+  /**
+   * 이번 주 스냅샷을 백엔드에 올린다. 로그인 안 했으면 조용히 아무것도 안 한다.
+   * 측정·체크인·목표 변경처럼 친구가 볼 값이 바뀌는 자리에서 부른다.
+   */
+  function publishWeekly() {
+    var B = global.MB_BACKEND;
+    if (!B || !B.currentUser || !B.currentUser()) return { ok: false, reason: '로그인 안 함' };
+    try {
+      return B.publishSnapshot(weekStartOf(), weeklySnapshot());
+    } catch (e) {
+      return { ok: false, reason: String(e && e.message || e) };
+    }
+  }
+
   function exportJSON() { return JSON.stringify(state, null, 2); }
   function importJSON(text) {
     var parsed = JSON.parse(text);
@@ -275,6 +363,7 @@
     loggedDates: loggedDates, recentFoods: recentFoods,
     lastMealLike: lastMealLike, copyMeal: copyMeal, yesterdayLogs: yesterdayLogs,
     toggleFavorite: toggleFavorite, isFavorite: isFavorite,
+    weekStartOf: weekStartOf, weeklySnapshot: weeklySnapshot, publishWeekly: publishWeekly,
     exportJSON: exportJSON, importJSON: importJSON, blank: blank
   };
 })(window);
