@@ -281,7 +281,8 @@
           global.MB_UID.toast('프로토타입에서는 교체가 저장되지 않습니다');
         } }, [
           h('div', [h('div.radio-card__t', { text: f.name }),
-                    h('div.radio-card__d', { text: f.unit + ' · ' + f.kcal + 'kcal · 단백질 ' + f.p + 'g' })])
+                    h('div.radio-card__d', { text: f.unit + ' ' + f.g + 'g · ' + f.kcal +
+                                                   'kcal · 단백질 ' + f.p + 'g' })])
         ]);
       })),
       actions: [{ label: '닫기', kind: 'primary' }]
@@ -600,7 +601,7 @@
     var info, custom;
     function refresh() {
       var sc = F.scaled(food, mult);
-      info.textContent = sc.g + 'g · ' + sc.kcal + 'kcal · 단백질 ' + sc.p + 'g · 탄수 ' +
+      info.textContent = '무게 ' + sc.g + 'g · ' + sc.kcal + 'kcal · 단백질 ' + sc.p + 'g · 탄수 ' +
                          sc.c + 'g · 지방 ' + sc.f + 'g';
     }
     var chips = h('div.chips', F.PORTIONS.map(function (p2) {
@@ -616,7 +617,8 @@
     var conf = F.CONF_LABEL[food.conf] || F.CONF_LABEL.mid;
     var dlg = UI.openModal({
       uid: 'M40', title: food.name,
-      sub: '기준 ' + food.unit + ' (' + food.g + 'g)',
+      // "기준 1개 (50g)" 은 50g 이 단백질처럼 읽혔다 — 영양 정보 바로 위에 붙어 있어서다
+      sub: '1인분 = ' + food.unit + ', 무게 ' + food.g + 'g',
       body: [
         h('div.field__label', { text: '얼마나 드셨나요' }),
         chips,

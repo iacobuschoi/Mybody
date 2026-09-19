@@ -126,7 +126,8 @@
                 h('div', { style: { fontWeight: '600', fontSize: '13.5px' },
                   text: x.it.name + (x.it.mult !== 1 ? ' × ' + x.it.mult : '') }),
                 h('div.muted', { style: { fontSize: '11px' },
-                  text: x.it.g + 'g · ' + x.it.kcal + 'kcal · P' + x.it.p + ' C' + x.it.c + ' F' + x.it.f +
+                  text: x.it.g + 'g · ' + x.it.kcal + 'kcal · 단백질 ' + x.it.p + 'g · 탄수 ' +
+                        x.it.c + 'g · 지방 ' + x.it.f + 'g' +
                         (x.it.conf === 'low' ? ' · 편차 큼' : '') })
               ]),
               h('button.btn.btn--ghost.btn--sm', { text: '✕',
@@ -326,8 +327,10 @@
                 h('div', { style: { flex: '1', minWidth: '0' } }, [
                   h('div', { style: { fontWeight: '700', fontSize: '14px' }, text: food.name }),
                   h('div.muted', { style: { fontSize: '11.5px' },
-                    text: food.unit + ' (' + food.g + 'g) · ' + food.kcal + 'kcal · P' + food.p +
-                          ' C' + food.c + ' F' + food.f })
+                    // 무게와 영양소를 말로 구분한다. 예전엔 "1개 (50g) · 72kcal · P6.3"
+                    // 이라 50g 이 단백질처럼 읽혔다.
+                    text: food.unit + ' ' + food.g + 'g · ' + food.kcal + 'kcal · 단백질 ' +
+                          food.p + 'g · 탄수 ' + food.c + 'g · 지방 ' + food.f + 'g' })
                 ]),
                 food.conf === 'low' ? h('span.badge.badge--warn', { text: '편차 큼' })
                   : (food.conf === 'high' ? h('span.badge.badge--ok', { text: '정확' }) : null)
