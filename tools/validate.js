@@ -239,14 +239,25 @@ function runCase(c) {
   const simAlt = simulate(c, profile, params,      phase, k, c.weeks);  // a-보간 단백질 사용 시
 
   const pred = {
-    deltaWeightKg: sim.endWeightKg - c.baselineWeightKg,
+    // 발표 기준 체중이 아니라 지방+제지방 변화의 합. 위 주석 참조.
+    deltaWeightKg: (sim.endFatKg - c.baselineFatMassKg) + (sim.endLeanKg - c.baselineLeanMassKg),
     deltaFatMassKg: sim.endFatKg - c.baselineFatMassKg,
     deltaLeanMassKg: sim.endLeanKg - c.baselineLeanMassKg
   };
+  /* 채점 기준.
+   * deltaLeanMassKgScoring 이 있으면 그걸 쓴다 — 4구획 "제지방" 이 아니라 체단백 변화다.
+   * 엔진은 근육을 예측하는데 4C FFM 증가분이 수분/글리코겐이면, 그걸로 채점하는 순간
+   * 근육 파라미터를 수분에 맞추게 된다. (Hatamoto 2024: 4C FFM +0.73kg, 체단백 0.00kg)
+   *
+   * 체중은 지방+제지방으로 계산한다. 6개 케이스는 발표된 기준 체중이 지방+제지방보다
+   * 2.5~2.8kg 크다(골무기질·기타). 예측은 지방+제지방만 추적하므로 발표 체중을 기준으로
+   * 빼면 그 차이가 통째로 오차로 잡힌다 — 엔진이 아니라 회계가 틀린 것이다. */
+  const leanBasis = c.deltaLeanMassKgScoring != null ? 'bodyProtein' : 'published';
   const act3 = {
-    deltaWeightKg: c.deltaWeightKg,
+    deltaWeightKg: c.deltaFatMassKg + (c.deltaLeanMassKgScoring != null
+      ? c.deltaLeanMassKgScoring : c.deltaLeanMassKg),
     deltaFatMassKg: c.deltaFatMassKg,
-    deltaLeanMassKg: c.deltaLeanMassKg
+    deltaLeanMassKg: c.deltaLeanMassKgScoring != null ? c.deltaLeanMassKgScoring : c.deltaLeanMassKg
   };
   const err = {};
   const errPct = {};
@@ -321,6 +332,9 @@ function runCase(c) {
       deltaLeanMassKg: errPct.deltaLeanMassKg == null ? null : +errPct.deltaLeanMassKg.toFixed(0)
     },
     weeklyLog: sim.log,
+    leanScoringBasis: leanBasis,
+    leanScoringNote: c.leanScoringBasis || null,
+    deficitSource: c.deficitSource || 'unknown',
     inferredFields: c.inferredFields || [],
     notes: c.notes
   };
@@ -550,12 +564,13 @@ pairDiff('garthe2011-slow', 'garthe2011-fast', 'slow vs fast weight loss in elit
 console.log('\nTRANSLATION ASSUMPTIONS THAT CAN PRODUCE ERROR INDEPENDENT OF THE MODEL');
 console.log(rule('-', 150));
 [
- '1.  SMM = FFM x 0.55, and FFM = SMM / 0.55 on the way out. The studies measure FFM/lean mass; the engine\'s',
- '    state variable is skeletal muscle mass. Every lean-mass number in the table is a round trip through this',
- '    constant. Because baseSmmRatePerWeek multiplies by smmToFfm and stepWeek divides by k, the k cancels for',
- '    the muscle-GAIN path but NOT for the lean-LOSS path (leanLossPerWeek is a fraction of FFM, converted back',
- '    with x k), nor for BMR (BMR is computed from FFM = SMM/k). A k of 0.50 or 0.60 instead of 0.55 moves',
- '    baseline BMR by roughly +/-9%, which moves the whole fat trajectory.',
+ '1.  SMM = FFM x 0.55 on the way in, FFM = SMM / 0.55 on the way out. THIS HARNESS IS INSENSITIVE TO k:',
+ '    baseline SMM is built as lean x k and immediately divided by k again, so k cancels exactly. Re-running at',
+ '    k = 0.45 / 0.55 / 0.65 gives bit-identical results. An earlier version of this file claimed k was the',
+ '    largest error source and moved BMR by +/-9%; that was WRONG and it is retracted here, because it was being',
+ '    used to wave away the lean-mass bias. k CANNOT explain any error in this table.',
+ '    NOTE the flip side: a real InBody user has SMM and FFM measured independently, so k is DATA, not a',
+ '    constant -- and the engine\'s sensitivity to it is therefore completely untested by this harness.',
  '2.  DXA "lean mass" vs DXA "lean soft tissue" vs 4C-model FFM are not the same tissue. Kistler is the explicit',
  '    case (5.2 vs 6.6 kg depending on which the review quoted); Hatamoto used a 4-compartment model, Antonio used',
  '    BodPod. A systematic 1-1.5 kg definitional offset is inside these rows.',
@@ -597,16 +612,37 @@ console.log(rule('-', 150));
  '15. n ranges from 1 (Kistler) to 83 (Beavers) and every case is weighted equally in the summary statistics.'
 ].forEach(l => console.log(l));
 
+/* 결과에 엔진 SHA 를 박는다. 이게 없어서 한 번 사고가 났다 — 결과 JSON 이 엔진보다
+ * 오래된 채로 분석의 근거로 인용됐다. 작업트리가 더러우면 그것도 기록한다. */
+function engineStamp() {
+  const { execFileSync } = require('node:child_process');
+  const run = a => { try { return execFileSync('git', a, { cwd: __dirname, encoding: 'utf8' }).trim(); }
+                     catch { return null; } };
+  const sha = run(['log', '-1', '--format=%H', '--', '../prototype/js/engine.js']);
+  const dirty = run(['status', '--porcelain', '--', '../prototype/js/engine.js']);
+  return { engineSha: sha, engineDirty: !!dirty,
+           headSha: run(['rev-parse', 'HEAD']),
+           warning: dirty ? 'engine.js 에 커밋되지 않은 변경이 있습니다 — 이 결과는 재현 불가' : null };
+}
+
 fs.writeFileSync(OUT_PATH, JSON.stringify({
   generatedAt: new Date().toISOString(),
   engine: 'prototype/js/engine.js',
   engineChange: 'one export added: MB_ENGINE.stepWeek (no parameter or logic change)',
+  provenance: engineStamp(),
   kSmmToFfm: K_SMM_TO_FFM,
   caseCount: rows.length,
+  scoring: {
+    leanMass: 'deltaLeanMassKgScoring (body protein) when present, else published lean/FFM',
+    weight: 'deltaFat + deltaLean on both sides — published baseline weight includes bone mineral the engine does not track'
+  },
   summary: {
     all: stats(rows),
     byDirection: Object.fromEntries([...groupBy(rows, r => r.direction)].map(([g, rs]) => [g, stats(rs)])),
-    byTrainingStatus: Object.fromEntries([...groupBy(rows, r => r.trainingStatus)].map(([g, rs]) => [g, stats(rs)]))
+    byTrainingStatus: Object.fromEntries([...groupBy(rows, r => r.trainingStatus)].map(([g, rs]) => [g, stats(rs)])),
+    /* 가장 중요한 분할. 'provided'/'prescribed' 만이 에너지 모델을 독립적으로 검증한다.
+     * 'backsolved-from-tissue' 는 예측 대상인 조직 변화에서 적자를 역산한 것이라 순환이다. */
+    byDeficitSource: Object.fromEntries([...groupBy(rows, r => r.deficitSource)].map(([g, rs]) => [g, stats(rs)]))
   },
   cases: sorted
 }, null, 2));
