@@ -179,6 +179,55 @@ process.on('exit',()=>srv.kill());
     else { console.log('    ✗ 서버가 안 끊는다 — 연결이 계속 살아 있다'); lockFail++; }
   }
 
+  /* --- 이상한 타입을 보내면 400 인가 500 인가 ---------------------------
+   * 500 은 "서버가 예상 못 한 일이 일어났다" 는 뜻이고, 스택이 로그에
+   * 쌓이고 때로는 내부 구조가 응답에 섞입니다. 클라이언트가 잘못 보낸
+   * 것은 400 이어야 합니다. 어느 쪽인지는 짐작하지 말고 실제로 두드려
+   * 봅니다. */
+  console.log('\n  이상한 입력');
+  {
+    const me2 = await post('/auth/signup', { handle: 'fuzz', password: 'fuzz-password-1',
+                                             displayName: 'F', pairSecret: 'x' });
+    const tok2 = me2.json ? null : null;
+    const t2 = (await (await fetch(`http://localhost:${PORT}/api/auth/signin`, {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ handle: 'fuzz', password: 'fuzz-password-1' })
+    })).json()).token;
+
+    const WEIRD = [ {}, [], 123, true, null, '', '[object Object]',
+                    { __proto__: { polluted: 1 } }, { toString: 1 }, 'x'.repeat(5000) ];
+    const shots = [];
+    for (const w of WEIRD) {
+      shots.push(['POST', '/snapshots', { weekStart: w, payload: { a: 1 } }]);
+      shots.push(['POST', '/snapshots', { weekStart: '2026-09-14', payload: w }]);
+      shots.push(['POST', '/friends/request', { inviteCode: w }]);
+      shots.push(['POST', '/friends/accept', { userId: w }]);
+      shots.push(['PATCH', '/me', { displayName: w }]);
+      shots.push(['POST', '/sync/push', { records: w }]);
+      shots.push(['POST', '/sync/push', { records: [{ kind: w, id: w, updatedAt: w, payload: w }] }]);
+    }
+    let fives = [];
+    for (const [m, path2, body] of shots) {
+      const r = await fetch(`http://localhost:${PORT}/api${path2}`, {
+        method: m, headers: { 'content-type': 'application/json',
+                              authorization: 'Bearer ' + t2 },
+        body: JSON.stringify(body)
+      });
+      if (r.status >= 500) fives.push(m + ' ' + path2 + ' ' + JSON.stringify(body).slice(0, 60) + ' → ' + r.status);
+    }
+    if (!fives.length) console.log(`    ✓ ${shots.length}가지 이상한 입력에 500 이 없다`);
+    else {
+      console.log(`    ✗ 500 이 ${fives.length}건`);
+      fives.slice(0, 6).forEach(f => console.log('        ' + f));
+      lockFail++;
+    }
+    // 프로토타입 오염이 실제로 일어났는지
+    const polluted = await fetch(`http://localhost:${PORT}/api/me`,
+      { headers: { authorization: 'Bearer ' + t2 } }).then(r => r.json()).catch(() => ({}));
+    if (!('polluted' in (polluted.user || {}))) console.log('    ✓ 프로토타입 오염 흔적 없음');
+    else { console.log('    ✗ 프로토타입이 오염됐다'); lockFail++; }
+  }
+
   const bad = leak + lockFail;
   console.log(bad ? `\n실패 ${bad}건` : '\n통과');
   srv.kill();

@@ -108,7 +108,7 @@ const SCRYPT_N = 16384, SCRYPT_r = 8, SCRYPT_p = 1, KEYLEN = 64;
 function hashPassword(plain, saltHex, n) {
   const salt = saltHex ? Buffer.from(saltHex, 'hex') : crypto.randomBytes(16);
   const cost = n || SCRYPT_N;
-  const key = crypto.scryptSync(String(plain), salt, KEYLEN,
+  const key = crypto.scryptSync(str(plain), salt, KEYLEN,
                                 { N: cost, r: SCRYPT_r, p: SCRYPT_p, maxmem: 256 * 1024 * 1024 });
   return { hash: key.toString('hex'), salt: salt.toString('hex'), n: cost };
 }
@@ -124,7 +124,7 @@ function verifyPassword(plain, user) {
 
 /** 비밀번호 정책. 짧은 것만 막습니다 — 복잡도 규칙은 실제로 더 나쁜 비밀번호를 만듭니다. */
 function passwordProblem(plain) {
-  const s = String(plain == null ? '' : plain);
+  const s = str(plain);
   if (s.length < 8) return '비밀번호는 8자 이상이어야 합니다';
   if (s.length > 200) return '비밀번호가 너무 깁니다';
   if (/^\d+$/.test(s)) return '숫자만으로는 안 됩니다';
@@ -132,6 +132,23 @@ function passwordProblem(plain) {
 }
 
 const SESSION_DAYS = 90;
+
+/* 바깥에서 온 값을 문자열로.
+ *
+ * String(x) 는 던질 수 있습니다. { toString: 1 } 을 넣으면
+ * "Cannot convert object to primitive value" 가 나고, 라우트가
+ * 500 을 돌려줍니다. 500 은 "서버가 예상 못 한 일" 이라는 뜻이라
+ * 로그에 스택이 쌓이고, 클라이언트가 잘못 보낸 것과 서버가 망가진
+ * 것을 구분할 수 없게 됩니다.
+ *
+ * 애초에 문자열과 숫자만 받습니다. 그 밖은 '' 입니다 — 객체를
+ * 문자열로 바꿔서 쓸 일이 이 서버에는 없습니다. */
+function str(x) {
+  if (typeof x === 'string') return x;
+  if (typeof x === 'number' && Number.isFinite(x)) return String(x);
+  if (typeof x === 'boolean') return String(x);
+  return '';
+}
 
 function nowISO() { return new Date().toISOString(); }
 function id(prefix) { return prefix + '_' + crypto.randomBytes(9).toString('hex'); }
@@ -218,7 +235,7 @@ function makeApi(db) {
      * 하지 않으므로 이메일이 할 일이 없습니다.
      * ----------------------------------------------------------------- */
     signUp({ handle, password, displayName }) {
-      const h = String(handle || '').trim().toLowerCase();
+      const h = str(handle).trim().toLowerCase();
       if (!/^[a-z0-9_.-]{3,32}$/.test(h)) {
         return { ok: false, reason: '아이디는 영문·숫자·(_ . -) 3~32자입니다' };
       }
@@ -239,7 +256,7 @@ function makeApi(db) {
       const u = q.userByHandle.get(h);
       /* 아이디가 없을 때도 해시 계산을 한 번 돌립니다. 안 그러면 응답 시간만으로
          "이 아이디가 존재하는가"를 알아낼 수 있습니다. */
-      if (!u) { hashPassword(String(password || ''), null, SCRYPT_N); }
+      if (!u) { hashPassword(str(password), null, SCRYPT_N); }
       if (!u || !verifyPassword(password, u)) {
         // 어느 쪽이 틀렸는지 알려주지 않습니다
         return { ok: false, reason: '아이디 또는 비밀번호가 맞지 않습니다' };
@@ -289,7 +306,10 @@ function makeApi(db) {
     },
     me(uid) { return pub(q.userById.get(uid)); },
     updateMe(uid, { displayName }) {
-      if (displayName) q.updateName.run(String(displayName).slice(0, 20), uid);
+      if (displayName) {
+        const dn = str(displayName).slice(0, 20);
+        if (dn) q.updateName.run(dn, uid);
+      }
       return pub(q.userById.get(uid));
     },
     deleteMe(uid) { q.deleteUser.run(uid); },      // 연쇄 삭제로 친구·공유·스냅샷·기록 전부 사라짐
@@ -302,7 +322,7 @@ function makeApi(db) {
 
     sendRequest(me, code) {
       if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다' };
-      const other = q.userByCode.get(String(code || '').toUpperCase());
+      const other = q.userByCode.get(str(code).toUpperCase());
       if (!other) return { ok: false, reason: '그런 코드를 가진 사람이 없습니다' };
       if (other.id === me) return { ok: false, reason: '자기 자신은 추가할 수 없습니다' };
       const [x, y] = pair(me, other.id);
@@ -429,7 +449,28 @@ function makeApi(db) {
     publishSnapshot(me, weekStart, payload) {
       if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다' };
       if (!weekStart) return { ok: false, reason: 'weekStart 가 필요합니다' };
-      q.upsertSnap.run(me, String(weekStart), JSON.stringify(payload || {}), nowISO());
+      /* weekStart 를 검사하지 않고 String() 으로 감쌌습니다.
+         객체를 보내면 '[object Object]' 라는 주가 생기고, 아무 문자열이나
+         보내면 그때마다 새 행이 하나씩 늘어납니다 — 주당 한 행이라는
+         전제가 깨지고 행 수에 상한이 없어집니다.
+         주 시작일은 YYYY-MM-DD 하나뿐입니다. */
+      const wk = str(weekStart);
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(wk) || !Number.isFinite(Date.parse(wk + 'T00:00:00Z'))) {
+        return { ok: false, reason: 'weekStart 는 YYYY-MM-DD 형식이어야 합니다' };
+      }
+      /* 범위는 아주 넓게 둡니다.
+         처음엔 "10년 전 ~ 1주 뒤" 로 좁혔는데, 그러면 기기 시계가 하루
+         앞선 사용자의 기록이 거부됩니다. 시계가 틀린 건 사용자 잘못이
+         아니고, 그걸로 기록을 막으면 원인도 안 보입니다.
+         행이 무한정 늘어나는 것을 막는 것은 위의 형식 검사입니다 —
+         YYYY-MM-DD 하나당 한 행이고 1900~2200 이면 최대 1만 5천 행,
+         한 사람이 아무리 장난쳐도 그 이상은 안 됩니다. */
+      const t = Date.parse(wk + 'T00:00:00Z');
+      const y = Number(wk.slice(0, 4));
+      if (!Number.isFinite(t) || y < 1900 || y > 2200) {
+        return { ok: false, reason: 'weekStart 가 쓸 수 있는 범위 밖입니다' };
+      }
+      q.upsertSnap.run(me, wk, JSON.stringify(payload || {}), nowISO());
       return { ok: true };
     },
     /** 친구가 나에게 허용한 항목만. 허용 안 된 키는 응답 객체에 존재하지 않습니다. */
@@ -486,12 +527,13 @@ function makeApi(db) {
       try {
         for (const r of list) {
           if (!r || !r.kind || !r.id || !r.updatedAt) { rejected.push({ id: r && r.id, why: '필수 필드 누락' }); continue; }
+          if (!str(r.kind) || !str(r.id)) { rejected.push({ id: null, why: 'kind · id 는 문자열이어야 합니다' }); continue; }
           // updatedAt 을 검증하고 정규화합니다. 예전엔 'zzzz' 같은 값이 그대로 저장됐고,
           // 그게 모든 ISO 문자열보다 큰 값이라 커서가 그 위로 올라가면
           // 그 계정의 동기화가 영구히 멈췄습니다.
           const t = Date.parse(r.updatedAt);
           if (!Number.isFinite(t)) { rejected.push({ id: r.id, why: 'updatedAt 이 날짜가 아닙니다' }); continue; }
-          q.upsertRecord.run(me, String(r.kind), String(r.id), new Date(t).toISOString(),
+          q.upsertRecord.run(me, str(r.kind), str(r.id), new Date(t).toISOString(),
                              r.deleted ? 1 : 0, JSON.stringify(r.payload || {}));
           n++;
         }
@@ -506,7 +548,7 @@ function makeApi(db) {
       if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다', records: [], cursor: since, hasMore: false };
       const lim = Math.min(2000, Math.max(1, Number.isFinite(+limit) ? +limit : 500));
       // 커서 형식: "<iso>|<kind>|<id>". 빈 문자열이면 처음부터.
-      const parts = String(since || '').split('|');
+      const parts = str(since).split('|');
       const cAt = parts[0] || '', cKind = parts[1] || '', cId = parts[2] || '';
       const rows = q.recordsSince.all(me, cAt, cKind, cId, lim);
       const last = rows.length ? rows[rows.length - 1] : null;
@@ -514,7 +556,7 @@ function makeApi(db) {
         ok: true,
         records: rows.map(r => ({ kind: r.kind, id: r.id, updatedAt: r.updated_at,
                                   deleted: !!r.deleted, payload: safeParse(r.payload) })),
-        cursor: last ? (last.updated_at + '|' + last.kind + '|' + last.id) : String(since || ''),
+        cursor: last ? (last.updated_at + '|' + last.kind + '|' + last.id) : str(since),
         hasMore: rows.length === lim
       };
     },
@@ -524,4 +566,4 @@ function makeApi(db) {
 
 function safeParse(s) { try { return JSON.parse(s); } catch { return {}; } }
 
-module.exports = { open, makeApi, SHARE_FIELDS, blankShare, nowISO };
+module.exports = { open, makeApi, SHARE_FIELDS, blankShare, nowISO, str };

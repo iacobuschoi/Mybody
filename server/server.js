@@ -12,7 +12,7 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { open, makeApi } = require('./db.js');
+const { open, makeApi, str } = require('./db.js');
 const { runOcr: callOcr } = require('./ocr.js');
 
 const PORT = Number(process.env.PORT || 8080);
@@ -39,7 +39,7 @@ const OCR_MODEL = process.env.OCR_MODEL || 'claude-opus-5';
 const OCR_PER_DAY = Number(process.env.OCR_PER_DAY || 40);
 
 function pairOk(given) {
-  const got = Buffer.from(String(given || ''), 'utf8');
+  const got = Buffer.from(str(given), 'utf8');
   const want = Buffer.from(PAIR_SECRET, 'utf8');
   if (got.length !== want.length) return false;
   return crypto.timingSafeEqual(got, want);   // 길이가 같을 때만 안전하게 비교
@@ -74,7 +74,7 @@ const TRUST_PROXY = process.env.TRUST_PROXY === '1';
 function clientIp(req) {
   if (TRUST_PROXY) {
     const xff = req.headers['x-forwarded-for'];
-    if (xff) return String(xff).split(',')[0].trim();
+    if (xff) return str(xff).split(',')[0].trim() || 'unknown';
   }
   return req.socket.remoteAddress || 'unknown';
 }
@@ -317,7 +317,7 @@ async function handleApi(req, res, url) {
      한 사람만 새도 전원이 뚫립니다. */
   if (p === '/auth/signin' && method === 'POST') {
     const b = await readBody(req);
-    const h = String(b.handle || '').trim().toLowerCase();
+    const h = str(b.handle).trim().toLowerCase();
     if (!h) return send(res, 400, { ok: false, reason: '아이디가 필요합니다' });
     const wait = loginBlocked(h);
     if (wait) {
@@ -386,7 +386,9 @@ async function handleApi(req, res, url) {
   if (p === '/snapshots' && method === 'POST') {
     const b = await readBody(req);
     if (!b.weekStart) return send(res, 400, { ok: false, reason: 'weekStart 가 필요합니다' });
-    return send(res, 200, api.publishSnapshot(me, b.weekStart, b.payload));
+    const snap = api.publishSnapshot(me, b.weekStart, b.payload);
+    // 거절을 200 으로 보내면 클라이언트가 성공으로 읽고 큐에서 지웁니다.
+    return send(res, snap.ok ? 200 : 400, snap);
   }
   m = p.match(/^\/snapshots\/([\w-]+)$/);
   if (m && method === 'GET') {
