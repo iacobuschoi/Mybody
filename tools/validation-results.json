@@ -1,11 +1,11 @@
 {
-  "generatedAt": "2026-09-20T01:25:59.407Z",
+  "generatedAt": "2026-09-20T01:39:35.134Z",
   "engine": "prototype/js/engine.js",
   "engineChange": "one export added: MB_ENGINE.stepWeek (no parameter or logic change)",
   "provenance": {
-    "engineSha": "09d41d6e5c0f89ff96cb5f38b9bdad41291967a9",
-    "engineDirty": true,
-    "warning": "engine.js 에 커밋되지 않은 변경이 있습니다 — 이 결과는 재현 불가"
+    "engineSha": "28db74a51fa62cc478a8e616f0913c3828015ce2",
+    "engineDirty": false,
+    "warning": null
   },
   "kSmmToFfm": 0.55,
   "caseCount": 22,

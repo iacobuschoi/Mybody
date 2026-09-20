@@ -156,6 +156,28 @@ function staticChecks() {
           '(docs/DEPLOY.md 0번)' });
   }
 
+  /* (4.7) 보유 기간이 세 군데에서 같은 숫자인가.
+     서버가 자르는 기간 · 가입 동의 문구 · 처리방침. 하나만 고치면
+     나머지 둘이 거짓말이 됩니다. 사람이 기억하기를 바라지 말고
+     여기서 붙잡습니다. */
+  {
+    const dbSrc = read('server/db.js');
+    const uiSrc = read('prototype/js/modals.js');
+    const pvSrc = read('prototype/privacy.html');
+    const m = dbSrc.match(/const SNAPSHOT_WEEKS\s*=\s*(\d+)\s*\*\s*7/);
+    const weeks = m ? Number(m[1]) : null;
+    const inUi = weeks != null && uiSrc.includes('최근 ' + weeks + '주');
+    const inPv = weeks != null && pvSrc.includes('<b>' + weeks + '주</b>');
+    out.push({ id: '보유 기간 일치', level: 'BLOCK', ok: !!(weeks && inUi && inPv),
+      detail: weeks
+        ? (inUi && inPv
+            ? '서버 · 동의 문구 · 처리방침이 모두 ' + weeks + '주입니다'
+            : '서버는 ' + weeks + '주인데 ' +
+              [!inUi ? '동의 문구' : null, !inPv ? '처리방침' : null].filter(Boolean).join(' · ') +
+              ' 에 그 숫자가 없습니다')
+        : 'server/db.js 에서 SNAPSHOT_WEEKS 를 못 찾았습니다' });
+  }
+
   // (5) 알고 올리는 것들
   /* 복구 코드가 실제로 붙어 있는지 눈으로 확인합니다. 문구만 고치고
      기능을 안 붙인 채 배포하면, 사용자는 "코드로 돌아올 수 있다" 고
