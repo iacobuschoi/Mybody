@@ -65,6 +65,33 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
        /노드 버전[\s\S]*?데이터베이스까지 잘 됩니다/.test(r.stdout || ''), r.stdout);
   }
 
+  console.log('\n[1-2] 오래된 Node 로 띄우면 사람 말로 끝난다');
+  {
+    /* 이 서버는 Node 내장 SQLite 를 씁니다. 옛 Node 에는 없어서 예전에는
+       첫 줄부터 ERR_UNKNOWN_BUILTIN_MODULE 스택이 쏟아졌습니다. 개발자가
+       아니면 그게 "Node 를 새로 깔아라" 라는 뜻인 줄 모릅니다.
+       이 컴퓨터에 옛 Node 가 있으면 실제로 그걸로 띄워 봅니다. */
+    const olds = ['/opt/node20/bin/node', '/opt/node21/bin/node']
+      .filter(p2 => { try { return fs.statSync(p2).isFile(); } catch (e) { return false; } });
+    if (!olds.length) {
+      console.log('  · 이 컴퓨터에 옛 Node 가 없어 건너뜁니다');
+    } else {
+      for (const old of olds) {
+        const v = spawnSync(old, ['--version'], { encoding: 'utf8' }).stdout.trim();
+        const r = spawnSync(old, [path.join(ROOT, 'server', 'server.js')],
+          { cwd: ROOT, encoding: 'utf8', env: Object.assign(baseEnv(), { PAIR_SECRET: 'x' }) });
+        const out = (r.stderr || '') + (r.stdout || '');
+        ok(v + ' — 스택 추적이 아니라 할 일을 알려준다',
+           !/at Module\._load|internal\/modules/.test(out) && /nodejs\.org/.test(out),
+           out.slice(0, 200));
+        ok(v + ' — doctor 도 같은 이유로 막는다',
+           /node:sqlite|못 띄웁니다/.test(
+             spawnSync(old, [path.join(ROOT, 'tools', 'doctor.js')],
+               { cwd: ROOT, encoding: 'utf8', env: baseEnv() }).stdout || ''));
+      }
+    }
+  }
+
   console.log('\n[2] serve --setup — 터미널이 아니어도 설정이 남는다');
   {
     const r = run(['tools/serve.js', '--setup', '--owner=검사 주인', '--contact=t@example.com']);

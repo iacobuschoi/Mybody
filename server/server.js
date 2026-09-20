@@ -1,5 +1,5 @@
 /* =============================================================================
- * server/server.js — Mybody 자가호스팅 서버 (의존성 0, Node 22 내장 기능만)
+ * server/server.js — Mybody 자가호스팅 서버 (의존성 0, Node 내장 기능만)
  *
  *   node server/server.js
  *   PORT=8080 DB=./mybody.db STATIC=../prototype node server/server.js
@@ -8,6 +8,32 @@
  * 토큰으로만 판단합니다.
  * ========================================================================== */
 'use strict';
+/* 노드가 너무 오래됐으면 여기서 사람 말로 끝냅니다.
+ *
+ * 이 서버는 노드에 내장된 SQLite 를 씁니다. 옛 노드에는 없어서,
+ * 예전에는 첫 줄부터 이런 게 쏟아졌습니다:
+ *
+ *   Error [ERR_UNKNOWN_BUILTIN_MODULE]: No such built-in module: node:sqlite
+ *       at Module._load (node:internal/modules/cjs/loader:1031:13)
+ *       ...
+ *
+ * 개발자가 아니면 이게 "노드를 새로 깔아라" 라는 뜻인 줄 모릅니다.
+ * 서버를 처음 띄우는 사람이 제일 먼저 만날 수 있는 벽이라 먼저 받습니다. */
+try {
+  require('node:sqlite');
+} catch (e) {
+  console.error('');
+  console.error('이 Node 로는 못 띄웁니다 (지금 ' + process.version + ').');
+  console.error('');
+  console.error('  이 서버는 Node 에 내장된 데이터베이스를 씁니다. 오래된 Node 에는 없습니다.');
+  console.error('  https://nodejs.org 에서 LTS 를 받아 다시 깔고, 새 터미널을 열어');
+  console.error('  node --version 이 바뀌었는지 확인하세요.');
+  console.error('');
+  console.error('  자세한 확인은:  node tools/doctor.js');
+  console.error('');
+  process.exit(1);
+}
+
 const http = require('node:http');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
