@@ -52,8 +52,18 @@ function version(files, override) {
     sha = execSync('git rev-parse --short HEAD', { cwd: ROOT }).toString().trim();
     dirty = execSync('git status --porcelain', { cwd: ROOT }).toString().trim();
   } catch { /* git 없이도 빌드는 됩니다 */ }
-  if (!dirty && sha !== 'nogit' && !override) return sha;
+
+  /* 운영자 이름·연락처도 빌드 결과에 들어갑니다(처리방침에 박힙니다).
+     그런데 그건 소스가 아니라 환경변수라, 커밋이 그대로면 버전이 같았습니다.
+     같으면 서비스워커 캐시 이름도 같아서, 이름만 고쳐 다시 올려도 폰에는
+     옛 이름이 그대로 남습니다. 무엇이 나갔는지가 버전이어야 합니다. */
+  const who = (process.env.OWNER || '') + '|' + (process.env.OWNER_CONTACT || '');
+  const whoTag = who === '|' ? '' :
+    '-' + crypto.createHash('sha1').update(who).digest('hex').slice(0, 6);
+
+  if (!dirty && sha !== 'nogit' && !override) return sha + whoTag;
   const hash = crypto.createHash('sha1');
+  hash.update(who);
   (files || []).slice().sort().forEach(f => {
     hash.update(f);
     /* override 는 아래 점검이 씁니다 — "내용이 달라지면 버전도 달라지는가"
@@ -248,6 +258,18 @@ shell.forEach(f => {
   const shifted = version(all, { [one]: changed });
   if (shifted === V) {
     problems.push('내용이 달라졌는데 버전이 그대로입니다 — 서비스워커가 안 갈립니다');
+  }
+
+  /* 운영자만 바꿔도 버전이 달라져야 합니다. 그 값은 처방침에 박히는데,
+     커밋이 그대로면 예전엔 버전이 같아서 폰에 옛 이름이 남았습니다. */
+  const keepOwner = process.env.OWNER, keepContact = process.env.OWNER_CONTACT;
+  process.env.OWNER = (keepOwner || '') + '-다른사람';
+  process.env.OWNER_CONTACT = (keepContact || '') + '-다른연락처';
+  const otherOwner = version(all);
+  if (keepOwner === undefined) delete process.env.OWNER; else process.env.OWNER = keepOwner;
+  if (keepContact === undefined) delete process.env.OWNER_CONTACT; else process.env.OWNER_CONTACT = keepContact;
+  if (otherOwner === V) {
+    problems.push('운영자를 바꿔도 버전이 그대로입니다 — 폰에 옛 이름이 남습니다');
   }
 }
 

@@ -475,6 +475,38 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
+  console.log('\n[9] 자동 시작 · 더블클릭 실행');
+  {
+    /* 자동 시작은 평소 쓰는 PATH 도 HOME 도 안 물려받습니다. 손으로 적은
+       설정이 "node: command not found" 로 죽는 자리라, 도구가 지금 돌고
+       있는 노드의 실제 경로를 박아야 합니다. */
+    const r = run(['tools/autostart.js']);
+    ok('내 OS 에 맞는 설정을 보여준다', r.status === 0 && (r.stdout || '').length > 200,
+       (r.stdout || r.stderr || '').slice(0, 200));
+    ok('node 의 전체 경로를 박는다', (r.stdout || '').includes(process.execPath), process.execPath);
+    ok('serve.js 의 전체 경로를 박는다',
+       (r.stdout || '').includes(path.join(ROOT, 'tools', 'serve.js')));
+    ok('거는 법까지 알려준다', /거는 법|작업 스케줄러/.test(r.stdout || ''));
+
+    /* --write 가 진짜로 파일을 만드는가 — 임시 HOME 안에서 */
+    const w = run(['tools/autostart.js', '--write']);
+    ok('--write 가 파일을 만든다', /만들었습니다/.test(w.stdout || ''), (w.stdout || w.stderr || '').slice(0, 200));
+    const made = (w.stdout || '').match(/만들었습니다: (.+)/);
+    if (made) ok('그 파일이 실제로 있다', fs.existsSync(made[1].trim()), made[1]);
+
+    /* 더블클릭 실행기 */
+    ok('start.command 가 있고 실행 권한이 있다', (() => {
+      try {
+        const st = fs.statSync(path.join(ROOT, 'start.command'));
+        return process.platform === 'win32' ? true : !!(st.mode & 0o111);
+      } catch (e) { return false; }
+    })());
+    ok('start.cmd 가 있다', fs.existsSync(path.join(ROOT, 'start.cmd')));
+    const sh = fs.readFileSync(path.join(ROOT, 'start.command'), 'utf8');
+    ok('Node 가 없을 때 무엇을 하라고 말한다', /nodejs\.org/.test(sh));
+    ok('창이 바로 안 닫힌다 (오류를 읽을 수 있다)', /read -r/.test(sh));
+  }
+
   console.log(`\n통과 ${pass} / 실패 ${fail}`);
   fs.rmSync(HOME, { recursive: true, force: true });
   process.exit(fail ? 1 : 0);
