@@ -426,7 +426,18 @@
               inviteCode: null, createdAt: r.since };
           db.users[r.id].displayName = r.displayName;
           db.friendships.push({
-            id: 'srv_' + r.id, aId: meId, bId: r.id, status: status,
+            id: 'srv_' + r.id, aId: meId, bId: r.id,
+            /* 'outgoing' 은 서버 응답의 이름일 뿐, 이 거울이 아는 상태가
+               아닙니다. listFriends() 는 accepted · pending · blocked
+               세 가지만 봅니다 — 그래서 내가 보낸 친구 요청은 서버가
+               멀쩡히 돌려줬는데도 조용히 사라졌습니다.
+               화면에는 "보낸 요청 N건 · 수락을 기다리는 중" 과 취소
+               버튼이 이미 만들어져 있었는데, 한 번도 안 돌았습니다.
+               보낸 사람 눈에는 아무 일도 안 일어난 것처럼 보였고,
+               잘못 보낸 요청을 물릴 방법도 없었습니다.
+               누가 보냈는지는 아래 requestedBy 가 그대로 들고 있으므로,
+               pending 으로 넣으면 listFriends() 가 알아서 나눕니다. */
+            status: status === 'outgoing' ? 'pending' : status,
             requestedBy: status === 'outgoing' ? meId : r.id,
             blockedBy: status === 'blocked' ? meId : null,
             createdAt: r.since, respondedAt: r.since

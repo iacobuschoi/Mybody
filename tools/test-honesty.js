@@ -244,7 +244,40 @@ const ok=(n,c,d)=>{if(c){pass++;console.log('  ✓',n);}else{fail++;console.log(
   ok('없다는 것을 말한다', /부위별 분석은 아직 넣을 수 없습니다/.test(seg), seg.slice(0, 200));
   ok('제목도 부위별이라고 안 한다', !/부위별 분석 기반/.test(seg), seg.slice(0, 200));
 
-  console.log('\n[6] JS 오류');
+  /* --------------------------------------------------------------------
+   * [6] 안전 경고가 읽는 사람에게 하는 말인가
+   *
+   * 앱에서 유일하게 "그건 몸에 해롭습니다" 라고 말하는 자리입니다.
+   * 그런데 문장이 "남성 필수지방은..." 으로 박혀 있어서, 여성 사용자는
+   * 자기 얘기가 아니거나 앱이 성별을 잘못 안 것으로 읽었습니다.
+   * 막으려고 만든 경고가 무시당하는 방식입니다.
+   * ------------------------------------------------------------------ */
+  console.log('\n[6] 안전 경고가 읽는 사람에게 하는 말인가');
+  const warnFor = async (sex) => pg.evaluate(async (sx)=>{
+    localStorage.clear(); window.MB_STORE.seed();
+    const st = window.MB_STORE.get();
+    st.profile = Object.assign({}, st.profile, { sex: sx, heightCm: sx === 'male' ? 187 : 163 });
+    const last = st.scans[st.scans.length-1];
+    const d = window.MB_ENGINE.derive(last, st.profile);
+    // 체지방을 아주 낮게 — 경고가 뜨는 구간으로
+    st.goal = { weightKg: Math.round((d.weightKg - 14) * 10) / 10, smmKg: d.smmKg,
+                bfmKg: Math.max(1, Math.round((d.bfmKg - 14) * 10) / 10),
+                targetDate: null, deadlineWeeks: 26 };
+    window.MB_STORE.save();
+    window.MB_APP.go('P05');
+    await new Promise(r=>setTimeout(r,600));
+    const el = document.querySelector('[data-uid="P05-S04"]');
+    return el ? el.innerText : '';
+  }, sex);
+
+  const wF = await warnFor('female');
+  ok('여성에게 "남성" 이라고 안 한다', wF && !/남성/.test(wF), wF.slice(0, 160));
+  ok('여성 숫자를 말한다', /여성/.test(wF) && /10~13/.test(wF), wF.slice(0, 160));
+  const wM = await warnFor('male');
+  ok('남성에게는 남성 숫자를', /남성/.test(wM) && /2~5/.test(wM), wM.slice(0, 160));
+  ok('앱의 하한과 필수지방을 구분해 말한다', /하한/.test(wM), wM.slice(0, 160));
+
+  console.log('\n[7] JS 오류');
   ok('오류 0건', errs.length===0, errs);
   console.log(`\n통과 ${pass} / 실패 ${fail}`);
   await b.close(); srv.close(); process.exit(fail?1:0);

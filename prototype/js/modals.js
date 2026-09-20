@@ -111,13 +111,17 @@
   };
 
   /* M07 위험한 목표 (필수지방 미만 등) */
-  M.unsafeGoal = function (info, essentialFat) {
+  /* @param floorPct  이 앱이 허용하는 하한 (남 8 · 여 15).
+     필수지방과는 다른 숫자입니다 — 필수지방은 "이 밑으로는 살 수 없다",
+     하한은 "이 앱은 여기까지만 도와준다" 입니다. 섞어 쓰면 한 화면에
+     서로 다른 숫자가 나오고, 그러면 이 경고를 아무도 안 믿습니다. */
+  M.unsafeGoal = function (info, floorPct) {
     UI.openModal({
       uid: 'M07', title: '이 목표는 설정할 수 없습니다', dismissable: true,
       body: [
         h('div.note.note--bad', [
           h('b', { text: '목표 체지방률 ' + UI.n1(info.targetPbfPct) + '%' }),
-          ' 는 필수지방(약 ' + essentialFat + '%) 아래입니다.'
+          ' 는 이 앱이 도와주는 하한(' + floorPct + '%) 아래입니다.'
         ]),
         h('p', { text: '이 구간에서는 호르몬 이상, 면역 저하, 수행능력 급락이 흔하게 보고됩니다. ' +
                        '보디빌딩 대회 직전 며칠만 유지하는 수준이고, 목표로 삼을 상태가 아닙니다.' })

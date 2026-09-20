@@ -16,6 +16,20 @@
       var prof = st.profile || global.MB_DATA.SEED_PROFILE;
       var cur = E.derive(scan, prof);
 
+      /* 이 앱이 허용하는 체지방률 하한과, 생리적 필수 체지방.
+       *
+       * 둘은 다른 숫자입니다. 필수지방은 "이 밑으로는 살 수 없다",
+       * 하한은 "이 앱은 여기까지만 도와준다" 입니다. 한 문장에 섞어
+       * 쓰다가 서로 다른 숫자 셋이 한 화면에 나왔고, 그중 하나는
+       * 여성 사용자에게 "남성 필수지방은..." 이라고 말했습니다.
+       * 앱에서 유일하게 "그건 몸에 해롭습니다" 라고 말하는 자리라,
+       * 여기서 신뢰를 잃으면 그 말을 지킬 방법이 없습니다.
+       * 화면 두 곳(경고 줄 · 진행 차단)이 같은 값을 써야 하므로
+       * 여기 한 군데서 정합니다. */
+      var isMale = prof.sex === 'male';
+      var floorPct = isMale ? 8 : 15;                 // 이 앱이 허용하는 하한
+      var essentialPct = isMale ? '2~5' : '10~13';    // 생리적 필수 체지방
+
       // 목표 초기값: 저장된 값 → 없으면 인바디 적정체중 기반 추천
       var g = st.goal ? Object.assign({}, st.goal) : recommendGoal(cur, scan, prof);
       var linked = true;        // 체중 = 제지방 + 체지방 연동
@@ -145,12 +159,19 @@
           ]));
         }
 
-        var essentialFat = prof.sex === 'male' ? 8 : 15;
-        if (goalInfo.targetPbfPct < essentialFat + 2) {
+        /* 이 경고는 앱에서 유일하게 "그건 몸에 해롭습니다" 라고 말하는
+           자리입니다. 그런데 문장이 "남성 필수지방은..." 으로 박혀 있어서,
+           여성 사용자는 자기 얘기가 아니거나 앱이 성별을 잘못 안 것으로
+           읽었습니다. 막으려고 만든 경고가 무시당하는 방식입니다.
+           하한 숫자도 바로 아래 설명(남 2~5% / 여 10~13%)과 어긋났습니다 —
+           여기 8/15 는 "필수지방" 이 아니라 "이 앱이 허용하는 하한" 입니다.
+           둘은 다른 것이고, 다르게 말해야 합니다. */
+        if (goalInfo.targetPbfPct < floorPct + 2) {
           gauge.appendChild(h('div.note.note--bad', { uid: 'P05-S04', uidLabel: '필수지방 경고' }, [
             h('b', { text: '체지방률이 너무 낮습니다. ' }),
-            '남성 필수지방은 약 ' + essentialFat + '%입니다. ' + UI.n1(goalInfo.targetPbfPct) +
-            '%는 호르몬·면역·수행능력에 문제가 생기는 구간입니다.'
+            (isMale ? '남성' : '여성') + '의 필수 체지방은 ' + essentialPct + '% 이고, ' +
+            '이 앱은 ' + floorPct + '% 를 하한으로 둡니다. ' + UI.n1(goalInfo.targetPbfPct) +
+            '% 는 호르몬·면역·수행능력에 문제가 생기는 구간입니다.'
           ]));
         }
 
@@ -165,11 +186,47 @@
 
         if (preview && (preview.impossible || !preview.results.length)) {
           // 강도 화면까지 가서야 "도달 불가"를 알게 하면 안 된다. 여기서 막는다.
-          gauge.appendChild(h('div.note.note--bad', { uid: 'P05-S08', uidLabel: '도달 불가 안내' }, [
+          var box = h('div.note.note--bad', { uid: 'P05-S08', uidLabel: '도달 불가 안내' }, [
             h('b', { text: '이 목표에는 도달할 수 없습니다. ' }),
             (preview.warnings && preview.warnings[0]) ||
-              '지금 모드가 허용하는 속도로는 4년 안에도 닿지 않습니다. 목표치를 줄이거나 모드를 바꿔보세요.'
-          ]));
+              '지금 모드가 허용하는 속도로는 4년 안에도 닿지 않습니다.'
+          ]);
+
+          /* 제일 흔한 원인 하나는 짚어 줍니다.
+           *
+           * "근육 1kg 만 늘리고 체지방은 지금 그대로" 는 사람이 아주
+           * 자연스럽게 세우는 목표인데, 앱은 "어떤 강도로도 4년 안에
+           * 안 됩니다" 라고만 답했습니다. 무엇을 어느 방향으로 고쳐야
+           * 하는지는 말하지 않았고, 기본 안내("목표치를 줄이세요")는
+           * 여기서 정반대였습니다 — 올려야 합니다.
+           *
+           * 근육을 늘리려면 잉여 칼로리가 필요하고, 그러면 체지방도
+           * 얼마간 같이 올라갑니다. 그게 생리적인 사실이지 앱의 고집이
+           * 아니라는 것을 말해야 합니다. */
+          var dSmm = g.smmKg - cur.smmKg;
+          var dBfm = g.bfmKg - cur.bfmKg;
+          var N = (global.MB_MODES && global.MB_MODES.NOISE) || { smm: 0.6, bfm: 1.0 };
+          if (dSmm > N.smm && Math.abs(dBfm) < N.bfm) {
+            /* 근육 1kg 을 늘리는 동안 늘어나는 체지방은 강도와 경험에
+               따라 다르지만, 초보라도 대략 같은 양 안팎입니다. 여기서는
+               "조금은 올려야 한다" 만 말하고, 정확한 숫자는 다음 화면의
+               시뮬레이션이 냅니다. */
+            var suggest = Math.round((cur.bfmKg + Math.max(1.0, dSmm)) * 10) / 10;
+            box.appendChild(h('div', { style: { marginTop: '8px' } }, [
+              '근육을 늘리려면 잉여 칼로리가 필요하고, 그동안 체지방도 조금 올라갑니다. ' +
+              '체지방을 지금 그대로 묶어 두면 근육만 늘릴 방법이 없습니다.'
+            ]));
+            box.appendChild(h('button.btn.btn--sm', {
+              text: '목표 체지방량을 ' + UI.n1(suggest) + 'kg 으로 올리기',
+              style: { marginTop: '8px' },
+              uid: 'P05-B09', uidLabel: '체지방 목표 올리기',
+              onClick: function () { g.bfmKg = suggest; recalcWeight(); draw(); }
+            }));
+          } else {
+            box.appendChild(h('div', { style: { marginTop: '8px' },
+              text: '목표치를 줄이거나 모드를 바꿔보세요.' }));
+          }
+          gauge.appendChild(box);
         } else if (preview && preview.results.length) {
           var mid = preview.results.find(function (r) { return r.level === 'mid'; });
           var best = preview.results.find(function (r) { return r.level === 'high'; });
@@ -243,8 +300,8 @@
 
         function next() {
           var info = E.classifyGoal(cur, g);
-          if (info.targetPbfPct < essentialFat) {
-            global.MB_MODALS.unsafeGoal(info, essentialFat);
+          if (info.targetPbfPct < floorPct) {
+            global.MB_MODALS.unsafeGoal(info, floorPct);
             return;
           }
           if (!info.isConsistent) {

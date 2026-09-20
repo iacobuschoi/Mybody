@@ -225,6 +225,34 @@ console.log('\n[5-2] 시간 방향과 파생값');
     JSON.stringify({fail:r.counts.fail, delta:r.deltaIssues.length}));
 }
 
+{
+  /* 계산된 칸이 어긋났을 때 누구를 짚는가.
+   *
+   * 결과지에서 제일 흔한 실수: 체지방량 칸에 체지방'률' 을 넣는 것.
+   * 61.4kg 인 사람이 체지방량에 32.2 를 넣으면 제지방이 61.4 − 32.2
+   * = 29.2 로 계산되고, 골격근 23.1 ÷ 29.2 = 79% 가 범위를 벗어납니다.
+   *
+   * 예전엔 규칙이 적어 둔 칸 이름(smmKg, ffmKg)만 보고 "골격근량이
+   * 어긋납니다" 라고 골격근 칸에 빨간 줄을 그었습니다. 사진을 다시
+   * 봐도 골격근은 맞으니, 사용자는 맞는 값을 틀린 값에 맞춰 고치거나
+   * 그냥 저장합니다. 정작 틀린 칸은 깨끗하게 보였고요. */
+  const wrong = { measuredAt: '2026-09-19T11:09:00', weightKg: 61.4, smmKg: 23.1, bfmKg: 32.2 };
+  const r = C.run(wrong, { sex: 'female', heightCm: 163, age: 30 }, null);
+  t('체지방량 칸도 같이 짚는다', r.fields.bfmKg === 'conflict', r.fields);
+  t('어느 칸들인지 목록에 체지방량이 있다',
+    Array.isArray(r.involved) && r.involved.indexOf('bfmKg') >= 0, r.involved);
+  t('인쇄 안 된 제지방을 범인으로 대지 않는다',
+    !r.involved || r.involved.indexOf('ffmKg') < 0, r.involved);
+
+  /* 제대로 넣은 경우에는 아무 칸도 안 짚어야 합니다 —
+     거짓 경보가 나면 진짜 경보도 같이 무시됩니다. */
+  const right = { measuredAt: '2026-09-19T11:09:00', weightKg: 61.4, smmKg: 23.1,
+                  bfmKg: 19.8, pbfPct: 32.2 };
+  const r2 = C.run(right, { sex: 'female', heightCm: 163, age: 30 }, null);
+  t('맞게 넣으면 짚는 칸이 없다', r2.counts.fail === 0 && r2.fields.bfmKg !== 'conflict',
+    JSON.stringify({ fail: r2.counts.fail, fields: r2.fields }));
+}
+
 console.log('\n[6] 부분 데이터에서도 안 터진다');
 [{}, { weightKg: 86.7 }, { weightKg: 86.7, bfmKg: 20.0 },
  { smmKg: 37.9 }, { weightKg: 0 }, { weightKg: null, smmKg: undefined }].forEach((s, i) => {

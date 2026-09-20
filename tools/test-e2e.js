@@ -114,6 +114,24 @@ async function main() {
   const incoming = await ev(B, () => window.MB_BACKEND.listFriends().incoming.map(x => x.displayName));
   ok('나린 폰에 가영의 요청이 도착', incoming.length === 1 && incoming[0] === '가영', incoming);
 
+  /* 보낸 쪽에도 보여야 합니다.
+     서버는 outgoing 으로 돌려주는데 로컬 거울이 그 상태를 몰라서
+     조용히 버렸습니다 — 보낸 사람 화면에는 아무 일도 안 일어난 것처럼
+     보였고, 잘못 보낸 요청을 물릴 방법도 없었습니다. */
+  await ev(A, () => window.MB_SYNC.pull());
+  await A.page.waitForTimeout(500);
+  const outgoing = await ev(A, () => window.MB_BACKEND.listFriends().outgoing.map(x => x.displayName));
+  ok('가영 폰에 "보낸 요청" 으로 남아 있다', outgoing.length === 1 && outgoing[0] === '나린', outgoing);
+  const outUi = await ev(A, () => {
+    window.MB_APP.go('P15');
+    return new Promise(r => setTimeout(() => {
+      const el = document.querySelector('[data-uid="P15-L03"]');
+      r(el ? el.innerText : '');
+    }, 350));
+  });
+  ok('친구 탭에 보낸 요청 카드가 뜬다', /보낸 요청 1건/.test(outUi), outUi.slice(0, 120));
+  ok('취소할 수 있다', await A.page.locator('[data-uid="P15-B28#1"]').count().then(n => n > 0));
+
   await ev(B, id => window.MB_BACKEND.accept(id), rA.id);
   await ev(B, () => window.MB_SYNC.flush());
   await B.page.waitForTimeout(700);

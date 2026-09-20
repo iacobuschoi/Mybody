@@ -348,7 +348,11 @@
          그런데 그건 우리가 한 산수지 확인이 아닙니다. 비어 있는 칸에
          초록 "검산됨" 점이 찍히면, 사용자는 넣지도 않은 값이 확인됐다고
          읽습니다. 파생값은 계산에는 쓰되 상태는 안 붙입니다. */
-      rule.fields.forEach(function (f) {
+      /* 깨졌을 때는 계산된 칸을 만든 칸들까지 짚습니다(realFields).
+         통과했을 때는 안 그럽니다 — 계산된 값으로 통과한 것은 그 칸을
+         확인해 준 것이 아니라 우리 산수가 맞아떨어진 것뿐이고,
+         그걸로 초록 점을 찍으면 넣지도 않은 값이 확인됐다고 읽힙니다. */
+      (r.ok ? rule.fields : realFields(rule, v)).forEach(function (f) {
         if (v[f] == null || !v._printed[f]) return;
         if (!r.ok) fields[f] = 'conflict';
         else if (fields[f] !== 'conflict') fields[f] = 'verified';
@@ -446,7 +450,7 @@
       var seen2 = {}, list2 = [];
       checks.forEach(function (c) {
         if (c.ok) return;
-        c.fields.forEach(function (f) {
+        realFields(c, v).forEach(function (f) {
           if (v[f] == null || !v._printed[f] || seen2[f]) return;
           seen2[f] = 1; list2.push(f);
         });
@@ -511,10 +515,44 @@
    * 내놓을 때만 고침을 제안합니다. 답이 갈리면 아무 말도 안 합니다 —
    * 모르는 것을 아는 척하지 않습니다.
    */
+  /* 규칙이 가리키는 칸을 "사람이 실제로 넣은 칸" 으로 바꿉니다.
+   *
+   * 제지방(ffmKg)과 체지방량(bfmKg)은 결과지에 안 찍혀 있으면 다른 칸에서
+   * 계산합니다. 그런데 어긋났다고 짚을 때는 계산된 칸의 이름을 댔습니다 —
+   * 사람은 그 칸을 화면에서 고칠 수가 없고(원래 없는 칸이고), 그래서
+   * 애먼 칸을 고치게 됩니다.
+   *
+   * 실제로 이랬습니다. 체지방량 칸에 체지방'률' 32.2 를 잘못 넣으면
+   * (결과지에서 제일 흔한 실수이고, 이 앱이 두 번이나 경고하는 실수)
+   * 제지방이 61.4 − 32.2 = 29.2 로 계산되고, 골격근 23.1 ÷ 29.2 = 79%
+   * 가 범위를 벗어납니다. 화면은 "골격근량이 어긋납니다" 라고 빨간 줄을
+   * 골격근 칸에 그었습니다. 사진을 다시 봐도 골격근은 맞으니, 사용자는
+   * 맞는 값을 틀린 값에 맞춰 고치거나 그냥 저장합니다.
+   *
+   * 계산된 칸이 걸리면 그 칸을 만든 칸들을 같이 올립니다. */
+  function sourcesOf(f, v) {
+    if (f === 'ffmKg' && !v._printed.ffmKg) {
+      return ['weightKg', 'bfmKg'].filter(function (k) { return v[k] != null; });
+    }
+    if (f === 'bfmKg' && !v._printed.bfmKg) {
+      return ['weightKg', 'pbfPct'].filter(function (k) { return v[k] != null; });
+    }
+    return [f];
+  }
+  function realFields(c, v) {
+    var out = [], seen = {};
+    c.fields.forEach(function (f) {
+      sourcesOf(f, v).forEach(function (k) {
+        if (!seen[k]) { seen[k] = 1; out.push(k); }
+      });
+    });
+    return out;
+  }
+
   function blame(checks, v) {
     var broke = {}, ok = {};
     checks.forEach(function (c) {
-      c.fields.forEach(function (f) {
+      realFields(c, v).forEach(function (f) {
         if (v[f] == null) return;
         /* 통과한 검사가 면죄부가 되려면 그 검사가 값을 좁게 묶어야
            합니다. 등식(제지방 = 체중 − 체지방)은 한 값만 허용하니
