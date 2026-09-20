@@ -684,8 +684,23 @@ if (require.main === module) {
       console.log('  폰에서 http://' + a + ':' + PORT + '   (같은 와이파이)');
     });
     console.log('  DB     ' + DB_FILE);
-    console.log('  정적   ' + STATIC_DIR + (isDevTree(STATIC_DIR) ? '   ← 개발 빌드입니다' : ''));
+    const staticOk = fs.existsSync(path.join(STATIC_DIR, 'index.html'));
+    console.log('  정적   ' + STATIC_DIR +
+                (!staticOk ? '   ← 여기에 앱이 없습니다' :
+                 (isDevTree(STATIC_DIR) ? '   ← 개발 빌드입니다' : '')));
     console.log('');
+    /* 없는 폴더를 가리켜도 "실행 중" 이라고만 했습니다. 브라우저에는
+       빈 404 만 나오고 서버는 멀쩡하다고 하니, 무엇이 잘못됐는지
+       알아낼 방법이 없습니다. STATIC 을 상대경로로 주고 다른 폴더에서
+       띄우면 바로 이렇게 됩니다 — cwd 기준으로 풀리기 때문입니다. */
+    if (!staticOk) {
+      console.log('  ⚠ 이 폴더에 index.html 이 없습니다. 브라우저에는 404 만 나옵니다.');
+      console.log('    STATIC 을 상대경로로 줬다면 지금 폴더(' + process.cwd() + ')');
+      console.log('    기준으로 풀립니다. 전체 경로로 주거나, 저장소 폴더에서 띄우세요:');
+      console.log('');
+      console.log('      cd ' + path.join(__dirname, '..') + ' && node tools/serve.js');
+      console.log('');
+    }
     /* 개발 빌드를 그대로 서빙하고 있으면 반드시 말합니다.
        STATIC 을 빼먹으면 prototype/ 이 나가는데, 그 화면에는 고유번호
        배지가 전부 떠 있고 "내 실제 인바디로 채우기" 같은 개발용 버튼이

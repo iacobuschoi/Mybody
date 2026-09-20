@@ -218,6 +218,32 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     await wait(300);
   }
 
+  console.log('\n[5-2] 없는 폴더를 가리키면 "실행 중" 이라고만 하지 않는다');
+  {
+    /* STATIC 을 상대경로로 주고 다른 폴더에서 띄우면 cwd 기준으로 풀려서
+       엉뚱한 데를 가리킵니다. 예전엔 그래도 "실행 중" 이라고만 했고,
+       브라우저에는 빈 404 만 나왔습니다 — 무엇이 잘못됐는지 알 길이
+       없습니다. */
+    const port = await freePort();
+    const elsewhere = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-cwd-'));
+    const s2 = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')],
+      { cwd: elsewhere, env: Object.assign(baseEnv(), {
+          PORT: String(port), PAIR_SECRET: 'x', STATIC: './release' }) });
+    let out2 = '';
+    s2.stdout.on('data', d => { out2 += d; });
+    s2.stderr.on('data', d => { out2 += d; });
+    await wait(1800);
+    ok('앱이 없다고 말한다', /여기에 앱이 없습니다|index\.html 이 없습니다/.test(out2), out2.slice(0, 400));
+    ok('상대경로가 어디 기준인지 알려준다', out2.includes(elsewhere), out2.slice(0, 400));
+    ok('어떻게 띄우면 되는지 알려준다', /tools\/serve\.js/.test(out2));
+    const code = await fetch('http://127.0.0.1:' + port + '/').then(r => r.status).catch(() => 0);
+    ok('실제로 404 가 맞다 (경고가 참이다)', code === 404, code);
+    s2.kill();
+    await wait(300);
+    fs.rmSync(elsewhere, { recursive: true, force: true });
+  }
+
+
   console.log('\n[6] serve — 한 줄로 띄우면 배포 빌드가 나간다');
   {
     const port = await freePort();
