@@ -130,12 +130,19 @@ fs.writeFileSync(path.join(OUT, 'js/build.js'), buildJs);
 {
   const priv = path.join(OUT, 'privacy.html');
   if (!fs.existsSync(priv)) throw new Error('privacy.html 이 없습니다 — 방침 없이 배포할 수 없습니다');
-  const UNSET = '아직 적지 않았습니다 (서버 주인에게 물어보세요)';
+  /* 안 채웠을 때 무엇이라고 적을 것인가.
+   *
+   * "아직 적지 않았습니다" 는 고장으로 보입니다. 그런데 이 앱은 주인이
+   * 친구에게 주소를 직접 주는 방식이라, 안 적혔어도 사실은 연락할 데가
+   * 있습니다 — 주소를 준 그 사람입니다. 그게 참이고 쓸모도 있습니다.
+   * 널리 열 거면 preflight 가 따로 막습니다. */
+  const UNSET_NAME = '이 서버를 띄운 사람 (주소를 알려준 그 사람)';
+  const UNSET_CONTACT = '따로 적어 두지 않았습니다 — 이 주소를 알려준 사람에게 직접 말해 주세요';
   const owner = (process.env.OWNER || '').trim();
   const contact = (process.env.OWNER_CONTACT || '').trim();
   let txt = fs.readFileSync(priv, 'utf8')
-    .replace(/__OWNER_NAME__/g, esc(owner || UNSET))
-    .replace(/__OWNER_CONTACT__/g, esc(contact || UNSET));
+    .replace(/__OWNER_NAME__/g, esc(owner || UNSET_NAME))
+    .replace(/__OWNER_CONTACT__/g, esc(contact || UNSET_CONTACT));
   if (/__OWNER_/.test(txt)) throw new Error('방침의 자리표시자를 못 바꿨습니다');
   fs.writeFileSync(priv, txt);
   if (!owner || !contact) {

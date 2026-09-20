@@ -270,8 +270,8 @@ const DEV_UIDS = ['P01-B05', 'P02-B02', 'P03-B03', 'P03-B09', 'P18-B08',
     ok('주소로 열린다', r.status === 200, r);
     const txt = await pv.evaluate(() => document.body.innerText).catch(() => '');
     ok('자리표시자가 안 남아 있다', !/__OWNER_/.test(txt));
-    ok('운영자와 연락처가 적혀 있다', !txt.includes('아직 적지 않았습니다'),
-       'OWNER="이름" OWNER_CONTACT="연락처" node tools/build-release.js 로 다시 빌드하세요');
+    ok('운영자와 연락처가 적혀 있다', !txt.includes('따로 적어 두지 않았습니다'),
+       'node tools/serve.js --setup --owner="이름" --contact="연락처" 로 정하고 다시 빌드하세요');
     ok('민감정보라고 말한다', /민감정보/.test(txt));
     ok('앱으로 돌아가는 길이 있다',
        await pv.locator('a[href="./index.html"]').count().then(n => n > 0));

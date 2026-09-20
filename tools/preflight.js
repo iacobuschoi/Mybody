@@ -48,6 +48,8 @@ const CHECKS = [
     why: '누르면 터지는 버튼 · 막다른 길' },
   { id: '2인 실사용', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-e2e.js'],
     why: '두 사람이 실제 서버로 주고받는 경로' },
+  { id: '띄우기', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-selfhost.js'],
+    why: '앱이 멀쩡해도 서버를 못 띄우면 아무도 못 씁니다' },
   { id: '판독 화면', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-ocr-ui.js'],
     why: '서버가 잘 읽어도 화면에 판독 버튼이 안 보이면 없는 기능입니다' },
   { id: '배포 빌드', level: 'BLOCK', slow: true, cmd: ['node', 'tools/build-release.js'],

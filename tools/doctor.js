@@ -1,0 +1,280 @@
+/* =============================================================================
+ * tools/doctor.js — 내 컴퓨터가 이 서버를 띄울 수 있나
+ *
+ *   node tools/doctor.js
+ *
+ * preflight.js 는 "올릴 물건이 멀쩡한가" 를 봅니다. 이건 "올릴 자리가
+ * 준비됐나" 를 봅니다. 둘은 다른 질문이고, 막히는 자리도 다릅니다 —
+ * 코드는 멀쩡한데 노드가 낡아서 안 도는 경우가 훨씬 흔합니다.
+ *
+ * 규칙 두 가지
+ *   1. 짐작하지 않습니다. "이 버전이면 될 것이다" 가 아니라 실제로
+ *      불러 보고 열어 봅니다. 버전 번호로 판정하면 언젠가 틀립니다.
+ *   2. "무엇이 없다" 로 끝내지 않습니다. 무엇을 하면 되는지를 같이
+ *      적습니다. 없다는 말만 듣고 할 일을 모르면 거기서 멈춥니다.
+ *
+ * 노드 기본 기능만 씁니다 — 윈도우에서도 그대로 돌아야 합니다.
+ * ========================================================================== */
+'use strict';
+/* node:sqlite 를 부르면 "experimental" 경고가 찍힙니다. 이 검사는
+   바로 아래에서 그 기능이 되는지 안 되는지를 직접 말해 주므로,
+   같은 이야기를 노드가 한 번 더 할 필요가 없습니다. 무엇보다
+   "준비됐는지 보는 도구" 가 경고를 뱉으면 사람은 뭔가 잘못된 줄 압니다. */
+process.removeAllListeners('warning');
+const fs = require('node:fs');
+const os = require('node:os');
+const net = require('node:net');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
+const CONFIG = require('./config.js');
+
+const ROOT = path.join(__dirname, '..');
+const { cfg: CFG, from: FROM } = CONFIG.load();
+const PORT = CFG.port;
+const WIN = process.platform === 'win32';
+
+const rows = [];
+/** level: BLOCK(못 띄움) · WARN(띄워지지만 알고 가야 함) · INFO(선택) */
+function add(level, ok, id, detail, todo) {
+  rows.push({ level, ok, id, detail, todo: todo || null });
+}
+
+/* --- 1. 노드가 이 서버를 돌릴 수 있는가 --------------------------------- */
+{
+  const v = process.versions.node;
+  /* 버전 숫자로 판정하지 않습니다. node:sqlite 는 22.5 에 플래그와 함께
+     들어왔고 나중에 플래그가 빠졌는데, 정확한 경계는 배포판마다
+     다릅니다. 숫자를 외워 두면 언젠가 틀린 말을 하게 됩니다.
+     실제로 불러서 열어 보는 것이 확실합니다. */
+  let ok = false, why = '';
+  try {
+    const { DatabaseSync } = require('node:sqlite');
+    const d = new DatabaseSync(':memory:');
+    d.exec('CREATE TABLE t (a INTEGER)');
+    d.prepare('INSERT INTO t VALUES (?)').run(1);
+    ok = d.prepare('SELECT a FROM t').get().a === 1;
+    d.close();
+  } catch (e) { why = String((e && e.message) || e).split('\n')[0]; }
+
+  add('BLOCK', ok, '노드 버전', 'v' + v + (ok ? ' — 데이터베이스까지 잘 됩니다' : ' — ' + why),
+    ok ? null
+       : '이 노드로는 못 띄웁니다. nodejs.org 에서 LTS 를 받아 다시 깔고,\n' +
+         '       새 터미널을 열어 node --version 이 바뀌었는지 보세요.\n' +
+         '       (이 서버는 노드에 내장된 SQLite 를 씁니다. 오래된 노드에는 없습니다.)');
+}
+
+/* --- 2. 포트가 비어 있는가 ----------------------------------------------- */
+{
+  const free = probePort(PORT);
+  add('BLOCK', free.ok, PORT + '번 포트',
+    free.ok ? '비어 있습니다'
+            : '이미 쓰이고 있습니다 (' + free.why + ')',
+    free.ok ? null
+            : '이 서버가 이미 떠 있을 수도 있습니다 — http://localhost:' + PORT + ' 를 열어 보세요.\n' +
+              '       다른 프로그램이라면 PORT=' + (PORT + 1) + ' 로 바꿔서 띄우면 됩니다.');
+}
+
+/* --- 3. 쓸 자리가 있는가 ------------------------------------------------- */
+{
+  const dbDir = CFG.db ? path.dirname(path.resolve(CFG.db))
+                       : path.join(ROOT, 'server');
+  let ok = false, why = '';
+  try {
+    fs.mkdirSync(dbDir, { recursive: true });
+    const probe = path.join(dbDir, '.mybody-write-test');
+    fs.writeFileSync(probe, 'x');
+    fs.unlinkSync(probe);
+    ok = true;
+  } catch (e) { why = String((e && e.message) || e); }
+
+  let free = null;
+  try { const s = fs.statfsSync(dbDir); free = s.bavail * s.bsize; } catch (e) {}
+  const gb = free != null ? (free / 1e9).toFixed(1) + 'GB 남음' : '남은 용량은 못 읽었습니다';
+
+  add('BLOCK', ok, '쓸 자리', ok ? dbDir + ' · ' + gb : dbDir + ' 에 못 씁니다 — ' + why,
+    ok ? null : '폴더 권한을 보거나, DB 를 쓸 수 있는 다른 경로로 지정하세요.');
+
+  if (ok && free != null && free < 200e6) {
+    add('WARN', false, '디스크 여유', (free / 1e6).toFixed(0) + 'MB 밖에 없습니다',
+      '기록이 쌓이면 모자랍니다. 자리를 좀 비워 두세요.');
+  }
+}
+
+/* --- 4. 가입 코드 -------------------------------------------------------- */
+{
+  const secret = (CFG.pairSecret || '').trim();
+  const where = FROM.pairSecret || '설정 파일';
+
+  if (!secret) {
+    add('BLOCK', false, '가입 코드', '아직 없습니다',
+      '한 번만 만들면 됩니다:\n' +
+      '         node tools/serve.js --setup\n' +
+      '       이 값을 아는 사람만 계정을 만들 수 있습니다. 친구에게 직접 주세요.');
+  } else if (secret.length < 16) {
+    add('WARN', false, '가입 코드', where + ' · ' + secret.length + '자',
+      '짧습니다. 이 값 하나가 "아무나 가입" 을 막는 유일한 문입니다 — 32자쯤으로 다시 만드세요.');
+  } else {
+    add('BLOCK', true, '가입 코드', where + ' · ' + secret.length + '자');
+  }
+}
+
+/* --- 5. 방침에 적을 운영자 ----------------------------------------------- */
+{
+  const owner = (CFG.owner || '').trim();
+  const contact = (CFG.ownerContact || '').trim();
+  add('WARN', !!(owner && contact), '방침 운영자',
+    owner || contact ? [owner || '(이름 없음)', contact || '(연락처 없음)'].join(' · ')
+                     : '아직 안 정했습니다',
+    owner && contact ? null
+      : '건강정보를 다루는 앱이라 개인정보처리방침에 "누구에게 말하면 되는지" 가 있어야 합니다.\n' +
+        '         node tools/serve.js --setup --owner="이름" --contact="연락처"\n' +
+        '       혼자만 쓸 거면 지금은 넘어가도 됩니다.');
+}
+
+/* --- 6. 배포 빌드 -------------------------------------------------------- */
+{
+  const rel = path.join(ROOT, 'release', 'index.html');
+  const has = fs.existsSync(rel);
+  let stale = false, age = '';
+  if (has) {
+    try {
+      const built = fs.statSync(rel).mtimeMs;
+      const newest = newestMtime(path.join(ROOT, 'prototype'));
+      stale = newest > built;
+      const days = Math.floor((Date.now() - built) / 86400000);
+      age = days > 0 ? days + '일 전에 만들었습니다' : '오늘 만들었습니다';
+    } catch (e) {}
+  }
+  add('WARN', has && !stale, '배포 빌드',
+    !has ? 'release/ 가 없습니다' : (stale ? age + ' — 그 뒤로 원본이 바뀌었습니다' : age),
+    has && !stale ? null
+      : 'OWNER="이름" OWNER_CONTACT="연락처" node tools/build-release.js\n' +
+        '       이걸 안 하고 띄우면 개발 빌드가 나갑니다 — 화면에 번호 배지가 전부 뜹니다.');
+}
+
+/* --- 7. 자동 판독 (선택) -------------------------------------------------- */
+{
+  const key = (CFG.anthropicKey || '').trim();
+  add('INFO', !!key, '자동 판독',
+    key ? '키가 있습니다 (' + key.slice(0, 7) + '…)' : '키가 없습니다',
+    key ? null
+      : '없어도 앱은 그대로 돕니다 — 숫자를 직접 넣으면 됩니다.\n' +
+        '       사진에서 자동으로 읽게 하려면 ANTHROPIC_API_KEY 를 넣고 띄우세요.');
+}
+
+/* --- 8. 밖에서 접속 (선택) ------------------------------------------------ */
+{
+  const has = which('cloudflared') || which('tailscale');
+  add('INFO', !!has, '밖에서 접속',
+    has ? has + ' 가 깔려 있습니다' : '터널 도구가 없습니다',
+    has ? null
+      : '집 안(같은 와이파이)에서만 쓸 거면 필요 없습니다.\n' +
+        '       밖에서 쓰거나 폰에 앱처럼 깔려면 터널이 필요합니다 — docs/DEPLOY.md 3번.');
+}
+
+/* --- 출력 ---------------------------------------------------------------- */
+/* --make-pair 는 없앴습니다. 가입 코드를 만드는 자리가 두 군데면
+   둘이 서로 다른 데 쓰게 됩니다 — 실제로 그랬습니다. serve --setup
+   한 군데서만 만듭니다. */
+
+console.log('');
+console.log('내 컴퓨터가 이 서버를 띄울 수 있나');
+console.log('  ' + os.type() + ' ' + os.release() + ' · node ' + process.versions.node);
+console.log('');
+
+const MARK = { BLOCK: '✗', WARN: '!', INFO: '·' };
+rows.forEach(r => {
+  const mark = r.ok ? '✓' : MARK[r.level];
+  console.log('  ' + mark + ' ' + pad(r.id) + ' ' + r.detail);
+  if (!r.ok && r.todo) r.todo.split('\n').forEach(l => console.log('       ' + l.replace(/^ {7}/, '')));
+});
+
+const blocked = rows.filter(r => r.level === 'BLOCK' && !r.ok);
+const warned = rows.filter(r => r.level === 'WARN' && !r.ok);
+
+console.log('');
+console.log('─'.repeat(52));
+console.log('');
+if (blocked.length) {
+  console.log('아직 못 띄웁니다. 위의 ✗ ' + blocked.length + '개를 먼저 해결하세요.');
+  console.log('');
+  process.exit(1);
+}
+console.log('띄울 수 있습니다.' + (warned.length ? '  (! ' + warned.length + '개는 알고 넘어가는 것입니다)' : ''));
+console.log('');
+if (CONFIG.exists()) {
+  /* 설정을 이미 만들어 둔 사람에게 환경변수 다섯 개짜리 명령을 다시
+     보여줄 이유가 없습니다. 짧은 길이 있으면 짧은 길을 알려줍니다. */
+  console.log('  node tools/serve.js');
+  console.log('');
+  console.log('  (직접 띄우려면)  ' + startCommand());
+} else {
+  console.log('  ' + startCommand());
+}
+console.log('');
+console.log('  그다음 브라우저에서 http://localhost:' + PORT);
+console.log('  폰에서도 쓰려면 docs/DEPLOY.md 의 "밖에서 접속하게" 를 보세요.');
+console.log('');
+
+/* --- 잔손질 -------------------------------------------------------------- */
+function pad(s) {
+  /* 한글은 폭이 두 칸입니다. 그걸 안 세면 줄이 들쭉날쭉해집니다. */
+  let w = 0;
+  for (const ch of s) w += /[ᄀ-ᇿ　-〿가-힯＀-｠]/.test(ch) ? 2 : 1;
+  return s + ' '.repeat(Math.max(0, 16 - w));
+}
+
+function probePort(p) {
+  /* 실제로 열어 봅니다. lsof·netstat 은 OS 마다 다르고 윈도우엔 없습니다. */
+  const res = spawnSync(process.execPath, ['-e', `
+    const net = require('node:net');
+    const s = net.createServer();
+    s.once('error', e => { process.stdout.write('BUSY:' + e.code); process.exit(0); });
+    s.listen(${p}, '0.0.0.0', () => { s.close(() => { process.stdout.write('FREE'); process.exit(0); }); });
+  `], { encoding: 'utf8', timeout: 5000 });
+  const out = (res.stdout || '').trim();
+  if (out === 'FREE') return { ok: true };
+  if (out.startsWith('BUSY:')) return { ok: false, why: out.slice(5) };
+  return { ok: false, why: '확인하지 못했습니다' };
+}
+
+function which(cmd) {
+  const probe = WIN ? spawnSync('where', [cmd], { encoding: 'utf8' })
+                    : spawnSync('sh', ['-c', 'command -v ' + cmd], { encoding: 'utf8' });
+  return probe.status === 0 && (probe.stdout || '').trim() ? cmd : null;
+}
+
+function newestMtime(dir) {
+  let newest = 0;
+  const walk = d => {
+    for (const f of fs.readdirSync(d)) {
+      const p = path.join(d, f);
+      const st = fs.statSync(p);
+      if (st.isDirectory()) walk(p);
+      else if (st.mtimeMs > newest) newest = st.mtimeMs;
+    }
+  };
+  try { walk(dir); } catch (e) {}
+  return newest;
+}
+
+function startCommand() {
+  /* 지금 이 검사에서 쓰인 설정을 그대로 실어 줍니다. 기본값과 다른
+     포트로 확인해 놓고 명령에는 기본 포트가 적혀 있으면, 그 사람은
+     방금 비어 있다고 확인한 포트가 아닌 다른 포트로 띄웁니다. */
+  const parts = [];
+  if (PORT !== 8080) parts.push(['PORT', String(PORT)]);
+  parts.push(['STATIC', './release']);
+  if ((process.env.ANTHROPIC_API_KEY || '').trim()) parts.push(['ANTHROPIC_API_KEY', '...']);
+
+  /* 윈도우 PowerShell 은 VAR=값 앞자리 문법을 안 씁니다.
+     맞는 문법을 안 알려주면 딱 거기서 막힙니다. */
+  if (WIN) {
+    const sets = ['$env:PAIR_SECRET=(Get-Content ~\\.mybody-pair)']
+      .concat(parts.map(([k, v]) => '$env:' + k + '="' + v + '"'));
+    return sets.join('; ') + '; node server/server.js';
+  }
+  return ['PAIR_SECRET=$(cat ~/.mybody-pair)']
+    .concat(parts.map(([k, v]) => k + '=' + v))
+    .concat(['node server/server.js']).join(' ');
+}

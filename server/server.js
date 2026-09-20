@@ -557,16 +557,65 @@ if (require.main === module) {
     console.error('');
     process.exit(1);
   }
+  /* 포트가 이미 쓰이고 있으면 예전에는 노드의 스택 추적이 그대로
+     쏟아졌습니다 — 'Error: listen EADDRINUSE ... at Server.setupListenHandle
+     (node:net:1940:16)'. 개발자가 아니면 이게 무슨 말인지 모르고,
+     정작 할 일(포트를 바꾸거나 그 프로그램을 끄기)은 안 적혀 있습니다.
+     서버를 처음 띄우는 사람이 제일 자주 만나는 오류라 따로 받습니다. */
+  server.on('error', (e) => {
+    if (e && e.code === 'EADDRINUSE') {
+      console.error('');
+      console.error(PORT + '번 포트를 이미 다른 프로그램이 쓰고 있습니다.');
+      console.error('');
+      console.error('  이 서버가 이미 떠 있을 수도 있습니다 — 브라우저에서');
+      console.error('  http://localhost:' + PORT + ' 를 먼저 열어 보세요.');
+      console.error('');
+      console.error('  다른 프로그램이라면 포트를 바꿔서 띄우면 됩니다:');
+      console.error('    PORT=' + (PORT + 1) + ' (나머지는 그대로) node server/server.js');
+      console.error('');
+      process.exit(1);
+    }
+    if (e && e.code === 'EACCES') {
+      console.error('');
+      console.error(PORT + '번 포트를 열 권한이 없습니다.');
+      console.error('  1024 아래 번호는 관리자 권한이 필요합니다. 8080 처럼 큰 번호를 쓰세요.');
+      console.error('');
+      process.exit(1);
+    }
+    console.error('서버를 시작하지 못했습니다:', (e && e.message) || e);
+    process.exit(1);
+  });
+
   server.listen(PORT, () => {
     console.log('Mybody 서버 실행 중');
     console.log('  주소   http://localhost:' + PORT);
     console.log('  DB     ' + DB_FILE);
-    console.log('  정적   ' + STATIC_DIR);
+    console.log('  정적   ' + STATIC_DIR + (isDevTree(STATIC_DIR) ? '   ← 개발 빌드입니다' : ''));
     console.log('');
+    /* 개발 빌드를 그대로 서빙하고 있으면 반드시 말합니다.
+       STATIC 을 빼먹으면 prototype/ 이 나가는데, 그 화면에는 고유번호
+       배지가 전부 떠 있고 "내 실제 인바디로 채우기" 같은 개발용 버튼이
+       살아 있습니다. 친구에게 주소를 주고 나서야 알게 되면 늦습니다. */
+    if (isDevTree(STATIC_DIR)) {
+      console.log('  ⚠ 지금 나가는 것은 개발 빌드입니다 — 화면에 번호 배지가 전부 뜨고');
+      console.log('    개발용 버튼이 살아 있습니다. 남에게 줄 주소라면 이렇게 하세요:');
+      console.log('');
+      console.log('      OWNER="이름" OWNER_CONTACT="연락처" node tools/build-release.js');
+      console.log('      STATIC=./release (나머지는 그대로) node server/server.js');
+      console.log('');
+    }
     // cloudflared 안내는 뺐습니다. 집 안 서버를 공개 서버로 바꾸는 두 줄이었고,
     // 그 상태에서 인증 구멍이 있으면 피해가 바로 현실이 됩니다.
     console.log('  밖에서 접속하려면 먼저 server/README.md 의 "밖에서 접속하기"를 읽어 주세요.');
   });
+}
+
+/** 지금 서빙하는 폴더가 개발 트리(prototype/)인가 — 배포본에는 없는 파일로 봅니다. */
+function isDevTree(dir) {
+  try {
+    return fs.existsSync(path.join(dir, 'css', 'uid.css')) ||
+           fs.existsSync(path.join(dir, 'js', 'screens', 'idindex.js'));
+  } catch (e) { return false; }
 }
 
 module.exports = { server, api, db };
