@@ -68,10 +68,21 @@
       .catch(function () { reachable = false; emit(); return false; });
   }
 
+  /* 이 앱을 그 서버가 직접 내보내고 있는가.
+     같은 출처에서 왔으면 "여긴 서버가 없는 미리보기" 일 수가 없습니다 —
+     방금 이 페이지를 준 게 그 서버니까요. 안 닿으면 꺼진 것입니다. */
+  function servedByConfigured() {
+    try {
+      var base = cfg.baseUrl || defaultBase();
+      return !!base && base === location.origin;
+    } catch (e) { return false; }
+  }
+
   function status() {
     return {
       configured: !!cfg.baseUrl,
       reachable: reachable,
+      ownServer: servedByConfigured(),
       signedIn: !!cfg.token,
       baseUrl: cfg.baseUrl || null,
       handle: cfg.handle || null,

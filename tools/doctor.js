@@ -56,6 +56,24 @@ function add(level, ok, id, detail, todo) {
     d.close();
   } catch (e) { why = String((e && e.message) || e).split('\n')[0]; }
 
+  /* 메모리에서만 열어 보면 "노드는 되는데 내 데이터베이스 파일이 깨진"
+     경우를 놓칩니다 — 전부 ✓ 를 주고 서버가 영문 스택으로 죽습니다.
+     이미 파일이 있으면 그것도 열어 봅니다. */
+  if (ok) {
+    const dbPath = CFG.db ? path.resolve(CFG.db) : path.join(ROOT, 'server', 'mybody.db');
+    if (fs.existsSync(dbPath)) {
+      try {
+        const { DatabaseSync } = require('node:sqlite');
+        const d2 = new DatabaseSync(dbPath, { readOnly: true });
+        d2.prepare('SELECT COUNT(*) c FROM sqlite_master').get();
+        d2.close();
+      } catch (e) {
+        ok = false;
+        why = '데이터베이스 파일을 못 엽니다 — ' + String((e && e.message) || e).split('\n')[0];
+      }
+    }
+  }
+
   add('BLOCK', ok, '노드 버전', 'v' + v + (ok ? ' — 데이터베이스까지 잘 됩니다' : ' — ' + why),
     ok ? null
        : '이 노드로는 못 띄웁니다. nodejs.org 에서 LTS 를 받아 다시 깔고,\n' +
@@ -216,7 +234,17 @@ if (CONFIG.exists()) {
 }
 console.log('');
 console.log('  그다음 브라우저에서 http://localhost:' + PORT);
-console.log('  폰에서도 쓰려면 docs/DEPLOY.md 의 "밖에서 접속하게" 를 보세요.');
+/* 폰에서 칠 주소. 이걸 아무 데서도 안 알려줘서, 폰으로 쓰려는 사람은
+   자기 컴퓨터의 내부 주소를 따로 찾아내야 했습니다. */
+const lan = lanAddresses();
+if (lan.length) {
+  console.log('');
+  lan.forEach(a => console.log('  폰에서는  http://' + a + ':' + PORT + '   (같은 와이파이)'));
+  console.log('  이 주소로는 앱 설치 · 오프라인 · 복사가 안 됩니다 (https 가 아니라서).');
+  console.log('  그 셋까지 되게 하려면 docs/START.md 의 "폰에서 쓰기" 를 보세요.');
+} else {
+  console.log('  폰에서도 쓰려면 docs/START.md 의 "폰에서 쓰기" 를 보세요.');
+}
 console.log('');
 
 /* --- 잔손질 -------------------------------------------------------------- */
@@ -225,6 +253,23 @@ function pad(s) {
   let w = 0;
   for (const ch of s) w += /[ᄀ-ᇿ　-〿가-힯＀-｠]/.test(ch) ? 2 : 1;
   return s + ' '.repeat(Math.max(0, 16 - w));
+}
+
+/** 같은 와이파이에서 폰이 칠 수 있는 주소들 */
+function lanAddresses() {
+  const out = [];
+  try {
+    const nets = os.networkInterfaces();
+    Object.keys(nets).forEach(name => {
+      (nets[name] || []).forEach(n => {
+        if (n.family !== 'IPv4' || n.internal) return;
+        /* 도커·VM 이 만드는 가상 인터페이스는 폰에서 못 닿습니다 */
+        if (/^(docker|br-|veth|vboxnet|utun|tun|tap)/.test(name)) return;
+        out.push(n.address);
+      });
+    });
+  } catch (e) {}
+  return out;
 }
 
 function probePort(p) {

@@ -122,6 +122,64 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
        했습니다 — 그대로 치면 빈 값이 들어가 서버가 안 뜹니다. */
     ok('아무도 안 만드는 파일을 읽으라고 안 한다',
        !/\.mybody-pair/.test(r.stdout || ''), (r.stdout || '').slice(-300));
+    /* 폰에서 칠 주소를 아무도 안 알려줘서, 폰으로 쓰려는 사람은 자기
+       컴퓨터의 내부 주소를 따로 찾아내야 했습니다. 어디서 찾는지
+       모르면 거기서 끝입니다. */
+    const anyLan = Object.values(os.networkInterfaces()).flat()
+      .some(n => n && n.family === 'IPv4' && !n.internal);
+    if (anyLan) {
+      ok('폰에서 칠 주소를 알려준다', /폰에서는  http:\/\/\d+\.\d+\.\d+\.\d+:/.test(r.stdout || ''),
+         (r.stdout || '').slice(-400));
+      ok('그 주소로는 뭐가 안 되는지도 말한다', /앱 설치/.test(r.stdout || ''));
+    }
+  }
+
+  console.log('\n[3-2] 서버가 폰 주소와 올바른 형식을 내보낸다');
+  {
+    const port = await freePort();
+    const srv = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')],
+      { cwd: ROOT, env: Object.assign(baseEnv(), {
+          PORT: String(port), PAIR_SECRET: 'x', STATIC: path.join(ROOT, 'release') }) });
+    let out = '';
+    srv.stdout.on('data', d => { out += d; });
+    srv.stderr.on('data', d => { out += d; });
+    let up = false;
+    for (let i = 0; i < 60; i++) {
+      try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) { up = true; break; } } catch (e) {}
+      await wait(200);
+    }
+    ok('뜬다', up, out.slice(-200));
+    if (up) {
+      const anyLan = Object.values(os.networkInterfaces()).flat()
+        .some(n => n && n.family === 'IPv4' && !n.internal);
+      if (anyLan) {
+        ok('시작할 때 폰에서 칠 주소를 찍는다',
+           /폰에서 http:\/\/\d+\.\d+\.\d+\.\d+:/.test(out), out.slice(0, 400));
+      }
+      /* 매니페스트를 알 수 없는 형식으로 내보내면 브라우저가 "폰에 설치"
+         를 안 띄울 수 있습니다. 검사 도구들은 자기 정적 서버에서 올바른
+         형식으로 내보내서 이 차이를 못 잡았습니다 — 진짜 서버에 묻습니다. */
+      const ct = p2 => fetch(`http://127.0.0.1:${port}/${p2}`).then(r => r.headers.get('content-type') || '');
+      ok('매니페스트 형식이 맞다', /application\/manifest\+json/.test(await ct('manifest.webmanifest')),
+         await ct('manifest.webmanifest'));
+      ok('아이콘 형식이 맞다', /image\/png/.test(await ct('assets/icon-192.png')));
+      ok('방침 형식이 맞다', /text\/html/.test(await ct('privacy.html')));
+    }
+    srv.kill();
+    await wait(300);
+  }
+
+  console.log('\n[3-3] 데이터베이스 파일이 깨져 있으면 doctor 가 잡는다');
+  {
+    /* 메모리에서만 열어 보면 "노드는 되는데 내 파일이 깨진" 경우를
+       놓칩니다 — 전부 ✓ 를 준 뒤 서버가 영문 스택으로 죽습니다. */
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-bad-'));
+    const bad = path.join(dir, 'broken.db');
+    fs.writeFileSync(bad, 'this is not a database');
+    const r = run(['tools/doctor.js'], Object.assign(baseEnv(), { DB: bad }));
+    ok('깨진 파일을 잡는다', r.status !== 0 && /데이터베이스 파일을 못 엽니다/.test(r.stdout || ''),
+       (r.stdout || '').slice(0, 400));
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 
   console.log('\n[4] 포트가 차 있으면 사람이 읽을 수 있게 말한다');

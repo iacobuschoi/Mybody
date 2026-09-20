@@ -260,9 +260,17 @@ function noteLoginFail(handle, kind) {
 }
 function clearLoginFails(handle, kind) { loginFails.delete(failKey(handle, kind)); }
 
+/* 빠진 확장자는 application/octet-stream 으로 나갑니다. 그게 맞는 경우도
+   있지만 매니페스트는 아닙니다 — 브라우저가 "폰에 설치" 를 띄울지 말지
+   판단하는 파일인데, 알 수 없는 형식으로 내보내면 무시할 수 있습니다.
+   검사 도구들은 자기 정적 서버에서 올바른 형식으로 내보내고 있어서
+   이 차이를 한 번도 못 잡았습니다. */
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
                '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8',
-               '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
+               '.webmanifest': 'application/manifest+json; charset=utf-8',
+               '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon',
+               '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp',
+               '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8' };
 
 function send(res, status, body, headers = {}) {
   const h = Object.assign({
@@ -637,6 +645,14 @@ if (require.main === module) {
   server.listen(PORT, () => {
     console.log('Mybody 서버 실행 중');
     console.log('  주소   http://localhost:' + PORT);
+    /* 폰에서 칠 주소를 찍어 줍니다.
+       이걸 아무 데서도 안 알려줘서, 폰으로 쓰려는 사람은 자기 컴퓨터의
+       내부 주소를 따로 찾아내야 했습니다 — 어디서 찾는지 모르면 거기서
+       끝입니다. 이 서버는 0.0.0.0 에 붙으므로 같은 와이파이에서 바로
+       열립니다. */
+    lanAddresses().forEach(a => {
+      console.log('  폰에서 http://' + a + ':' + PORT + '   (같은 와이파이)');
+    });
     console.log('  DB     ' + DB_FILE);
     console.log('  정적   ' + STATIC_DIR + (isDevTree(STATIC_DIR) ? '   ← 개발 빌드입니다' : ''));
     console.log('');
@@ -656,6 +672,24 @@ if (require.main === module) {
     // 그 상태에서 인증 구멍이 있으면 피해가 바로 현실이 됩니다.
     console.log('  밖에서 접속하려면 먼저 server/README.md 의 "밖에서 접속하기"를 읽어 주세요.');
   });
+}
+
+/** 같은 와이파이에서 폰이 칠 수 있는 주소들 */
+function lanAddresses() {
+  const out = [];
+  try {
+    const nets = require('node:os').networkInterfaces();
+    Object.keys(nets).forEach(name => {
+      (nets[name] || []).forEach(n => {
+        if (n.family !== 'IPv4' || n.internal) return;
+        /* 도커·VM 이 만드는 가상 인터페이스는 폰에서 못 닿습니다.
+           찍어 봐야 "쳐 봤는데 안 되는데요" 가 됩니다. */
+        if (/^(docker|br-|veth|vboxnet|utun|tun|tap)/.test(name)) return;
+        out.push(n.address);
+      });
+    });
+  } catch (e) {}
+  return out;
 }
 
 /** 지금 서빙하는 폴더가 개발 트리(prototype/)인가 — 배포본에는 없는 파일로 봅니다. */
