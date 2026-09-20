@@ -424,10 +424,14 @@
 
         if (!can) {
           var why, act = null;
-          if (!st.configured) {
+          /* "주소가 적혀 있다" 와 "그 주소에 우리 서버가 있다" 는 다릅니다.
+             미리보기 링크로 열면 앱이 그 주소(claude.ai)를 기본값으로 잡는데,
+             거기엔 서버가 없습니다. reachable === false 가 그걸 말해 줍니다. */
+          if (!st.configured || st.reachable === false) {
             why = '지금 보고 계신 주소에는 서버가 없습니다 — 미리보기로 연 화면입니다. ' +
                   '자동 판독은 사진을 서버로 보내서 읽는 기능이라, 내 서버에서 열 때만 됩니다. ' +
-                  '그동안은 아래에 숫자 세 개만 옮겨 적으시면 나머지는 앱이 계산합니다.';
+                  '그동안은 아래에 숫자 세 개만 옮겨 적으시면 나머지는 앱이 계산합니다. ' +
+                  '옮겨 적는 것도 15초면 끝납니다.';
             act = h('button.btn.btn--block', {
               text: '서버 주소 넣기', uid: 'P03-B15', uidLabel: '서버 주소 넣기',
               onClick: function () { global.MB_MODALS.serverAddress(function () { draw(); }); }

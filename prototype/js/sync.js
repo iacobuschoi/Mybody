@@ -44,9 +44,34 @@
   function emit() { listeners.forEach(function (f) { try { f(status()); } catch (e) {} }); }
   function onChange(f) { listeners.push(f); }
 
+  /* 주소가 적혀 있다는 것과 그 주소에 우리 서버가 있다는 것은 다릅니다.
+   *
+   * defaultBase() 가 location.origin 을 기본값으로 잡습니다. 앱을 내 서버에서
+   * 열면 맞는 값이지만, 미리보기 링크(claude.ai)로 열면 그 주소가 그대로
+   * 들어옵니다. 그러면 화면은 "서버가 있다" 고 믿고 "로그인하면 자동 판독을
+   * 켤 수 있습니다" 라고 말하는데, 눌러 보면 아무 데도 안 닿습니다.
+   * 막다른 길을 두 번 안내하는 셈입니다.
+   *
+   * 그래서 /health 를 한 번 두드려 보고, 답이 온 적이 있는지를 따로 둡니다.
+   *   null  아직 안 물어봤다
+   *   true  우리 서버가 맞다
+   *   false 그 주소에는 우리 서버가 없다
+   */
+  var reachable = null;
+
+  function probe() {
+    var base = cfg.baseUrl || defaultBase();
+    if (!base) { reachable = false; emit(); return Promise.resolve(false); }
+    return fetch(base + '/health')
+      .then(function (r) { return r.ok ? r.json().catch(function () { return {}; }) : null; })
+      .then(function (j) { reachable = !!j; emit(); return reachable; })
+      .catch(function () { reachable = false; emit(); return false; });
+  }
+
   function status() {
     return {
       configured: !!cfg.baseUrl,
+      reachable: reachable,
       signedIn: !!cfg.token,
       baseUrl: cfg.baseUrl || null,
       handle: cfg.handle || null,
@@ -67,7 +92,9 @@
 
   function configure(baseUrl) {
     cfg.baseUrl = baseUrl ? String(baseUrl).replace(/\/+$/, '') : null;
+    reachable = null;              // 주소가 바뀌었으니 다시 물어봐야 합니다
     saveCfg(cfg); emit();
+    probe();
     return status();
   }
 
@@ -341,6 +368,7 @@
   /* 앱이 켜질 때와 온라인으로 돌아올 때 맞춰 옵니다. */
   function boot() {
     if (!cfg.baseUrl) cfg.baseUrl = defaultBase();
+    probe();
     if (cfg.token) { flush(); }
     try {
       global.addEventListener('online', function () { flush(); });
@@ -421,7 +449,7 @@
     HEALTH_CONSENT_VERSION: HEALTH_CONSENT_VERSION,
     signOutAll: function () { return api('/auth/signout-all', { method: 'POST' }); },
     deleteAccount: function () { return api('/me', { method: 'DELETE' }); },
-    enqueue: enqueue, flush: flush, pull: pull, boot: boot,
+    enqueue: enqueue, flush: flush, pull: pull, boot: boot, probe: probe,
     sendRequest: sendRequest,
     canOcr: canOcr, setOcr: setOcr, ocr: ocr,
     _api: api

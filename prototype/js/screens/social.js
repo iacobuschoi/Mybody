@@ -112,6 +112,11 @@
           return h('div.note.note--warn', { style: { marginTop: '10px' },
             text: '서버 주소가 설정되지 않아 아직 아무것도 올라가지 않았습니다. 기록은 이 기기에만 있습니다.' });
         }
+        if (st.reachable === false) {
+          return h('div.note.note--bad', { style: { marginTop: '10px' },
+            text: st.baseUrl + ' 에 닿지 않습니다. 서버가 꺼져 있거나 주소가 바뀌었습니다 — ' +
+                  '그동안 바뀐 것은 이 기기에 쌓여 있다가 다시 닿으면 올라갑니다.' });
+        }
         if (st.pending) {
           return h('div.note.note--warn', { style: { marginTop: '10px' },
             text: '아직 못 올린 변경이 ' + st.pending + '건 있습니다' +
@@ -503,9 +508,18 @@
         /** 지금 어느 서버를 보고 있는지 — 자가호스팅이라 이게 보여야 합니다. */
         function serverLine() {
           var st = global.MB_SYNC ? global.MB_SYNC.status() : { configured: false };
-          return h('div.muted', { style: { marginTop: '10px' },
-            text: st.configured ? '서버: ' + st.baseUrl
-                                : '서버가 설정되지 않았습니다. 이 기기에만 저장됩니다.' });
+          /* 주소만 보고 "서버: ..." 라고 적으면, 미리보기 링크에서는
+             claude.ai 가 내 서버인 것처럼 보입니다. 닿는지까지 봅니다. */
+          if (!st.configured) {
+            return h('div.muted', { style: { marginTop: '10px' },
+              text: '서버가 설정되지 않았습니다. 이 기기에만 저장됩니다.' });
+          }
+          if (st.reachable === false) {
+            return h('div.note.note--warn', { style: { marginTop: '10px' },
+              text: st.baseUrl + ' 에 이 앱의 서버가 없습니다. 미리보기로 열었거나 ' +
+                    '서버가 꺼져 있습니다 — 친구 기능은 서버가 있어야 됩니다.' });
+          }
+          return h('div.muted', { style: { marginTop: '10px' }, text: '서버: ' + st.baseUrl });
         }
       }
     }

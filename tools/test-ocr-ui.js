@@ -104,6 +104,8 @@ async function main() {
   await page.waitForTimeout(400);
   await page.evaluate(() => window.MB_SYNC.configure(null));
   await go('P03');
+  /* 주소가 아예 없는 경우와, 주소는 있는데 우리 서버가 아닌 경우는
+     사용자에게 같은 상황입니다 — 미리보기 링크가 후자입니다. 둘 다 봅니다. */
   ok('자동 판독 카드가 보인다', await seen('P03-C08'));
   {
     const t = await text();
@@ -112,9 +114,24 @@ async function main() {
   }
   ok('서버 주소를 넣을 길이 있다', await seen('P03-B15'));
 
+  /* 주소는 적혀 있는데 그 주소에 우리 서버가 없을 때 (= 미리보기 링크).
+     예전엔 defaultBase() 가 location.origin 을 잡아서 "서버가 있다" 고
+     믿고 "로그인하면 켤 수 있습니다" 라고 했습니다. 눌러도 아무 데도
+     안 닿습니다. */
+  console.log('\n[1-2] 주소는 있는데 우리 서버가 아닐 때');
+  await page.evaluate(() => window.MB_SYNC.configure('http://127.0.0.1:9931'));
+  await page.waitForTimeout(600);
+  await go('P02'); await go('P03');
+  ok('닿지 않는다는 것을 안다',
+     (await page.evaluate(() => window.MB_SYNC.status().reachable)) === false);
+  ok('"서버가 없다"고 말한다', /서버가 없습니다/.test(await text()));
+
   /* --- 2. 서버는 있는데 로그인 안 했을 때 -------------------------------- */
   console.log('\n[2] 로그인 전');
   await page.evaluate(b => window.MB_SYNC.configure(b), BASE);
+  await page.waitForTimeout(600);
+  ok('진짜 서버는 닿는 것으로 본다',
+     (await page.evaluate(() => window.MB_SYNC.status().reachable)) === true);
   await go('P02'); await go('P03');
   ok('"로그인하면 켤 수 있다"고 말한다', /로그인하면/.test(await text()));
   ok('바로 로그인할 길이 있다', await seen('P03-B16'));
@@ -184,7 +201,9 @@ async function main() {
   ok('모델을 안 부른다', sawRequest === null);
 
   console.log('\n[6] JS 오류');
-  const EXPECTED = /status of (400|401|429)/;
+  /* 일부러 닿지 않는 주소를 물어봤습니다(위 [1-2]). 브라우저는 그것도
+     콘솔 오류로 찍습니다 — 예상한 것은 빼고 셉니다. */
+  const EXPECTED = /status of (400|401|429)|ERR_CONNECTION_REFUSED|ERR_UNSAFE_PORT|Failed to load resource/;
   const real = [...new Set(errs)].filter(e => !EXPECTED.test(e));
   ok('예상 못 한 오류 0건', real.length === 0, real.slice(0, 3));
 

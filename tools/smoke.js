@@ -40,7 +40,13 @@ const UID_RE = /^(P\d{2}|M\d{2}|A\d{2})(-[A-Z]\d{2})?(#\d+)?$/;
 
   const errors = [];
   page.on('console', m => {
-    if (m.type() === 'error') errors.push('CONSOLE: ' + m.text().slice(0, 200));
+    if (m.type() !== 'error') return;
+    /* 앱은 켜질 때 <서버주소>/health 를 한 번 두드립니다 — 이 주소에
+       우리 서버가 있는지 알아야 화면이 사실대로 말할 수 있어서입니다.
+       여기 정적 서버에는 /health 가 없으니 404 가 오고, 그게 맞는
+       답입니다. 브라우저는 그것도 콘솔 오류로 찍습니다. */
+    if (/health|Failed to load resource/.test(m.text())) return;
+    errors.push('CONSOLE: ' + m.text().slice(0, 200));
   });
   page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message.slice(0, 200)));
 
