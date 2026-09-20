@@ -69,9 +69,13 @@ process.on('exit',()=>srv.kill());
    * 밀어 넣는 것이 그대로 공격이 됩니다. */
   console.log('\n  계정 잠금');
   let lockFail = 0;
+  /* 가입에는 건강정보 별도 동의가 필요합니다(개인정보보호법 제23조).
+     검사도 실제 사용자와 같은 문을 지나야 의미가 있으므로, 가입 요청에만
+     동의 판을 채워 보냅니다. */
   const post = (path2, body) => fetch(`http://localhost:${PORT}/api${path2}`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify(path2 === '/auth/signup'
+      ? Object.assign({ healthConsent: '2026-09-20' }, body) : body)
   });
   await post('/auth/signup', { handle: 'victim', password: 'victim-password-1',
                                displayName: '피해자', pairSecret: 'x' });
@@ -138,7 +142,8 @@ process.on('exit',()=>srv.kill());
     const f = path.join(base, 'sess.db');
     const sdb = open(f);
     const sapi = makeApi(sdb);
-    const u = sapi.signUp({ handle: 'legacy', password: 'legacy-password-1', displayName: 'L' });
+    const u = sapi.signUp({ handle: 'legacy', password: 'legacy-password-1', displayName: 'L',
+                              healthConsent: '2026-09-20' });
     const tok = u.token;
     if (sapi.userForToken(tok)) console.log('    ✓ 정상 토큰은 통과한다');
     else { console.log('    ✗ 정상 토큰이 막힌다'); lockFail++; }
@@ -146,7 +151,8 @@ process.on('exit',()=>srv.kill());
     if (!sapi.userForToken(tok)) console.log('    ✓ expires_at 없는 토큰은 죽는다');
     else { console.log('    ✗ expires_at 없는 토큰이 살아 있다'); lockFail++; }
     // 다시 열면 마이그레이션이 채워 줍니다 (만든 날 + 90일)
-    const u2 = sapi.signUp({ handle: 'legacy2', password: 'legacy-password-1', displayName: 'L2' });
+    const u2 = sapi.signUp({ handle: 'legacy2', password: 'legacy-password-1', displayName: 'L2',
+                               healthConsent: '2026-09-20' });
     sdb.exec('UPDATE sessions SET expires_at = NULL');
     const sdb2 = open(f);
     const sapi2 = makeApi(sdb2);

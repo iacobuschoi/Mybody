@@ -630,7 +630,12 @@
   M.signIn = function (onDone) {
     var mode = 'in';          // 'in' = 로그인, 'up' = 가입, 'lost' = 비밀번호 잊음
     var body = h('div');
-    var handle, pw, pw2, pair, name, rcode, msg, busy = false;
+    var handle, pw, pw2, pair, name, rcode, msg, consentBtn, busy = false;
+    /* 체크 상태는 draw() 를 지나서도 살아야 합니다 — 탭을 옮겼다
+       돌아오면 초기화되는 게 맞고, 같은 탭 안에서 다시 그릴 때는
+       유지돼야 합니다. draw() 가 탭을 바꿀 때만 불리므로 여기서
+       기억하고 탭이 바뀔 때 끕니다. */
+    var consent = false;
 
     function draw() {
       body.textContent = '';
@@ -672,6 +677,40 @@
           placeholder: '서버 주인에게 받은 코드' })));
         body.appendChild(h('div.muted', { style: { marginTop: '6px' },
           text: '이 서버는 공개 가입 서비스가 아닙니다. 주인이 알려준 코드가 있어야 계정을 만들 수 있습니다.' }));
+
+        /* 건강정보 업로드 동의 — 계정 만들기와 따로 받습니다.
+         *
+         * 체성분은 민감정보입니다. 계정을 만드는 것과 "내 몸 숫자를
+         * 서버에 올리는 것" 은 다른 일인데, 로그인하면 친구가 하나도
+         * 없어도 주간 요약이 올라가므로 가입이 곧 업로드 동의가 됩니다.
+         * 그 동의를 다른 것과 섞어 받으면 안 읽히고, 안 읽힌 동의는
+         * 동의가 아닙니다.
+         *
+         * 네 가지를 한 상자에 적습니다 — 무엇을 · 왜 · 얼마나 오래 ·
+         * 거부하면 어떻게 되는지. 특히 마지막이 중요합니다: 거부해도
+         * 앱의 계산과 계획은 그대로 됩니다. 못 쓰는 것은 친구 기능뿐입니다. */
+        body.appendChild(h('div.note.note--warn', { style: { marginTop: '12px' } }, [
+          h('b', { text: '몸에 대한 숫자를 서버에 올리는 것에 동의가 필요합니다' }),
+          h('ul', { style: { paddingLeft: '18px', margin: '8px 0 0', fontSize: '13px' } }, [
+            h('li', { text: '무엇을 — 가장 최근 측정의 체중 · 골격근량 · 체지방량 · 체지방률과 그 변화량, ' +
+                            '목표 달성률, 이번 주 체크인 여부' }),
+            h('li', { text: '왜 — 친구에게 보여 줄 주간 요약을 만들기 위해서. ' +
+                            '친구 화면에 실제로 보이는 것은 친구마다 직접 켠 항목뿐입니다.' }),
+            h('li', { text: '얼마나 — 계정을 지울 때까지. 계정을 지우면 서버에서 같이 지워집니다.' }),
+            h('li', { text: '거부하면 — 계정을 못 만듭니다. 대신 로그인 없이 그냥 쓰시면 됩니다. ' +
+                            '측정 · 목표 · 계획 · 식단은 로그인과 상관없이 다 되고, 친구 기능만 못 씁니다.' })
+          ]),
+          h('div', { style: { marginTop: '10px' } }, [
+            consentBtn = h('button.chip', {
+              text: '☐ 동의합니다', uid: 'M29-B14', uidLabel: '건강정보 동의',
+              onClick: function () {
+                consent = !consent;
+                consentBtn.className = 'chip' + (consent ? ' is-on' : '');
+                consentBtn.textContent = (consent ? '☑' : '☐') + ' 동의합니다';
+              }
+            })
+          ])
+        ]));
       }
 
       body.appendChild(msg);
@@ -700,7 +739,7 @@
     function chip(label, key, uid) {
       return h('button.chip' + (key === mode ? '.is-on' : ''), {
         text: label, uid: uid, uidLabel: label,
-        onClick: function () { mode = key; draw(); } });
+        onClick: function () { mode = key; consent = false; draw(); } });
     }
     function fail(t) { msg.textContent = t; msg.style.display = ''; busy = false; }
 
@@ -725,12 +764,17 @@
               fail((mode === 'lost' ? '새 ' : '') + '비밀번호는 8자 이상이어야 합니다'); return true;
             }
             if (mode !== 'in' && p1 !== (pw2.value || '')) { fail('비밀번호가 서로 다릅니다'); return true; }
+            if (mode === 'up' && !consent) {
+              fail('몸에 대한 숫자를 올리는 것에 동의해야 계정을 만들 수 있습니다');
+              return true;
+            }
 
             busy = true; msg.textContent = '확인 중...'; msg.style.display = '';
             var work = mode === 'up'
               ? S.signUp({ handle: h1, password: p1,
                            displayName: (name.value || '').trim() || h1,
-                           pairSecret: (pair.value || '').trim() })
+                           pairSecret: (pair.value || '').trim(),
+                           healthConsent: consent })
               : (mode === 'lost'
                   ? S.recover({ handle: h1, code: rcode.value, password: p1 })
                   : S.signIn({ handle: h1, password: p1 }));

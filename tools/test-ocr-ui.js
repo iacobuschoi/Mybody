@@ -122,7 +122,8 @@ async function main() {
   /* --- 3. 로그인은 했는데 꺼 둔 상태 ------------------------------------- */
   console.log('\n[3] 로그인 후 — 아직 꺼져 있음');
   await page.evaluate(p => window.MB_SYNC.signUp({
-    handle: 'ocruser', password: 'ocr-password-1', displayName: '판독', pairSecret: p
+    handle: 'ocruser', password: 'ocr-password-1', displayName: '판독', pairSecret: p,
+    healthConsent: true
   }), PAIR);
   await page.waitForTimeout(500);
   await go('P02'); await go('P03');

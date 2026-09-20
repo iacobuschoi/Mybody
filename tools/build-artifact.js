@@ -44,10 +44,28 @@ function walk(dir, base) {
 }
 const assets = [
   ...walk(path.join(ROOT, 'prototype', 'css'), 'css'),
-  ...walk(path.join(ROOT, 'prototype', 'js'), 'js')
+  ...walk(path.join(ROOT, 'prototype', 'js'), 'js'),
+  /* 개인정보처리방침. 앱 안에서 링크로 걸려 있으므로 같이 올라가야
+     합니다 — 없으면 눌렀을 때 빈 탭이 뜹니다. */
+  'privacy.html'
 ];
 const files = {};
 assets.forEach(a => { files[a] = 'prototype/' + a; });
+
+/* 방침의 운영자 칸은 서버에 올릴 때 채워집니다(tools/build-release.js).
+   아티팩트는 서버가 없는 미리보기라 채울 이름도 연락처도 없습니다.
+   자리표시자를 그대로 두면 __OWNER_NAME__ 이 화면에 뜨는데, 그건
+   고장으로 보입니다. 미리보기라고 사실대로 적습니다. */
+{
+  const PREVIEW = '미리보기 — 실제 서버에 올릴 때 채워집니다';
+  const priv = fs.readFileSync(path.join(ROOT, 'prototype', 'privacy.html'), 'utf8')
+    .replace(/__OWNER_NAME__/g, PREVIEW)
+    .replace(/__OWNER_CONTACT__/g, PREVIEW);
+  if (/__OWNER_/.test(priv)) throw new Error('방침의 자리표시자를 못 바꿨습니다');
+  fs.mkdirSync(DIST, { recursive: true });
+  fs.writeFileSync(path.join(DIST, 'privacy.html'), priv);
+  files['privacy.html'] = 'dist/privacy.html';
+}
 fs.writeFileSync(path.join(DIST, 'files.json'), JSON.stringify(files, null, 1));
 
 const bytes = assets.reduce((n, a) => n + fs.statSync(path.join(ROOT, 'prototype', a)).size, 0)

@@ -26,7 +26,9 @@ const ok = (n, c, d) => {
 /** 가입에는 페어링 비밀이, 로그인에는 비밀번호가 필요합니다. */
 const PW = 'test-password-1';
 function withPair(p, body) {
-  if (p === '/auth/signup' && body) return Object.assign({ pairSecret: PAIR, password: PW }, body);
+  /* 가입에는 건강정보 별도 동의가 필요합니다 — 검사도 같은 문을 지납니다. */
+  if (p === '/auth/signup' && body) return Object.assign(
+    { pairSecret: PAIR, password: PW, healthConsent: '2026-09-20' }, body);
   if (p === '/auth/signin' && body) return Object.assign({ password: PW }, body);
   return body;
 }
@@ -54,6 +56,22 @@ async function main() {
   console.log('\n[1] 로그인 · 계정');
   const A = await call('POST', '/auth/signup', { handle: 'gayoung', displayName: '가영' });
   const Bo = await call('POST', '/auth/signup', { handle: 'narin', displayName: '나린' });
+
+  /* 건강정보 별도 동의(제23조) — 체성분을 올리는 것은 계정을 만드는 것과
+     다른 일이고, 동의도 따로 받아야 합니다. 서버가 그걸 강제하는지 봅니다:
+     화면이 실수로 빠뜨려도 여기서 막혀야 합니다. */
+  const noConsent = await fetch(B + '/auth/signup', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ handle: 'noconsent', password: PW, displayName: 'N', pairSecret: PAIR })
+  });
+  ok('건강정보 동의 없이는 가입 불가', noConsent.status === 400);
+  const wrongVer = await fetch(B + '/auth/signup', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ handle: 'oldver', password: PW, displayName: 'O',
+                           pairSecret: PAIR, healthConsent: '2020-01-01' })
+  });
+  ok('옛 문구로 한 동의는 안 통한다', wrongVer.status === 400);
+  ok('동의 시각이 남는다', !!(A.json.user && A.json.user.healthConsentAt), A.json.user);
   const ta = A.json.token, tb = Bo.json.token;
   ok('A 로그인', !!ta, A.json);
   ok('B 로그인', !!tb, Bo.json);

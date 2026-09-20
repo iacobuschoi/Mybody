@@ -76,14 +76,22 @@ async function main() {
     .then(() => null).catch(e => e.message));
   ok('가입 코드 없이는 불가', /가입 코드/.test(noPair || ''), noPair);
 
+  /* 동의 없이는 계정이 안 만들어집니다 — 화면이 실수로 통과시켜도 서버가 막습니다. */
+  const noConsent = await ev(A, () => window.MB_SYNC.signUp({
+    handle: 'gayoung', password: 'correct-horse-1', displayName: '가영',
+    pairSecret: 'e2e-pair-secret' }).then(() => null).catch(e => e.message));
+  ok('건강정보 동의 없이는 가입 불가', /동의/.test(noConsent || ''), noConsent);
+
   const rA = await ev(A, () => window.MB_SYNC.signUp({
     handle: 'gayoung', password: 'correct-horse-1', displayName: '가영',
-    pairSecret: 'e2e-pair-secret' }).then(r => r.user).catch(e => ({ err: e.message })));
+    pairSecret: 'e2e-pair-secret', healthConsent: true })
+    .then(r => r.user).catch(e => ({ err: e.message })));
   ok('가영 가입', !!rA.inviteCode, rA);
 
   const rB = await ev(B, () => window.MB_SYNC.signUp({
     handle: 'narin', password: 'correct-horse-2', displayName: '나린',
-    pairSecret: 'e2e-pair-secret' }).then(r => r.user).catch(e => ({ err: e.message })));
+    pairSecret: 'e2e-pair-secret', healthConsent: true })
+    .then(r => r.user).catch(e => ({ err: e.message })));
   ok('나린 가입', !!rB.inviteCode, rB);
   ok('초대 코드가 서로 다름', rA.inviteCode !== rB.inviteCode);
 
@@ -170,6 +178,19 @@ async function main() {
     await fill(C, 'M29-F03', 'dasom-password-1');
     await fill(C, 'M29-F04', '다솜');
     await fill(C, 'M29-F05', PAIR);
+
+    /* 건강정보 별도 동의를 안 하면 가입이 안 됩니다 — 체크박스가 실제로
+       문을 막는지, 그냥 장식인지를 봅니다. */
+    await click(C, 'M29-B02');                       // 동의 없이 계속
+    await C.page.waitForTimeout(500);
+    ok('동의 전에는 가입이 안 된다', !(await seen(C, 'M49')));
+    ok('무엇이 모자란지 말해 준다',
+       /동의/.test(await ev(C, () => {
+         const e = document.querySelector('[data-uid="M29"] .field__err');
+         return e ? e.textContent : '';
+       })));
+
+    await click(C, 'M29-B14');                       // 동의합니다
     await click(C, 'M29-B02');                       // 계속
     await C.page.waitForSelector('[data-uid="M49"]', { timeout: 8000 }).catch(() => {});
     ok('가입하면 복구 코드가 눈앞에 뜬다', await seen(C, 'M49'));

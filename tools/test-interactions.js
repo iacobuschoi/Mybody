@@ -150,7 +150,8 @@ const STATES = {
 
       // 상대편 계정은 브라우저를 안 거치고 HTTP 로 만듭니다
       let buddy = await post('/auth/signup',
-        { handle: 'buddy', password: PW, displayName: '친구', pairSecret: PAIR });
+        { handle: 'buddy', password: PW, displayName: '친구', pairSecret: PAIR,
+          healthConsent: '2026-09-20' });
       if (!buddy.token) buddy = await post('/auth/signin', { handle: 'buddy', password: PW });
       const buddyTok = buddy.token;
       const buddyMe = await fetch(api + '/api/me', { headers: { authorization: 'Bearer ' + buddyTok } })
@@ -161,7 +162,8 @@ const STATES = {
       await page.evaluate(b => window.MB_SYNC.configure(b), api);
       const me = await page.evaluate(async ([pw, pair]) => {
         const r = await window.MB_SYNC.signUp({
-          handle: 'sweeper', password: pw, displayName: '검증', pairSecret: pair
+          handle: 'sweeper', password: pw, displayName: '검증', pairSecret: pair,
+          healthConsent: true
         }).catch(() => window.MB_SYNC.signIn({ handle: 'sweeper', password: pw }));
         return r && r.user ? r.user.id : null;
       }, [PW, PAIR]);
@@ -463,7 +465,8 @@ async function bootApi() {
         try {
           await window.MB_SYNC.signUp({
             handle: 'destroyer', password: 'destroy-password-1',
-            displayName: '삭제검증', pairSecret: 'sweep-pair-secret'
+            displayName: '삭제검증', pairSecret: 'sweep-pair-secret',
+            healthConsent: true
           }).catch(() => window.MB_SYNC.signIn({ handle: 'destroyer', password: 'destroy-password-1' }));
           return window.MB_SYNC.status().signedIn;
         } catch (e) { return false; }

@@ -100,9 +100,17 @@
 
   /* --- 계정 ------------------------------------------------------------- */
 
+  /* 건강정보 업로드 동의 문구의 판. server/db.js 의 같은 이름과
+     값이 맞아야 합니다 — 서버가 이 값을 보고 동의를 판정합니다. */
+  var HEALTH_CONSENT_VERSION = '2026-09-20';
+
   function signUp(o) {
     return api('/auth/signup', { method: 'POST', body: {
-      handle: o.handle, password: o.password, displayName: o.displayName, pairSecret: o.pairSecret
+      handle: o.handle, password: o.password, displayName: o.displayName,
+      pairSecret: o.pairSecret,
+      /* 체크를 안 했으면 아예 안 보냅니다. 화면이 실수로 통과시켜도
+         서버가 거절하고, 서버가 느슨해져도 화면이 안 보냅니다. */
+      healthConsent: o.healthConsent ? HEALTH_CONSENT_VERSION : null
     } }).then(function (r) {
       cfg.token = r.token; cfg.handle = r.user.handle; saveCfg(cfg);
       emit();
@@ -410,6 +418,7 @@
     status: status, onChange: onChange, configure: configure,
     signUp: signUp, signIn: signIn, signOut: signOut, changePassword: changePassword,
     recover: recover, newRecoveryCode: newRecoveryCode,
+    HEALTH_CONSENT_VERSION: HEALTH_CONSENT_VERSION,
     signOutAll: function () { return api('/auth/signout-all', { method: 'POST' }); },
     deleteAccount: function () { return api('/me', { method: 'DELETE' }); },
     enqueue: enqueue, flush: flush, pull: pull, boot: boot,

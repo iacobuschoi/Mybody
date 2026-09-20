@@ -91,7 +91,8 @@ async function main() {
   srv = boot({});
   await waitUp(PORT);
   const u = await call('POST', '/auth/signup',
-    { handle: 'owner', displayName: '주인', password: PW, pairSecret: PAIR });
+    { handle: 'owner', displayName: '주인', password: PW, pairSecret: PAIR,
+      healthConsent: '2026-09-20' });
   const tok = u.json.token;
   ok('가입됨', !!tok, u.json);
 
@@ -216,7 +217,8 @@ async function main() {
   const seen = [];
   for (let i = 0; i < 4; i++) {
     const u3 = await call('POST', '/auth/signup',
-      { handle: 'many' + i, password: PW, displayName: 'm' + i, pairSecret: PAIR });
+      { handle: 'many' + i, password: PW, displayName: 'm' + i, pairSecret: PAIR,
+        healthConsent: '2026-09-20' });
     const tk = u3.json.token || (await call('POST', '/auth/signin',
       { handle: 'many' + i, password: PW })).json.token;
     seen.push((await call('POST', '/ocr', shot(), tk)).status);

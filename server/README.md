@@ -65,6 +65,13 @@ PORT=3000 DB=~/mybody.db ORIGIN=https://mybody.example.com node server/server.js
   보관해야 하는 개인정보가 하나 늘어나는데, 이 서버는 메일을 보내지 않으므로
   이메일이 할 일이 없습니다.
 - **비밀번호** 는 scrypt 해시로만 저장됩니다. 원문은 어디에도 남지 않습니다.
+- **건강정보 별도 동의** 가 있어야 계정이 만들어집니다. 로그인하면 친구가
+  하나도 없어도 주간 요약(체중·골격근량·체지방량·체지방률)이 서버에
+  저장되므로, 가입이 곧 업로드 동의가 됩니다. 그래서 계정 동의와 섞지 않고
+  따로 받습니다 — `signUp` 은 `healthConsent` 가 현재 문구 판(`HEALTH_CONSENT_VERSION`)과
+  같을 때만 통과합니다. 동의 시각과 판은 `users.consent_health_at` ·
+  `consent_version` 에 남고, 본인은 `/api/me` 에서 볼 수 있습니다.
+  문구를 고치면 판을 올리세요 — 옛 판으로 동의한 사람에게 다시 물어야 합니다.
 - 로그인 실패는 아이디별로 15분에 8번까지입니다. 무차별 대입을 막습니다.
 - 세션은 90일 뒤 만료됩니다. 비밀번호를 바꾸면 다른 기기가 전부 로그아웃됩니다 —
   토큰이 샜을 때의 복구 수단입니다.
@@ -152,7 +159,7 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | `GET` | `/api/health` | 살아 있는지 (로그인 불필요) |
-| `POST` | `/api/auth/signup` | `{handle, password, displayName, pairSecret}` → `{token, user, recoveryCode}` (로그인 불필요) |
+| `POST` | `/api/auth/signup` | `{handle, password, displayName, pairSecret, healthConsent}` → `{token, user, recoveryCode}` (로그인 불필요) |
 | `POST` | `/api/auth/signin` | `{handle, password}` → `{token, user}` (로그인 불필요) |
 | `POST` | `/api/auth/signout` | 이 토큰만 폐기 |
 | `POST` | `/api/auth/signout-all` | 모든 기기 로그아웃 |

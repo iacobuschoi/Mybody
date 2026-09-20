@@ -28,7 +28,10 @@ function open(file) {
       -- 비밀번호는 scrypt 해시로만 저장합니다. 원문은 어디에도 남지 않습니다.
       pw_hash TEXT,
       pw_salt TEXT,
-      pw_n INTEGER
+      pw_n INTEGER,
+      -- 건강정보(체성분) 업로드에 대한 별도 동의 — 언제, 어느 문구에
+      consent_health_at TEXT,
+      consent_version TEXT
     );
     CREATE TABLE IF NOT EXISTS sessions (
       token TEXT PRIMARY KEY,
@@ -82,7 +85,12 @@ function open(file) {
                       'ALTER TABLE users ADD COLUMN rc_hash TEXT',
                       'ALTER TABLE users ADD COLUMN rc_salt TEXT',
                       'ALTER TABLE users ADD COLUMN rc_n INTEGER',
-                      'ALTER TABLE users ADD COLUMN rc_used_at TEXT']) {
+                      'ALTER TABLE users ADD COLUMN rc_used_at TEXT',
+                      /* 건강정보 업로드에 대한 별도 동의. 언제 · 어느 문구에
+                         동의했는지를 남깁니다. 문구가 바뀌면 version 이
+                         올라가고, 옛 버전으로 동의한 사람에게 다시 묻습니다. */
+                      'ALTER TABLE users ADD COLUMN consent_health_at TEXT',
+                      'ALTER TABLE users ADD COLUMN consent_version TEXT']) {
     try { db.exec(stmt); } catch { /* 이미 있음 */ }
   }
 
@@ -191,6 +199,11 @@ function verifyCode(plain, user) {
   return crypto.timingSafeEqual(a, b);
 }
 
+/* 건강정보 업로드 동의 문구의 판. 문구가 바뀌면 올립니다 —
+   옛 판으로 동의한 사람에게는 다시 물어야 하기 때문입니다.
+   화면(modals.js M29)에 적힌 문구와 이 값이 같아야 합니다. */
+const HEALTH_CONSENT_VERSION = '2026-09-20';
+
 const SESSION_DAYS = 90;
 
 /* 바깥에서 온 값을 문자열로.
@@ -242,6 +255,7 @@ function makeApi(db) {
     deleteSessionsOf: db.prepare('DELETE FROM sessions WHERE user_id = ?'),
     setPassword: db.prepare('UPDATE users SET pw_hash=?, pw_salt=?, pw_n=? WHERE id=?'),
     setRecovery: db.prepare('UPDATE users SET rc_hash=?, rc_salt=?, rc_n=?, rc_used_at=? WHERE id=?'),
+    setConsent: db.prepare('UPDATE users SET consent_health_at=?, consent_version=? WHERE id=?'),
     sessionByToken: db.prepare('SELECT * FROM sessions WHERE token = ?'),
     touchSession: db.prepare('UPDATE sessions SET last_seen = ? WHERE token = ?'),
     deleteSession: db.prepare('DELETE FROM sessions WHERE token = ?'),
@@ -280,7 +294,11 @@ function makeApi(db) {
 
   function pub(u) {
     return u && { id: u.id, displayName: u.display_name, provider: u.provider,
-                  inviteCode: u.invite_code, createdAt: u.created_at };
+                  inviteCode: u.invite_code, createdAt: u.created_at,
+                  /* 본인이 언제 · 어느 문구에 동의했는지는 본인이 볼 수
+                     있어야 합니다 (제35조 열람). */
+                  healthConsentAt: u.consent_health_at || null,
+                  healthConsentVersion: u.consent_version || null };
   }
 
   return {
@@ -295,19 +313,28 @@ function makeApi(db) {
      * 보관해야 하는 개인정보가 하나 늘어나는데, 이 서버는 비밀번호 재발송을
      * 하지 않으므로 이메일이 할 일이 없습니다.
      * ----------------------------------------------------------------- */
-    signUp({ handle, password, displayName }) {
+    signUp({ handle, password, displayName, healthConsent }) {
       const h = str(handle).trim().toLowerCase();
       if (!/^[a-z0-9_.-]{3,32}$/.test(h)) {
         return { ok: false, reason: '아이디는 영문·숫자·(_ . -) 3~32자입니다' };
       }
       const pwBad = passwordProblem(password);
       if (pwBad) return { ok: false, reason: pwBad };
+      /* 체성분은 민감정보입니다. 계정을 만드는 것과 "내 몸 숫자를 서버에
+         올리는 것" 은 다른 일이고, 동의도 따로 받아야 합니다. 로그인하면
+         친구가 하나도 없어도 주간 요약이 올라가므로, 가입이 곧 업로드
+         동의가 됩니다 — 그래서 여기서 막습니다.
+         화면이 안 물어보고 보냈으면 그건 화면의 버그입니다. */
+      if (str(healthConsent) !== HEALTH_CONSENT_VERSION) {
+        return { ok: false, reason: '건강정보 업로드에 동의해야 계정을 만들 수 있습니다' };
+      }
       if (q.userByHandle.get(h)) return { ok: false, reason: '이미 있는 아이디입니다' };
 
       const pw = hashPassword(password);
       const uid = id('user');
       q.insertUser.run(uid, h, 'local', (displayName || h).slice(0, 20), inviteCode(), nowISO());
       q.setPassword.run(pw.hash, pw.salt, pw.n, uid);
+      q.setConsent.run(nowISO(), HEALTH_CONSENT_VERSION, uid);
       /* 복구 코드는 지금 한 번만 원문으로 나갑니다. 서버에는 해시만
          남으므로, 사용자가 이걸 놓치면 우리도 되찾아 줄 수 없습니다.
          화면이 그 사실을 분명히 말해야 합니다. */
@@ -678,4 +705,4 @@ function makeApi(db) {
 
 function safeParse(s) { try { return JSON.parse(s); } catch { return {}; } }
 
-module.exports = { open, makeApi, SHARE_FIELDS, blankShare, nowISO, str };
+module.exports = { open, makeApi, SHARE_FIELDS, blankShare, nowISO, str, HEALTH_CONSENT_VERSION };
