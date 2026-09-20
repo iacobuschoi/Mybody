@@ -240,12 +240,13 @@ const ok=(n,c,d)=>{if(c){pass++;console.log('  ✓',n);}else{fail++;console.log(
     const btn=document.querySelector('[data-uid="P03-B13"]');
     if(!btn) return {err:'서버 판독 버튼이 없습니다'};
     btn.click();
-    await new Promise(r=>setTimeout(r,900));
-    document.querySelector('[data-uid="P03-B12"]').click();
-    await new Promise(r=>setTimeout(r,600));
+    /* 세 칸을 다 읽으면 앱이 스스로 검수 화면으로 넘어갑니다 —
+       예전엔 여기서 "검수 화면으로" 를 한 번 더 눌러야 했습니다. */
+    await new Promise(r=>setTimeout(r,1200));
     const st=window.MB_STORE.get();
-    return { draftAt: st.draft && st.draft.measuredAt };
+    return { screen: window.MB_APP.current, draftAt: st.draft && st.draft.measuredAt };
   });
+  ok('다 읽으면 검수 화면으로 저절로 넘어간다', o1.screen==='P04', o1);
   ok('결과지의 시각 07:36 이 남는다', o1.draftAt && /T07:36/.test(o1.draftAt), o1);
 
   console.log('\n[12] 취소하면 업로드를 실제로 멈춘다');

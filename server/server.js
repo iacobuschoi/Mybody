@@ -139,6 +139,19 @@ async function runOcr(body) {
 const loginFails = new Map();
 const LOGIN = { max: 8, windowMs: 15 * 60_000 };
 
+/* 복구 코드는 로그인과 따로 셉니다.
+ *
+ * 예전엔 둘이 같은 칸을 썼습니다 — 키가 아이디 하나뿐이었습니다.
+ * 그러면 비밀번호를 여덟 번 잘못 친 사람은 복구 코드를 한 번도 못
+ * 넣어 보고 막힙니다. 비밀번호가 기억이 안 나서 복구하러 온 사람이
+ * 정확히 그 상태입니다 — 유일한 출구가 들어오는 길에 잠겨 있습니다.
+ * 반대로 공격자에게는 두 문을 한 칸으로 묶어 준 셈이라 이득도 없습니다.
+ *
+ * 숫자: 코드는 79비트이고 16자를 사람이 옮겨 적습니다. 오타가 잦으니
+ * 시도를 너무 조이면 진짜 주인이 막힙니다. 시간당 5번이면 옮겨 적기에
+ * 넉넉하고, 찍어 맞히려면 우주의 나이보다 오래 걸립니다. */
+const RECOVER = { max: 5, windowMs: 60 * 60_000 };
+
 /* 로그인만 따로, 더 빡빡하게 셉니다.
  *
  * 비밀번호 확인은 scrypt 입니다 — 건당 약 46ms 를 씁니다. 느린 것이
@@ -169,17 +182,23 @@ function authLimited(ip) {
   return rec.n > AUTH_MAX;
 }
 
-function loginBlocked(handle) {
-  const rec = loginFails.get(handle);
+/* 키에 용도를 붙입니다 — 'pw|아이디' 와 'rc|아이디' 는 서로 다른 칸입니다. */
+function failKey(handle, kind) { return (kind || 'pw') + '|' + handle; }
+function rules(kind) { return kind === 'rc' ? RECOVER : LOGIN; }
+
+function loginBlocked(handle, kind) {
+  const R = rules(kind), key = failKey(handle, kind);
+  const rec = loginFails.get(key);
   if (!rec) return 0;
-  if (Date.now() - rec.t > LOGIN.windowMs) { loginFails.delete(handle); return 0; }
-  return rec.n >= LOGIN.max ? Math.ceil((LOGIN.windowMs - (Date.now() - rec.t)) / 60000) : 0;
+  if (Date.now() - rec.t > R.windowMs) { loginFails.delete(key); return 0; }
+  return rec.n >= R.max ? Math.ceil((R.windowMs - (Date.now() - rec.t)) / 60000) : 0;
 }
-function noteLoginFail(handle) {
-  const rec = loginFails.get(handle) || { t: Date.now(), n: 0 };
-  if (Date.now() - rec.t > LOGIN.windowMs) { rec.t = Date.now(); rec.n = 0; }
+function noteLoginFail(handle, kind) {
+  const R = rules(kind), key = failKey(handle, kind);
+  const rec = loginFails.get(key) || { t: Date.now(), n: 0 };
+  if (Date.now() - rec.t > R.windowMs) { rec.t = Date.now(); rec.n = 0; }
   rec.n++;
-  loginFails.set(handle, rec);
+  loginFails.set(key, rec);
   /* 맵이 넘칠 때 무엇을 버리는가 — 여기가 공격 지점입니다.
    *
    * 처음엔 loginFails.clear() 였습니다. 아무 아이디로 5000번을 흘리면
@@ -198,18 +217,22 @@ function noteLoginFail(handle) {
    */
   if (loginFails.size > LOGIN_MAP_MAX) {
     const now = Date.now();
+    /* 기록마다 규칙이 다릅니다 — 키 앞머리가 그 기록이 로그인 것인지
+       복구 것인지 말해 줍니다. 여기서 LOGIN 만 보면 복구 기록(창이 더
+       긴 쪽)을 아직 살아 있는데도 만료로 오해하고 버립니다. */
+    const ruleOf = k => rules(k.slice(0, 2));
     for (const [k, v] of loginFails) {
-      if (now - v.t > LOGIN.windowMs) loginFails.delete(k);
+      if (now - v.t > ruleOf(k).windowMs) loginFails.delete(k);
     }
     for (const [k, v] of loginFails) {
       if (loginFails.size <= LOGIN_MAP_MAX) break;
-      if (k !== handle && v.n < LOGIN.max) loginFails.delete(k);
+      if (k !== key && v.n < ruleOf(k).max) loginFails.delete(k);
     }
     // 전부 잠긴 기록뿐이면 지금 것을 도로 뺍니다 — 남의 잠금을 밀어내지 않습니다.
-    if (loginFails.size > LOGIN_MAP_MAX && rec.n < LOGIN.max) loginFails.delete(handle);
+    if (loginFails.size > LOGIN_MAP_MAX && rec.n < rules(kind).max) loginFails.delete(key);
   }
 }
-function clearLoginFails(handle) { loginFails.delete(handle); }
+function clearLoginFails(handle, kind) { loginFails.delete(failKey(handle, kind)); }
 
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
                '.css': 'text/css; charset=utf-8', '.json': 'application/json; charset=utf-8',
@@ -340,14 +363,19 @@ async function handleApi(req, res, url) {
     const b = await readBody(req);
     const h = str(b.handle).trim().toLowerCase();
     if (!h) return send(res, 400, { ok: false, reason: '아이디가 필요합니다' });
-    const wait = loginBlocked(h);
+    const wait = loginBlocked(h, 'rc');
     if (wait) {
       return send(res, 429, { ok: false,
-        reason: '시도가 너무 많습니다. ' + wait + '분 뒤에 다시 해 주세요' });
+        reason: '복구 코드 시도가 너무 많습니다. ' + wait + '분 뒤에 다시 해 주세요' });
     }
     const r = api.recoverPassword(b);
-    if (!r.ok) { noteLoginFail(h); return send(res, 400, r); }
-    clearLoginFails(h);
+    if (!r.ok) { noteLoginFail(h, 'rc'); return send(res, 400, r); }
+    /* 되찾았으면 로그인 쪽 잠금도 풉니다 — 비밀번호를 잊어서 여덟 번
+       틀리고 온 사람이 바로 그 상황입니다. 방금 코드로 본인임을
+       증명했는데 옛 실패 기록 때문에 새 비밀번호로 못 들어가면
+       되찾은 의미가 없습니다. */
+    clearLoginFails(h, 'rc');
+    clearLoginFails(h, 'pw');
     return send(res, 200, r);
   }
 

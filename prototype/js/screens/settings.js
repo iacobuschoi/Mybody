@@ -232,21 +232,45 @@
               text: '가져오기 (JSON)', uid: 'P12-B04', uidLabel: '데이터 가져오기',
               onClick: openImport
             }),
-            h('button.btn.btn--block', {
-              text: '내 실제 인바디로 채우기', uid: 'P12-B05', uidLabel: '실제 인바디 시드 주입',
+            /* 시드 주입은 개발 빌드 전용입니다.
+             *
+             * 이 버튼은 "내 실제 인바디로 채우기" 라고 적혀 있습니다. 앱을
+             * 만드는 사람에게는 맞는 말이지만, 앱을 받은 사람에게는
+             * "내가 방금 넣은 내 인바디로 채워 준다" 로 읽힙니다. 실제로
+             * 하는 일은 그 반대입니다 — 지금 저장된 것을 전부 지우고 이
+             * 앱을 만든 사람의 몸 숫자를 넣습니다. 확인 창도 없었습니다.
+             *
+             * 한 번 누르면 그 사람의 측정·프로필·목표·계획·식단이 사라지고,
+             * 돌이킬 방법은 안 해 뒀을 내보내기 파일뿐입니다. 동시에 남의
+             * 체중 히스토리가 그 사람 폰에 들어앉습니다. 배포본에 있을
+             * 이유가 없습니다.
+             *
+             * 개발 빌드에도 확인을 답니다. 데이터를 지우는 버튼은 옆의
+             * 전체 초기화와 같은 규칙을 따라야 합니다. */
+            global.MB_BUILD.tools ? h('button.btn.btn--block', {
+              text: '내 실제 인바디로 채우기 (개발용)',
+              uid: 'P12-B05', uidLabel: '실제 인바디 시드 주입',
               onClick: function () {
-                S.seed();
-                global.MB_UID.toast('실제 인바디 3건을 불러왔습니다');
-                A.go('P02');
+                global.MB_MODALS.confirmClear({
+                  title: '지금 저장된 것을 전부 덮어쓸까요?',
+                  warn: '측정 · 프로필 · 목표 · 계획 · 식단이 모두 지워지고, ' +
+                        '이 앱을 만들 때 쓴 인바디 3건이 대신 들어갑니다. 되돌릴 수 없습니다.',
+                  confirmLabel: '덮어쓰기',
+                  onConfirm: function () {
+                    S.seed();
+                    global.MB_UID.toast('실제 인바디 3건을 불러왔습니다');
+                    A.go('P02');
+                  }
+                });
               }
-            }),
+            }) : null,
             h('button.btn.btn--danger.btn--block', {
               text: '전체 초기화', uid: 'P12-B06', uidLabel: '전체 초기화',
               onClick: function () { global.MB_MODALS.resetAll(); }
             })
           ]),
           h('div.note', { style: { marginTop: '10px' },
-            text: '"내 실제 인바디로 채우기"와 "전체 초기화"는 지금 저장된 내용을 덮어씁니다.' })
+            text: '"전체 초기화" 는 지금 저장된 내용을 지웁니다. 먼저 내보내기로 챙겨 두세요.' })
         ]));
 
         /* ===== C05 프로토타입 도구 ======================================

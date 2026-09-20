@@ -328,6 +328,28 @@ process.on('exit',()=>srv.kill());
     if (noAuth.status === 401) console.log('    ✓ 로그인 안 하면 못 부른다');
     else { console.log('    ✗ 로그인 없이 통했다 ' + noAuth.status); lockFail++; }
 
+    /* 로그인 잠금과 복구 잠금이 섞이면 안 됩니다.
+     *
+     * 예전엔 칸이 하나였습니다. 비밀번호를 여덟 번 틀린 사람은 복구
+     * 코드를 한 번도 못 넣어 보고 막혔습니다 — 비밀번호가 기억 안 나서
+     * 복구하러 온 사람이 정확히 그 상태인데, 유일한 출구가 들어오는
+     * 길에 잠겨 있었습니다. */
+    await post('/auth/signup', { handle: 'locked', password: 'locked-password-1',
+                                 displayName: 'L', pairSecret: 'x' });
+    const lockedCode = (await json(await post('/auth/signup',
+      { handle: 'locked2', password: 'locked-password-1', displayName: 'L2', pairSecret: 'x' }))).recoveryCode;
+    for (let i = 0; i < 9; i++) await post('/auth/signin', { handle: 'locked2', password: 'no-' + i });
+    const stillLocked = await post('/auth/signin', { handle: 'locked2', password: 'locked-password-1' });
+    if (stillLocked.status === 429) console.log('    ✓ 비밀번호를 틀리면 로그인은 잠긴다');
+    else { console.log('    ✗ 로그인이 안 잠긴다 ' + stillLocked.status); lockFail++; }
+    const rescue = await post('/auth/recover',
+      { handle: 'locked2', code: lockedCode, password: 'rescued-password-1' });
+    if (rescue.status === 200) console.log('    ✓ 로그인이 잠겨도 복구는 된다');
+    else { console.log('    ✗ 복구까지 같이 잠겼다 ' + rescue.status); lockFail++; }
+    const afterRescue = await post('/auth/signin', { handle: 'locked2', password: 'rescued-password-1' });
+    if (afterRescue.status === 200) console.log('    ✓ 되찾으면 로그인 잠금도 풀린다');
+    else { console.log('    ✗ 되찾았는데도 로그인이 막혀 있다 ' + afterRescue.status); lockFail++; }
+
     // 이상한 타입으로 500 이 나는가
     let recFive = 0;
     for (const w of [{}, [], 123, true, null, { toString: 1 }, 'x'.repeat(5000)]) {

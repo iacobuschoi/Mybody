@@ -212,6 +212,9 @@
     flush();
   }
 
+  /** 다시 보내면 될 수도 있는 거절 — 큐에서 버리면 안 됩니다 */
+  function RETRYABLE(st) { return st === 429 || st === 408; }
+
   function flush() {
     if (flushing || !cfg.token || !cfg.queue.length) return Promise.resolve();
     flushing = true;
@@ -222,8 +225,19 @@
       var job = cfg.queue[0];
       return OPS[job.op](job.args).then(function () {
         cfg.queue.shift(); saveCfg(cfg);
+        retryMs = 2000;          // 한 번이라도 통했으면 간격을 되돌립니다
         return step();
       }).catch(function (e) {
+        /* 4xx 는 "다시 보내도 같은 답" 이라 버렸습니다. 두 개는 아닙니다.
+         *
+         *   429  지금은 너무 잦다 — 조금 뒤엔 된다
+         *   408  시간이 초과됐다 — 다시 보내면 된다
+         *
+         * 이 둘을 같이 버리는 바람에, 한도에 걸린 상태에서 공유를 끄면
+         * 앱은 껐다고 하고 서버는 계속 보냈습니다. 프라이버시 스위치가
+         * 조용히 안 먹는 것은 이 앱에서 제일 나쁜 종류의 고장입니다 —
+         * 껐다고 믿는 사람은 다시 확인하지 않습니다. */
+        if (RETRYABLE(e.status)) throw e;      // 큐에 남겨 두고 나중에 다시
         if (e.status && e.status >= 400 && e.status < 500) {
           // 서버가 거절했습니다. 다시 보내도 같은 답이 옵니다.
           cfg.queue.shift(); saveCfg(cfg);
@@ -242,8 +256,29 @@
       lastError = e.message;
     }).then(function () {
       flushing = false; emit();
+      /* 큐가 안 비었으면 스스로 다시 시도합니다.
+         예전엔 다시 보낼 계기가 "저장을 또 한다" 와 "온라인이 됐다"
+         뿐이었습니다. 공유를 끄고 앱을 닫으면 그 두 가지가 안 일어나고,
+         끄기가 서버에 영영 안 닿았습니다. */
+      scheduleRetry();
       return pull();
     });
+  }
+
+  /* 2초 → 4초 → … → 5분, 성공하면 초기화. 화면은 status().pending 으로
+     못 올린 개수를 이미 보여 주고 있으므로, 여기서는 조용히 재시도만 합니다. */
+  var retryTimer = null, retryMs = 2000;
+  var RETRY_MAX = 5 * 60 * 1000;
+  function scheduleRetry() {
+    if (retryTimer) return;
+    if (!cfg.token || !cfg.queue.length) { retryMs = 2000; return; }
+    try {
+      retryTimer = global.setTimeout(function () {
+        retryTimer = null;
+        retryMs = Math.min(retryMs * 2, RETRY_MAX);
+        flush();
+      }, retryMs);
+    } catch (e) { retryTimer = null; }
   }
 
   /* --- 읽기 ------------------------------------------------------------

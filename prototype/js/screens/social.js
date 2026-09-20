@@ -115,7 +115,16 @@
         if (st.pending) {
           return h('div.note.note--warn', { style: { marginTop: '10px' },
             text: '아직 못 올린 변경이 ' + st.pending + '건 있습니다' +
-                  (st.online ? ' — 곧 올라갑니다.' : ' — 인터넷이 연결되면 올라갑니다.') });
+                  (st.online ? ' — 곧 다시 보냅니다.' : ' — 인터넷이 연결되면 올라갑니다.') +
+                  ' 공유를 끈 것도 여기에 들어 있으면, 서버에는 아직 안 닿았습니다.' });
+        }
+        /* 서버가 거절해서 버린 작업이 있었으면 말해 줍니다.
+           예전엔 sync.js 안의 lastError 를 아무도 안 읽었습니다 —
+           작업이 사라졌다는 사실 자체가 화면 어디에도 안 나왔습니다. */
+        if (st.lastError) {
+          return h('div.note.note--bad', { style: { marginTop: '10px' },
+            text: '마지막 동기화에서 문제가 있었습니다 — ' + st.lastError +
+                  '. 공유 설정을 바꿨다면 한 번 더 확인해 주세요.' });
         }
         return h('div.note.note--ok', { style: { marginTop: '10px' },
           text: '측정 기록이 ' + st.baseUrl + ' 로 올라가 있습니다. 사진은 올라가지 않습니다 — ' +
@@ -240,7 +249,8 @@
         wrap.appendChild(h('div.card.card--accent', { uid: 'P15-C21#' + n, uidLabel: '새 친구 안내 ' + n }, [
           h('div.card__title', { text: r.displayName + '님과 친구가 되었습니다' }),
           h('div.muted', { style: { marginTop: '6px' },
-            text: '지금 ' + r.displayName + '님에게 나가는 것은 체크인 기록 하나입니다 — 이번 주에 기록을 했는지 여부. 몸에 대한 숫자는 아무것도 나가지 않습니다.' }),
+            text: '지금 ' + r.displayName + '님 화면에 보이는 것은 체크인 기록 하나입니다 — ' +
+                  '이번 주에 기록을 했는지 여부. 몸에 대한 숫자는 켜기 전까지 안 보입니다.' }),
           // 세 버튼은 같은 크기·같은 무게입니다. 아무것도 안 켜는 것이
           // 손해가 아니라는 걸 버튼 생김새로 말합니다.
           h('div.btn-row.btn-row--stack', { style: { marginTop: '12px' } }, [
@@ -453,8 +463,23 @@
         // 탭을 숨기거나 다른 화면으로 튕기지 않습니다. 왜 비었는지 여기서 설명합니다.
         w.appendChild(h('div.card', { uid: 'P15-S02', uidLabel: '로그인 안내' }, [
           h('div.card__title', { text: '🔑 친구 기능은 계정이 있어야 합니다' }),
+          /* 여기는 동의를 받는 자리입니다. 원래 "로그인해도 몸에 대한
+             숫자는 자동으로 나가지 않습니다" 라고 적혀 있었는데 거짓이었습니다 —
+             로그인하면 친구가 하나도 없어도 가장 최근 측정의 절대값이
+             서버에 저장됩니다. 친구별 스위치가 정하는 것은 "친구 화면에
+             무엇이 보이는가" 이지 "서버에 무엇이 올라가는가" 가 아닙니다.
+             설정 화면(P12-C04)은 이미 사실대로 적고 있었고, 하필 동의를
+             받는 이 화면만 반대로 말하고 있었습니다. */
           h('div.muted', { style: { marginTop: '6px' },
-            text: '로그인해도 몸에 대한 숫자는 자동으로 나가지 않습니다. 친구를 맺으면 이번 주에 기록을 했는지 여부만 기본으로 나가고, 나머지는 친구마다 직접 켜야 합니다.' }),
+            text: '로그인하면 가장 최근 측정의 체중 · 골격근량 · 체지방량 · 체지방률이 ' +
+                  '서버에 저장됩니다. 친구에게 보이는 것은 친구마다 직접 켠 항목뿐이고, ' +
+                  '기본으로 보이는 것은 이번 주에 기록을 했는지 여부 하나입니다.' }),
+          h('div', { style: { marginTop: '6px' } }, [
+            h('a', { text: '무엇이 어디로 가는지 자세히 (개인정보처리방침)',
+                     href: './privacy.html', target: '_blank', rel: 'noopener',
+                     uid: 'P15-B22', uidLabel: '개인정보처리방침',
+                     style: { fontSize: '13px', fontWeight: '700' } })
+          ]),
           h('div.btn-row.btn-row--stack', { style: { marginTop: '14px' } }, [
             h('button.btn.btn--primary.btn--block', { text: '로그인 / 가입',
               uid: 'P15-B20', uidLabel: '로그인',

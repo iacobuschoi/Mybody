@@ -143,12 +143,22 @@
           h('div.empty', { style: { padding: '22px 8px' } }, [
             h('div.empty__ico', { text: '🖼️' }),
             h('div.empty__t', { text: '결과지 사진을 넣으세요' }),
-            h('div.empty__d', { text: '사진을 띄워 놓고 숫자 세 개만 옮겨 적으면 끝입니다. 15초쯤 걸립니다.' }),
+            h('div.empty__d', { text: ocrOn()
+              ? '올리면 자동으로 읽어 드립니다. 읽은 숫자는 검수 화면에서 한 번 보시면 됩니다.'
+              : '사진을 띄워 놓고 숫자 세 개만 옮겨 적으면 끝입니다. 15초쯤 걸립니다.' }),
             fileInput
           ])
         ]);
         body.appendChild(zone);
         body.appendChild(camInput);
+
+        /* 사진을 올리기 전에도 자동 판독이 있는지 없는지를 말합니다.
+         *
+         * 예전엔 이 카드가 사진을 붙인 뒤에만 나왔습니다. 그래서 첫 화면만
+         * 본 사람에게 이 앱은 "손으로 옮겨 적는 앱" 이었습니다 — 자동
+         * 판독이 있다는 말이 어디에도 없었으니 맞는 결론이었습니다.
+         * 실제로 그런 말을 들었습니다. */
+        body.appendChild(serverCard());
 
         body.appendChild(h('div.card', { uid: 'P03-C02', uidLabel: '촬영 가이드 카드' }, [
           h('div.card__head', [
@@ -240,6 +250,18 @@
           ])
         ]));
 
+        /* 자동 판독을 먼저 보여 줍니다.
+         *
+         * 예전엔 "숫자 세 개만 — 사진을 보면서 옮겨 적으세요" 가 사진
+         * 바로 밑에 있고 자동 판독은 그 아래였습니다. 폰에서는 스크롤을
+         * 더 내려야 나오는 자리라, 쓰는 사람 눈에는 이 앱에 자동 판독이
+         * 아예 없는 것처럼 보였습니다. 실제로 그런 말을 들었습니다.
+         *
+         * 손으로 적는 길은 그대로 둡니다 — 자동이 안 되는 자리가 있고
+         * (서버 없이 열었을 때), 자동이 틀릴 때도 있습니다. 다만 순서는
+         * 자동이 먼저입니다. */
+        body.appendChild(serverCard());
+
         /* 빠른 입력 — 세 칸 */
         var checkHost = h('div', { style: { marginTop: '4px' } });
         var card = h('div.card.card--accent', { uid: 'P03-C06', uidLabel: '빠른 입력 카드' }, [
@@ -259,7 +281,6 @@
         body.appendChild(card);
 
         /* 2층 — 서버에 맡기기. 켜져 있을 때만 버튼이 나옵니다. */
-        body.appendChild(serverCard());
 
         refreshCheck();
 
@@ -380,28 +401,79 @@
       }
 
       /* --- 2층: 서버 판독 -------------------------------------------------- */
+      /* 자동 판독이 왜 안 되는지를 정확히 말합니다.
+       *
+       * 예전엔 어느 경우든 "자동 판독은 꺼져 있습니다 · 설정에서 켤 수
+       * 있습니다" 한 문장이었습니다. 서버가 아예 없는 자리(미리보기
+       * 링크로 열었을 때)에서도 같은 말을 해서, 설정에 들어가 봐야
+       * 켤 수 있는 스위치가 없었습니다. 막다른 길을 안내한 셈입니다.
+       *
+       * 세 가지는 서로 다른 상태이고 할 일도 다릅니다:
+       *   서버 없음  — 미리보기입니다. 내 서버에서 열어야 됩니다.
+       *   로그인 안 함 — 로그인하면 켤 수 있습니다.
+       *   꺼 둠      — 여기서 바로 켤 수 있습니다. 설정까지 안 가도 됩니다. */
+      function ocrOn() {
+        var S2 = global.MB_SYNC;
+        return !!(S2 && S2.canOcr && S2.canOcr());
+      }
+
       function serverCard() {
-        var can = global.MB_SYNC && global.MB_SYNC.canOcr && global.MB_SYNC.canOcr();
+        var S2 = global.MB_SYNC;
+        var st = S2 && S2.status ? S2.status() : {};
+        var can = S2 && S2.canOcr && S2.canOcr();
+
         if (!can) {
-          return h('div.note', { uid: 'P03-S03', uidLabel: '서버 판독 꺼짐 안내' }, [
-            h('b', { text: '자동 판독은 꺼져 있습니다' }),
-            h('div', { style: { marginTop: '4px' },
-              text: '켜면 사진이 내 서버를 거쳐 외부 판독 서비스로 가고, 숫자 초안을 만들어 돌려줍니다. ' +
-                    '설정에서 켤 수 있습니다. 켜도 검수 화면은 그대로 거칩니다.' })
+          var why, act = null;
+          if (!st.configured) {
+            why = '지금 보고 계신 주소에는 서버가 없습니다 — 미리보기로 연 화면입니다. ' +
+                  '자동 판독은 사진을 서버로 보내서 읽는 기능이라, 내 서버에서 열 때만 됩니다. ' +
+                  '그동안은 아래에 숫자 세 개만 옮겨 적으시면 나머지는 앱이 계산합니다.';
+            act = h('button.btn.btn--block', {
+              text: '서버 주소 넣기', uid: 'P03-B15', uidLabel: '서버 주소 넣기',
+              onClick: function () { global.MB_MODALS.serverAddress(function () { draw(); }); }
+            });
+          } else if (!st.signedIn) {
+            why = '로그인하면 자동 판독을 켤 수 있습니다. 사진이 내 서버를 거쳐 판독 서비스로 가고, ' +
+                  '숫자 초안을 만들어 돌려줍니다.';
+            act = h('button.btn.btn--block', {
+              text: '로그인 / 가입', uid: 'P03-B16', uidLabel: '로그인',
+              onClick: function () { global.MB_MODALS.signIn(function () { draw(); }); }
+            });
+          } else {
+            why = '자동 판독이 꺼져 있습니다. 켜면 사진이 내 서버를 거쳐 판독 서비스로 가고, ' +
+                  '숫자 초안을 만들어 돌려줍니다. 켜도 검수 화면은 그대로 거칩니다.';
+            act = h('button.btn.btn--primary.btn--block', {
+              text: '자동 판독 켜기', uid: 'P03-B17', uidLabel: '자동 판독 켜기',
+              onClick: function () {
+                global.MB_MODALS.enableOcr(function () {
+                  S2.setOcr(true);
+                  global.MB_UID.toast('자동 판독을 켰습니다');
+                  draw();
+                });
+              }
+            });
+          }
+          return h('div.card.card--flat', { uid: 'P03-C08', uidLabel: '자동 판독 안내' }, [
+            h('div.card__head', [
+              h('div.card__title', { text: '사진에서 자동으로 읽기' }),
+              h('span.badge', { text: '꺼짐' })
+            ]),
+            h('div.muted', { style: { marginTop: '6px' }, text: why }),
+            act ? h('div', { style: { marginTop: '10px' } }, [act]) : null
           ]);
         }
         return h('div.card.card--flat', { uid: 'P03-C07', uidLabel: '서버 판독 카드' }, [
           h('div.card__head', [
-            h('div.card__title', { text: '자동으로 읽어 볼까요' }),
+            h('div.card__title', { text: shot ? '자동으로 읽어 볼까요' : '자동 판독이 켜져 있습니다' }),
             h('div.card__sub', { text: '사진이 서버를 거쳐 외부 판독 서비스로 갑니다' })
           ]),
-          h('div.muted', { style: { marginBottom: '8px' },
+          h('div.muted', { style: { marginBottom: shot ? '8px' : '0' },
             text: '돌려받은 숫자는 그대로 쓰지 않습니다. 결과지 안에서 검산이 맞는 것만 초록으로 표시하고, ' +
                   '어긋나면 그 칸을 짚어 줍니다.' }),
-          h('button.btn.btn--block', {
+          shot ? h('button.btn.btn--primary.btn--block', {
             text: '서버에 판독 맡기기', uid: 'P03-B13', uidLabel: '서버에 판독 맡기기',
             onClick: askServer
-          })
+          }) : null
         ]);
       }
 
@@ -456,10 +528,29 @@
             serverAt = /\d{2}:\d{2}/.test(at) ? at : null;
           }
           serverExtra = fields;
-          mode = 'shot'; draw();
+          mode = 'shot';
+
+          /* 세 칸을 다 읽었으면 검수 화면으로 바로 넘깁니다.
+           *
+           * 예전엔 여기서 멈춰서, 채워진 칸을 보고 사용자가 "검수 화면으로"
+           * 를 한 번 더 눌러야 했습니다. 그 한 번이 "자동으로 읽어 주는
+           * 앱" 과 "읽어는 주는데 뭘 더 해야 하는 앱" 을 갈랐습니다.
+           *
+           * 검수를 건너뛰는 것이 아닙니다 — 넘어가는 곳이 바로 검수
+           * 화면이고, 거기에 사진과 검산 결과가 같이 있습니다. 대조는
+           * 여기보다 거기가 낫습니다.
+           *
+           * 덜 읽었으면 여기 남습니다. 빈 칸을 채우는 데는 사진이 바로
+           * 위에 있는 이 화면이 낫습니다. */
+          if (read === QUICK.length) {
+            global.MB_UID.toast('판독했습니다 — 사진과 대조해 주세요');
+            toReview();
+            return;
+          }
+          draw();
           // 한 칸도 못 읽었으면 "판독했습니다" 는 거짓말입니다.
           global.MB_UID.toast(read
-            ? '판독했습니다 — 사진과 대조해 주세요'
+            ? '세 칸 중 ' + read + '칸만 읽었습니다 — 나머지는 직접 넣어 주세요'
             : '핵심 세 칸을 읽지 못했습니다 — 직접 넣어 주세요');
         });
       }

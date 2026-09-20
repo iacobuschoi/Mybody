@@ -1231,15 +1231,37 @@
                           '사진에 찍혀 있으면 그것도 같이 갑니다 — 가리고 찍으셔도 됩니다.' }),
           h('li', { text: '안 올라가는 것: 누르지 않은 사진. 자동으로 올라가는 사진은 없습니다.' })
         ]),
+        /* 사진은 나라 밖으로 나갑니다. 개인정보보호법 제28조의8 이 국외
+           이전에 요구하는 다섯 가지를 그대로 적습니다 — 항목 · 국가와
+           시기와 방법 · 받는 사람과 연락처 · 목적과 보유기간 · 거부 방법.
+           특히 "이 서버는 사진을 저장하지 않는다" 는 보유기간 항목에
+           딱 맞는 가장 유리한 사실인데 빠져 있었습니다. */
+        h('div.note.note--warn', { style: { marginTop: '4px' } }, [
+          h('b', { text: '이 사진은 나라 밖으로 나갑니다' }),
+          h('ul', { style: { paddingLeft: '18px', margin: '8px 0 0' } }, [
+            h('li', { text: '이전되는 항목 — 결과지 사진 한 장 (찍혀 있으면 이름 · 나이 · 성별 · 측정일시 포함)' }),
+            h('li', { text: '가는 곳 · 시기 · 방법 — 미국, 판독 버튼을 누를 때마다, HTTPS 로' }),
+            h('li', { text: '받는 곳 — Anthropic PBC · privacy@anthropic.com' }),
+            h('li', { text: '목적과 보유 — 결과지 숫자 판독에만. 내 서버는 사진을 디스크에 저장하지 않고 ' +
+                            '메모리에서 중계만 하고 버립니다. 받는 쪽 보유 기간은 그쪽 약관을 따릅니다.' }),
+            h('li', { text: '거부 — 안 켜면 한 장도 안 나갑니다. 켠 뒤에도 설정에서 끄면 그때부터 안 나갑니다. ' +
+                            '거부해도 앱은 그대로 씁니다 — 숫자를 직접 입력하면 됩니다.' })
+          ])
+        ]),
         h('div.note', {
           text: '돌려받은 숫자는 그대로 저장되지 않습니다. 결과지 안에서 검산이 맞는지 따진 뒤, ' +
                 '검수 화면에서 직접 보고 확정합니다. 지금처럼 직접 입력하는 길도 그대로 남습니다.' }),
-        h('div.muted', { style: { marginTop: '8px' },
-          text: '언제든 설정에서 다시 끌 수 있습니다. 끄면 그 뒤로는 한 장도 나가지 않습니다.' })
+        h('div', { style: { marginTop: '8px' } }, [
+          h('a', { text: '개인정보처리방침 6번 — 결과지 사진과 자동 판독',
+                   href: './privacy.html', target: '_blank', rel: 'noopener',
+                   uid: 'M46-B10', uidLabel: '개인정보처리방침',
+                   style: { fontSize: '13px', fontWeight: '700' } })
+        ])
       ],
       actions: [
         { label: '안 켤래요', kind: 'ghost' },
-        { label: '켜기', kind: 'primary', onClick: function () { if (onConfirm) onConfirm(); } }
+        { label: '알겠습니다, 켤게요', kind: 'primary',
+          onClick: function () { if (onConfirm) onConfirm(); } }
       ]
     });
   };
