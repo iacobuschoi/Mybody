@@ -171,6 +171,62 @@ async function main() {
   ok('안 켠 항목은 여전히 없음', !!row && !('dWeightKg' in row) && !('weightKg' in row), row);
 
   /* --------------------------------------------------------------------
+   * [5-2] 프로필 사진이 상대 화면에 실제로 뜨는가
+   *
+   * 화면 없이 API 로만 보면, 서버에는 잘 저장되는데 친구 목록에는
+   * 영영 안 그려지는 상태로도 전부 통과합니다. 사진 기능에서 사용자가
+   * 원하는 것은 "저장됐다"가 아니라 "친구 화면에 내 얼굴이 뜬다" 입니다.
+   * ------------------------------------------------------------------ */
+  console.log('\n[5-2] 프로필 사진이 상대 화면에 뜨는가');
+  {
+    /* 진짜 사진을 캔버스로 만들어 photo.js 의 축소·EXIF 제거 경로를
+       그대로 지나가게 합니다. 파일 고르기 대화상자는 브라우저가 띄우므로
+       거기만 건너뛰고, 나머지는 사용자와 같은 길입니다. */
+    const made = await ev(B, () => new Promise(res => {
+      const c = document.createElement('canvas');
+      c.width = 600; c.height = 900;               // 세로로 긴 사진 — 정사각 자르기를 시험
+      const g = c.getContext('2d');
+      g.fillStyle = '#2f7de1'; g.fillRect(0, 0, 600, 900);
+      g.fillStyle = '#fff'; g.fillRect(150, 300, 300, 300);
+      window.MB_PHOTO.avatarFromDataUrl(c.toDataURL('image/png'), (err, out) => {
+        if (err) return res({ err: err.message });
+        window.MB_BACKEND.updateProfile({ avatar: out.dataUrl });
+        res({ bytes: out.bytes, head: out.dataUrl.slice(0, 22) });
+      });
+    }));
+    ok('사진이 만들어졌다', !made.err, made);
+    ok('JPEG 로 바뀐다 (PNG 를 넣어도)', made.head === 'data:image/jpeg;base64,'.slice(0, 22), made.head);
+    ok('24KB 안에 들어온다', made.bytes > 0 && made.bytes <= 24 * 1024, made.bytes);
+
+    await ev(B, () => window.MB_SYNC.flush());
+    await B.page.waitForTimeout(700);
+    await ev(A, () => window.MB_SYNC.pull());
+    await A.page.waitForTimeout(500);
+    await ev(A, () => window.MB_APP.go('P15'));
+    await A.page.waitForTimeout(400);
+
+    const seen = await A.page.locator('[data-uid^="P15-C22"] .avatar__img').count();
+    ok('가영 친구 목록에 나린 사진이 그려진다', seen >= 1, seen);
+    const src = seen ? await A.page.locator('[data-uid^="P15-C22"] .avatar__img').first()
+      .getAttribute('src') : '';
+    ok('그려진 것이 그 사진이다', (src || '').startsWith('data:image/jpeg;base64,'));
+
+    /* 지우면 상대 화면에서도 사라져야 합니다. 서버에서만 지워지고
+       친구 화면에 남으면, 지웠다고 믿는 사람에게 거짓말이 됩니다. */
+    await ev(B, () => window.MB_BACKEND.updateProfile({ avatar: null }));
+    await ev(B, () => window.MB_SYNC.flush());
+    await B.page.waitForTimeout(700);
+    await ev(A, () => window.MB_SYNC.pull());
+    await A.page.waitForTimeout(500);
+    await ev(A, () => window.MB_APP.go('P15'));
+    await A.page.waitForTimeout(400);
+    ok('지우면 상대 화면에서도 사라진다',
+       await A.page.locator('[data-uid^="P15-C22"] .avatar__img').count() === 0);
+    ok('대신 이름 첫 글자가 남는다',
+       await A.page.locator('[data-uid^="P15-C22"] .avatar--letter').count() >= 1);
+  }
+
+  /* --------------------------------------------------------------------
    * [6] 비밀번호를 잊은 사람이 실제로 돌아오는가 — 화면을 눌러서
    *
    * 서버 쪽은 test-hardening 이 봅니다. 여기서 봐야 하는 것은 화면입니다:

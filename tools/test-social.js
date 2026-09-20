@@ -258,6 +258,48 @@ async function main() {
   ok('userId 없는 block 도 500이 아니다',
      (await call('POST', '/friends/block', {}, tv)).status === 400);
 
+  console.log('\n[6-2] 프로필 사진');
+  /* 1×1 JPEG. 실제 사진을 만들 필요는 없습니다 — 서버는 형식과 크기만 봅니다. */
+  const JPG = 'data:image/jpeg;base64,' + 'A'.repeat(64) + '==';
+  ok('사진을 올릴 수 있다',
+     (await call('PATCH', '/me', { avatar: JPG }, ta)).json.user.avatar === JPG);
+  ok('다시 읽어도 남아 있다', (await call('GET', '/me', null, ta)).json.user.avatar === JPG);
+  ok('이름만 바꾸면 사진은 그대로다',
+     (await call('PATCH', '/me', { displayName: '가영' }, ta)).json.user.avatar === JPG);
+  ok('24KB 넘는 사진은 거절한다',
+     (await call('PATCH', '/me', { avatar: 'data:image/jpeg;base64,' + 'A'.repeat(30000) }, ta)).status === 400);
+  ok('SVG 는 받지 않는다',
+     (await call('PATCH', '/me', { avatar: 'data:image/svg+xml;base64,QQ==' }, ta)).status === 400);
+  ok('http 주소는 받지 않는다',
+     (await call('PATCH', '/me', { avatar: 'https://example.com/a.jpg' }, ta)).status === 400);
+  ok('거절당해도 원래 사진은 안 지워진다',
+     (await call('GET', '/me', null, ta)).json.user.avatar === JPG);
+  /* 앞 절에서 가영·나린은 이미 차단 상태라, 사진이 목록에 실리는지는
+     새 두 사람으로 봅니다. 끊긴 관계를 재활용하면 통과 여부가 앞 절
+     순서에 딸려 다닙니다. */
+  const P1 = await call('POST', '/auth/signup', { handle: 'pic1', displayName: '사진하나' });
+  const P2 = await call('POST', '/auth/signup', { handle: 'pic2', displayName: '사진둘' });
+  const t1 = P1.json.token, t2 = P2.json.token;
+  await call('POST', '/friends/request', { inviteCode: P2.json.user.inviteCode }, t1);
+  await call('POST', '/friends/accept', { userId: P1.json.user.id }, t2);
+  await call('PATCH', '/me', { avatar: JPG }, t1);
+  const friendsOf2 = () => call('GET', '/friends', null, t2).then(r => r.json.friends);
+  ok('수락한 친구 목록에는 사진이 실려 온다',
+     ((await friendsOf2()).accepted[0] || {}).avatar === JPG);
+  ok('null 을 보내면 지워진다',
+     (await call('PATCH', '/me', { avatar: null }, t1)).json.user.avatar === null);
+  ok('지운 뒤 친구 목록에도 없다',
+     ((await friendsOf2()).accepted[0] || {}).avatar === null);
+
+  /* 아직 수락 안 한 요청에는 사진을 안 싣습니다 — 초대 코드만 아는
+     사람이 남의 화면에 이미지를 밀어 넣지 못하게. */
+  const P3 = await call('POST', '/auth/signup', { handle: 'pic3', displayName: '사진셋' });
+  await call('PATCH', '/me', { avatar: JPG }, P3.json.token);
+  await call('POST', '/friends/request', { inviteCode: P2.json.user.inviteCode }, P3.json.token);
+  ok('수락 전 요청에는 사진이 안 실린다',
+     ((await friendsOf2()).incoming[0] || {}).avatar === undefined,
+     (await friendsOf2()).incoming[0]);
+
   console.log('\n[7] 탈퇴 뒷정리');
   const C = await call('POST', '/auth/signup', { handle: 'temp', displayName: '임시' });
   ok('탈퇴', (await call('DELETE', '/me', null, C.json.token)).json.ok === true);

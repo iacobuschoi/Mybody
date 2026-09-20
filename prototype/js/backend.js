@@ -129,6 +129,11 @@
         db.users[me].displayName = String(patch.displayName).slice(0, 20);
         push('updateMe', { displayName: db.users[me].displayName });
       }
+      /* 서버와 같은 규칙: undefined 는 "안 건드림", null 은 "지워 달라". */
+      if (patch.avatar !== undefined) {
+        db.users[me].avatar = patch.avatar || null;
+        push('updateMe', { avatar: db.users[me].avatar });
+      }
       save();
       return currentUser();
     }
@@ -275,6 +280,8 @@
         if (!u) return;
         var row = { id: otherId, displayName: u.displayName, since: f.respondedAt || f.createdAt };
         if (f.status === 'accepted') {
+          /* 사진은 수락한 친구에게만 — 서버 구현과 같은 규칙입니다. */
+          row.avatar = u.avatar || null;
           row.iShare = shareSummary(me, otherId);
           row.theyShare = shareSummary(otherId, me);
           out.accepted.push(row);
@@ -412,7 +419,7 @@
       db.users[meId] = {
         id: meId, handle: snap.me.handle, provider: snap.me.provider || 'local',
         displayName: snap.me.displayName, inviteCode: snap.me.inviteCode,
-        createdAt: snap.me.createdAt
+        createdAt: snap.me.createdAt, avatar: snap.me.avatar || null
       };
       db.session = meId;
 
@@ -425,6 +432,11 @@
             { id: r.id, handle: null, provider: 'local', displayName: r.displayName,
               inviteCode: null, createdAt: r.since };
           db.users[r.id].displayName = r.displayName;
+          /* 서버는 수락한 친구에게만 사진을 실어 줍니다. 아직 수락 전인
+             행에는 avatar 키 자체가 없으므로, 거울도 그 상태 그대로
+             둡니다 — 없는 것을 null 로 덮어써도 결과는 같지만, 나중에
+             수락되면 다음 pull 이 채웁니다. */
+          if (r.avatar !== undefined) db.users[r.id].avatar = r.avatar || null;
           db.friendships.push({
             id: 'srv_' + r.id, aId: meId, bId: r.id,
             /* 'outgoing' 은 서버 응답의 이름일 뿐, 이 거울이 아는 상태가

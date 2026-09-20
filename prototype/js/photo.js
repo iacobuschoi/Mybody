@@ -143,6 +143,68 @@
     img.src = src;
   }
 
+  /* --- 프로필 사진 --------------------------------------------------------
+   *
+   * 결과지 사진과 다른 점이 두 가지입니다.
+   *   (가) 이건 서버로 갑니다. 친구가 봐야 하니까요. 결과지 사진은
+   *        기기에만 있습니다. 그래서 크기 한도가 훨씬 빡빡합니다.
+   *   (나) 얼굴 사진입니다. 그래서 정사각으로 가운데를 자릅니다 —
+   *        원형 틀에 넣었을 때 얼굴이 잘리지 않게.
+   *
+   * 캔버스에 다시 그리면 EXIF 가 통째로 사라집니다. 그건 부작용이 아니라
+   * 여기서 노리는 것입니다: 폰 사진에는 대개 찍은 위치(GPS)와 기기
+   * 모델과 시각이 들어 있고, 그게 프로필 사진에 붙어서 친구의 서버로
+   * 가면 안 됩니다. 이 함수를 지나온 사진에는 화소만 남습니다.
+   */
+  var AV_EDGE = 192;              // 원형 프로필에 쓰기 충분합니다
+  var AV_BYTES = 24 * 1024;       // 데이터 URL 기준. 서버도 같은 값으로 막습니다.
+
+  function avatarFromFile(file, cb) {
+    if (!file) return cb(new Error('사진을 고르지 않았습니다.'));
+    if (file.size > 25 * 1024 * 1024) {
+      return cb(new Error('사진이 너무 큽니다 (25MB 넘음).'));
+    }
+    var reader = new FileReader();
+    reader.onerror = function () { cb(new Error('사진을 읽지 못했습니다.')); };
+    reader.onload = function () { avatarFromDataUrl(String(reader.result || ''), cb); };
+    try { reader.readAsDataURL(file); }
+    catch (e) { cb(new Error('사진을 읽지 못했습니다.')); }
+  }
+
+  function avatarFromDataUrl(src, cb) {
+    var img = new Image();
+    img.onerror = function () {
+      cb(new Error('이 형식은 브라우저가 열지 못합니다. ' +
+                   '아이폰이면 설정 → 카메라 → 포맷을 "높은 호환성"으로 바꾸거나, ' +
+                   'JPG 로 저장해서 올려 주세요.'));
+    };
+    img.onload = function () {
+      var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+      if (!(w > 0 && h > 0)) return cb(new Error('사진의 크기를 알 수 없습니다.'));
+      var side = Math.min(w, h);
+      var sx = Math.round((w - side) / 2), sy = Math.round((h - side) / 2);
+      var canvas = document.createElement('canvas');
+      canvas.width = AV_EDGE; canvas.height = AV_EDGE;
+      var ctx = canvas.getContext('2d');
+      if (!ctx) return cb(new Error('이 브라우저에서는 사진을 줄일 수 없습니다.'));
+      ctx.drawImage(img, sx, sy, side, side, 0, 0, AV_EDGE, AV_EDGE);
+
+      var q = 0.8, out;
+      try { out = canvas.toDataURL('image/jpeg', q); }
+      catch (e) { return cb(new Error('사진을 변환하지 못했습니다.')); }
+      while (out.length > AV_BYTES && q > 0.3) {
+        q = Math.round((q - 0.1) * 100) / 100;
+        out = canvas.toDataURL('image/jpeg', q);
+      }
+      /* 0.3 까지 낮춰도 안 들어가는 일은 192×192 에서는 사실상 없지만,
+         넘은 채로 보내면 서버가 거절합니다. 그럴 때는 여기서 말합니다 —
+         서버가 400 을 뱉고 화면이 "알 수 없는 오류"를 띄우는 것보다 낫습니다. */
+      if (out.length > AV_BYTES) return cb(new Error('사진을 충분히 줄이지 못했습니다.'));
+      cb(null, { dataUrl: out, bytes: out.length, quality: q });
+    };
+    img.src = src;
+  }
+
   /* --- EXIF 촬영일시 ------------------------------------------------------
    *
    * 측정일은 시계열의 뼈대입니다. 틀리면 "지난 측정과 비교" 가 통째로
@@ -261,6 +323,8 @@
     fromFile: fromFile, fromDataUrl: fromDataUrl,
     save: save, get: get, remove: remove, clearAll: clearAll,
     usedBytes: usedBytes, list: load, exifDate: exifDate,
-    MAX_EDGE: MAX_EDGE, TARGET_BYTES: TARGET_BYTES, KEEP: KEEP
+    MAX_EDGE: MAX_EDGE, TARGET_BYTES: TARGET_BYTES, KEEP: KEEP,
+    AV_EDGE: AV_EDGE, AV_BYTES: AV_BYTES,
+    avatarFromFile: avatarFromFile, avatarFromDataUrl: avatarFromDataUrl
   };
 })(window);

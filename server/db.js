@@ -90,7 +90,13 @@ function open(file) {
                          동의했는지를 남깁니다. 문구가 바뀌면 version 이
                          올라가고, 옛 버전으로 동의한 사람에게 다시 묻습니다. */
                       'ALTER TABLE users ADD COLUMN consent_health_at TEXT',
-                      'ALTER TABLE users ADD COLUMN consent_version TEXT']) {
+                      'ALTER TABLE users ADD COLUMN consent_version TEXT',
+                      /* 프로필 사진. 데이터 URL 문자열 그대로 넣습니다 —
+                         192×192 JPEG 라 24KB 를 넘지 않고, 이 규모(친구
+                         몇 명)에서 파일 저장소를 따로 두는 것보다 백업이
+                         단순합니다. backup.js 의 VACUUM INTO 한 방에 같이
+                         따라옵니다. */
+                      'ALTER TABLE users ADD COLUMN avatar TEXT']) {
     try { db.exec(stmt); } catch { /* 이미 있음 */ }
   }
 
@@ -298,12 +304,39 @@ function makeApi(db) {
     recordsSince: db.prepare(
       'SELECT * FROM records WHERE user_id=? AND (updated_at, kind, id) > (?,?,?) ' +
       'ORDER BY updated_at, kind, id LIMIT ?'),
-    countRecords: db.prepare('SELECT COUNT(*) c FROM records WHERE user_id=?')
+    countRecords: db.prepare('SELECT COUNT(*) c FROM records WHERE user_id=?'),
+    updateAvatar: db.prepare('UPDATE users SET avatar=? WHERE id=?')
   };
+
+  /* 프로필 사진 검사.
+   *
+   * 여기로 들어오는 것은 친구의 브라우저가 보낸 문자열입니다. 브라우저를
+   * 거치지 않고 직접 때릴 수 있으므로 서버가 다시 봅니다 — 화면의
+   * 검사는 편의이고, 여기가 방어선입니다.
+   *
+   * SVG 를 안 받는 이유: SVG 안에는 <script> 가 들어갑니다. 우리는
+   * <img src="data:..."> 로만 그리니 실행되지 않지만, 언젠가 누가
+   * 새 탭에서 열게 만들면 그 순간 스크립트가 됩니다. 처음부터 안
+   * 받는 쪽이 그 실수를 못 하게 막습니다.
+   */
+  function bad(msg) { const e = new Error(msg); e.status = 400; return e; }
+  const AVATAR_MAX = 24 * 1024;
+  const AVATAR_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/;
+  function checkAvatar(v) {
+    if (v === null || v === '' || v === undefined) return null;   // 지우기
+    const t = str(v);
+    /* server.js 의 바깥 catch 가 e.status 를 보고 그 코드로 내보냅니다.
+       안 달면 500 + 스택 로그가 됩니다 — 사용자 잘못을 서버 잘못처럼
+       기록하고, 화면에는 "서버 오류"라는 틀린 말이 뜹니다. */
+    if (t.length > AVATAR_MAX) throw bad('프로필 사진이 너무 큽니다');
+    if (!AVATAR_RE.test(t)) throw bad('프로필 사진 형식을 받을 수 없습니다');
+    return t;
+  }
 
   function pub(u) {
     return u && { id: u.id, displayName: u.display_name, provider: u.provider,
                   inviteCode: u.invite_code, createdAt: u.created_at,
+                  avatar: u.avatar || null,
                   /* 본인이 언제 · 어느 문구에 동의했는지는 본인이 볼 수
                      있어야 합니다 (제35조 열람). */
                   healthConsentAt: u.consent_health_at || null,
@@ -453,11 +486,16 @@ function makeApi(db) {
       return q.userById.get(s.user_id) || null;
     },
     me(uid) { return pub(q.userById.get(uid)); },
-    updateMe(uid, { displayName }) {
+    updateMe(uid, { displayName, avatar }) {
       if (displayName) {
         const dn = str(displayName).slice(0, 20);
         if (dn) q.updateName.run(dn, uid);
       }
+      /* undefined 와 null 은 다른 뜻입니다.
+         undefined = 이 요청은 사진 얘기를 안 했다 (그대로 둔다)
+         null/'' = 사진을 지워 달라
+         그래서 `if (avatar)` 로 쓰면 지우기가 영영 안 먹습니다. */
+      if (avatar !== undefined) q.updateAvatar.run(checkAvatar(avatar), uid);
       return pub(q.userById.get(uid));
     },
     deleteMe(uid) { q.deleteUser.run(uid); },      // 연쇄 삭제로 친구·공유·스냅샷·기록 전부 사라짐
@@ -550,6 +588,12 @@ function makeApi(db) {
         const row = { id: otherId, displayName: u.display_name,
                       since: e.responded_at || e.created_at };
         if (e.status === 'accepted') {
+          /* 사진은 수락한 친구에게만 보냅니다.
+             아직 수락 안 한 요청에까지 실어 보내면, 초대 코드를 아는
+             사람이 누구에게나 이미지를 밀어 넣을 수 있게 됩니다.
+             누구의 요청인지는 이름과 직접 건네받은 초대 코드로 아는
+             것이 원래 이 앱의 흐름이라, 잃는 것이 없습니다. */
+          row.avatar = u.avatar || null;
           row.iShare = this.shareSummary(me, otherId);
           row.theyShare = this.shareSummary(otherId, me);
           out.accepted.push(row);

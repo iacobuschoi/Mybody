@@ -44,6 +44,48 @@
   }
   function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); return el; }
 
+  /* --- 프로필 사진 --------------------------------------------------------
+   *
+   * 사진이 없을 때 회색 사람 모양 아이콘을 쓰지 않습니다. 목록에서 다섯
+   * 명이 똑같이 생기면 그건 사진이 없는 게 아니라 구분이 없는 겁니다.
+   * 대신 이름 첫 글자를, 그 사람 id 에서 뽑은 색 위에 놓습니다 — 같은
+   * 사람은 언제나 같은 색이라, 사진이 없어도 목록에서 찾아집니다.
+   */
+  function firstChar(name) {
+    var t = String(name || '').trim();
+    if (!t) return '?';
+    /* 한 글자만 잘라내는데 서러게이트 페어(이모지)를 반으로 자르면
+       깨진 네모가 나옵니다. Array.from 은 코드포인트 단위로 자릅니다. */
+    try { return Array.from(t)[0]; } catch (e) { return t.charAt(0); }
+  }
+  function tintOf(seed) {
+    var t = String(seed || ''), n = 0;
+    for (var i = 0; i < t.length; i++) n = (n * 31 + t.charCodeAt(i)) >>> 0;
+    return n % 360;
+  }
+  /**
+   * person: { displayName, avatar, id }
+   * size:   픽셀 (기본 40)
+   */
+  function avatar(person, size) {
+    var s = size || 40;
+    var p = person || {};
+    var el = h('div.avatar', {
+      style: { width: s + 'px', height: s + 'px',
+               fontSize: Math.round(s * 0.42) + 'px' },
+      'aria-hidden': 'true'
+    });
+    if (p.avatar) {
+      el.appendChild(h('img.avatar__img', { src: p.avatar, alt: '' }));
+    } else {
+      var hue = tintOf(p.id || p.displayName || '');
+      el.classList.add('avatar--letter');
+      el.style.setProperty('--av-h', String(hue));
+      el.textContent = firstChar(p.displayName);
+    }
+    return el;
+  }
+
   /* --- 포맷 --------------------------------------------------------------- */
   function n1(x) { return x == null ? '—' : (Math.round(x * 10) / 10).toFixed(1); }
   function n2(x) { return x == null ? '—' : (Math.round(x * 100) / 100).toFixed(2); }
@@ -454,6 +496,7 @@
 
   global.MB_UI = {
     h: h, clear: clear, append: append, copyText: copyText, isSecure: isSecure,
+    avatar: avatar, firstChar: firstChar, tintOf: tintOf,
     n0: n0, n1: n1, n2: n2, sign: sign, dateK: dateK, dateShort: dateShort, weeksToHuman: weeksToHuman,
     openModal: openModal, closeAllModals: closeAllModals, plainNote: plainNote,
     lineChart: lineChart, sparkline: sparkline, donut: donut, timeline: timeline

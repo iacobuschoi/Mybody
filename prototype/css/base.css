@@ -428,3 +428,31 @@ hr.sep { border:none; border-top:1px solid var(--border); margin:14px 0; }
 .daypick__t { font-weight:700; font-size:13.5px; }
 .daypick__s { margin-left:auto; font-size:11.5px; color: var(--text-3); font-weight:600; }
 .daypick.is-on .daypick__s { color: var(--accent); }
+
+/* --- 프로필 사진 ---------------------------------------------------------- */
+.avatar {
+  flex:none; border-radius:50%; overflow:hidden; display:grid; place-items:center;
+  font-weight:800; line-height:1; user-select:none;
+  background: var(--surface-2); color: var(--text-2);
+  border:1px solid var(--border);
+}
+.avatar__img { width:100%; height:100%; object-fit:cover; display:block; }
+/* 사진이 없을 때. 색상(H)은 그 사람 id 에서 뽑아 고정합니다 — 같은 사람은
+   언제나 같은 색이라, 목록에서 이름을 읽기 전에 눈이 먼저 찾습니다. */
+.avatar--letter {
+  background: hsl(var(--av-h) 62% 92%);
+  color: hsl(var(--av-h) 55% 30%);
+  border-color: hsl(var(--av-h) 45% 82%);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .avatar--letter {
+    background: hsl(var(--av-h) 32% 24%);
+    color: hsl(var(--av-h) 70% 80%);
+    border-color: hsl(var(--av-h) 30% 34%);
+  }
+}
+:root[data-theme="dark"] .avatar--letter {
+  background: hsl(var(--av-h) 32% 24%);
+  color: hsl(var(--av-h) 70% 80%);
+  border-color: hsl(var(--av-h) 30% 34%);
+}

@@ -236,7 +236,14 @@
     block:        function (a) { return api('/friends/block', { method: 'POST', body: { userId: a.userId } }); },
     unblock:      function (a) { return api('/friends/unblock', { method: 'POST', body: { userId: a.userId } }); },
     setShare:     function (a) { return api('/share/' + encodeURIComponent(a.userId), { method: 'PUT', body: a.patch }); },
-    updateMe:     function (a) { return api('/me', { method: 'PATCH', body: { displayName: a.displayName } }); },
+    /* avatar 는 undefined 면 아예 안 보냅니다 — 서버에서 "사진 얘기 안 함"
+       과 "사진 지워 달라(null)" 를 구분하기 때문입니다. */
+    updateMe:     function (a) {
+      var body = {};
+      if (a.displayName !== undefined) body.displayName = a.displayName;
+      if (a.avatar !== undefined) body.avatar = a.avatar;
+      return api('/me', { method: 'PATCH', body: body });
+    },
     snapshot:     function (a) { return api('/snapshots', { method: 'POST', body: { weekStart: a.weekStart, payload: a.payload } }); }
   };
 

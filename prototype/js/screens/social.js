@@ -55,12 +55,16 @@
 
       wrap.appendChild(h('div.card', { uid: 'P14-C01', uidLabel: '내 계정' }, [
         h('div.card__head', [
-          h('div', [
-            h('div.card__sub', { text: ({ kakao: '카카오', apple: 'Apple', email: '이메일' })[me.provider] || me.provider }),
-            h('div', { style: { fontSize: '18px', fontWeight: '800' }, text: me.displayName })
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', minWidth: '0' } }, [
+            UI.avatar(me, 44),
+            h('div', { style: { minWidth: '0' } }, [
+              h('div.card__sub', { text: ({ kakao: '카카오', apple: 'Apple', email: '이메일' })[me.provider] || me.provider }),
+              h('div', { style: { fontSize: '18px', fontWeight: '800' }, text: me.displayName })
+            ])
           ]),
           h('span.badge.badge--ok', { text: '로그인됨' })
         ]),
+        avatarField(me),
         h('div.field', { style: { marginTop: '10px' } }, [
           h('div.field__label', { text: '표시 이름' }),
           nameInput(me)
@@ -164,6 +168,60 @@
       function serverSignedIn() {
         var st = global.MB_SYNC ? global.MB_SYNC.status() : null;
         return !!(st && st.signedIn);
+      }
+
+      /* 프로필 사진 고르기.
+         사진은 서버로 갑니다 — 친구가 봐야 하니까요. 그래서 여기서
+         두 가지를 반드시 말합니다: 어디로 가는지, 그리고 위치정보가
+         지워진다는 것. 폰 사진에는 대개 찍은 위치가 들어 있고,
+         그게 프로필 사진에 붙어 친구의 서버로 가면 안 됩니다.
+         photo.js 가 캔버스로 다시 그리면서 EXIF 를 통째로 버립니다. */
+      function avatarField(user) {
+        var msg = h('div.field__err', { style: { display: 'none' } });
+        var input = h('input', { type: 'file', accept: 'image/*',
+          uid: 'P14-F02', uidLabel: '프로필 사진 고르기',
+          style: { display: 'none' },
+          onChange: function () {
+            var f = input.files && input.files[0];
+            input.value = '';
+            if (!f) return;
+            msg.style.display = 'none';
+            global.MB_PHOTO.avatarFromFile(f, function (err, out) {
+              if (err) { msg.textContent = err.message; msg.style.display = ''; return; }
+              save(out.dataUrl, '프로필 사진을 바꿨습니다');
+            });
+          } });
+
+        function save(dataUrl, okMsg) {
+          try {
+            B().updateProfile({ avatar: dataUrl });
+            global.MB_UID.toast(okMsg);
+            A.refresh();
+          } catch (e) {
+            msg.textContent = e && e.message || '사진을 저장하지 못했습니다';
+            msg.style.display = '';
+          }
+        }
+
+        /* 사진을 또 그리지 않습니다 — 바로 위 카드 머리에 이미 있습니다.
+           같은 얼굴이 한 화면에 두 번 있으면 둘 중 하나는 다른 것을
+           뜻한다고 읽히고, 실제로는 아무 뜻도 없습니다. */
+        return h('div.field', { style: { marginTop: '10px' } }, [
+          h('div.field__label', { text: '프로필 사진' }),
+          h('div.btn-row', [
+            h('button.btn.btn--sm', {
+              text: user.avatar ? '사진 바꾸기' : '사진 고르기',
+              uid: 'P14-B10', uidLabel: '프로필 사진 고르기',
+              onClick: function () { input.click(); } }),
+            user.avatar ? h('button.btn.btn--sm', { text: '지우기',
+              uid: 'P14-B11', uidLabel: '프로필 사진 지우기',
+              onClick: function () { save(null, '프로필 사진을 지웠습니다'); } }) : null
+          ]),
+          input, msg,
+          h('div.field__hint', { style: { marginTop: '6px' },
+            text: '친구 목록에 보입니다. 서버에 저장됩니다 — ' +
+            '192×192 로 줄이고 위치정보(EXIF)는 지운 뒤 보냅니다.' })
+        ]);
       }
 
       function nameInput(user) {
@@ -461,8 +519,9 @@
           style: { cursor: 'pointer' },
           onClick: function () { A.go('P16', { friendId: r.id }); }
         }, [
-          h('div', { style: { display: 'flex', alignItems: 'center', gap: '6px' } }, [
-            h('div.card__title', { style: { flex: '1' }, text: r.displayName }),
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: '9px' } }, [
+            UI.avatar(r, 36),
+            h('div.card__title', { style: { flex: '1', minWidth: '0' }, text: r.displayName }),
             isDemo ? h('span.chip', { text: '데모' }) : null
           ]),
           h('div.muted', { style: { marginTop: '2px' }, text: line2 }),
@@ -599,9 +658,12 @@
       }
       wrap.appendChild(h('div.card', { uid: 'P16-C01', uidLabel: '친구 헤더' }, [
         h('div.card__head', [
-          h('div', [
-            h('div', { style: { fontSize: '18px', fontWeight: '800' }, text: friend.displayName }),
-            h('div.card__sub', { text: UI.dateK(friend.since) + ' 부터 친구' })
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', minWidth: '0' } }, [
+            UI.avatar(friend, 44),
+            h('div', { style: { minWidth: '0' } }, [
+              h('div', { style: { fontSize: '18px', fontWeight: '800' }, text: friend.displayName }),
+              h('div.card__sub', { text: UI.dateK(friend.since) + ' 부터 친구' })
+            ])
           ]),
           lastNews ? h('span.badge', { text: lastNews }) : null
         ])
