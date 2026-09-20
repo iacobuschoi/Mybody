@@ -475,6 +475,60 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
+  console.log('\n[8-2] 로그 — 볼 것은 있고, 남으면 안 되는 것은 없다');
+  {
+    /* 로그가 기동 배너뿐이라 친구가 "안 돼요" 할 때 주인이 볼 게 없었습니다.
+       그렇다고 몸에 대한 숫자를 로그에 남기면 지워야 할 곳이 하나 더 생깁니다 —
+       그런 로그는 보통 백업도 안 되고 보관 기간도 없습니다. */
+    const port = await freePort();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-log-'));
+    const srv = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')],
+      { cwd: ROOT, env: Object.assign(baseEnv(), {
+          PORT: String(port), PAIR_SECRET: 'log-secret', DB: path.join(dir, 'l.db'),
+          STATIC: path.join(ROOT, 'release') }) });
+    let out = '';
+    srv.stdout.on('data', d => { out += d; });
+    srv.stderr.on('data', d => { out += d; });
+    let up = false;
+    for (let i = 0; i < 60; i++) {
+      try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) { up = true; break; } } catch (e) {}
+      await wait(200);
+    }
+    if (!up) { ok('로그 검사용 서버가 뜬다', false, out.slice(-200)); }
+    else {
+      const post = (p2, b) => fetch(`http://127.0.0.1:${port}/api${p2}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(b) }).then(r => r.json().catch(() => ({})));
+      const me = await post('/auth/signup', { handle: 'loguser', password: 'log-password-1',
+        displayName: '로그', pairSecret: 'log-secret', healthConsent: '2026-09-20' });
+      await post('/auth/signin', { handle: 'loguser', password: 'nope' });
+      await fetch(`http://127.0.0.1:${port}/api/snapshots`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer ' + me.token },
+        body: JSON.stringify({ weekStart: '2026-09-14',
+                               payload: { weightKg: 86.7, smmKg: 37.9, bfmKg: 20.0 } })
+      }).catch(() => {});
+      await fetch(`http://127.0.0.1:${port}/`).catch(() => {});
+      await wait(500);
+
+      ok('요청이 한 줄씩 남는다', /POST {2}\/api\/auth\/signup/.test(out), out.slice(-400));
+      ok('실패도 상태로 보인다', /401 {2}POST {2}\/api\/auth\/signin/.test(out), out.slice(-400));
+      ok('정적 파일은 안 센다 (묻히지 않게)', !/GET {4}\/index\.html|200 {2}GET {4}\/ /.test(out), out.slice(-400));
+      ok('상태 확인(/health)은 안 센다', !/\/health/.test(out.split('\n').filter(l => /^\d\d:\d\d/.test(l)).join('\n')));
+
+      /* 여기서부터가 진짜 중요한 것 */
+      ok('몸에 대한 숫자가 안 남는다', !/86\.7|37\.9|20\.0/.test(out), out.slice(-500));
+      ok('토큰이 안 남는다', !(me.token && out.includes(me.token)));
+      ok('복구 코드가 안 남는다', !(me.recoveryCode && out.includes(me.recoveryCode)));
+      ok('비밀번호가 안 남는다', !/log-password-1/.test(out));
+      ok('가입 코드가 안 남는다', !/log-secret/.test(out));
+      ok('끄는 법을 알려준다', /LOG=0/.test(out));
+    }
+    srv.kill();
+    await wait(300);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
   console.log('\n[9] 자동 시작 · 더블클릭 실행');
   {
     /* 자동 시작은 평소 쓰는 PATH 도 HOME 도 안 물려받습니다. 손으로 적은

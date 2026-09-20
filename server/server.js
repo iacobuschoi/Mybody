@@ -558,8 +558,38 @@ function serveStatic(req, res, url) {
        { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
 }
 
+/* --- 무슨 일이 있었는지 --------------------------------------------------
+ *
+ * 로그가 기동 배너뿐이었습니다. 친구가 "안 돼요" 라고 할 때 주인이 볼
+ * 것이 하나도 없었습니다 — 요청이 오기는 했는지, 401 인지 429 인지,
+ * 아니면 아예 안 닿는 건지 구분할 방법이 없었습니다.
+ *
+ * 무엇을 남기고 무엇을 안 남기나
+ *   남김   시각 · 메서드 · 경로 · 상태 · 걸린 시간
+ *   안 남김 본문 · 토큰 · 사진 · 몸에 대한 숫자. 건강정보를 로그에
+ *          남기면 지워야 할 곳이 하나 더 생깁니다. 그리고 그 로그는
+ *          보통 백업도 안 되고 보관 기간도 없습니다.
+ *   IP 는 기본으로 안 남깁니다 — 터널 뒤에서는 전부 같은 값이라
+ *          쓸모가 없고, 아니면 그게 곧 개인정보입니다.
+ *
+ * 정적 파일은 안 셉니다. 앱을 한 번 열면 서른 줄이 쏟아져서, 정작
+ * 봐야 할 /api 줄이 묻힙니다.
+ */
+const LOG = process.env.LOG !== '0';
+
+function logLine(req, status, ms) {
+  if (!LOG) return;
+  const p2 = req.url.split('?')[0];
+  if (!(p2.startsWith('/api/') || p2 === '/health')) return;
+  if (p2 === '/health') return;          // 상태 확인은 1분에 몇 번씩 옵니다
+  console.log(new Date().toISOString().slice(11, 19) + '  ' +
+              String(status) + '  ' + req.method.padEnd(6) + p2 + '  ' + ms + 'ms');
+}
+
 const server = http.createServer(async (req, res) => {
   const ip = clientIp(req);
+  const t0 = Date.now();
+  res.on('finish', () => logLine(req, res.statusCode, Date.now() - t0));
   /* 정적 파일은 제한에서 뺍니다. 앱 하나가 <script> 30개를 부르는데,
      그걸 세면 앱을 한 번 여는 것만으로 분당 제한의 10%를 씁니다 —
      터널 뒤에서 모두가 한 버킷일 때는 앱이 아예 안 열렸습니다.
@@ -671,6 +701,10 @@ if (require.main === module) {
     // cloudflared 안내는 뺐습니다. 집 안 서버를 공개 서버로 바꾸는 두 줄이었고,
     // 그 상태에서 인증 구멍이 있으면 피해가 바로 현실이 됩니다.
     console.log('  밖에서 접속하려면 먼저 server/README.md 의 "밖에서 접속하기"를 읽어 주세요.');
+    if (LOG) {
+      console.log('  아래로 요청이 한 줄씩 지나갑니다. 친구가 "안 된다" 고 하면 여기를 보세요.');
+      console.log('  (몸에 대한 숫자나 사진은 안 남깁니다. 끄려면 LOG=0)');
+    }
   });
 }
 

@@ -642,9 +642,47 @@
               msg.textContent = 'http:// 또는 https:// 로 시작해야 합니다';
               msg.style.display = ''; return true;
             }
-            S.configure(v || null);
-            global.MB_UID.toast(v ? '서버를 바꿨습니다' : '이 기기에만 저장합니다');
-            if (onDone) onDone();
+            if (!v) {
+              S.configure(null);
+              global.MB_UID.toast('이 기기에만 저장합니다');
+              if (onDone) onDone();
+              return;
+            }
+
+            /* 저장하기 전에 실제로 닿는지 두드려 봅니다.
+             *
+             * 예전엔 무조건 "서버를 바꿨습니다" 라고 했습니다. 그런데
+             * 이 창은 대개 안 되는 상황에서 열립니다 — 주소를 잘못
+             * 알았거나, 서버가 안 떠 있거나, https 페이지에서 http
+             * 주소를 넣어(브라우저가 통째로 막습니다) 그렇습니다.
+             * 성공했다고 말해 놓고 그 다음 화면이 다시 "서버가
+             * 없습니다" 라고 하면, 사람은 뭘 잘못했는지 모른 채
+             * 주소만 계속 고칩니다. */
+            msg.style.display = ''; msg.textContent = '확인 중...';
+            var mixed = false;
+            try {
+              mixed = location.protocol === 'https:' && /^http:\/\//.test(v);
+            } catch (e) {}
+            if (mixed) {
+              msg.textContent = '지금 이 페이지는 https 인데 넣으신 주소는 http 입니다. ' +
+                                '브라우저가 그 사이의 연결을 통째로 막아서, 저장해도 안 닿습니다. ' +
+                                '서버 주소를 폰 브라우저에 직접 열어서 쓰세요.';
+              return true;
+            }
+            S.configure(v);
+            S.probe().then(function (okNow) {
+              if (okNow) {
+                global.MB_UID.toast('서버를 바꿨습니다');
+                if (onDone) onDone();
+                close();
+                return;
+              }
+              msg.textContent = '저장했지만 지금은 그 주소에 닿지 않습니다. ' +
+                                '서버가 꺼져 있거나 주소가 다릅니다 — 서버를 띄운 터미널에 ' +
+                                '찍힌 주소를 그대로 쓰세요.';
+              if (onDone) onDone();
+            });
+            return true;
           } }
       ]
     });
