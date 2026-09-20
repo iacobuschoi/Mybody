@@ -13,13 +13,28 @@
 
 ---
 
-## 바로 열어보기
+## 내 컴퓨터에서 쓰기
+
+```bash
+node tools/serve.js --setup     # 한 번만
+node tools/serve.js
+```
+
+<http://localhost:8080> 이 열립니다. 막히면 `node tools/doctor.js` 가
+무엇이 모자란지와 무엇을 하면 되는지를 말해 줍니다.
+
+폰에서 쓰는 법 · 친구 들이는 법 · 계속 켜 두는 법은 **[docs/START.md](docs/START.md)**.
+
+## 화면만 열어보기 (서버 없이)
 
 ```bash
 cd prototype && python3 -m http.server 8000
 # 또는  npx http-server prototype -p 8000
 ```
 브라우저에서 <http://localhost:8000> — `file://` 로 직접 열어도 동작합니다 (ES 모듈을 쓰지 않음).
+
+서버가 없으면 **자동 판독과 친구 기능은 안 됩니다** — 사진을 보낼 데도,
+계정을 둘 데도 없기 때문입니다. 나머지는 전부 그대로 돕니다.
 
 처음 화면에서 **"내 실제 인바디로 바로 시작"** 을 누르면 실제 InBody270 결과지 3건이 채워진 상태로 시작합니다.
 
