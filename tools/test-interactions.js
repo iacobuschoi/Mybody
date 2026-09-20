@@ -206,6 +206,12 @@ const onlyScreens = (process.env.ONLY || '').split(',').filter(Boolean);
 
 /* 앱 서버(자가호스팅) — signedIn 상태에서만 씁니다. */
 let apiProc = null, apiBase = null;
+/** 검사용 서버가 아직 살아 있는가 — 오류를 앱 탓으로 적기 전에 봅니다. */
+async function apiAlive() {
+  if (!apiBase) return true;   // 애초에 안 띄운 상태면 이 판정이 필요 없습니다
+  try { return (await fetch(apiBase + '/health')).ok; } catch (e) { return false; }
+}
+
 async function bootApi() {
   const port = 8900 + Math.floor(process.pid % 400);
   const db = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mb-sweep-')), 'sweep.db');
@@ -371,6 +377,21 @@ async function bootApi() {
 
         const errs = errors.slice();
         if (errs.length) {
+          /* 검사용 서버가 죽었으면 그건 앱의 문제가 아닙니다.
+             실제로 한 번 이걸로 속았습니다 — 다른 작업이 server.js 프로세스를
+             싹 정리하는 바람에 검사 서버까지 죽었고, 그 뒤의 클릭이 전부
+             "ERR_CONNECTION_REFUSED 오류" 로 찍혔습니다. 9건이 올라왔는데
+             전부 가짜였습니다.
+             검사가 자기 발밑이 무너진 것을 모르고 남 탓을 하면, 그 목록은
+             한 번 믿었다가 다시는 안 믿게 됩니다. 확인하고 멈춥니다. */
+          if (/ERR_CONNECTION_REFUSED|Failed to fetch/.test(errs[0]) && !(await apiAlive())) {
+            console.error('\n검사용 서버가 도중에 죽었습니다 — 여기까지의 결과는 못 믿습니다.');
+            console.error('다른 프로세스가 server.js 를 정리했거나 포트가 뺏겼을 수 있습니다.');
+            console.error('다시 돌려 주세요.\n');
+            if (apiProc) { try { apiProc.kill(); } catch (e) {} }
+            await browser.close().catch(() => {});
+            process.exit(2);
+          }
           found('오류', `${key}/${sid}/${el.uid}`, errs[0], { label: el.label });
           continue;
         }
