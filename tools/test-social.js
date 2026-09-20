@@ -72,6 +72,29 @@ async function main() {
   });
   ok('옛 문구로 한 동의는 안 통한다', wrongVer.status === 400);
   ok('동의 시각이 남는다', !!(A.json.user && A.json.user.healthConsentAt), A.json.user);
+
+  /* 보유 기간(제21조) — 52주가 지난 주간 요약은 지웁니다.
+     화면이 보는 것은 26주뿐이고, 아무도 안 보는 오래된 건강정보를
+     계속 들고 있을 이유가 없습니다. */
+  {
+    const tok = A.json.token;
+    const day = (n) => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+    /* 이번 주는 건드리지 않습니다 — 아래 공유 검사가 쓰는 행입니다.
+       여기서 덮어쓰면 그쪽이 엉뚱한 값을 보고 실패합니다. */
+    for (const d of [100, 300, 400, 800]) {
+      await call('POST', '/snapshots', { weekStart: day(d), payload: { weightKg: 80 } }, tok);
+    }
+    /* 자기 주간 요약을 읽는 HTTP 길은 없습니다(그 길은 친구용입니다).
+       보관은 저장소의 성질이므로 DB 를 직접 들여다봅니다 — 서버가
+       진짜로 지웠는지를 봐야지, 안 보여주는 것만으로는 부족합니다. */
+    const { DatabaseSync } = require('node:sqlite');
+    const sdb = new DatabaseSync(DB);
+    const weeks = sdb.prepare('SELECT week_start FROM snapshots WHERE owner_id = ? ORDER BY week_start')
+      .all(A.json.user.id).map(r => r.week_start);
+    sdb.close();
+    ok('52주 지난 주간 요약은 안 남는다',
+       weeks.length === 2 && weeks.every(w => w >= day(365)), weeks);
+  }
   const ta = A.json.token, tb = Bo.json.token;
   ok('A 로그인', !!ta, A.json);
   ok('B 로그인', !!tb, Bo.json);

@@ -204,6 +204,11 @@ function verifyCode(plain, user) {
    화면(modals.js M29)에 적힌 문구와 이 값이 같아야 합니다. */
 const HEALTH_CONSENT_VERSION = '2026-09-20';
 
+/* 주간 요약 보유 기간. 화면이 보는 26주의 두 배입니다.
+   가입 동의 문구(modals.js M29)와 처리방침(privacy.html 7번)에
+   적힌 숫자와 같아야 합니다 — 셋이 어긋나면 하나는 거짓말입니다. */
+const SNAPSHOT_WEEKS = 52 * 7;   // 일 단위 (SQLite date() 가 일로 셉니다)
+
 const SESSION_DAYS = 90;
 
 /* 바깥에서 온 값을 문자열로.
@@ -256,6 +261,10 @@ function makeApi(db) {
     setPassword: db.prepare('UPDATE users SET pw_hash=?, pw_salt=?, pw_n=? WHERE id=?'),
     setRecovery: db.prepare('UPDATE users SET rc_hash=?, rc_salt=?, rc_n=?, rc_used_at=? WHERE id=?'),
     setConsent: db.prepare('UPDATE users SET consent_health_at=?, consent_version=? WHERE id=?'),
+    /* 보유 기간이 지난 주간 요약을 버립니다. week_start 는 YYYY-MM-DD
+       문자열이라 date() 로 비교됩니다 (형식은 publishSnapshot 이 강제합니다). */
+    pruneSnaps: db.prepare(
+      "DELETE FROM snapshots WHERE owner_id = ? AND week_start < date('now', '-' || ? || ' days')"),
     sessionByToken: db.prepare('SELECT * FROM sessions WHERE token = ?'),
     touchSession: db.prepare('UPDATE sessions SET last_seen = ? WHERE token = ?'),
     deleteSession: db.prepare('DELETE FROM sessions WHERE token = ?'),
@@ -610,6 +619,18 @@ function makeApi(db) {
         return { ok: false, reason: 'weekStart 가 쓸 수 있는 범위 밖입니다' };
       }
       q.upsertSnap.run(me, wk, JSON.stringify(payload || {}), nowISO());
+      /* 보유 기간을 지킵니다.
+       *
+       * 개인정보보호법 제21조는 보유 기간이 지나면 지체 없이 파기하라고
+       * 합니다. 여기 쌓이는 것은 건강정보라 더 그렇습니다. 그런데 지금까지
+       * 스냅샷은 주 단위로 무한정 쌓였습니다 — 10년을 쓰면 520주가 남고,
+       * 친구 화면은 최근 26주만 봅니다. 아무도 안 보는 오래된 체지방
+       * 기록을 계속 들고 있을 이유가 없습니다.
+       *
+       * 52주로 둡니다. 화면이 보는 26주의 두 배이고, 가입 동의 문구와
+       * 처리방침에 적힌 숫자와 같습니다. 셋이 어긋나면 그중 하나는
+       * 거짓말이 됩니다. */
+      q.pruneSnaps.run(me, SNAPSHOT_WEEKS);
       return { ok: true };
     },
     /** 친구가 나에게 허용한 항목만. 허용 안 된 키는 응답 객체에 존재하지 않습니다. */

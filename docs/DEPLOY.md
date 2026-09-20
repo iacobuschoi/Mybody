@@ -61,8 +61,16 @@ OWNER="$MYBODY_OWNER" OWNER_CONTACT="$MYBODY_CONTACT" node tools/build-release.j
 PAIR_SECRET=$(cat ~/.mybody-pair) \
 STATIC=./release \
 ORIGIN=https://내주소.example.com \
+TRUST_PROXY=1 \
 node server/server.js
 ```
+
+`TRUST_PROXY=1` 은 터널을 쓸 때 넣으세요. 터널 뒤에서는 모든 사람이
+같은 IP 로 보이는데, 서버의 요청 제한은 IP 당입니다 — 넣지 않으면
+다섯 명이 분당 300 회를 나눠 쓰고, 한 사람이 많이 쓰면 나머지가
+막힙니다. 터널(cloudflared)이 붙여 주는 실제 IP 를 믿고 사람별로
+셉니다. **터널 없이 직접 여는 경우에는 넣지 마세요** — 그러면
+아무나 헤더를 꾸며서 제한을 우회할 수 있습니다.
 
 `STATIC=./release` 가 핵심입니다. 이걸 빼면 개발 빌드(`prototype/`)가 나가고,
 쓰는 사람 화면에 고유번호 배지가 전부 뜹니다.
@@ -136,9 +144,16 @@ cloudflared tunnel --url http://localhost:8080
 ## 5. 백업
 
 ```bash
-# crontab -e 에 한 줄
+# crontab -e 에 두 줄
 0 4 * * * sqlite3 ~/Mybody/server/mybody.db ".backup ~/backup/mybody-$(date +\%F).db"
+5 4 * * * find ~/backup -name 'mybody-*.db' -mtime +30 -delete
 ```
+
+둘째 줄을 빼먹지 마세요. 누가 계정을 지워도 백업본에는 그 사람의
+체중·체지방 기록이 그대로 남습니다. 지우기로 한 것이 어딘가에 남아
+있으면 지운 게 아닙니다. 30일은 "실수로 지웠을 때 되살릴 수 있는
+기간" 과 "필요 없는 건강정보를 오래 안 들고 있기" 사이에서 고른
+숫자이고, 앱이 사용자에게 말하는 숫자와 같습니다.
 
 DB 파일 하나에 전부 들어 있습니다. 사진은 서버가 아니라 각자 기기에만
 있으므로 백업 대상이 아닙니다 — 그 말은 폰을 잃어버리면 사진도 같이

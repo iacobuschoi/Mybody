@@ -23,6 +23,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const crypto = require('crypto');
 
 const ROOT = path.join(__dirname, '..');
 const SRC = path.join(ROOT, 'prototype');
@@ -35,12 +36,32 @@ const DEV_ONLY = new Set([
   'css/uid.css'              // 고유번호 배지 스타일
 ]);
 
-function version() {
+/* 버전 문자열은 서비스워커의 캐시 이름이 됩니다. 이름이 같으면
+ * 브라우저는 이미 받아 둔 것을 그대로 씁니다 — 내용이 달라도요.
+ *
+ * 예전엔 커밋 SHA + '-dirty' 뿐이었습니다. 커밋 없이 고치고 다시
+ * 빌드하면 내용은 다른데 이름이 같아서, 올려도 사용자 화면은 안
+ * 바뀌었습니다. 고쳤는데 안 고쳐진 것처럼 보이는 상태입니다 —
+ * 그 상태로 한참 헤매게 됩니다.
+ *
+ * 더티일 때는 올릴 파일 전체의 해시를 붙입니다. 내용이 다르면
+ * 이름이 다릅니다. */
+function version(files, override) {
+  let sha = 'nogit', dirty = '';
   try {
-    const sha = execSync('git rev-parse --short HEAD', { cwd: ROOT }).toString().trim();
-    const dirty = execSync('git status --porcelain', { cwd: ROOT }).toString().trim();
-    return sha + (dirty ? '-dirty' : '');
-  } catch { return 'nogit'; }
+    sha = execSync('git rev-parse --short HEAD', { cwd: ROOT }).toString().trim();
+    dirty = execSync('git status --porcelain', { cwd: ROOT }).toString().trim();
+  } catch { /* git 없이도 빌드는 됩니다 */ }
+  if (!dirty && sha !== 'nogit' && !override) return sha;
+  const hash = crypto.createHash('sha1');
+  (files || []).slice().sort().forEach(f => {
+    hash.update(f);
+    /* override 는 아래 점검이 씁니다 — "내용이 달라지면 버전도 달라지는가"
+       를 확인하려고 파일을 진짜로 고쳤다가 되돌리면, 하필 그 사이에
+       파일을 읽는 다른 도구가 깨진 것을 봅니다. 읽는 값만 바꿔 봅니다. */
+    hash.update((override && override[f]) || fs.readFileSync(path.join(SRC, f)));
+  });
+  return sha + '-' + hash.digest('hex').slice(0, 8);
 }
 
 function walk(dir, base = '') {
@@ -63,7 +84,7 @@ all.forEach(rel => {
 });
 
 /* --- 2. 빌드 플래그 -------------------------------------------------------- */
-const V = version();
+const V = version(all);
 const NOW = new Date().toISOString();
 
 /* 속성만 정확히 집어서 바꿉니다.
@@ -208,6 +229,21 @@ shell.forEach(f => {
   if (seenShell.has(u)) problems.push('껍데기 목록에 같은 주소가 두 번: ' + f);
   seenShell.add(u);
 });
+/* 버전이 실제로 내용을 따라가는지 — 서비스워커 캐시 이름이 이 값입니다.
+   같은 내용이면 같아야 하고, 한 글자라도 다르면 달라야 합니다.
+   예전엔 커밋 SHA 뿐이라, 커밋 없이 고치고 다시 빌드하면 이름이 같아서
+   올려도 사용자 화면이 안 바뀌었습니다. */
+{
+  const again = version(all);
+  if (again !== V) problems.push('같은 내용인데 버전이 달라집니다: ' + V + ' vs ' + again);
+  const one = all[0];
+  const changed = Buffer.concat([fs.readFileSync(path.join(SRC, one)), Buffer.from('\n// x\n')]);
+  const shifted = version(all, { [one]: changed });
+  if (shifted === V) {
+    problems.push('내용이 달라졌는데 버전이 그대로입니다 — 서비스워커가 안 갈립니다');
+  }
+}
+
 const bytes = outFiles.reduce((n, f) => n + fs.statSync(path.join(OUT, f)).size, 0);
 
 console.log(`release/ — 파일 ${outFiles.length}개 · ${(bytes / 1024).toFixed(0)}KB · ${V}`);
