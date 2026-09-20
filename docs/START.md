@@ -163,17 +163,55 @@ node tools/serve.js --setup --origin="https://mybody.내도메인.com"
 
 ### 백업
 
-데이터베이스는 `server/mybody.db` 파일 하나입니다. 계정 · 친구 관계 · 주간 요약이
-전부 여기 있습니다. 측정 기록은 여기 없습니다 — 각자 폰에 있습니다.
-
 ```bash
-# 하루 한 번 백업 + 30일 지난 것 지우기 (crontab -e)
-0 4 * * * sqlite3 ~/Mybody/server/mybody.db ".backup ~/backup/mybody-$(date +\%F).db"
-5 4 * * * find ~/backup -name 'mybody-*.db' -mtime +30 -delete
+node tools/backup.js
 ```
 
-둘째 줄을 빼먹지 마세요. 누가 계정을 지워도 백업본에는 그 사람의 몸 숫자가
-그대로 남습니다. 지우기로 한 것이 어딘가에 남아 있으면 지운 게 아닙니다.
+서버를 끄지 않아도 됩니다. `~/mybody-backups/` 에 그날 날짜로 하나 뜨고,
+30일 지난 것은 알아서 지웁니다.
+
+```
+백업했습니다: /Users/나/mybody-backups/mybody-2026-09-20.db  (68KB)
+  계정 3명 · 친구 0건 · 주간 요약 0건
+```
+
+계정 수까지 찍어 주는 이유가 있습니다 — **파일을 그냥 복사하면 안 됩니다.**
+서버가 켜져 있는 동안 새 기록은 `mybody.db-wal` 이라는 곁파일에 쌓이고
+본파일은 거의 안 자랍니다. 계정을 하나 만든 직후 실제로 이랬습니다:
+
+```
+mybody.db       4,096 바이트
+mybody.db-wal 152,472 바이트   ← 계정이 여기 있습니다
+```
+
+이때 `mybody.db` 만 복사하면 **테이블조차 없는 파일**이 나옵니다. 백업한 줄
+알았는데 아무것도 없는 상태가 제일 나쁩니다. `tools/backup.js` 는 SQLite 에게
+직접 온전한 사본을 만들게 시킵니다.
+
+(Ctrl+C 로 제대로 끄면 곁파일이 본파일에 합쳐져서 파일 하나가 됩니다.
+그때는 복사해도 됩니다. 하지만 켜져 있을 때 뜨는 백업이 훨씬 자주 필요합니다.)
+
+```bash
+# 매일 새벽 4시 (crontab -e)
+0 4 * * * cd ~/Mybody && /usr/local/bin/node tools/backup.js
+```
+
+`node` 의 전체 경로를 적으세요 — 크론에는 평소 쓰는 PATH 가 없습니다.
+`which node` 로 확인할 수 있습니다.
+
+되돌릴 때는 **서버를 먼저 끄고**:
+
+```bash
+node tools/backup.js --list                                  # 뭐가 있나
+node tools/backup.js --restore ~/mybody-backups/mybody-2026-09-20.db
+```
+
+지금 파일은 `.before-…` 로 옆에 치워 두니, 되돌린 게 마음에 안 들면
+그걸로 돌아갈 수 있습니다.
+
+> 30일 지난 백업을 지우는 것은 예의가 아니라 약속입니다. 누가 계정을 지워도
+> 옛 백업에는 그 사람의 몸 숫자가 그대로 남습니다. 지우기로 한 것이 어딘가에
+> 남아 있으면 지운 게 아닙니다. 방침에도 "최대 30일" 이라고 적혀 있습니다.
 
 ---
 

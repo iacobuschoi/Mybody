@@ -155,7 +155,13 @@ async function setup() {
 
   console.log('사진에서 숫자를 자동으로 읽게 하려면 Anthropic API 키가 필요합니다.');
   console.log('없어도 앱은 그대로 씁니다 — 숫자를 직접 넣으면 됩니다. 비워도 됩니다.');
-  cfg.anthropicKey = await ask('  ANTHROPIC_API_KEY:', cfg.anthropicKey);
+  /* 이미 넣어 둔 키를 기본값으로 화면에 찍으면, 설정을 다시 돌릴 때마다
+     터미널 기록에 키가 남습니다. 남이 어깨 너머로 보기도 하고요.
+     가려서 보여주고, 그냥 엔터면 있던 값을 그대로 둡니다. */
+  const keyShown = cfg.anthropicKey
+    ? cfg.anthropicKey.slice(0, 7) + '…(그대로 두려면 엔터)' : '';
+  const keyIn = await ask('  ANTHROPIC_API_KEY:', keyShown);
+  cfg.anthropicKey = (keyIn === keyShown) ? cfg.anthropicKey : keyIn;
   console.log('');
 
   console.log('밖에서(터널로) 열 거면 그 주소를 적어 주세요. 집 안에서만 쓸 거면 비워 두세요.');
@@ -234,9 +240,13 @@ function envFor(cfg) {
   if (cfg.origin) e.ORIGIN = cfg.origin;
   if (cfg.trustProxy) e.TRUST_PROXY = '1';
   /* node:sqlite 가 시작할 때마다 "experimental" 경고를 찍습니다.
-     맞는 말이지만, 서버를 띄울 때마다 빨간 줄이 보이면 쓰는 사람은
-     뭔가 잘못된 줄 압니다. 우리가 아는 경고라 끕니다 — 다른 경고를
-     같이 끄는 것이 아니라, 이 명령으로 띄운 서버에서만입니다. */
+     맞는 말이지만, 서버를 띄울 때마다 영문 경고가 보이면 쓰는 사람은
+     뭔가 잘못된 줄 압니다.
+     이 스위치는 그 경고만이 아니라 노드의 경고를 전부 끕니다 —
+     이 명령으로 띄운 서버 한 프로세스 안에서만입니다. 서버가 하는
+     말(포트 충돌 · 개발 빌드 경고 등)은 console 로 찍으므로 그대로
+     보입니다. 개발 중에 노드 경고를 보고 싶으면 serve.js 말고
+     server.js 를 직접 띄우세요. */
   e.NODE_NO_WARNINGS = '1';
   return e;
 }
@@ -244,6 +254,19 @@ function envFor(cfg) {
 function needsBuild() {
   const rel = path.join(ROOT, 'release', 'index.html');
   if (!fs.existsSync(rel)) return true;
+
+  /* 원본 파일만 보면 "설정에서 운영자 이름을 바꿨는데 방침에는 옛 이름이
+     그대로" 인 상태가 됩니다. 이름은 빌드할 때 방침에 박히는데, 이름을
+     바꿔도 prototype/ 은 안 건드려지니까요. 실제로 박힌 값을 봅니다. */
+  const cfg = readConfig();
+  const priv = path.join(ROOT, 'release', 'privacy.html');
+  if (!fs.existsSync(priv)) return true;
+  const txt = fs.readFileSync(priv, 'utf8');
+  if (cfg.owner && !txt.includes(cfg.owner)) return true;
+  if (cfg.ownerContact && !txt.includes(cfg.ownerContact)) return true;
+  /* 연락처를 지웠으면 기본 문구로 돌아가 있어야 합니다 */
+  if (!cfg.ownerContact && !txt.includes('따로 적어 두지 않았습니다')) return true;
+
   const built = fs.statSync(rel).mtimeMs;
   let newest = 0;
   const walk = d => {

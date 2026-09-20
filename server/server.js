@@ -586,6 +586,28 @@ if (require.main === module) {
     process.exit(1);
   });
 
+  /* 끌 때 데이터베이스를 닫습니다.
+   *
+   * 안 닫으면 WAL(앞서 쓴 기록이 쌓이는 곁파일)이 그대로 남습니다.
+   * 그 상태에서는 mybody.db 만 복사해도 빈 파일입니다 — 실제로
+   * 확인했습니다: 계정 하나를 만든 직후 mybody.db 는 4KB 이고,
+   * 그걸 복사하면 users 테이블조차 없습니다. 백업한 줄 알았는데
+   * 아무것도 없는 상황이 제일 나쁩니다.
+   *
+   * 닫으면 SQLite 가 WAL 을 본파일에 합치고 곁파일을 지웁니다.
+   * 그러면 파일 하나만 챙겨도 온전합니다. */
+  let closing = false;
+  const shutdown = (sig) => {
+    if (closing) return;
+    closing = true;
+    console.log('\n' + sig + ' — 정리하고 끕니다...');
+    try { server.close(); } catch (e) {}
+    try { db.close(); } catch (e) { console.error('데이터베이스를 못 닫았습니다:', e.message); }
+    process.exit(0);
+  };
+  process.on('SIGINT', () => shutdown('Ctrl+C'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+
   server.listen(PORT, () => {
     console.log('Mybody 서버 실행 중');
     console.log('  주소   http://localhost:' + PORT);

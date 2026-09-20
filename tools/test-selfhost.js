@@ -90,8 +90,11 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     ok('0 으로 끝난다', r.status === 0, (r.stdout || '').slice(-400));
     ok('"띄울 수 있습니다" 라고 말한다', /띄울 수 있습니다/.test(r.stdout || ''));
     ok('칠 명령을 그대로 준다', /node tools\/serve\.js/.test(r.stdout || ''), (r.stdout||'').slice(-300));
-    ok('확인한 포트를 그 명령에 싣는다', new RegExp('PORT=' + port).test(r.stdout || ''),
-       (r.stdout || '').slice(-300));
+    /* 없는 파일을 읽는 명령을 알려주면 안 됩니다. ~/.mybody-pair 는
+       이제 아무 도구도 안 만드는데, 예전 doctor 는 그걸 cat 하라고
+       했습니다 — 그대로 치면 빈 값이 들어가 서버가 안 뜹니다. */
+    ok('아무도 안 만드는 파일을 읽으라고 안 한다',
+       !/\.mybody-pair/.test(r.stdout || ''), (r.stdout || '').slice(-300));
   }
 
   console.log('\n[4] 포트가 차 있으면 사람이 읽을 수 있게 말한다');
@@ -249,6 +252,142 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
         await wait(300);
       }
     }
+  }
+
+  /* --------------------------------------------------------------------
+   * [8] 백업이 실제로 데이터를 담는가
+   *
+   * 이 데이터베이스는 WAL 방식입니다. 서버가 켜져 있는 동안 새 기록은
+   * 곁파일에 쌓이고 본파일은 거의 안 자랍니다. 계정을 하나 만든 직후
+   * mybody.db 는 4KB 이고, 그걸 복사하면 users 테이블조차 없습니다.
+   * 백업한 줄 알았는데 아무것도 없는 상태가 제일 나쁩니다.
+   * ------------------------------------------------------------------ */
+  console.log('\n[7-2] 설정을 바꾸면 다시 빌드한다');
+  {
+    /* 운영자 이름은 빌드할 때 방침에 박힙니다. 이름만 바꾸면 prototype/ 은
+       안 건드려지니, 파일 시각만 보는 판정으로는 "빌드는 최신" 이 됩니다 —
+       방침에는 남의 이름이 그대로 남습니다. */
+    const cfgFile = path.join(HOME, '.mybody', 'config.json');
+    const cfg = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
+    cfg.owner = '바뀐 이름';
+    cfg.port = await freePort();
+    fs.writeFileSync(cfgFile, JSON.stringify(cfg));
+
+    const child = spawn(process.execPath, [path.join(ROOT, 'tools', 'serve.js')],
+      { cwd: ROOT, env: baseEnv() });
+    let out = '';
+    child.stdout.on('data', d => { out += d; });
+    child.stderr.on('data', d => { out += d; });
+    let up = false;
+    for (let i = 0; i < 80; i++) {
+      try { if ((await fetch('http://127.0.0.1:' + cfg.port + '/health')).ok) { up = true; break; } } catch (e) {}
+      await wait(250);
+    }
+    ok('서버가 뜬다', up, out.slice(-300));
+    if (up) {
+      const pv = await fetch('http://127.0.0.1:' + cfg.port + '/privacy.html').then(r => r.text());
+      ok('바뀐 이름이 방침에 박힌다', pv.includes('바뀐 이름'), pv.slice(0, 200));
+      ok('옛 이름이 안 남는다', !pv.includes('검사 주인'));
+    }
+    child.kill();
+    await wait(400);
+  }
+
+  console.log('\n[8] 서버가 켜진 채로 뜬 백업에 데이터가 들어 있다');
+  {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-bk-'));
+    const db = path.join(dir, 'mybody.db');
+    const out = path.join(dir, 'backups');
+    const port = await freePort();
+    const env = Object.assign(baseEnv(), {
+      PORT: String(port), PAIR_SECRET: 'bk-secret', DB: db,
+      STATIC: path.join(ROOT, 'release')
+    });
+    const srv = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')],
+      { cwd: ROOT, env: env, stdio: 'ignore' });
+    let up = false;
+    for (let i = 0; i < 60; i++) {
+      try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) { up = true; break; } } catch (e) {}
+      await wait(200);
+    }
+    ok('검사용 서버가 뜬다', up);
+
+    if (up) {
+      for (const h of ['bka', 'bkb']) {
+        await fetch(`http://127.0.0.1:${port}/api/auth/signup`, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ handle: h, password: 'backup-password-1', displayName: h,
+                                 pairSecret: 'bk-secret', healthConsent: '2026-09-20' })
+        }).catch(() => {});
+      }
+
+      /* 정말로 본파일이 비어 있는지 먼저 확인합니다 — 이 검사가 지키려는
+         상황이 실재하는지부터 봐야 합니다. 안 그러면 언젠가 WAL 이 아니게
+         바뀌어도 이 검사는 계속 통과합니다. */
+      const { DatabaseSync } = require('node:sqlite');
+      let rawCopyRows = null;
+      const raw = path.join(dir, 'naive-copy.db');
+      fs.copyFileSync(db, raw);
+      try {
+        const d = new DatabaseSync(raw, { readOnly: true });
+        rawCopyRows = d.prepare('SELECT COUNT(*) c FROM users').get().c;
+        d.close();
+      } catch (e) { rawCopyRows = 'no-table'; }
+      ok('그냥 복사하면 쓸모없다 (이 검사가 지킬 값이 있다)',
+         rawCopyRows === 'no-table' || rawCopyRows === 0, rawCopyRows);
+
+      const b = run(['tools/backup.js', '--out=' + out], Object.assign(env, { DB: db }));
+      ok('백업이 끝난다', b.status === 0, (b.stderr || b.stdout || '').slice(0, 200));
+      ok('몇 명이 들어갔는지 말해 준다', /계정 2명/.test(b.stdout || ''), b.stdout);
+
+      const made = fs.existsSync(out) ? fs.readdirSync(out).filter(f => f.endsWith('.db')) : [];
+      ok('백업 파일이 생긴다', made.length === 1, made);
+      if (made.length) {
+        const d = new DatabaseSync(path.join(out, made[0]), { readOnly: true });
+        ok('백업본에 계정이 들어 있다', d.prepare('SELECT COUNT(*) c FROM users').get().c === 2);
+        d.close();
+      }
+
+      /* 켜져 있을 때 되돌리려 하면 막아야 합니다 — 켠 채로 바꾸면
+         서버가 옛 데이터로 도로 덮어씁니다. */
+      const bad = run(['tools/backup.js', '--restore=' + path.join(out, made[0] || 'x.db')],
+        Object.assign(env, { DB: db }));
+      ok('켜져 있으면 되돌리기를 막는다',
+         bad.status !== 0 && /아직 켜져 있습니다/.test((bad.stderr || '') + (bad.stdout || '')),
+         (bad.stderr || bad.stdout || '').slice(0, 160));
+    }
+
+    /* 제대로 끄면 곁파일이 본파일에 합쳐져야 합니다 */
+    srv.kill('SIGTERM');
+    await wait(1500);
+    ok('끄면 곁파일이 사라진다 (파일 하나로 온전해진다)',
+       !fs.existsSync(db + '-wal'), fs.readdirSync(dir));
+
+    if (up) {
+      const { DatabaseSync } = require('node:sqlite');
+      const after = path.join(dir, 'after-close.db');
+      fs.copyFileSync(db, after);
+      let n = null;
+      try { const d = new DatabaseSync(after, { readOnly: true });
+            n = d.prepare('SELECT COUNT(*) c FROM users').get().c; d.close(); } catch (e) { n = 'ERR'; }
+      ok('끈 뒤에는 그냥 복사해도 온전하다', n === 2, n);
+
+      /* 되돌리기 — 서버가 꺼진 지금은 돼야 합니다 */
+      const made2 = fs.readdirSync(out).filter(f => f.endsWith('.db'));
+      const d0 = new DatabaseSync(db);
+      d0.exec('DELETE FROM users');
+      d0.close();
+      const r = run(['tools/backup.js', '--restore=' + path.join(out, made2[0])],
+        Object.assign(env, { DB: db }));
+      await wait(400);
+      ok('꺼져 있으면 되돌려진다', /되돌렸습니다/.test(r.stdout || ''), (r.stdout || r.stderr || '').slice(0, 200));
+      const d2 = new DatabaseSync(db, { readOnly: true });
+      ok('되돌린 뒤 계정이 살아난다', d2.prepare('SELECT COUNT(*) c FROM users').get().c === 2);
+      d2.close();
+      ok('옛 파일을 옆에 치워 둔다',
+         fs.readdirSync(dir).some(f => /\.before-/.test(f)), fs.readdirSync(dir));
+    }
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 
   console.log(`\n통과 ${pass} / 실패 ${fail}`);

@@ -204,12 +204,15 @@ console.log('띄울 수 있습니다.' + (warned.length ? '  (! ' + warned.lengt
 console.log('');
 if (CONFIG.exists()) {
   /* 설정을 이미 만들어 둔 사람에게 환경변수 다섯 개짜리 명령을 다시
-     보여줄 이유가 없습니다. 짧은 길이 있으면 짧은 길을 알려줍니다. */
+     보여줄 이유가 없습니다. 짧은 길이 있으면 짧은 길만 알려줍니다.
+     예전엔 "직접 띄우려면" 하고 PAIR_SECRET=$(cat ~/.mybody-pair) 를
+     같이 찍었는데, 그 파일은 이제 아무 도구도 안 만듭니다 — 그대로
+     치면 빈 값이 들어가서 서버가 안 뜹니다. 없는 길을 알려주느니
+     안 알려주는 게 낫습니다. */
   console.log('  node tools/serve.js');
-  console.log('');
-  console.log('  (직접 띄우려면)  ' + startCommand());
 } else {
-  console.log('  ' + startCommand());
+  console.log('  node tools/serve.js --setup     # 한 번만');
+  console.log('  node tools/serve.js');
 }
 console.log('');
 console.log('  그다음 브라우저에서 http://localhost:' + PORT);
@@ -256,25 +259,4 @@ function newestMtime(dir) {
   };
   try { walk(dir); } catch (e) {}
   return newest;
-}
-
-function startCommand() {
-  /* 지금 이 검사에서 쓰인 설정을 그대로 실어 줍니다. 기본값과 다른
-     포트로 확인해 놓고 명령에는 기본 포트가 적혀 있으면, 그 사람은
-     방금 비어 있다고 확인한 포트가 아닌 다른 포트로 띄웁니다. */
-  const parts = [];
-  if (PORT !== 8080) parts.push(['PORT', String(PORT)]);
-  parts.push(['STATIC', './release']);
-  if ((process.env.ANTHROPIC_API_KEY || '').trim()) parts.push(['ANTHROPIC_API_KEY', '...']);
-
-  /* 윈도우 PowerShell 은 VAR=값 앞자리 문법을 안 씁니다.
-     맞는 문법을 안 알려주면 딱 거기서 막힙니다. */
-  if (WIN) {
-    const sets = ['$env:PAIR_SECRET=(Get-Content ~\\.mybody-pair)']
-      .concat(parts.map(([k, v]) => '$env:' + k + '="' + v + '"'));
-    return sets.join('; ') + '; node server/server.js';
-  }
-  return ['PAIR_SECRET=$(cat ~/.mybody-pair)']
-    .concat(parts.map(([k, v]) => k + '=' + v))
-    .concat(['node server/server.js']).join(' ');
 }
