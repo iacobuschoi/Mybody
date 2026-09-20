@@ -555,6 +555,60 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
+  console.log('\n[8-3] 한글·공백이 든 경로에서도 돈다');
+  {
+    /* 윈도우면 C:\Users\아무개\내 문서\... 가 흔하고, 맥에서도 한글
+       폴더를 씁니다. 경로에 공백이 있으면 따옴표를 빠뜨린 자리가
+       바로 깨집니다. */
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-한글 공백-'));
+    const db = path.join(dir, '내 데이터', 'mybody.db');
+    const out = path.join(dir, '백업 폴더');
+    fs.mkdirSync(path.dirname(db), { recursive: true });
+
+    const d = run(['tools/doctor.js'], Object.assign(baseEnv(), { DB: db }));
+    ok('doctor 가 돈다', /띄울 수 있습니다|못 띄웁니다/.test(d.stdout || ''), (d.stdout || '').slice(-200));
+
+    /* 백업도 — 먼저 서버를 한 번 띄워 DB 를 만듭니다 */
+    const port = await freePort();
+    const srv = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')],
+      { cwd: ROOT, stdio: 'ignore', env: Object.assign(baseEnv(), {
+          PORT: String(port), PAIR_SECRET: 'x', DB: db, STATIC: path.join(ROOT, 'release') }) });
+    let up = false;
+    for (let i = 0; i < 60; i++) {
+      try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) { up = true; break; } } catch (e) {}
+      await wait(200);
+    }
+    ok('서버가 한글 경로의 DB 로 뜬다', up, db);
+    srv.kill();
+    await wait(800);
+
+    const b = run(['tools/backup.js', '--out=' + out], Object.assign(baseEnv(), { DB: db }));
+    ok('백업이 한글·공백 경로에 떨어진다',
+       b.status === 0 && fs.existsSync(out) && fs.readdirSync(out).some(f => f.endsWith('.db')),
+       (b.stdout || b.stderr || '').slice(0, 200));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  console.log('\n[8-4] git 저장소가 아니어도 조용히 빌드된다');
+  {
+    /* ZIP 으로 받으면 .git 이 없습니다. 예전엔 git 이 자기 오류를
+       터미널에 그대로 찍어서 — fatal: not a git repository — 빌드는
+       멀쩡히 되는데 화면에 fatal 이 두 줄 떴습니다. 쓰는 사람은
+       뭔가 망가진 줄 압니다. */
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-nogit-'));
+    for (const f of ['prototype', 'tools', 'server']) {
+      fs.cpSync(path.join(ROOT, f), path.join(dir, f), { recursive: true });
+    }
+    const r = spawnSync(process.execPath, [path.join(dir, 'tools', 'build-release.js')],
+      { cwd: dir, encoding: 'utf8',
+        env: Object.assign(baseEnv(), { OWNER: '주인', OWNER_CONTACT: 'a@b' }), timeout: 120000 });
+    const all = (r.stdout || '') + (r.stderr || '');
+    ok('빌드가 된다', r.status === 0, all.slice(-300));
+    ok('git 오류가 안 샌다', !/fatal:/.test(all), all.slice(0, 200));
+    ok('버전이 내용을 따라간다', /nogit-[0-9a-f]{8}/.test(r.stdout || ''), (r.stdout || '').slice(0, 120));
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
   console.log('\n[9] 자동 시작 · 더블클릭 실행');
   {
     /* 자동 시작은 평소 쓰는 PATH 도 HOME 도 안 물려받습니다. 손으로 적은

@@ -49,8 +49,14 @@ const DEV_ONLY = new Set([
 function version(files, override) {
   let sha = 'nogit', dirty = '';
   try {
-    sha = execSync('git rev-parse --short HEAD', { cwd: ROOT }).toString().trim();
-    dirty = execSync('git status --porcelain', { cwd: ROOT }).toString().trim();
+    /* git 이 없거나 이 폴더가 저장소가 아니면(ZIP 으로 받은 경우)
+       git 이 자기 오류를 터미널에 그대로 찍습니다:
+         fatal: not a git repository (or any of the parent directories)
+       빌드는 멀쩡히 되는데 화면에는 fatal 이 두 줄 뜨니, 쓰는 사람은
+       뭔가 망가진 줄 압니다. 오류는 삼키고 내용 해시로 갑니다. */
+    const q = { cwd: ROOT, stdio: ['ignore', 'pipe', 'ignore'] };
+    sha = execSync('git rev-parse --short HEAD', q).toString().trim();
+    dirty = execSync('git status --porcelain', q).toString().trim();
   } catch { /* git 없이도 빌드는 됩니다 */ }
 
   /* 운영자 이름·연락처도 빌드 결과에 들어갑니다(처리방침에 박힙니다).
