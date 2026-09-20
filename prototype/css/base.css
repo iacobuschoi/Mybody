@@ -368,3 +368,63 @@ hr.sep { border:none; border-top:1px solid var(--border); margin:14px 0; }
 .muted { color: var(--text-3); font-size:12px; }
 .nowrap { white-space: nowrap; }
 .num { font-variant-numeric: tabular-nums; }
+
+/* --- 주간 운동 칸 --------------------------------------------------------
+   일곱 칸이 한 줄에 들어가야 합니다. 두 줄로 접히면 "이번 주"가 아니라
+   그냥 목록이 되고, 한눈에 보는 의미가 사라집니다. 가장 좁은 폰(320px)
+   에서도 칸 하나가 38px 은 되도록 gap 을 작게 잡았습니다. */
+.wk { display:grid; grid-template-columns: repeat(7, 1fr); gap:4px; }
+.wk__d {
+  border:1px solid var(--border); border-radius:10px; background: var(--surface);
+  padding:7px 0 6px; cursor:pointer; display:grid; gap:3px; justify-items:center;
+  font: inherit; color: inherit; min-height:56px; align-content:center;
+}
+.wk__d:hover { background: var(--surface-2); }
+.wk__d:active { transform: translateY(1px); }
+.wk__dow { font-size:10.5px; font-weight:700; color: var(--text-3); }
+.wk__num { font-size:14px; font-weight:800; font-variant-numeric: tabular-nums; line-height:1; }
+.wk__d.is-today { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.wk__d.is-today .wk__dow { color: var(--accent); }
+/* 계획이 없는 날은 흐리게 — 비어 있다는 것이 한눈에 보여야 합니다 */
+.wk__d.is-rest { opacity:.5; }
+/* 지나갔는데 못 한 날. 빨간색을 쓰지 않습니다 — 홈 화면에서 매일 보는
+   빨간 칸은 독려가 아니라 매일 하는 비난입니다. 점선으로만 구분합니다. */
+.wk__d.is-missed { border-style: dashed; }
+.wk__marks { display:flex; gap:3px; min-height:9px; align-items:center; }
+.wk__m { width:8px; height:8px; border-radius:3px; border:1.5px solid var(--muscle); }
+.wk__m--cardio { border-color: var(--fat); }
+.wk__m.is-done { background: var(--muscle); }
+.wk__m--cardio.is-done { background: var(--fat); }
+
+/* --- 스트릭 -------------------------------------------------------------- */
+.streaks { display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-top:12px;
+  padding-top:12px; border-top:1px solid var(--border); }
+.streak { display:grid; grid-template-columns: auto 1fr; align-items:center; gap:8px;
+  padding:8px 10px; border:1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface-2); }
+.streak.is-on { border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+  background: var(--accent-sub); }
+.streak__ico { font-size:17px; line-height:1; }
+/* 글자가 접히면 "운동 연 / 속" 처럼 잘려 보입니다. 좁은 폰에서 두 칸이
+   나란히 서므로 한 칸이 150px 밑으로 내려갑니다 — 줄바꿈 대신 말줄임. */
+.streak__body { min-width:0; }
+.streak__v { font-size:14px; font-weight:800; font-variant-numeric: tabular-nums;
+  white-space:nowrap; line-height:1.25; }
+.streak.is-on .streak__v { color: var(--accent); }
+.streak__k { font-size:11px; color: var(--text-3); font-weight:600;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+/* 아주 좁은 폰(320px)에서는 두 칸이 나란히 서면 "운동 · 오늘 남…" 으로
+   잘립니다. 잘린 설명은 없는 설명이므로 그 폭에서는 한 줄에 하나씩 놓습니다. */
+@media (max-width: 359px) { .streaks { grid-template-columns: 1fr; } }
+
+/* --- 하루 정하기 (M51) --------------------------------------------------- */
+.daypick { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.daypick__main { flex:1; display:flex; align-items:center; gap:9px; text-align:left;
+  padding:11px 12px; border:1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--surface); cursor:pointer; font: inherit; color: var(--text); }
+.daypick__main:hover { background: var(--surface-2); }
+.daypick.is-on .daypick__main { border-color: var(--accent); background: var(--accent-sub); }
+.daypick__ico { font-size:17px; line-height:1; }
+.daypick__t { font-weight:700; font-size:13.5px; }
+.daypick__s { margin-left:auto; font-size:11.5px; color: var(--text-3); font-weight:600; }
+.daypick.is-on .daypick__s { color: var(--accent); }

@@ -45,6 +45,9 @@
               onClick: function () { S.seed(); global.MB_UID.toast('실제 인바디 3건을 불러왔습니다'); A.refresh(); } })
           ]) : null
         ]));
+        /* 인바디가 없어도 운동 일정은 쓸 수 있습니다. 체중을 모른다고
+           월요일에 헬스 가기로 못 정할 이유가 없습니다. */
+        wrap.appendChild(weekCard());
         return;
       }
 
@@ -423,6 +426,9 @@
         ]));
       }
 
+      /* --- C08 이번 주 운동 --- */
+      wrap.appendChild(weekCard());
+
       /* --- C04 플랜 (오늘 / 이번주 / 한달) ---
          전체 플랜은 20주가 넘어서 홈에서 보기엔 너무 깁니다.
          지금 무엇을 할지(오늘), 이번 주에 뭘 끝내야 하는지(이번주),
@@ -465,6 +471,179 @@
       ]));
     }
   });
+
+
+  /* --- C08 이번 주 운동 -----------------------------------------------
+     홈에 두는 이유: 이 카드가 매일 만지는 유일한 칸입니다. 인바디는
+     한 달에 한 번 보고, 이건 하루에 한 번 봅니다.
+
+     칸 하나를 누르면 그 날 무엇을 할지 정하고, 하고 나서 다시 눌러
+     체크합니다. 오늘 할 일이 있으면 카드 안에서 바로 체크할 수 있게
+     버튼을 따로 냅니다 — 매일 하는 동작을 모달 뒤에 숨기면 안 됩니다. */
+  function weekCard() {
+    var W = global.MB_SCHED;
+    var sum = W.weekSummary();
+    var card = h('div.card', { uid: 'P02-C08', uidLabel: '이번 주 운동' });
+
+    card.appendChild(h('div.card__head', [
+      h('div.card__title', { text: '이번 주 운동' }),
+      h('div.card__sub', { text: sum.plannedDays
+        ? sum.keptDays + '/' + sum.plannedDays + '일 완료'
+        : '아직 정한 날이 없습니다' })
+    ]));
+
+    /* 일곱 칸은 같은 컨트롤이 일곱 번 반복된 것이라 번호를 일곱 개 쓰지
+       않고 리스트 번호 하나에 #1..#7 을 답니다 (측정 기록 행과 같은 방식).
+       번호를 문자열 그대로 적는 것이 중요합니다 — 'P02-B' + (23+i) 처럼
+       만들면 화면에는 뜨지만 레지스트리 생성기가 소스에서 못 읽고,
+       번호 재사용을 잡는 그물에서 빠집니다. */
+    var strip = h('div.wk', { uid: 'P02-L01', uidLabel: '이번 주 일곱 칸' });
+    sum.days.forEach(function (d, i) {
+      var cls = '.wk__d' + (d.isToday ? '.is-today' : '') +
+                (d.missed ? '.is-missed' : '') +
+                (!d.plan.length && !d.isToday ? '.is-rest' : '');
+      var marks = h('div.wk__marks');
+      W.TYPES.forEach(function (t) {
+        if (d.plan.indexOf(t.id) < 0) return;
+        marks.appendChild(h('span.wk__m.wk__m--' + t.id + (d.done[t.id] ? '.is-done' : ''),
+          { 'aria-label': t.label + (d.done[t.id] ? ' 완료' : ' 예정') }));
+      });
+      strip.appendChild(h('button' + cls, {
+        uid: 'P02-L02#' + (i + 1), uidLabel: '요일 칸 ' + d.dow,
+        'aria-label': (d.dayNum) + '일 ' + d.dow + '요일, ' +
+          (d.plan.length ? d.plan.map(W.labelOf).join(' ') +
+            (d.kept ? ' 완료' : (d.missed ? ' 안 함' : ' 예정')) : '쉬는 날'),
+        onClick: function () { dayModal(d.key); }
+      }, [
+        h('div.wk__dow', { text: d.dow }),
+        h('div.wk__num', { text: String(d.dayNum) }),
+        marks
+      ]));
+    });
+    card.appendChild(strip);
+
+    /* 오늘 줄 — 카드 안에서 바로 체크 */
+    var today = null;
+    sum.days.forEach(function (d) { if (d.isToday) today = d; });
+    var row = h('div', { style: { marginTop: '12px' } });
+    if (!today || !today.plan.length) {
+      row.appendChild(h('div.muted', { text: '오늘은 정해 둔 운동이 없습니다. 칸을 눌러서 정하세요.' }));
+    } else {
+      var left = today.plan.filter(function (t) { return !today.done[t]; });
+      if (!left.length) {
+        row.appendChild(h('div.note.note--ok', { style: { marginBottom: 0 },
+          text: '오늘 할 것 다 했습니다 — ' + today.plan.map(W.labelOf).join(' · ') }));
+      } else {
+        row.appendChild(h('div.btn-row', left.map(function (t, i) {
+          return h('button.btn.btn--primary.btn--sm', {
+            text: W.typeOf(t).icon + ' ' + W.labelOf(t) + ' 했어요',
+            uid: 'P02-B23#' + (W.indexOf(t) + 1), uidLabel: '오늘 ' + W.labelOf(t) + ' 체크',
+            onClick: function () {
+              S.setScheduleDone(today.key, t, true);
+              global.MB_UID.toast(W.labelOf(t) + ' 체크했습니다');
+              A.refresh();
+            }
+          });
+        })));
+      }
+    }
+    card.appendChild(row);
+
+    /* 스트릭 — 행동에만 답니다. 몸무게에는 절대 달지 않습니다. */
+    card.appendChild(streakRow());
+    return card;
+  }
+
+  /* --- C09 스트릭 ------------------------------------------------------
+     0 일 때 "0일째"를 빨갛게 띄우지 않습니다. 홈 화면에서 매일 보는 0 은
+     독려가 아니라 매일 듣는 잔소리이고, 이 앱이 피하려는 학습된 무력감을
+     정확히 그렇게 만듭니다. 0 일 때는 앞을 봅니다 — "오늘부터 다시".
+
+     그리고 스트릭은 행동에만 답니다. 체중·골격근·체지방에는 달지 않습니다.
+     저울의 떨림으로 연속 기록을 만들면 그건 미신입니다. */
+  function streakRow() {
+    var W = global.MB_SCHED;
+    var w = W.workoutStreak(), f = W.foodStreak();
+    var box = h('div.streaks', { uid: 'P02-C09', uidLabel: '스트릭' });
+
+    function cell(icon, name, st, cold) {
+      var sub = name;
+      if (st.days && st.openToday) sub += ' · 오늘 남음';
+      else if (!st.days) sub = cold;
+      return h('div.streak' + (st.days ? '.is-on' : ''), [
+        h('div.streak__ico', { text: icon }),
+        h('div.streak__body', [
+          h('div.streak__v', { text: st.days ? st.days + '일 연속' : '—' }),
+          h('div.streak__k', { text: sub, title: sub })
+        ])
+      ]);
+    }
+    box.appendChild(cell('\uD83C\uDFCB\uFE0F', '운동', w,
+      w.everPlanned ? '오늘부터 다시' : '날을 정하면 시작'));
+    box.appendChild(cell('\uD83C\uDF5A', '식단 기록', f, '한 끼만 적어도 1일'));
+
+    box.appendChild(h('div.muted', { style: { gridColumn: '1/-1' },
+      text: '쉬는 날은 끊지 않습니다. 계획한 날만 셉니다.' }));
+    return box;
+  }
+
+  /* --- M51 하루 정하기 ------------------------------------------------- */
+  function dayModal(key) {
+    var W = global.MB_SCHED;
+    var ST = S.get();
+    var today = S.dayKey();
+    var d = new Date(key + 'T00:00:00');
+    var dow = W.DOW[(d.getDay() + 6) % 7];
+    var future = key > today;
+
+    UI.openModal({
+      uid: 'M51', title: '하루 정하기',
+      sub: (d.getMonth() + 1) + '월 ' + d.getDate() + '일 (' + dow + ') · ' +
+           (future ? '아직 오지 않은 날' : (key === today ? '오늘' : '지난 날')),
+      body: function (close) {
+        var box = h('div');
+        function draw() {
+          UI.clear(box);
+          var e = S.scheduleDay(key);
+          W.TYPES.forEach(function (t) {
+            var planned = e.plan.indexOf(t.id) >= 0;
+            var done = !!e.done[t.id];
+            var rowEl = h('div.daypick' + (planned ? '.is-on' : ''), [
+              h('button.daypick__main', {
+                uid: 'M51-L01#' + (W.indexOf(t.id) + 1), uidLabel: '하기로 정하기 ' + t.label,
+                'aria-pressed': planned ? 'true' : 'false',
+                onClick: function () { S.setSchedulePlan(key, t.id, !planned); draw(); }
+              }, [
+                h('span.daypick__ico', { text: t.icon }),
+                h('span.daypick__t', { text: t.label }),
+                h('span.daypick__s', { text: planned ? '하기로 함' : '누르면 추가' })
+              ]),
+              planned && !future ? h('button.btn.btn--sm' + (done ? '.btn--primary' : ''), {
+                text: done ? '✓ 했음' : '했어요',
+                uid: 'M51-L02#' + (W.indexOf(t.id) + 1), uidLabel: '완료 체크 ' + t.label,
+                onClick: function () { S.setScheduleDone(key, t.id, !done); draw(); }
+              }) : null
+            ]);
+            box.appendChild(rowEl);
+            /* 늦게 누른 체크는 늦게 눌렀다고 적습니다. 막지는 않습니다 —
+               갔는데 누르는 걸 잊는 쪽이 훨씬 흔합니다. */
+            if (done && e.done[t.id] && S.dayKey(e.done[t.id]) > key) {
+              box.appendChild(h('div.muted', { style: { margin: '-4px 0 8px 2px' },
+                text: UI.dateShort(e.done[t.id]) + ' 에 체크했습니다' }));
+            }
+          });
+          if (future) {
+            box.appendChild(h('div.muted', { style: { marginTop: '8px' },
+              text: '아직 오지 않은 날은 체크할 수 없습니다. 그 날 눌러주세요.' }));
+          }
+        }
+        draw();
+        return box;
+      },
+      actions: [{ label: '닫기', kind: 'primary', uid: 'M51-B01',
+        onClick: function () { A.refresh(); } }]
+    });
+  }
 
   /* NaN 을 0 으로 받습니다. Math.max/min 은 NaN 을 그대로 통과시켜서,
      0 으로 나눈 값이 화면까지 "NaN%" 로 흘러갔습니다. */

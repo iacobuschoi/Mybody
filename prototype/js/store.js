@@ -28,6 +28,7 @@
       baselinePlan: null,
       checkins: [],
       foodLogs: [],
+      schedule: {},
       foodFavorites: [],
       settings: { theme: 'auto', units: 'metric', checkinEveryWeeks: 1, defaultLevel: 'mid' },
       onboarded: false,
@@ -339,6 +340,76 @@
   }
   function isFavorite(name) { return (state.foodFavorites || []).indexOf(name) >= 0; }
 
+  /* --- 주간 운동 일정 --------------------------------------------------
+   * "월요일에 헬스" 같은 약속을 요일이 아니라 **날짜**로 저장합니다.
+   *
+   * 요일 인덱스(월=0)로 저장하면 주가 넘어가는 순간 지난주 체크가
+   * 이번주 칸에 그대로 남습니다. 월요일에 갔다고 체크한 게 다음주
+   * 월요일에도 체크돼 있으면, 스트릭은 영원히 안 끊기고 화면은
+   * 거짓말을 합니다. 날짜로 저장하면 그 일이 생길 수 없고, 덤으로
+   * 지난 기록이 그대로 남아 스트릭을 계산할 수 있습니다.
+   *
+   * 한 날의 모양: { plan: ['gym'], done: { gym: '2026-09-20T19:02:00Z' } }
+   *   plan  그 날 하기로 한 것
+   *   done  실제로 했다고 체크한 것과 체크한 시각
+   * 둘 다 비면 그 날 칸을 지웁니다 — 안 그러면 넘긴 날마다 빈 객체가
+   * 쌓여서 백업 파일이 계속 커집니다.
+   * ------------------------------------------------------------------ */
+  var SCHED_TYPES = ['gym', 'cardio'];
+
+  function scheduleDay(date) {
+    state.schedule = state.schedule || {};
+    var e = state.schedule[dayKey(date)];
+    return {
+      plan: (e && e.plan || []).slice(),
+      done: Object.assign({}, e && e.done)
+    };
+  }
+
+  function writeDay(k, e) {
+    state.schedule = state.schedule || {};
+    if (!(e.plan || []).length && !Object.keys(e.done || {}).length) delete state.schedule[k];
+    else state.schedule[k] = { plan: e.plan, done: e.done };
+    save();
+  }
+
+  /** 그 날 그 운동을 하기로 한다 / 안 하기로 한다 */
+  function setSchedulePlan(date, type, on) {
+    if (SCHED_TYPES.indexOf(type) < 0) return null;
+    var k = dayKey(date), e = scheduleDay(k);
+    var i = e.plan.indexOf(type);
+    if (on && i < 0) e.plan.push(type);
+    if (!on && i >= 0) {
+      e.plan.splice(i, 1);
+      /* 계획을 지우면 그 날의 체크도 같이 지웁니다.
+         "안 하기로 한 운동을 했다"는 상태는 화면에 그릴 자리가 없고,
+         다시 계획을 켰을 때 예전 체크가 살아나면 안 갔는데 간 것이 됩니다. */
+      delete e.done[type];
+    }
+    writeDay(k, e);
+    return scheduleDay(k);
+  }
+
+  /** 그 날 그 운동을 했다고 체크한다 / 체크를 푼다
+   *  아직 오지 않은 날은 체크할 수 없습니다 — 내일 갈 헬스를 오늘 체크하는 건
+   *  기록이 아니라 소원입니다. 대신 지나간 날은 나중에라도 체크할 수 있게
+   *  둡니다. 갔는데 누르는 걸 잊은 쪽이 훨씬 흔하고, 그걸 막으면 앱이
+   *  사실보다 나쁜 기록을 들고 있게 됩니다. 언제 눌렀는지는 남겨 둡니다. */
+  function setScheduleDone(date, type, on) {
+    if (SCHED_TYPES.indexOf(type) < 0) return null;
+    var k = dayKey(date);
+    if (k > dayKey()) return scheduleDay(k);
+    var e = scheduleDay(k);
+    if (on) {
+      if (e.plan.indexOf(type) < 0) e.plan.push(type);   // 계획에 없이 한 것도 기록은 남긴다
+      e.done[type] = new Date().toISOString();
+    } else {
+      delete e.done[type];
+    }
+    writeDay(k, e);
+    return scheduleDay(k);
+  }
+
   /* ------------------------------------------------------------------ */
   /* 주간 스냅샷 — 친구에게 나가는 값                                      */
   /*                                                                      */
@@ -442,6 +513,8 @@
     loggedDates: loggedDates, recentFoods: recentFoods,
     lastMealLike: lastMealLike, copyMeal: copyMeal, yesterdayLogs: yesterdayLogs,
     toggleFavorite: toggleFavorite, isFavorite: isFavorite,
+    SCHED_TYPES: SCHED_TYPES, scheduleDay: scheduleDay,
+    setSchedulePlan: setSchedulePlan, setScheduleDone: setScheduleDone,
     weekStartOf: weekStartOf, weeklySnapshot: weeklySnapshot, publishWeekly: publishWeekly,
     exportJSON: exportJSON, importJSON: importJSON, blank: blank
   };
