@@ -137,6 +137,10 @@ const STATES = {
   signedIn: {
     label: '로그인 · 친구 있음 (서버 필요)',
     needsServer: true,
+    /* 로그아웃을 누르면 서버가 토큰을 버립니다. 저장소를 되돌려도
+       그 토큰은 이미 죽어 있어서, 그 뒤로는 계정 화면의 나머지
+       버튼들이 전부 "사라졌습니다" 로 찍혔습니다. 다시 들어갑니다. */
+    reauth: { handle: 'sweeper', password: 'sweep-password-1' },
     setup: () => { localStorage.clear(); window.MB_STORE.seed(); },
     afterBoot: async (page, api) => {
       const PW = 'sweep-password-1';
@@ -206,8 +210,15 @@ async function bootApi() {
   const port = 8900 + Math.floor(process.pid % 400);
   const db = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mb-sweep-')), 'sweep.db');
   apiProc = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'server.js')], {
+    /* 속도 제한을 올려 둡니다.
+       전수 검사는 클릭마다 상태를 되돌리고, 되돌릴 때 로그인이 죽어
+       있으면 다시 들어갑니다. 실제 사람보다 분당 요청이 훨씬 많아서
+       IP 당 제한(기본 20/분)에 먼저 걸립니다 — 그러면 정작 보려던
+       버튼을 한 번도 못 누르고 "로그인 실패" 만 남습니다.
+       제한 자체는 test-hardening 이 따로 봅니다. */
     env: Object.assign({}, process.env, {
-      PORT: String(port), DB: db, PAIR_SECRET: 'sweep-pair-secret'
+      PORT: String(port), DB: db, PAIR_SECRET: 'sweep-pair-secret',
+      RATE_MAX: '100000', AUTH_MAX: '100000'
     }),
     stdio: 'ignore'
   });
@@ -265,8 +276,12 @@ async function bootApi() {
     const registered = await page.evaluate(() => window.MB_APP.screenIds || []);
     const screenList = (onlyScreens.length ? onlyScreens : SCREENS);
 
+    /* 로그인 상태를 되돌리는 방법. 로그아웃은 서버에도 남으므로
+       저장소만 되돌려서는 안 돌아옵니다 (restore() 주석 참고). */
+    const reauth = state.reauth || null;
+
     for (const sid of screenList) {
-      await restore(page, snapshot);
+      await restore(page, snapshot, reauth);
       const arrival = await goTo(page, sid);
       if (!arrival.ok) {
         found('유령화면', `${key}/${sid}`, `MB_APP.go('${sid}') 가 도착하지 못함 (현재 ${arrival.at})`);
@@ -326,7 +341,7 @@ async function bootApi() {
         if (el.tag === 'INPUT' && /file/.test(el.type)) continue;
 
         // 매번 같은 자리에서 출발합니다
-        await restore(page, snapshot);
+        await restore(page, snapshot, reauth);
         const back = await goTo(page, sid);
         if (!back.ok) break;
         await page.evaluate(() => {
@@ -469,11 +484,11 @@ async function bootApi() {
             healthConsent: true
           }).catch(() => window.MB_SYNC.signIn({ handle: 'destroyer', password: 'destroy-password-1' }));
           return window.MB_SYNC.status().signedIn;
-        } catch (e) { return false; }
+        } catch (e) { return 'ERR: ' + e.message; }
       });
-      if (!signedIn) {
-        found('검사못함', sid + '/' + uid, '로그인이 안 돼서 이 버튼을 못 눌렀습니다');
-        console.log(`  ${uid} — 로그인 실패 — 판정 안 함`);
+      if (signedIn !== true) {
+        found('검사못함', sid + '/' + uid, '로그인이 안 돼서 이 버튼을 못 눌렀습니다 — ' + signedIn);
+        console.log(`  ${uid} — 로그인 실패 — 판정 안 함 (${signedIn})`);
         continue;
       }
       await page.waitForTimeout(600);
@@ -564,13 +579,52 @@ async function goTo(page, sid) {
   return { ok: now === sid, at: now };
 }
 
-async function restore(page, snap) {
+/* @param {object} reauth  로그인 상태를 되돌리는 방법 (없으면 안 함)
+ *
+ * localStorage 를 되돌리는 것만으로는 로그인이 안 돌아옵니다.
+ * 로그아웃(P14-B04)은 서버에도 "이 토큰 버려" 라고 말합니다. 저장소에
+ * 토큰을 도로 써 넣어도 서버에는 이미 없어서, 다음 요청이 401 을 받고
+ * sync.js 가 조용히 로그아웃시킵니다.
+ *
+ * 그래서 로그아웃을 한 번 누른 뒤로는 그 화면의 나머지 버튼들이 전부
+ * "화면에서 사라졌습니다" 가 됐습니다. 진짜 문제가 아닌데 목록에 남는
+ * 것이 제일 나쁩니다 — 그런 줄이 하나라도 있으면 다음부터 목록을
+ * 안 보게 됩니다. */
+async function restore(page, snap, reauth) {
   await page.evaluate((s) => {
     localStorage.clear();
     Object.keys(s).forEach(k => localStorage.setItem(k, s[k]));
   }, snap);
   await page.reload({ waitUntil: 'load' });
   await page.waitForTimeout(330);
+  if (reauth) {
+    const alive = await page.evaluate(() =>
+      window.MB_SYNC ? window.MB_SYNC.status().signedIn : false);
+    if (!alive) {
+      await page.evaluate(async (a) => {
+        try { await window.MB_SYNC.signIn({ handle: a.handle, password: a.password }); } catch (e) {}
+      }, reauth);
+      await page.waitForTimeout(400);
+    }
+    /* 공유 설정도 서버에 있습니다. 저장소를 되돌려도 pull() 이 서버
+       기준으로 다시 덮어쓰므로, 앞선 클릭이 꺼 둔 항목은 그대로
+       꺼진 채입니다. 그러면 그 항목을 가리키던 행(P15-B24#n)이
+       사라지고 "못누름" 으로 찍힙니다 — 진짜 문제가 아닙니다.
+       기본값(체크인만 켜짐)으로 되돌려 놓습니다. */
+    await page.evaluate(async () => {
+      try {
+        const f = window.MB_BACKEND.listFriends().accepted || [];
+        for (const x of f) {
+          await window.MB_SYNC._api('/share/' + encodeURIComponent(x.id), {
+            method: 'PUT', body: { weightTrend: false, smmTrend: false, bfmTrend: false,
+                                   planProgress: false, streak: true, absolute: false }
+          }).catch(() => {});
+        }
+        await window.MB_SYNC.pull();
+      } catch (e) {}
+    });
+    await page.waitForTimeout(350);
+  }
   await page.evaluate(() => {
     const b = document.querySelector('.modal-backdrop .modal__actions .btn--primary');
     if (b) b.click();
