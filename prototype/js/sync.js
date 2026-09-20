@@ -369,9 +369,25 @@
   function boot() {
     if (!cfg.baseUrl) cfg.baseUrl = defaultBase();
     probe();
-    if (cfg.token) { flush(); }
+    /* 앱을 열면 서버에서 받아 옵니다.
+     *
+     * 예전엔 flush() 만 불렀는데, flush() 는 보낼 것이 없으면 즉시
+     * 돌아옵니다 — 그래서 보통은 pull() 이 아예 안 돌았습니다.
+     * 친구가 수락했는지, 친구가 이번 주에 기록했는지가 앱을 몇 번을
+     * 열어도 안 바뀌었습니다. 화면은 그 오래된 값을 확신을 갖고
+     * 보여 주고 있었고요. */
+    if (cfg.token) { flush(); pull(); }
     try {
-      global.addEventListener('online', function () { flush(); });
+      global.addEventListener('online', function () { flush(); pull(); });
+      /* 폰에서는 앱을 껐다 켜는 게 아니라 다른 앱에 갔다 오는 것이
+         보통입니다. 그때도 한 번 맞춰 옵니다 — 너무 잦지 않게
+         1분 이상 지났을 때만. */
+      global.document.addEventListener('visibilitychange', function () {
+        if (global.document.visibilityState !== 'visible') return;
+        if (!cfg.token) return;
+        var last = lastPullAt ? Date.parse(lastPullAt) : 0;
+        if (Date.now() - last > 60000) pull();
+      });
     } catch (e) {}
   }
 

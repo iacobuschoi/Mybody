@@ -7,7 +7,16 @@
   var THEMES = [['auto', '자동'], ['light', '라이트'], ['dark', '다크']];
   var BADGE_SIZES = [[9, '9px'], [10, '10px'], [11, '11px']];
   var CHECKIN_WEEKS = [[1, '1주'], [2, '2주']];
-  var VERSION_LINE = 'Mybody 프로토타입 v0.1 · 검증용';
+  /* 배포본에 "프로토타입 · 검증용" 이라고 적혀 있으면, 받은 사람은
+     미완성을 쓰고 있다고 읽습니다. 배포본에는 빌드가 박아 둔 버전을
+     적습니다 — 문제가 생겼을 때 "어느 판인지" 를 물어볼 수 있는
+     번호이기도 합니다. */
+  function versionLine() {
+    var B = global.MB_BUILD;
+    if (!B || !B.release) return 'Mybody 프로토타입 v0.1 · 검증용';
+    return 'Mybody · ' + (B.version || '?') +
+           (B.builtAt ? ' · ' + String(B.builtAt).slice(0, 10) : '');
+  }
 
   A.register('P12', {
     title: '설정', label: '설정',
@@ -171,10 +180,16 @@
             applyTheme(v);
             patch({ theme: v });
           }, theme === 'auto' ? '기기 설정(다크 모드)을 따라갑니다.' : null),
-          chipField('P12-F02', '번호 배지 크기', BADGE_SIZES, badgeSize, function (v) {
-            applyBadgeSize(v);
-            patch({ badgeSize: v });
-          }, '화면 곳곳의 고유번호 배지 글자 크기입니다. i 키로 배지를 끌 수 있습니다.')
+          /* 배지 크기 조절은 개발 빌드 전용입니다. 배포본에는 배지가
+             아예 없어서(uid.css 와 배지 생성이 다 빠집니다) 이 칸을
+             아무리 움직여도 화면이 안 바뀝니다 — 쓰는 사람에게는
+             고장 난 설정으로 보입니다. */
+          global.MB_BUILD.tools
+            ? chipField('P12-F02', '번호 배지 크기', BADGE_SIZES, badgeSize, function (v) {
+                applyBadgeSize(v);
+                patch({ badgeSize: v });
+              }, '화면 곳곳의 고유번호 배지 글자 크기입니다. i 키로 배지를 끌 수 있습니다.')
+            : null
         ]));
 
         /* ===== C03 플랜 기본값 ========================================== */
@@ -338,7 +353,7 @@
               rel: 'noopener', uid: 'P12-B15', uidLabel: '개인정보처리방침' })
           ]),
           h('hr.sep'),
-          h('div.muted', { text: VERSION_LINE }),
+          h('div.muted', { text: versionLine() }),
           h('div.muted', { text: '이 화면의 숫자는 참고용입니다. 진단이나 처방이 아닙니다.' })
         ]));
       }

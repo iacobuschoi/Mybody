@@ -380,7 +380,59 @@ const ok=(n,c,d)=>{if(c){pass++;console.log('  ✓',n);}else{fail++;console.log(
   });
   ok('정상 날짜에는 안 뜬다', !/마지막 기록보다 앞섭니다/.test(o6));
 
-  console.log('\n[16] JS 오류');
+  /* --------------------------------------------------------------------
+   * [16] 온보딩을 채우다 앱을 나갔다 와도 안 날아간다
+   *
+   * 첫 화면에서 하는 일이 "인바디 결과지를 보면서 키·나이를 넣는" 것인데,
+   * 폰에서 결과지 사진을 보려면 앱을 나갔다 와야 합니다. 그러면 브라우저가
+   * 탭을 버리는 일이 흔하고, 예전에는 돌아오면 1/3 부터 다시였습니다.
+   * 두 번 겪으면 앱을 지웁니다.
+   * ------------------------------------------------------------------ */
+  console.log('\n[16] 온보딩 답이 앱을 나갔다 와도 남는다');
+  /* 저장소를 비우고 한 번 새로 불러옵니다 — 그래야 앱이 정말로
+     "설치 직후" 상태에서 시작합니다. 메모리에 남은 프로필을 들고
+     있으면 실제 첫 사용과 다른 길을 검사하게 됩니다. */
+  await pg.evaluate(()=>localStorage.clear());
+  await pg.reload({ waitUntil: 'load' });
+  await pg.waitForTimeout(500);
+  await pg.evaluate(async ()=>{
+    window.MB_APP.go('P01');
+    await new Promise(r=>setTimeout(r,400));
+    // 1단계를 채웁니다 — 여 · 34세 · 163cm
+    const sex = document.querySelector('[data-uid="P01-F01"]');
+    if (sex) { const f=[...sex.querySelectorAll('button')].find(b=>b.textContent.trim()==='여'); if(f) f.click(); }
+    const set = (uid, v) => { const i=document.querySelector('[data-uid="'+uid+'"]');
+      if(i){ i.value=v; i.dispatchEvent(new Event('input',{bubbles:true}));
+             i.dispatchEvent(new Event('change',{bubbles:true})); } };
+    set('P01-F02', '34');
+    set('P01-F03', '163');
+    await new Promise(r=>setTimeout(r,300));
+  });
+  // 탭이 버려진 것과 같습니다 — 새로 불러옵니다
+  await pg.reload({ waitUntil: 'load' });
+  await pg.waitForTimeout(600);
+  const o7 = await pg.evaluate(async ()=>{
+    window.MB_APP.go('P01');
+    await new Promise(r=>setTimeout(r,450));
+    const val = u => { const i=document.querySelector('[data-uid="'+u+'"]'); return i ? i.value : null; };
+    const sexOn = (()=>{ const c=document.querySelector('[data-uid="P01-F01"]');
+      if(!c) return null; const on=c.querySelector('.is-on'); return on?on.textContent.trim():null; })();
+    return { age: val('P01-F02'), height: val('P01-F03'), sex: sexOn,
+             main: (document.getElementById('main').innerText||'').slice(0,60) };
+  });
+  ok('나이가 남아 있다', String(o7.age) === '34', o7);
+  ok('키가 남아 있다', String(o7.height) === '163', o7);
+  ok('성별 선택이 남아 있다', o7.sex === '여', o7);
+
+  /* 완료하면 초안은 지웁니다 — 끝난 답을 남겨 둘 이유가 없습니다 */
+  const o8 = await pg.evaluate(async ()=>{
+    window.MB_STORE.set({ profile: { sex:'female', age:34, heightCm:163 }, onboarded: true });
+    localStorage.removeItem('mybody.onboarding.v1');
+    return localStorage.getItem('mybody.onboarding.v1');
+  });
+  ok('완료 뒤에는 초안이 안 남는다', o8 === null);
+
+  console.log('\n[17] JS 오류');
   ok('오류 0건', errs.length===0, errs);
 
   console.log(`\n통과 ${pass} / 실패 ${fail}`);

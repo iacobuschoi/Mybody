@@ -9,6 +9,38 @@
   var draft = null;
   var draftFrom = null;  // 초안을 만들 때 저장소에 있던 프로필 (초기화·시드로 바뀌면 다시 만든다)
 
+  /* 그런데 클로저는 탭을 닫으면 사라집니다.
+   *
+   * 첫 화면에서 하는 일이 "인바디 결과지를 보면서 키·나이를 넣는" 것인데,
+   * 폰에서 결과지 사진을 보려면 앱을 나갔다 와야 합니다. 그러면 브라우저가
+   * 탭을 버리는 일이 흔하고, 돌아오면 1/3 부터 다시였습니다. 두 번 겪으면
+   * 앱을 지웁니다.
+   *
+   * 저장소에 붙여 둡니다. 완료하면 지웁니다 — 완료된 답은 프로필에
+   * 들어가 있으니 초안을 남겨 둘 이유가 없습니다. */
+  var DRAFT_KEY = 'mybody.onboarding.v1';
+
+  function saveDraft() {
+    try {
+      if (!draft) { localStorage.removeItem(DRAFT_KEY); return; }
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(
+        { step: step, draft: draft, from: draftFrom, at: Date.now() }));
+    } catch (e) { /* 자리가 없으면 그냥 못 남깁니다 — 입력을 막지는 않습니다 */ }
+  }
+  function loadDraft(profileKey) {
+    try {
+      var raw = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null');
+      if (!raw || !raw.draft) return null;
+      /* 밖에서 프로필이 바뀌었으면(초기화·시드) 옛 초안은 버립니다 */
+      if (raw.from !== profileKey) return null;
+      /* 일주일 넘은 초안은 버립니다. 그때 무엇을 넣던 중이었는지
+         사람도 기억 못 합니다. */
+      if (!raw.at || Date.now() - raw.at > 7 * 24 * 3600 * 1000) return null;
+      return raw;
+    } catch (e) { return null; }
+  }
+  function clearDraft() { try { localStorage.removeItem(DRAFT_KEY); } catch (e) {} }
+
   var STEPS = [
     { t: '기본 정보',   d: '칼로리 계산의 기준이 되는 값입니다' },
     { t: '활동 · 운동', d: '실제로 지킬 수 있는 선에서 고르세요' },
@@ -86,9 +118,15 @@
          사용자의 입력은 draft에만 쌓이므로 편집 중에 덮어써지지 않는다 */
       var profileKey = JSON.stringify(st.profile || null);
       if (!draft || draftFrom !== profileKey) {
-        draft = newDraft(st);
+        var kept = loadDraft(profileKey);
+        if (kept) {
+          draft = kept.draft;
+          step = Math.min(2, Math.max(0, kept.step | 0));
+        } else {
+          draft = newDraft(st);
+          step = 0;
+        }
         draftFrom = profileKey;
-        step = 0;
       }
       var d = draft;
       var scan = S.latestScan();
@@ -116,6 +154,7 @@
       draw();
 
       function draw() {
+        saveDraft();
         UI.clear(body);
         errNodes = {}; errBox = null; errBoxText = null; advanceBtn = null;
         recompute();
@@ -164,7 +203,7 @@
             text: '다음 →', uid: 'P01-B01', uidLabel: '다음',
             onClick: function () {
               if (validate(d).length) { step = 0; draw(); return; }
-              step += 1; draw();
+              step += 1; saveDraft(); draw();
             }
           });
         } else {
@@ -183,6 +222,7 @@
             onClick: function () {
               global.MB_MODALS.skipOnboarding(function () {
                 S.set({ profile: skipProfile(), onboarded: true });
+                clearDraft();
                 draft = null; draftFrom = null; step = 0;
                 global.MB_MODALS.disclaimer();
                 A.go('P03');
@@ -199,6 +239,7 @@
             uidLabel: '실제 인바디로 바로 시작',
             onClick: function () {
               S.seed();
+              clearDraft();
               draft = null; draftFrom = null; step = 0;
               global.MB_UID.toast('실제 인바디 3건과 프로필을 불러왔습니다');
               A.go('P02');
@@ -421,7 +462,14 @@
       }
 
       /* --- 입력 중 검증 갱신 (포커스를 잃지 않도록 다시 그리지 않는다) --------- */
+      /* 입력이 있을 때마다 저장소에 남깁니다. syncErrors() 는 칸을 칠
+         때마다 불리고, draw() 는 칩을 고를 때마다 불립니다 — 둘을
+         잡으면 "사용자가 무언가 한" 모든 자리를 덮습니다.
+         호출처마다 saveDraft() 를 넣는 방법도 있지만, 이 앱에서 그런
+         버그가 실제로 있었습니다(publishWeekly). 빠뜨릴 수 없는
+         자리에 둡니다. */
       function syncErrors() {
+        saveDraft();
         var errs = validate(d);
         ['age', 'heightCm'].forEach(function (f) {
           var node = errNodes[f];
@@ -452,6 +500,7 @@
       function complete() {
         if (validate(d).length) { step = 0; draw(); return; }
         S.set({ profile: toProfile(d), onboarded: true });
+        clearDraft();
         draft = null; draftFrom = null; step = 0;
         global.MB_MODALS.disclaimer();
         A.go('P03');

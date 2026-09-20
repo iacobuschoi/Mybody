@@ -131,6 +131,21 @@
             text: '마지막 동기화에서 문제가 있었습니다 — ' + st.lastError +
                   '. 공유 설정을 바꿨다면 한 번 더 확인해 주세요.' });
         }
+        /* 언제 맞춰 온 값인지.
+           노트북이 자고 있으면 앱은 받아올 게 없는데, 화면은 아무 말
+           없이 예전 값을 보여 줬습니다. 틀린 말을 확신을 갖고 하는
+           것보다, 언제 것인지 같이 말하는 편이 낫습니다. */
+        if (!st.lastPullAt) {
+          return h('div.note.note--warn', { style: { marginTop: '10px' },
+            text: '아직 서버에서 받아온 적이 없습니다. 아래 숫자는 이 기기에 있던 것입니다.' });
+        }
+        var ago = Math.round((Date.now() - Date.parse(st.lastPullAt)) / 60000);
+        if (ago > 30) {
+          return h('div.note.note--warn', { style: { marginTop: '10px' },
+            text: '서버에서 마지막으로 받아온 지 ' +
+                  (ago > 1440 ? Math.round(ago / 1440) + '일' : Math.round(ago / 60) + '시간') +
+                  ' 됐습니다. 아래 친구 숫자는 그때 것입니다 — 서버가 꺼져 있을 수 있습니다.' });
+        }
         return h('div.note.note--ok', { style: { marginTop: '10px' },
           text: '측정 기록이 ' + st.baseUrl + ' 로 올라가 있습니다. 사진은 올라가지 않습니다 — ' +
                 '설정에서 자동 판독을 켜고 판독을 누를 때만 나갑니다.' });

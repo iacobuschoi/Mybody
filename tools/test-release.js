@@ -57,7 +57,10 @@ const ok = (n, c, d) => {
  * 지워지고 이 앱을 만든 사람의 몸 숫자가 대신 들어갑니다.
  * 개발용 화면을 하나 만들면 이 목록에도 한 줄 더합니다. */
 const DEV_UIDS = ['P01-B05', 'P02-B02', 'P03-B03', 'P03-B09', 'P18-B08',
-                  'P12-C05', 'P12-B05', 'P12-B07', 'P12-B08', 'P12-B09', 'P12-B10'];
+                  'P12-C05', 'P12-B05', 'P12-B07', 'P12-B08', 'P12-B09', 'P12-B10',
+                  /* 배지 크기 조절 — 배포본에는 배지가 없어서 움직여도
+                     아무 일이 안 일어납니다. 고장 난 설정으로 보입니다. */
+                  'P12-F02'];
 
 (async () => {
   if (!fs.existsSync(DIR)) { console.error('release/ 가 없습니다. 먼저 node tools/build-release.js'); process.exit(1); }
@@ -244,6 +247,21 @@ const DEV_UIDS = ['P01-B05', 'P02-B02', 'P03-B03', 'P03-B09', 'P18-B08',
    *   · 운영자 칸이 비어 있지 않은가 — 누구에게 말해야 하는지 모르는
    *     방침은 권리를 행사할 방법이 없다는 뜻입니다
    * ------------------------------------------------------------------ */
+  /* 배포본이 자기를 뭐라고 부르는가.
+     "프로토타입 · 검증용" 이라고 적혀 있으면 받은 사람은 미완성을
+     쓰고 있다고 읽습니다. 그리고 버전 번호는 문제가 생겼을 때
+     "어느 판이냐" 를 물어볼 수 있는 유일한 손잡이입니다. */
+  {
+    await p2.evaluate(() => window.MB_APP.go('P12'));
+    await p2.waitForTimeout(300);
+    const foot = await p2.evaluate(() => {
+      const c = document.querySelector('[data-uid="P12-C06"]');
+      return c ? c.innerText : '';
+    });
+    ok('"프로토타입 · 검증용" 이 안 보인다', !/프로토타입|검증용/.test(foot), foot.slice(0, 120));
+    ok('빌드 버전이 적혀 있다', build && foot.includes(build.version), foot.slice(0, 120));
+  }
+
   console.log('\n[8] 개인정보처리방침');
   {
     const pv = await ctx.newPage();
