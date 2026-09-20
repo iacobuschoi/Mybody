@@ -296,11 +296,34 @@
     flushing = true;
     var failed = [];
 
+    /* 보낸 작업만 정확히 집어서 뺍니다.
+     *
+     * 예전엔 성공하면 shift() 로 맨 앞을 뺐습니다. 그런데 요청이 날아가
+     * 있는 동안에도 enqueue() 가 큐를 건드립니다 — 같은 주 스냅샷 겹침
+     * 제거가 **지금 보내고 있는 맨 앞 작업**을 splice 로 빼 버립니다.
+     * 그러면 응답이 온 뒤의 shift() 는 엉뚱한 작업을 지웁니다.
+     *
+     * 실제로 두 가지가 일어났습니다.
+     *   (가) 일정을 네 칸 연달아 누르면 서버에는 첫 번째 것만 남았습니다.
+     *        1번이 날아가 있는 동안 2·3·4번이 서로를 지우며 쌓이고,
+     *        1번이 도착하자 shift() 가 마지막에 남은 4번을 지웠습니다.
+     *        화면은 4일이라고 하는데 친구 화면에는 1일이 떴습니다.
+     *   (나) 큐에 친구 수락이나 공유 끄기가 같이 있으면 그게 지워졌습니다.
+     *        "껐는데 계속 나간다" 는 이 앱에서 제일 나쁜 고장입니다.
+     *
+     * 자리(index)가 아니라 그 작업 자체로 지웁니다. 중간에 누가 큐를
+     * 어떻게 흔들어도 내가 보낸 것만 빠집니다. */
+    function drop(job) {
+      var i = cfg.queue.indexOf(job);
+      if (i >= 0) cfg.queue.splice(i, 1);
+      saveCfg(cfg);
+    }
+
     function step() {
       if (!cfg.queue.length) return Promise.resolve();
       var job = cfg.queue[0];
       return OPS[job.op](job.args).then(function () {
-        cfg.queue.shift(); saveCfg(cfg);
+        drop(job);
         retryMs = 2000;          // 한 번이라도 통했으면 간격을 되돌립니다
         return step();
       }).catch(function (e) {
@@ -316,7 +339,7 @@
         if (RETRYABLE(e.status)) throw e;      // 큐에 남겨 두고 나중에 다시
         if (e.status && e.status >= 400 && e.status < 500) {
           // 서버가 거절했습니다. 다시 보내도 같은 답이 옵니다.
-          cfg.queue.shift(); saveCfg(cfg);
+          drop(job);
           failed.push({ op: job.op, reason: e.message });
           return step();
         }

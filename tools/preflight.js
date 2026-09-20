@@ -34,6 +34,8 @@ const CHECKS = [
     why: '모델이 내놓은 헛소리가 그대로 저장되면 안 됩니다' },
   { id: '서버 굳히기', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-hardening.js'],
     why: '인터넷에 여는 서버입니다 — 경로 탈출 하나면 옆 폴더가 통째로 열립니다' },
+  { id: '동기화 큐', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-syncqueue.js'],
+    why: '조용히 지워진 "공유 끄기" 는 껐다고 믿는 사람에게 제일 나쁜 고장입니다' },
   { id: '운동 일정·스트릭', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-schedule.js'],
     why: '스트릭이 틀리면 화면이 조용히 거짓말합니다 — 아무도 12일째를 검산하지 않습니다' },
   { id: '고유번호', level: 'BLOCK', slow: false, cmd: ['node', 'tools/uid-registry.js'],
