@@ -1,36 +1,62 @@
 # Mybody 서버 (자가호스팅)
 
-내 컴퓨터에서 돌리는 서버입니다. **설치할 게 없습니다** — Node 22만 있으면 됩니다.
-데이터베이스는 Node 내장 SQLite를 쓰고 파일 하나(`mybody.db`)에 전부 들어갑니다.
+내 컴퓨터에서 돌리는 서버입니다. **설치할 게 없습니다** — Node 만 있으면 됩니다.
+데이터베이스는 Node 내장 SQLite 를 씁니다.
 
-## 실행
+> **처음이면 [../docs/START.md](../docs/START.md) 를 보세요.**
+> 거기가 "받아서 폰으로 쓰기" 까지 10분짜리 길입니다.
+>
+> ```bash
+> node tools/serve.js --setup     # 한 번만
+> node tools/serve.js
+> ```
+>
+> 이 문서는 환경변수를 직접 다룰 때, 그리고 서버가 무엇을 어떻게 하는지
+> 알아야 할 때 봅니다.
+
+## 직접 띄우기
 
 ```bash
-PAIR_SECRET=$(openssl rand -hex 16) node server/server.js
+PAIR_SECRET=<가입 코드> node server/server.js
 ```
 
 `PAIR_SECRET` 은 **이 서버에 계정을 만들 수 있는 사람을 정하는 값**입니다.
 이 값을 알려준 사람만 가입할 수 있습니다. 없으면 서버가 시작하지 않습니다 —
 아무나 로그인할 수 있는 서버가 되기 때문입니다.
 
-가입한 뒤에는 **비밀번호만으로** 들어옵니다. 로그인할 때마다 이 값을
-요구하면 그게 사실상 공용 비밀번호가 되어, 한 사람만 새도 전원이 뚫립니다.
-
-값은 한 번 정하면 계속 같은 것을 쓰세요 (예: `~/.mybody-pair` 에 저장):
+값은 `node tools/serve.js --setup` 이 한 번 만들어 주고
+`~/.mybody/config.json` 에 넣어 둡니다. 지금 값은 이렇게 봅니다:
 
 ```bash
-export PAIR_SECRET=$(cat ~/.mybody-pair)
-node server/server.js
+node tools/serve.js --show
 ```
+
+가입한 뒤에는 **비밀번호만으로** 들어옵니다. 로그인할 때마다 이 값을
+요구하면 그게 사실상 공용 비밀번호가 되어, 한 사람만 새도 전원이 뚫립니다.
 
 ```
 Mybody 서버 실행 중
   주소   http://localhost:8080
+  폰에서 http://192.168.0.5:8080   (같은 와이파이)
   DB     server/mybody.db
-  정적   prototype
+  정적   release
 ```
 
 브라우저에서 <http://localhost:8080> 을 열면 앱이 그대로 뜹니다.
+
+> `STATIC` 을 안 주면 **개발 빌드**(`prototype/`)가 나갑니다 — 화면에 번호
+> 배지가 전부 뜨고 개발용 버튼이 살아 있습니다. 서버가 시작할 때 그렇다고
+> 말해 줍니다. 남에게 줄 주소라면 `STATIC=./release` 를 주세요.
+
+### 데이터는 어디에
+
+`server/mybody.db` 에 들어갑니다. 저장소 폴더 안이지만 git 은 안 봅니다
+(`.gitignore`). 다만 **저장소를 다시 clone 하면 계정도 같이 사라집니다** —
+옮길 생각이면 이 파일부터 챙기세요.
+
+서버가 켜져 있는 동안에는 새 기록이 `mybody.db-wal` 이라는 곁파일에 쌓입니다.
+그래서 `cp mybody.db` 로는 백업이 안 됩니다. `node tools/backup.js` 를 쓰세요
+— 자세한 것은 [../docs/START.md](../docs/START.md) 의 백업 절.
 
 ### 설정
 
@@ -41,6 +67,7 @@ Mybody 서버 실행 중
 | `STATIC` | `../prototype` | 정적 파일 폴더 |
 | `ORIGIN` | `*` | CORS 허용 출처. 인터넷에 열 때는 실제 도메인으로 좁히세요 |
 | `TRUST_PROXY` | (꺼짐) | `1` 로 켜면 `x-forwarded-for` 를 믿습니다. **터널이나 리버스 프록시 뒤에서만** 켜세요 — 직접 노출된 서버에서 켜면 아무나 헤더 한 줄로 속도 제한을 피합니다 |
+| `LOG` | `1` | `/api` 요청을 한 줄씩 찍습니다 (시각·메서드·경로·상태·시간). 본문·토큰·사진·몸에 대한 숫자는 안 남깁니다. `0` 으로 끕니다 |
 | `RATE_MAX` | `300` | `/api` 분당 허용 요청 수 (IP당). 정적 파일은 안 셉니다 |
 | `AUTH_MAX` | `20` | 로그인·가입 분당 허용 횟수 (IP당). 비밀번호 확인은 scrypt 라 비싸서 따로 더 빡빡하게 막습니다 |
 | `BODY_TIMEOUT_MS` | `30000` | 본문을 다 받기까지 기다리는 시간. 넘으면 끊습니다 |
