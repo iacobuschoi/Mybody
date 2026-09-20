@@ -381,8 +381,79 @@
     return svg;
   }
 
+  /* --- 복사 ----------------------------------------------------------------
+   *
+   * "복사했습니다" 라고 해 놓고 실제로는 안 된 자리가 셋 있었습니다.
+   * 제일 아픈 곳이 초대 코드입니다 — 친구를 추가하는 유일한 길인데,
+   * 복사됐다고 믿고 카톡에 붙여넣으면 엉뚱한 게 갑니다.
+   *
+   * 언제 안 되나
+   *   · http 로 열었을 때 (같은 와이파이에서 192.168.x.x 로 들어오는 경우).
+   *     브라우저가 navigator.clipboard 를 아예 안 줍니다 — 실제로 확인했습니다.
+   *   · 사용자가 버튼을 누른 맥락이 아닐 때, 권한을 막아 뒀을 때.
+   *
+   * 그래서 세 단계로 갑니다: 진짜 복사 → 옛날 방식(execCommand) →
+   * 그래도 안 되면 값을 골라 주고 "직접 복사하세요" 라고 말합니다.
+   * 마지막 경우에 "복사했습니다" 라고 하면 그건 거짓말입니다.
+   *
+   * @param {string} text  복사할 값
+   * @param {object} [o]   { el: 실패 시 선택해 줄 요소, ok: 성공 문구 }
+   */
+  function copyText(text, o) {
+    o = o || {};
+    var okMsg = o.ok || '복사했습니다';
+    var toast = function (m) { if (global.MB_UID && global.MB_UID.toast) global.MB_UID.toast(m); };
+
+    function legacy() {
+      try {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed'; ta.style.top = '0'; ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.focus(); ta.select();
+        var done = document.execCommand && document.execCommand('copy');
+        document.body.removeChild(ta);
+        return !!done;
+      } catch (e) { return false; }
+    }
+
+    function giveUp() {
+      /* 값을 골라 줍니다 — 폰에서는 길게 눌러 복사할 수 있습니다.
+         고를 것도 없으면 그냥 안 된다고 말합니다. */
+      var picked = false;
+      if (o.el) {
+        try {
+          var r = document.createRange();
+          r.selectNodeContents(o.el);
+          var sel = window.getSelection();
+          sel.removeAllRanges(); sel.addRange(r);
+          picked = true;
+        } catch (e) {}
+      }
+      toast(picked ? '길게 눌러 복사하세요' : '복사가 안 됩니다 — 직접 옮겨 적어 주세요');
+      return false;
+    }
+
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text)
+          .then(function () { toast(okMsg); return true; })
+          .catch(function () { return legacy() ? (toast(okMsg), true) : giveUp(); });
+      }
+    } catch (e) {}
+    var r2 = legacy();
+    if (r2) toast(okMsg);
+    else giveUp();
+    return Promise.resolve(r2);
+  }
+
+  /** 지금 이 화면이 보안 컨텍스트인가 — 아니면 설치·오프라인·복사가 안 됩니다. */
+  function isSecure() {
+    try { return window.isSecureContext !== false; } catch (e) { return true; }
+  }
+
   global.MB_UI = {
-    h: h, clear: clear, append: append,
+    h: h, clear: clear, append: append, copyText: copyText, isSecure: isSecure,
     n0: n0, n1: n1, n2: n2, sign: sign, dateK: dateK, dateShort: dateShort, weeksToHuman: weeksToHuman,
     openModal: openModal, closeAllModals: closeAllModals, plainNote: plainNote,
     lineChart: lineChart, sparkline: sparkline, donut: donut, timeline: timeline

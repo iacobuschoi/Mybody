@@ -378,10 +378,7 @@
       body: h('textarea.textarea', { rows: 12, readonly: true, value: text }),
       actions: [
         { label: '닫기', kind: 'ghost' },
-        { label: '복사', kind: 'primary', onClick: function () {
-            navigator.clipboard && navigator.clipboard.writeText(text);
-            global.MB_UID.toast('복사했습니다');
-          } }
+        { label: '복사', kind: 'primary', onClick: function () { UI.copyText(text); } }
       ]
     });
   };
@@ -404,10 +401,7 @@
       ],
       actions: [
         { label: '닫기', kind: 'ghost' },
-        { label: '복사', onClick: function () {
-            navigator.clipboard && navigator.clipboard.writeText(text);
-            global.MB_UID.toast('복사했습니다');
-          } },
+        { label: '복사', onClick: function () { UI.copyText(text); } },
         { label: '파일로 저장', kind: 'primary',
           uid: 'M43-B10', uidLabel: '파일로 저장',
           onClick: function () {
@@ -1431,31 +1425,12 @@
                background: 'color-mix(in srgb, currentColor 7%, transparent)' }
     });
 
+    /* 클립보드가 막힌 브라우저(http 로 연 경우 등)가 있습니다.
+       "복사됐습니다" 라고 거짓말하면 사용자는 붙여넣기만 믿고 코드를
+       잃습니다 — 이 코드는 한 번만 보여주는 것이라 되찾을 데가 없습니다. */
     var copyBtn = h('button.btn.btn--sm', {
       text: '복사', uid: 'M49-B10', uidLabel: '복사',
-      onClick: function () {
-        var ok = false;
-        try {
-          if (navigator.clipboard && navigator.clipboard.writeText) {
-            navigator.clipboard.writeText(code); ok = true;
-          }
-        } catch (e) {}
-        if (!ok) {
-          /* 클립보드가 막힌 브라우저(비보안 출처 등)가 있습니다.
-             "복사됐습니다" 라고 거짓말하면 사용자는 붙여넣기만 믿고
-             코드를 잃습니다. 안 되면 안 된다고 말합니다. */
-          try {
-            var r = document.createRange();
-            r.selectNodeContents(codeEl);
-            var sel = window.getSelection();
-            sel.removeAllRanges(); sel.addRange(r);
-            ok = true;
-          } catch (e2) {}
-          global.MB_UID.toast(ok ? '길게 눌러 복사하세요' : '복사가 안 됩니다 — 직접 적어 주세요');
-          return;
-        }
-        global.MB_UID.toast('복사했습니다');
-      }
+      onClick: function () { UI.copyText(code, { el: codeEl }); }
     });
 
     var wroteBtn = h('button.chip', {

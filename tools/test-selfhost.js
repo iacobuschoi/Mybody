@@ -181,6 +181,76 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     await wait(400);
   }
 
+  console.log('\n[7] 같은 와이파이에서 http 로 열면 — 무엇이 안 되는지 말한다');
+  {
+    /* 제일 먼저 시도할 길입니다: 노트북에서 띄우고 폰에서 192.168.x.x 로 들어오기.
+       그런데 브라우저는 http 를 "안전하지 않은 출처" 로 보고 세 가지를 막습니다 —
+       앱 설치(서비스워커) · 오프라인 · 버튼 복사. 앱 자체는 멀쩡히 돌아서,
+       사용자는 "왜 설치가 안 뜨지" 를 혼자 한참 찾습니다. */
+    let ip = null;
+    for (const list of Object.values(os.networkInterfaces())) {
+      for (const n of list || []) {
+        if (n.family === 'IPv4' && !n.internal) { ip = n.address; break; }
+      }
+      if (ip) break;
+    }
+    if (!ip) {
+      console.log('  · 이 기계에 바깥 IP 가 없어 건너뜁니다');
+    } else {
+      let chromium = null;
+      try {
+        chromium = require(process.env.NODE_PATH
+          ? path.join(process.env.NODE_PATH, 'playwright') : 'playwright').chromium;
+      } catch (e) {}
+      if (!chromium) {
+        console.log('  · playwright 가 없어 건너뜁니다 (NODE_PATH 를 주면 돕니다)');
+      } else {
+        const port = await freePort();
+        const srv = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')],
+          { cwd: ROOT, env: Object.assign(baseEnv(), {
+              PORT: String(port), PAIR_SECRET: 'x', STATIC: path.join(ROOT, 'release') }) });
+        let up = false;
+        for (let i = 0; i < 60; i++) {
+          try { if ((await fetch(`http://${ip}:${port}/health`)).ok) { up = true; break; } } catch (e) {}
+          await wait(200);
+        }
+        ok('바깥 IP 로도 열린다', up, ip + ':' + port);
+        if (up) {
+          const b = await chromium.launch({ executablePath:
+            process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
+          const read = async base => {
+            const ctx = await b.newContext({ viewport: { width: 390, height: 844 } });
+            const pg = await ctx.newPage();
+            await pg.goto(base + '/', { waitUntil: 'load' });
+            await wait(1500);
+            const r = await pg.evaluate(async () => {
+              window.MB_APP.go('P12');
+              await new Promise(x => setTimeout(x, 450));
+              const w = document.querySelector('[data-uid="P12-S02"]');
+              return { secure: window.isSecureContext, app: !!window.MB_APP,
+                       clipboard: !!(navigator.clipboard && navigator.clipboard.writeText),
+                       notice: w ? w.innerText : null };
+            });
+            await ctx.close();
+            return r;
+          };
+          const lan = await read(`http://${ip}:${port}`);
+          const local = await read(`http://localhost:${port}`);
+
+          ok('http 는 안전하지 않은 출처로 잡힌다', lan.secure === false, lan);
+          ok('그래도 앱은 그대로 돈다', lan.app === true, lan);
+          ok('복사가 막히는 것을 실제로 확인', lan.clipboard === false, lan);
+          ok('무엇이 왜 안 되는지 화면이 말한다',
+             !!lan.notice && /앱처럼 깔기/.test(lan.notice), lan.notice);
+          ok('https(localhost)에서는 그 안내가 안 뜬다', local.notice === null, local);
+          await b.close();
+        }
+        srv.kill();
+        await wait(300);
+      }
+    }
+  }
+
   console.log(`\n통과 ${pass} / 실패 ${fail}`);
   fs.rmSync(HOME, { recursive: true, force: true });
   process.exit(fail ? 1 : 0);

@@ -331,16 +331,19 @@
       wrap.appendChild(list);
 
       /* --- C01 내 초대 코드 --- */
+      var codeEl;   /* 복사가 막힌 자리(http 로 열었을 때)에서 값을 골라 줍니다 */
       wrap.appendChild(h('div.card.card--accent', { uid: 'P15-C01', uidLabel: '내 초대 코드' }, [
         h('div.card__sub', { text: '이 코드를 친구에게 알려주세요' }),
-        h('div', { style: { fontSize: '26px', fontWeight: '900', letterSpacing: '.12em',
-                            fontFamily: 'ui-monospace, monospace', margin: '6px 0' },
+        codeEl = h('div', { style: { fontSize: '26px', fontWeight: '900', letterSpacing: '.12em',
+                            fontFamily: 'ui-monospace, monospace', margin: '6px 0', userSelect: 'all' },
                    text: me.inviteCode }),
         h('div.btn-row', [
           h('button.btn.btn--sm', { text: '코드 복사', uid: 'P15-B01', uidLabel: '초대 코드 복사',
             onClick: function () {
-              if (navigator.clipboard) navigator.clipboard.writeText(me.inviteCode);
-              global.MB_UID.toast('복사했습니다');
+              /* 예전엔 clipboard 가 없어도 "복사했습니다" 라고 했습니다.
+                 친구를 추가하는 유일한 길인데, 복사된 줄 알고 카톡에
+                 붙여넣으면 엉뚱한 게 갑니다. */
+              UI.copyText(me.inviteCode, { el: codeEl });
             } }),
           h('button.btn.btn--sm.btn--primary', { text: '친구 추가', uid: 'P15-B02', uidLabel: '친구 추가',
             onClick: function () { global.MB_MODALS.addFriend(function () { A.refresh(); }); } })
