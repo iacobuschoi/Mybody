@@ -155,12 +155,29 @@ async function main() {
 
   console.log('\n[3] 공유 — 켠 것만 나간다');
   const payload = { dWeightKg: -0.8, dSmmKg: 0.2, dBfmKg: -0.9, progressPct: 42, checkedIn: true,
-                    weightKg: 86.3, smmKg: 38.1, bfmKg: 19.9, pbfPct: 23.1 };
+                    weightKg: 86.3, smmKg: 38.1, bfmKg: 19.9, pbfPct: 23.1,
+                    plannedDays: 4, keptDays: 2, missedDays: 1, openDays: 1 };
   await call('POST', '/snapshots', { weekStart: '2026-09-14', payload }, tb);
   const BODY = ['dWeightKg', 'dSmmKg', 'dBfmKg', 'progressPct', 'weightKg', 'smmKg', 'bfmKg', 'pbfPct'];
   let row = (await call('GET', '/snapshots/' + meB.id, null, ta)).json.rows[0];
   ok('기본값: 몸에 대한 정보는 하나도 안 나간다', BODY.every(k => !(k in row)), row);
-  ok('기본값: 체크인 여부만 보인다', 'checkedIn' in row, row);
+  ok('기본값: 체크인 여부는 보인다', 'checkedIn' in row, row);
+  /* 일정은 몸이 아니라 행동이라 기본으로 켜져 있습니다. 나가는 것은
+     숫자 네 개뿐이고, 요일과 종목은 스냅샷에 아예 들어 있지 않습니다. */
+  ok('기본값: 이번 주 일정 숫자는 보인다',
+     row.plannedDays === 4 && row.keptDays === 2, row);
+  ok('일정을 끄면 사라진다', await (async () => {
+    await call('PUT', '/share/' + meA.id, { schedule: false }, tb);
+    const r = (await call('GET', '/snapshots/' + meB.id, null, ta)).json.rows[0];
+    const gone = !('plannedDays' in r) && !('keptDays' in r) &&
+                 !('missedDays' in r) && !('openDays' in r);
+    await call('PUT', '/share/' + meA.id, { schedule: true }, tb);
+    return gone;
+  })());
+  ok('일정을 켜도 몸 정보는 안 열린다', await (async () => {
+    const r = (await call('GET', '/snapshots/' + meB.id, null, ta)).json.rows[0];
+    return BODY.every(k => !(k in r));
+  })());
 
   ok('B가 체중만 켠다', (await call('PUT', '/share/' + meA.id, { weightTrend: true }, tb)).json.ok === true);
   row = (await call('GET', '/snapshots/' + meB.id, null, ta)).json.rows[0];
@@ -174,6 +191,11 @@ async function main() {
   await call('PUT', '/share/' + meA.id, { absolute: true }, tb);
   row = (await call('GET', '/snapshots/' + meB.id, null, ta)).json.rows[0];
   ok('실제 수치는 켠 항목에만 붙는다', 'weightKg' in row, row);
+  /* absolute 는 "숫자로 보여준다" 이지 "항목을 하나 더 연다" 가 아닙니다.
+     일정에는 붙일 절대 수치가 없으므로 영향이 없어야 합니다. */
+  ok('absolute 를 켜도 일정에서 새 값이 열리지 않는다',
+     Object.keys(row).filter(k => /^(plan|kept|missed|open)/.test(k)).sort().join() ===
+       'keptDays,missedDays,openDays,plannedDays', Object.keys(row));
   ok('안 켠 항목이 실제 수치로 새지 않는다',
      !('smmKg' in row) && !('bfmKg' in row) && !('pbfPct' in row), row);
   ok('아무 항목도 안 켜면 absolute 는 꺼진다',

@@ -36,13 +36,18 @@
     { key: 'bfmTrend',     label: '체지방 변화',   kind: 'trend' },
     { key: 'planProgress', label: '목표 달성률',   kind: 'progress' },
     { key: 'streak',       label: '체크인 기록',   kind: 'streak' },
+    { key: 'schedule',     label: '이번 주 운동 일정', kind: 'schedule' },
     { key: 'absolute',     label: '실제 수치까지', kind: 'absolute' }
   ];
 
   function blankShare() {
-    // 전부 꺼짐이 기본. 체크인 여부만 켜 둔다 — 이건 몸에 대한 정보가 아니라 행동에 대한 정보다.
+    // 몸에 대한 것은 전부 꺼짐이 기본. 행동에 대한 것 둘만 켜 둔다 —
+    // 체크인 여부와 이번 주 일정("계획 4일 · 지킴 2일" 두 숫자).
+    // 서버의 blankShare() 와 같아야 한다. 어긋나면 오프라인에서 켜 둔
+    // 것이 로그인 순간 꺼지거나, 그 반대가 된다.
     return { weightTrend: false, smmTrend: false, bfmTrend: false,
-             planProgress: false, streak: true, absolute: false, updatedAt: null };
+             planProgress: false, streak: true, schedule: true,
+             absolute: false, updatedAt: null };
   }
 
   function blankDb() {
@@ -387,6 +392,14 @@
           if (s.bfmTrend && p.dBfmKg != null) out.dBfmKg = p.dBfmKg;
           if (s.planProgress && p.progressPct != null) out.progressPct = p.progressPct;
           if (s.streak && p.checkedIn != null) out.checkedIn = p.checkedIn;
+          /* 일정은 숫자 두 개만 — 며칠 하기로 했고 며칠 지켰는가.
+             요일과 종목은 안 나갑니다 (server/db.js 와 같은 규칙). */
+          if (s.schedule && p.plannedDays != null) {
+            out.plannedDays = p.plannedDays;
+            out.keptDays = p.keptDays;
+            out.missedDays = p.missedDays;
+            out.openDays = p.openDays;
+          }
           // 서버(server/db.js)와 같은 규칙: 켠 항목에만 숫자가 붙습니다
           if (s.absolute) {
             if (s.weightTrend && p.weightKg != null) out.weightKg = p.weightKg;

@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 const fs = require('node:fs');
 
-const SHARE_FIELDS = ['weightTrend', 'smmTrend', 'bfmTrend', 'planProgress', 'streak', 'absolute'];
+const SHARE_FIELDS = ['weightTrend', 'smmTrend', 'bfmTrend', 'planProgress', 'streak', 'schedule', 'absolute'];
 
 function open(file) {
   const dir = path.dirname(file);
@@ -247,9 +247,14 @@ function inviteCode() {
 function pair(a, b) { return a < b ? [a, b] : [b, a]; }
 function blankShare() {
   // 친구가 되어도 몸에 대한 정보는 기본으로 아무것도 안 나갑니다.
-  // 체크인 여부만 켜 둡니다 — 이건 몸이 아니라 행동에 대한 정보입니다.
+  // 행동에 대한 것 둘만 켜 둡니다 — 체크인 여부와 이번 주 일정 두 숫자.
+  //
+  // 일정이 기본 켜짐인 이유: 나가는 것이 "계획 4일 · 지킴 2일" 두 숫자뿐이고,
+  // 무슨 요일에 무슨 운동을 했는지는 안 나갑니다. 몸이 아니라 본인이 적은
+  // 행동이고, 같이 운동하자고 친구를 맺은 사이에서 이 둘이 안 보이면
+  // 친구 기능이 아무것도 아닌 것이 됩니다. 한 번 눌러 끌 수 있습니다.
   return { weightTrend: false, smmTrend: false, bfmTrend: false,
-           planProgress: false, streak: true, absolute: false };
+           planProgress: false, streak: true, schedule: true, absolute: false };
 }
 
 function makeApi(db) {
@@ -615,7 +620,8 @@ function makeApi(db) {
     shareSummary(owner, viewer) {
       const s = this.shareFields(owner, viewer);
       const LABEL = { weightTrend: '체중 변화', smmTrend: '골격근 변화', bfmTrend: '체지방 변화',
-                      planProgress: '목표 달성률', streak: '체크인 기록', absolute: '실제 수치까지' };
+                      planProgress: '목표 달성률', streak: '체크인 기록',
+                      schedule: '이번 주 운동 일정', absolute: '실제 수치까지' };
       const on = SHARE_FIELDS.filter(k => s[k]);
       return { count: on.length, labels: on.map(k => LABEL[k]), settings: s };
     },
@@ -691,6 +697,16 @@ function makeApi(db) {
         if (s.bfmTrend && p.dBfmKg != null) o.dBfmKg = p.dBfmKg;
         if (s.planProgress && p.progressPct != null) o.progressPct = p.progressPct;
         if (s.streak && p.checkedIn != null) o.checkedIn = p.checkedIn;
+        /* 일정은 숫자 두 개만 나갑니다 — 며칠 하기로 했고 며칠 지켰는가.
+           무슨 요일에 무슨 운동을 했는지는 여기에 없습니다. 요일까지
+           나가면 친구가 남의 한 주를 재구성할 수 있고, 그건 "확인"이
+           아니라 일과 감시입니다. */
+        if (s.schedule && p.plannedDays != null) {
+          o.plannedDays = p.plannedDays;
+          o.keptDays = p.keptDays;
+          o.missedDays = p.missedDays;
+          o.openDays = p.openDays;
+        }
         // absolute 는 "숫자로 보여준다"는 뜻이지 "항목을 하나 더 연다"는 뜻이 아닙니다.
         // 켠 항목에만 붙습니다 — 체중만 켠 사람의 골격근/체지방이 여기로 새면 안 됩니다.
         if (s.absolute) {

@@ -260,6 +260,19 @@
     return out;
   }
 
+  /** 이 주 기록에 보여 줄 것이 하나라도 있는가.
+   *
+   * 예전엔 eventPieces() 의 길이로만 판정했습니다. 그 함수는 몸 숫자만
+   * 읽어서, 일정만 공유하는 친구는 "아직 소식이 없습니다" 뒤에 영원히
+   * 가려졌습니다 — 켜 둔 항목이 화면에 못 닿는 종류의 버그입니다. */
+  function hasNews(row) {
+    if (!row) return false;
+    if (eventPieces(row).length) return true;
+    if (row.plannedDays != null) return true;
+    if (row.checkedIn != null) return true;
+    return false;
+  }
+
   /**
    * 체크인 점 스트립. 친구가 된 뒤의 주만 그립니다 —
    * 친구가 되기도 전의 주를 꺼진 점으로 채우면 그 친구가 빼먹은 주로 읽힙니다.
@@ -293,6 +306,8 @@
     on.forEach(function (x) {
       var v;
       if (x.key === 'streak') v = snap.checkedIn ? '이번 주 기록함' : '이번 주 아직';
+      else if (x.key === 'schedule') v = snap.plannedDays == null ? '이번 주 정한 날 없음'
+        : '계획 ' + snap.plannedDays + '일 · 지킴 ' + snap.keptDays + '일';
       else if (x.key === 'planProgress') v = snap.progressPct == null ? '아직 값 없음' : snap.progressPct + '%';
       else if (x.key === 'absolute') {
         var bits = [];
@@ -506,6 +521,13 @@
           }
         }
 
+        /* 일정 줄. 공유가 꺼진 친구에게는 줄 자체가 없습니다 —
+           "비공개" 같은 회색 표시를 두면 "이 사람은 숨기고 있다" 로
+           읽힙니다. 안 켠 것과 숨기는 것은 다릅니다. */
+        var schedLine = (latest && latest.plannedDays != null)
+          ? '이번 주 계획 ' + latest.plannedDays + '일 · 지킴 ' + (latest.keptDays || 0) + '일'
+          : null;
+
         // 3줄 — 보내는 것. 개수 배지("내가 공유 2개")는 없앴습니다 —
         // 숫자 2 는 그 자체로 아무 뜻이 없고, 2줄과 형태가 달라 방향이 안 읽혔습니다.
         var line3 = r.iShare.count
@@ -526,6 +548,7 @@
           ]),
           h('div.muted', { style: { marginTop: '2px' }, text: line2 }),
           extra,
+          schedLine ? h('div.muted', { style: { marginTop: '2px' }, text: schedLine }) : null,
           h('div.muted', { style: { marginTop: '2px' }, text: line3 })
         ]);
         if (isDemo) {
@@ -725,7 +748,7 @@
           h('div.empty__t', { text: friend.displayName + '님이 ' + labels + '을 보여주기로 했습니다' }),
           h('div.empty__d', { text: '아직 올라온 주 기록이 없습니다. ' + friend.displayName + '님이 앱에서 무언가를 기록하면 여기 나타납니다.' })
         ]));
-      } else if (!eventPieces(latest).length && weeksKnown < 2) {
+      } else if (!hasNews(latest) && weeksKnown < 2) {
         wrap.appendChild(h('div.empty', { uid: 'P16-S21', uidLabel: '새 관계' }, [
           h('div.empty__t', { text: '이번 주에 친구가 되었습니다' }),
           h('div.empty__d', { text: '기록은 주마다 하나씩 쌓입니다.' })
@@ -764,6 +787,54 @@
               h('div.muted', { style: { flex: '1' },
                 text: '각자 목표가 다르므로 달성률로만 비교합니다. 누가 더 말랐는지는 비교하지 않습니다.' })
             ])
+          ]));
+        }
+
+        /* --- C06 이번 주 일정 ------------------------------------------
+           사용자가 요청한 "친구가 운동하기로 했는데 안 했으면 확인할 수
+           있게" 가 일어나는 유일한 자리입니다. 그리고 여기서 "확인" 은
+           **보는 것**입니다 — 찌르기 · 응원 · 리마인드 버튼을 만들지
+           않습니다. 이 카드 안에 누를 수 있는 것이 하나도 없다는 것이
+           이 기능의 설계이고, 고칠 때 지켜야 할 불변식입니다.
+
+           만들지 않은 것과 그 이유:
+             · 퍼센트 — 분모를 숨깁니다. "1일 중 1일 = 100%" 가
+               "4일 중 4일" 을 이기면 안 됩니다.
+             · 색 — 지킨 날은 초록이 아니고 못 한 날은 빨강이 아닙니다.
+               남의 한 주에 색을 칠하는 순간 점수표가 됩니다.
+             · "미달성" 같은 단어와 경고 아이콘.
+             · 홈 화면 노출 — 홈은 하루에 여러 번 봅니다. 거기에 남의
+               수행도가 있으면 확인이 아니라 상시 감시가 됩니다.
+               친구 탭으로 들어오는 한 번의 동작은 버그가 아니라 설계입니다. */
+        if (latest.plannedDays != null) {
+          var kept = latest.keptDays || 0;
+          var missed = latest.missedDays || 0;
+          var open = latest.openDays || 0;
+          var second = [];
+          if (missed) second.push('지나간 날 중 ' + missed + '일은 체크가 없습니다');
+          if (open) second.push(open + '일이 남았습니다');
+          wrap.appendChild(h('div.card', { uid: 'P16-C06', uidLabel: '친구 이번 주 일정' }, [
+            h('div.card__title', { text: '이번 주 일정' }),
+            h('div', { style: { fontSize: '20px', fontWeight: '800', marginTop: '6px' },
+              text: '계획 ' + latest.plannedDays + '일 · 지킴 ' + kept + '일' }),
+            second.length ? h('div.muted', { style: { marginTop: '4px' },
+              text: second.join(', ') + '.' }) : null,
+            /* 이 두 줄을 빼면 안 됩니다. 앱이 아는 것은 "체크를 눌렀는가"
+               이지 "운동을 했는가" 가 아닙니다. 그 차이를 안 적으면
+               화면이 모르는 것을 안다고 말하게 됩니다. */
+            h('div.muted', { style: { marginTop: '10px' },
+              text: '본인이 앱에 적은 기록입니다. 갔는데 체크를 안 눌렀을 수도 있습니다.' })
+          ]));
+        } else if (onKeys.indexOf('schedule') >= 0) {
+          /* 공유는 켜 뒀는데 그 주에 적은 계획이 없는 경우.
+             "계획 0일 · 지킴 0일" 이라고 쓰면 앱이 모르는 것을 0점이라고
+             말하는 것이 됩니다 — 운동을 안 했다는 뜻이 아니라 앱에
+             적지 않았다는 뜻입니다. 이건 서로 다른 말입니다. */
+          wrap.appendChild(h('div.card.card--flat', { uid: 'P16-S22', uidLabel: '친구 일정 없음' }, [
+            h('div.card__title', { text: '이번 주 일정' }),
+            h('div.muted', { style: { marginTop: '4px' },
+              text: friend.displayName + '님이 이번 주에 적은 일정이 없습니다. ' +
+                    '운동을 안 했다는 뜻이 아니라, 앱에 적지 않았다는 뜻입니다.' })
           ]));
         }
 

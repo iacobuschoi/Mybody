@@ -440,6 +440,25 @@
     var scans = sortedScans();
     var out = { dWeightKg: null, dSmmKg: null, dBfmKg: null,
                 progressPct: null, checkedIn: false };
+
+    /* 이번 주 운동 일정 — 숫자 네 개.
+       엔진도 프로필도 없어도 셀 수 있는 값이라 위의 early return 보다
+       먼저 넣습니다. 인바디를 한 번도 안 올린 사람도 운동 일정은
+       쓸 수 있고, 그 사람의 친구는 그걸 볼 수 있어야 합니다. */
+    var W = global.MB_SCHED;
+    if (W) {
+      var sum = W.weekSummary(weekStartOf());
+      if (sum.plannedDays > 0) {
+        out.plannedDays = sum.plannedDays;
+        out.keptDays = sum.keptDays;
+        out.missedDays = sum.missedDays;
+        out.openDays = sum.openDays;
+      }
+      /* 계획이 0일이면 키를 아예 안 넣습니다. 0 을 보내면 친구 화면에
+         "계획 0일 · 지킴 0일" 이 뜨고, 그건 "안 했다" 로 읽힙니다.
+         실제로는 앱에 안 적었다는 뜻일 뿐입니다 — 다른 말입니다. */
+    }
+
     if (!E || !prof) return out;
 
     // 변화량은 직전 측정 대비. 측정이 한 번뿐이면 변화량은 "없음"이지 0 이 아니다.
@@ -476,20 +495,39 @@
    * 이번 주 스냅샷을 백엔드에 올린다. 로그인 안 했으면 조용히 아무것도 안 한다.
    * 측정·체크인·목표 변경처럼 친구가 볼 값이 바뀌는 자리에서 부른다.
    */
+  /** 스냅샷에 친구에게 보여 줄 것이 하나라도 들어 있는가 */
+  function hasAnything(snap) {
+    if (!snap) return false;
+    if (snap.checkedIn) return true;
+    if (snap.plannedDays != null) return true;
+    var KEYS = ['dWeightKg', 'dSmmKg', 'dBfmKg', 'progressPct',
+                'weightKg', 'smmKg', 'bfmKg', 'pbfPct'];
+    for (var i = 0; i < KEYS.length; i++) if (snap[KEYS[i]] != null) return true;
+    return false;
+  }
+
   function publishWeekly() {
     var B = global.MB_BACKEND;
     if (!B || !B.currentUser || !B.currentUser()) return { ok: false, reason: '로그인 안 함' };
-    /* 측정이 없으면 아무것도 안 올립니다.
+    /* 빈 스냅샷은 안 올립니다.
      *
      * 빈 스냅샷은 서버에 아무 가치가 없는데, 서버는 같은 주를 덮어씁니다.
      * 그래서 앱을 지웠다 다시 깔고 로그인하면 — 온보딩의 첫 저장이
-     * publishWeekly() 를 부르고, 측정 0건짜리 빈 값이 서버에 멀쩡히
-     * 남아 있던 이번 주 기록을 덮어썼습니다. 친구 화면에서 그 사람의
-     * 이번 주 점이 그 자리에서 꺼집니다. 기기를 정리한 것이 남의
-     * 화면에서 내 기록을 지우는 일이 되면 안 됩니다. */
-    if (!(state.scans || []).length) return { ok: false, reason: '측정 없음' };
+     * publishWeekly() 를 부르고, 빈 값이 서버에 멀쩡히 남아 있던 이번 주
+     * 기록을 덮어썼습니다. 친구 화면에서 그 사람의 이번 주 점이 그 자리에서
+     * 꺼집니다. 기기를 정리한 것이 남의 화면에서 내 기록을 지우는 일이
+     * 되면 안 됩니다.
+     *
+     * 예전엔 이 검사가 "측정이 0건인가" 였습니다. 그런데 이제 인바디가
+     * 없어도 올릴 것이 있습니다 — 운동 일정과 체크인은 몸이 아니라
+     * 행동이고, 인바디를 한 번도 안 올린 사람도 그건 씁니다. 측정으로
+     * 판정하면 그 사람의 친구 화면은 영원히 비어 있습니다.
+     * 그래서 "이 꾸러미에 들어 있는 게 있는가" 로 봅니다. 원래 막으려던
+     * 것(정말 빈 값이 남의 기록을 덮어쓰는 것)은 그대로 막힙니다. */
+    var snap = weeklySnapshot();
+    if (!hasAnything(snap)) return { ok: false, reason: '올릴 것 없음' };
     try {
-      return B.publishSnapshot(weekStartOf(), weeklySnapshot());
+      return B.publishSnapshot(weekStartOf(), snap);
     } catch (e) {
       return { ok: false, reason: String(e && e.message || e) };
     }

@@ -170,6 +170,80 @@ async function main() {
   ok('나린이 켠 항목이 가영 화면에 나타남', !!row && ('dBfmKg' in row), row);
   ok('안 켠 항목은 여전히 없음', !!row && !('dWeightKg' in row) && !('weightKg' in row), row);
 
+  /* 큐가 흔들릴 때 엉뚱한 작업이 지워지던 버그는 tools/test-syncqueue.js 가
+     봅니다. 여기서도 해 봤지만, 요청이 날아가 있는 창을 브라우저에서
+     정확히 여는 것이 안 돼서 고치기 전 코드로도 통과했습니다 — 못 잡는
+     시험을 두면 없는 것보다 나쁩니다. fetch 를 직접 붙잡는 쪽으로 옮겼습니다. */
+
+  /* --------------------------------------------------------------------
+   * [5-3] 운동 일정이 친구 화면에 "확인"으로 닿는가
+   *
+   * 사용자 요청: "친구가 운동하기로했는데 안했으면 확인할수있게".
+   * 여기서 확인은 **보는 것**입니다. 그래서 이 시험은 두 가지를 같이
+   * 봅니다 — 숫자가 닿는가, 그리고 **찌를 수 있는 버튼이 안 생겼는가.**
+   * 두 번째가 첫 번째만큼 중요합니다.
+   * ------------------------------------------------------------------ */
+  console.log('\n[5-3] 운동 일정이 친구 화면에 닿는가');
+  {
+    await ev(B, () => {
+      const S = window.MB_STORE, W = window.MB_SCHED, T = S.dayKey();
+      const mon = S.weekStartOf();
+      /* 이번 주 월·수·금·일 계획, 월요일만 지킴. 요일을 직접 찍어야
+         오늘이 무슨 요일이든 "계획 4 · 지킴 1" 이 나옵니다. */
+      [0, 2, 4, 6].forEach(i => S.setSchedulePlan(W.shiftKey(mon, i), 'gym', true));
+      S.setScheduleDone(W.shiftKey(mon, 0), 'gym', true);
+      S.publishWeekly();
+    });
+    await ev(B, () => window.MB_SYNC.flush());
+    await B.page.waitForTimeout(700);
+    await ev(A, () => window.MB_SYNC.pull());
+    await A.page.waitForTimeout(500);
+
+    const row = await ev(A, id => window.MB_BACKEND.getFriendSnapshots(id, 4).rows[0] || null, rB.id);
+    ok('일정 숫자가 건너간다', row && row.plannedDays === 4 && row.keptDays === 1, row);
+    ok('요일은 안 건너간다', row && !('days' in row) && !('schedule' in row), row);
+    ok('종목도 안 건너간다', row && !('gym' in row) && !('cardio' in row), row);
+
+    await ev(A, id => window.MB_APP.go('P16', { friendId: id }), rB.id);
+    await A.page.waitForTimeout(450);
+    const card = A.page.locator('[data-uid="P16-C06"]');
+    ok('친구 화면에 이번 주 일정 카드가 있다', await card.count() === 1);
+    const txt = await card.count() ? await card.innerText() : '';
+    ok('계획과 지킴이 숫자로 적혀 있다', /계획 4일/.test(txt) && /지킴 1일/.test(txt), txt);
+    ok('퍼센트를 쓰지 않는다', !/%/.test(txt), txt);
+    ok('"미달성" 같은 말을 쓰지 않는다', !/미달성|실패|안 했|게으/.test(txt), txt);
+    ok('앱이 아는 것의 한계를 적는다', /체크를 안 눌렀을 수도/.test(txt), txt);
+
+    /* 이 카드 안에 누를 수 있는 것이 하나도 없어야 합니다. 찌르기·응원·
+       리마인드 버튼이 생기면 "확인"이 "간섭"이 됩니다. */
+    const clickables = await card.count()
+      ? await card.locator('button, a, [data-clickable]').count() : -1;
+    ok('카드 안에 누를 수 있는 것이 하나도 없다', clickables === 0, clickables);
+
+    /* 홈에는 친구 숫자가 올라오지 않습니다 — 하루에 여러 번 보는 화면에
+       남의 수행도가 있으면 확인이 아니라 상시 감시가 됩니다. */
+    await ev(A, () => window.MB_APP.go('P02'));
+    await A.page.waitForTimeout(400);
+    const home = await A.page.locator('.main').innerText();
+    ok('홈에는 친구 이름도 친구 숫자도 없다', !home.includes(rB.displayName), home.slice(0, 200));
+
+    /* 끄면 사라져야 합니다. 껐는데 남아 있으면 이 화면의 약속이 깨집니다. */
+    await ev(B, id => window.MB_BACKEND.setShare(id, { schedule: false }), rA.id);
+    await ev(B, () => window.MB_SYNC.flush());
+    await B.page.waitForTimeout(700);
+    await ev(A, () => window.MB_SYNC.pull());
+    await A.page.waitForTimeout(500);
+    await ev(A, id => window.MB_APP.go('P16', { friendId: id }), rB.id);
+    await A.page.waitForTimeout(450);
+    ok('나린이 일정 공유를 끄면 카드가 사라진다',
+       await A.page.locator('[data-uid="P16-C06"]').count() === 0);
+    ok('"비공개" 같은 대체 표시도 남기지 않는다',
+       await A.page.locator('[data-uid="P16-S22"]').count() === 0);
+    await ev(B, id => window.MB_BACKEND.setShare(id, { schedule: true }), rA.id);
+    await ev(B, () => window.MB_SYNC.flush());
+    await B.page.waitForTimeout(600);
+  }
+
   /* --------------------------------------------------------------------
    * [5-2] 프로필 사진이 상대 화면에 실제로 뜨는가
    *

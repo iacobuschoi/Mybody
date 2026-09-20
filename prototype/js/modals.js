@@ -1043,11 +1043,18 @@
       bfmTrend: '마지막 인바디와 그 앞 인바디 사이의 변화',
       planProgress: '목표까지 얼마나 왔는지 (%)',
       streak: '이번 주에 기록을 했는지 여부',
+      /* 무엇이 안 나가는지까지 적습니다. "일정을 공유한다"만 읽으면
+         무슨 요일에 무슨 운동을 했는지까지 나가는 줄로 읽힙니다. */
+      schedule: '"계획 4일 · 지킴 2일" 두 숫자만. 요일과 종목은 안 나갑니다.',
       absolute: '변화량 대신 실제 숫자로. 켠 항목에만 붙습니다.'
     };
 
     function valueOf(key, cur, snap) {
       if (key === 'streak') return snap.checkedIn ? '이번 주 기록함' : '이번 주 아직';
+      if (key === 'schedule') {
+        return snap.plannedDays == null ? '이번 주 정한 날 없음'
+          : '계획 ' + snap.plannedDays + '일 · 지킴 ' + snap.keptDays + '일';
+      }
       if (key === 'absolute') return cur.absolute ? '켜짐' : '꺼짐';
       var map = { weightTrend: 'dWeightKg', smmTrend: 'dSmmKg', bfmTrend: 'dBfmKg' };
       if (key === 'planProgress') return snap.progressPct == null ? '아직 값 없음' : snap.progressPct + '%';
