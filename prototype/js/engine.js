@@ -905,7 +905,23 @@
       if (F.trunk === '표준이상') bias.push('몸통 지방 표준 이상 → 내장지방 우선, Z2 유산소 비중 ↑');
       if (F.rightArm === '표준이상' && F.rightLeg === '표준') bias.push('상체에 지방이 몰린 패턴 → 상체 볼륨보다 전신 에너지 소모 우선');
     }
-    if (!bias.length) bias.push('부위별 분석상 뚜렷한 약점 없음 → 균형 프로그램');
+    /* 부위별 값이 없으면 "약점 없음" 이라고 말하지 않습니다.
+     *
+     * 예전엔 bias 가 비면 무조건 '부위별 분석상 뚜렷한 약점 없음' 을
+     * 붙였습니다. 그런데 부위별 값은 앱에 들어오는 길이 없습니다 —
+     * 화면에도 없고, 서버 판독이 읽는 14개 칸에도 없습니다. 시드에만
+     * 있습니다. 그래서 모든 사용자가 "당신의 인바디를 봤더니 약점이
+     * 없더라" 는 말을 들었습니다. 본 적이 없는데요.
+     *
+     * 결과지에는 실제로 좌우 근육량 비교가 인쇄돼 있습니다. 그걸
+     * 읽지도 않고 "괜찮다" 고 말하면, 진짜 불균형이 있는 사람은
+     * 확인받았다고 믿고 넘어갑니다. 없는 것은 없다고 말합니다. */
+    var hasSegmental = !!(scan && (scan.segmentalLean || scan.segmentalFat));
+    if (!bias.length) {
+      bias.push(hasSegmental
+        ? '부위별 분석상 뚜렷한 약점 없음 → 균형 프로그램'
+        : '부위별 분석은 아직 넣을 수 없습니다 → 지금은 균형 배분입니다');
+    }
 
     function pick(group, n) {
       var pool = E[group] || [];
@@ -951,6 +967,7 @@
       deloadEvery: p.deloadEvery,
       progression: '더블 프로그레션 — 목표 반복 상단에 도달하면 다음 세션에 중량 2.5~5kg 증가',
       inbodyBias: bias,
+      hasSegmental: hasSegmental,
       sessions: sessions
     };
   }

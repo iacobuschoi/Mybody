@@ -408,6 +408,15 @@
   function publishWeekly() {
     var B = global.MB_BACKEND;
     if (!B || !B.currentUser || !B.currentUser()) return { ok: false, reason: '로그인 안 함' };
+    /* 측정이 없으면 아무것도 안 올립니다.
+     *
+     * 빈 스냅샷은 서버에 아무 가치가 없는데, 서버는 같은 주를 덮어씁니다.
+     * 그래서 앱을 지웠다 다시 깔고 로그인하면 — 온보딩의 첫 저장이
+     * publishWeekly() 를 부르고, 측정 0건짜리 빈 값이 서버에 멀쩡히
+     * 남아 있던 이번 주 기록을 덮어썼습니다. 친구 화면에서 그 사람의
+     * 이번 주 점이 그 자리에서 꺼집니다. 기기를 정리한 것이 남의
+     * 화면에서 내 기록을 지우는 일이 되면 안 됩니다. */
+    if (!(state.scans || []).length) return { ok: false, reason: '측정 없음' };
     try {
       return B.publishSnapshot(weekStartOf(), weeklySnapshot());
     } catch (e) {

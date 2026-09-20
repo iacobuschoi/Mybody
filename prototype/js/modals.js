@@ -381,17 +381,50 @@
       ]
     });
   };
+  /* 측정 기록은 서버로 안 올라갑니다. 그러니까 여기가 유일한 백업입니다.
+     그런데 "복사" 만 있으면 붙여넣을 곳을 미리 정해 둔 사람만 백업이
+     남습니다 — 폰에서는 그게 대부분 아무 데도 아닙니다. 파일로 떨어뜨리면
+     다운로드 폴더에 남고, 그건 기기를 정리해도 보통 살아남습니다. */
   M.exportData = function () {
     var text = S.exportJSON();
+    var stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    var name = 'mybody-' + stamp + '.json';
     UI.openModal({
       uid: 'M43', title: '데이터 내보내기',
-      sub: '전체 상태를 JSON으로',
-      body: h('textarea.textarea', { rows: 12, readonly: true, value: text }),
+      sub: '측정 기록은 서버에 없습니다 — 이 파일이 유일한 백업입니다',
+      body: [
+        h('textarea.textarea', { rows: 10, readonly: true, value: text }),
+        h('div.muted', { style: { marginTop: '8px' },
+          text: '기기를 바꾸거나 앱을 지우면 기록이 같이 사라집니다. ' +
+                '새 기기에서 설정 → 가져오기로 이 파일을 넣으면 그대로 돌아옵니다.' })
+      ],
       actions: [
         { label: '닫기', kind: 'ghost' },
-        { label: '복사', kind: 'primary', onClick: function () {
+        { label: '복사', onClick: function () {
             navigator.clipboard && navigator.clipboard.writeText(text);
             global.MB_UID.toast('복사했습니다');
+          } },
+        { label: '파일로 저장', kind: 'primary',
+          uid: 'M43-B10', uidLabel: '파일로 저장',
+          onClick: function () {
+            var url = null;
+            try {
+              var blob = new Blob([text], { type: 'application/json' });
+              url = URL.createObjectURL(blob);
+              var a = h('a', { href: url, download: name, style: { display: 'none' } });
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              global.MB_UID.toast(name + ' 으로 저장했습니다');
+            } catch (e) {
+              /* 막히는 브라우저가 있습니다. "저장했습니다" 라고 거짓말하면
+                 백업이 있다고 믿은 채로 기기를 정리합니다. */
+              global.MB_UID.toast('파일로 저장이 안 됩니다 — 복사해서 옮겨 주세요');
+            }
+            /* 취소 버튼 없이 바로 받는 브라우저를 위해 조금 뒤에 놓습니다.
+               즉시 revoke 하면 다운로드가 시작도 못 하고 끊깁니다. */
+            if (url) setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 30000);
+            return true;   // 모달은 열어 둡니다 — 복사도 같이 하고 싶을 수 있습니다
           } }
       ]
     });

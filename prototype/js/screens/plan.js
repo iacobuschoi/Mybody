@@ -225,9 +225,13 @@
       h('div.kv', [h('span.kv__k', { text: '증량 방식' }), h('span.kv__v', { text: '더블 프로그레션' })])
     ]));
 
+    /* 제목도 사실에 맞춥니다. 부위별 값이 없는데 "부위별 분석 기반" 이라고
+       적어 두면, 아래 한 줄이 무슨 말이든 사용자는 자기 결과지를 읽고
+       한 말로 받아들입니다. */
     wrap.appendChild(h('div.card', { uid: 'P07-C10', uidLabel: '인바디 부위별 반영' }, [
       h('div.card__head', [h('div.card__title', { text: '내 인바디 반영' }),
-                           h('div.card__sub', { text: '부위별 분석 기반' })]),
+                           h('div.card__sub', { text: w.hasSegmental
+                             ? '부위별 분석 기반' : '체중 · 골격근 · 체지방 기반' })]),
       h('ul', { style: { margin: '0', paddingLeft: '18px', fontSize: '13px', color: 'var(--text-2)' } },
         w.inbodyBias.map(function (b) { return h('li', { style: { marginBottom: '4px' }, text: b }); }))
     ]));

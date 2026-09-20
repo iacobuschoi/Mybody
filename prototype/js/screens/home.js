@@ -102,14 +102,34 @@
            0 입니다. 나누면 NaN 이 되고, clamp 도 NaN 을 그대로 통과시켜서
            도넛에 "NaN%" 가 찍혔습니다. 갈 거리가 없으면 이미 도착한
            것이므로 100 입니다. */
+        /* 갈 거리가 없는 축은 평균에서 빼고, 100 으로 채우지 않습니다.
+         *
+         * 예전엔 "이미 도착했으니 100" 으로 뒀습니다. 그런데 제일 흔한
+         * 목표가 "체지방은 빼고 근육은 유지" 입니다 — 근육 축은 갈
+         * 거리가 0 이라 자동으로 100 이 되고, 평균이 (0 + 100) / 2 = 50
+         * 에서 시작합니다. 하루도 안 지났고 1kg 도 안 뺐는데 큰 고리가
+         * 50% 를 가리킵니다. 절대 50 밑으로도 안 내려갑니다.
+         *
+         * 같은 순간에 추이 화면은 "달성 0%", 친구에게 나가는 스냅샷도
+         * progressPct 0 입니다. 한 앱이 같은 질문에 세 가지로 답하는데,
+         * 제일 자주 보는 자리가 제일 후한 답을 하고 있었습니다.
+         *
+         * 이제 실제로 갈 거리가 있는 축만 셉니다. 셀 축이 하나도 없으면
+         * (순수 유지 목표) 그때만 100 입니다 — 그건 참입니다. */
         var startBfm = plan.trajectory[0].bfmKg, targetBfm = st.goal.bfmKg;
         var fatSpan = startBfm - targetBfm;
-        var doneFat = Math.abs(fatSpan) < 0.05
-          ? 100 : clamp((startBfm - d.bfmKg) / fatSpan * 100);
         var startSmm = plan.trajectory[0].smmKg, targetSmm = st.goal.smmKg;
-        var doneSmm = targetSmm - startSmm > 0.05
-          ? clamp((d.smmKg - startSmm) / (targetSmm - startSmm) * 100) : 100;
-        var overall = Math.round((doneFat + doneSmm) / 2);
+        var smmSpan = targetSmm - startSmm;
+
+        var axes = [];
+        if (Math.abs(fatSpan) >= 0.05) axes.push(clamp((startBfm - d.bfmKg) / fatSpan * 100));
+        if (smmSpan > 0.05) axes.push(clamp((d.smmKg - startSmm) / smmSpan * 100));
+
+        var doneFat = Math.abs(fatSpan) < 0.05 ? 100 : clamp((startBfm - d.bfmKg) / fatSpan * 100);
+        var doneSmm = smmSpan > 0.05 ? clamp((d.smmKg - startSmm) / smmSpan * 100) : 100;
+        var overall = axes.length
+          ? Math.round(axes.reduce(function (a, b) { return a + b; }, 0) / axes.length)
+          : 100;
 
         var card = h('div.card.card--accent', { uid: 'P02-C02', uidLabel: '목표 진행 카드' });
         card.appendChild(h('div.card__head', [

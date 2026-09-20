@@ -308,7 +308,79 @@ const ok=(n,c,d)=>{if(c){pass++;console.log('  ✓',n);}else{fail++;console.log(
   });
   ok('화면이 비지 않는다', o3.chars>30, o3);
 
-  console.log('\n[14] JS 오류');
+  /* --------------------------------------------------------------------
+   * [14] 앱을 지웠다 다시 깔아도 서버의 이번 주 기록이 안 지워진다
+   *
+   * 기기 안의 것이 사라지는 것은 알려진 일입니다. 문제는 그 다음입니다 —
+   * 다시 로그인하면 온보딩을 처음부터 하게 되고, 온보딩의 첫 저장이
+   * publishWeekly() 를 부릅니다. 측정이 0건이라 빈 스냅샷이 나가고,
+   * 서버는 같은 주를 덮어씁니다. 친구 넷의 화면에서 그 사람의 이번 주
+   * 점이 그 자리에서 꺼집니다. 기기를 정리한 것이 남의 화면에서 내
+   * 기록을 지우는 일이 되면 안 됩니다.
+   * ------------------------------------------------------------------ */
+  console.log('\n[14] 다시 깔아도 서버의 이번 주 기록이 안 지워진다');
+  const o4 = await pg.evaluate(async ()=>{
+    localStorage.clear(); window.MB_STORE.seed();
+    /* 로그인해야 올릴 것이 생깁니다. 서버 없이 로컬 거울에만 로그인합니다 —
+       여기서 보려는 것은 "빈 스냅샷을 만드느냐" 이지 전송이 아닙니다. */
+    window.MB_BACKEND.signIn({ provider: 'local', handle: 'loss:test', displayName: '검증' });
+    const withScans = window.MB_STORE.publishWeekly();
+    // 측정만 지웁니다 — 재설치 직후 로그인한 상태와 같습니다
+    window.MB_STORE.set({ scans: [] });
+    const empty = window.MB_STORE.publishWeekly();
+    return { withScans: withScans && withScans.ok, empty: empty && empty.ok,
+             reason: empty && empty.reason };
+  });
+  ok('측정이 있으면 올린다', o4.withScans === true, o4);
+  ok('측정이 0건이면 아무것도 안 올린다', o4.empty === false && /측정 없음/.test(o4.reason || ''), o4);
+
+  /* --------------------------------------------------------------------
+   * [15] 측정일이 마지막 기록보다 앞서면 짚어 준다
+   *
+   * 폰 시계가 이틀 느리면 오늘 잰 것이 그저께로 박힙니다. 앱은 측정일
+   * 순으로 정렬하므로 어제 것이 "최신" 이 되고, 변화량이 거꾸로 계산돼
+   * 친구 화면에 부호가 반대로 나갑니다. 주 경계도 틀어져서 지난주
+   * 스냅샷을 덮어쓰면 그건 되돌릴 수 없습니다.
+   * 기기 시계를 앱이 고칠 수는 없지만, 한 번 물어보면 대부분 걸립니다.
+   * ------------------------------------------------------------------ */
+  console.log('\n[15] 측정일이 거꾸로 가면 짚어 준다');
+  const o5 = await pg.evaluate(async ()=>{
+    localStorage.clear(); window.MB_STORE.seed();
+    const st = window.MB_STORE.get();
+    const newest = window.MB_STORE.sortedScans().slice(-1)[0];
+    // 마지막 기록보다 이틀 이른 날짜로 새 측정을 넣습니다 (시계가 느린 폰)
+    const back = new Date(Date.parse(newest.measuredAt) - 2*24*3600*1000).toISOString();
+    window.MB_STORE.set({ draft: {
+      id: 'scan-backdated', measuredAt: back, source: 'manual', device: '',
+      weightKg: 86.0, smmKg: 38.0, bfmKg: 19.5, partial: false,
+      photoId: null, confidence: {}, lowConfidenceFields: []
+    } });
+    window.MB_DRAFT = window.MB_STORE.get().draft;
+    window.MB_APP.go('P04', { ocr: false });
+    await new Promise(r=>setTimeout(r,700));
+    return (document.getElementById('main').innerText || '');
+  });
+  ok('앞선 날짜라고 말한다', /마지막 기록보다 앞섭니다/.test(o5),
+     (o5.match(/.{0,60}앞섭니다.{0,80}/)||[''])[0]);
+  ok('폰 시계를 확인하라고 한다', /시계/.test(o5));
+
+  /* 정상 날짜면 안 뜹니다 — 거짓 경보는 경보를 죽입니다 */
+  const o6 = await pg.evaluate(async ()=>{
+    const st = window.MB_STORE.get();
+    const newest = window.MB_STORE.sortedScans().slice(-1)[0];
+    const fwd = new Date(Date.parse(newest.measuredAt) + 7*24*3600*1000).toISOString();
+    const d = Object.assign({}, st.draft, { measuredAt: fwd });
+    window.MB_STORE.set({ draft: d });
+    window.MB_DRAFT = d;
+    window.MB_APP.go('P02');
+    await new Promise(r=>setTimeout(r,250));
+    window.MB_APP.go('P04', { ocr: false });
+    await new Promise(r=>setTimeout(r,700));
+    return (document.getElementById('main').innerText || '');
+  });
+  ok('정상 날짜에는 안 뜬다', !/마지막 기록보다 앞섭니다/.test(o6));
+
+  console.log('\n[16] JS 오류');
   ok('오류 0건', errs.length===0, errs);
 
   console.log(`\n통과 ${pass} / 실패 ${fail}`);

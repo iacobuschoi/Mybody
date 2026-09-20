@@ -412,6 +412,47 @@
           warnHost.appendChild(box);
         });
 
+        /* 측정일이 마지막 기록보다 앞설 때 — 보통 폰 시계가 틀린 것입니다.
+         *
+         * 앱은 측정일 순으로 정렬합니다. 어제 기록이 있는데 오늘 잰 것이
+         * 그저께로 박히면, 어제 것이 "최신" 이 되고 변화량 계산이 거꾸로
+         * 돕니다. 실제로 체지방 0.9kg 을 뺐는데 친구 화면에는 +0.9kg 이
+         * 뜹니다 — 세 숫자의 부호가 전부 반대가 됩니다.
+         *
+         * 주 경계도 같이 틀어져서, 지난주 월요일로 계산되면 서버의 지난주
+         * 스냅샷을 이번 주 값으로 덮어씁니다. 그건 되돌릴 수 없습니다.
+         *
+         * 기기 시계를 앱이 고칠 수는 없습니다. 다만 한 번 물어보면
+         * 대부분은 저장되기 전에 걸립니다. */
+        (function () {
+          if (!v.measuredAt) return;
+          /* prevScan 이 아니라 "지금 저장된 것 중 제일 최근" 과 견줍니다.
+             prevScan 은 편집 중인 날짜보다 이전 것만 고르도록 걸러져
+             있어서, 날짜를 과거로 당길수록 같이 당겨집니다 — 그걸로
+             비교하면 이 경고는 영영 안 뜹니다. */
+          var mineId = src.origin && src.origin.id;
+          var all = S.sortedScans().filter(function (x) { return !mineId || x.id !== mineId; });
+          if (!all.length) return;
+          var newest = all[all.length - 1];
+          var mine2 = Date.parse(v.measuredAt);
+          var prevAt = Date.parse(newest.measuredAt);
+          if (!isFinite(mine2) || !isFinite(prevAt) || mine2 >= prevAt) return;
+          warnHost.appendChild(h('div.note.note--warn', { style: { marginBottom: '8px' } }, [
+            h('b', { text: '이 측정일이 마지막 기록보다 앞섭니다' }),
+            h('div', { style: { marginTop: '4px' },
+              text: '마지막 기록은 ' + UI.dateK(newest.measuredAt) + ' 인데 이 측정은 ' +
+                    UI.dateK(v.measuredAt) + ' 로 되어 있습니다. 폰 시계나 날짜를 확인해 주세요 — ' +
+                    '날짜가 틀리면 늘고 준 방향이 거꾸로 계산됩니다.' }),
+            h('div.muted', { style: { marginTop: '4px' },
+              text: '지난 기록을 일부러 나중에 채워 넣는 중이라면 그대로 두셔도 됩니다.' }),
+            h('button.btn.btn--sm', {
+              text: '측정일 고치기', style: { marginTop: '8px' },
+              uid: 'P04-B17', uidLabel: '측정일로 이동',
+              onClick: function () { focusField('measuredAt'); }
+            })
+          ]));
+        })();
+
         /* 어느 칸이 틀렸는지 못 고른 경우.
            등식은 깨졌는데 관련된 칸들 중 무엇이 범인인지 결과지만으로는
            알 수 없을 때입니다(체중과 체지방량 중 하나인데 BMI 가 안

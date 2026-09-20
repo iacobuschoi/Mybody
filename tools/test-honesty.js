@@ -127,7 +127,124 @@ const ok=(n,c,d)=>{if(c){pass++;console.log('  ✓',n);}else{fail++;console.log(
   ok('오차 범위를 같이 적는다', /인바디 오차만으로도 ±\d+주/.test(arr),
      (arr.match(/.{0,40}도착 예정.{0,60}/)||[''])[0]);
 
-  console.log('\n[4] JS 오류');
+  /* --------------------------------------------------------------------
+   * [4] 큰 고리가 50% 에서 시작하지 않는다
+   *
+   * 제일 흔한 목표가 "체지방은 빼고 근육은 유지" 입니다. 근육 축은
+   * 갈 거리가 0 이라 자동으로 100 점이 됐고, 평균이 (0+100)/2 = 50
+   * 에서 시작했습니다. 하루도 안 지났고 1kg 도 안 뺐는데 홈 화면
+   * 맨 위 고리가 50% 를 가리킵니다. 절대 그 밑으로도 안 내려갑니다.
+   *
+   * 같은 순간에 추이 화면은 0%, 친구에게 나가는 값도 0 입니다.
+   * 한 앱이 같은 질문에 세 가지로 답하는데, 제일 자주 보는 자리가
+   * 제일 후한 답을 하고 있었습니다.
+   * ------------------------------------------------------------------ */
+  console.log('\n[4] 아무것도 안 했는데 절반이라고 하지 않는다');
+  /* 화면이 하는 그대로 목표를 정하고 계획을 만듭니다 — 엔진을 직접
+     부르면 화면이 안 쓰는 경로를 검사하게 됩니다. */
+  await pg.evaluate(async ()=>{
+    localStorage.clear(); window.MB_STORE.seed();
+    const st = window.MB_STORE.get();
+    const last = st.scans[st.scans.length-1];
+    const d = window.MB_ENGINE.derive(last, st.profile);
+    // 제일 평범한 목표: 체지방 -5kg, 골격근은 지금 그대로
+    st.goal = { weightKg: Math.round((d.weightKg - 5) * 10) / 10,
+                smmKg: d.smmKg, bfmKg: Math.round((d.bfmKg - 5) * 10) / 10,
+                targetDate: null, deadlineWeeks: 26 };
+    window.MB_STORE.save();
+    try { window.MB_APP.go('P05'); } catch(e){}
+  });
+  /* 버튼 하나를 누르면 확인 창이 뜨는 자리가 있습니다(목표가 권고
+     범위를 벗어났다 · 강도가 세다). 창을 닫아야 다음 화면으로 갑니다. */
+  const tap = async (uid) => {
+    for (let i = 0; i < 4; i++) {
+      const hit = await pg.evaluate(u => {
+        const m = document.querySelector('.modal-backdrop .modal__actions .btn--primary');
+        if (m) { m.click(); return 'modal'; }
+        const b = document.querySelector('[data-uid="' + u + '"]');
+        if (b) { b.click(); return 'btn'; }
+        return null;
+      }, uid);
+      await pg.waitForTimeout(500);
+      if (hit === 'btn') break;
+      if (!hit) break;
+    }
+    // 남은 확인 창을 마저 닫습니다
+    for (let i = 0; i < 3; i++) {
+      const more = await pg.evaluate(() => {
+        const m = document.querySelector('.modal-backdrop .modal__actions .btn--primary');
+        if (m) { m.click(); return true; } return false;
+      });
+      await pg.waitForTimeout(450);
+      if (!more) break;
+    }
+  };
+  await tap('P05-B05');
+  await tap('P06-B22');
+  await pg.waitForTimeout(500);
+  const ring = await pg.evaluate(async ()=>{
+    window.MB_APP.go('P02');
+    await new Promise(r=>setTimeout(r,500));
+    const c = document.querySelector('[data-uid="P02-C02"]');
+    const txt = c ? c.innerText : '';
+    const m = txt.match(/(\d+)%/);
+    const snap = window.MB_STORE.weeklySnapshot();
+    const st2 = window.MB_STORE.get();
+    return { pct: m ? +m[1] : null, progressPct: snap.progressPct, txt: txt.slice(0, 240),
+             hasPlan: !!st2.plan, hasGoal: !!st2.goal, screen: window.MB_APP.current,
+             main: (document.getElementById('main').innerText||'').slice(0,200) };
+  });
+  ok('시작 직후 고리가 0% 다', ring.pct === 0, ring);
+  ok('친구에게 나가는 값과 같다', ring.pct === ring.progressPct, ring);
+
+  /* --------------------------------------------------------------------
+   * [5] 본 적 없는 것을 봤다고 하지 않는다
+   *
+   * 운동 탭에 "부위별 분석상 뚜렷한 약점 없음" 이 모든 사용자에게
+   * 떴습니다. 부위별 값은 앱에 들어오는 길이 자체가 없습니다 —
+   * 화면에도 없고, 서버 판독이 읽는 14개 칸에도 없습니다.
+   * 결과지에는 좌우 근육량 비교가 실제로 인쇄돼 있는데, 그걸 읽지도
+   * 않고 "괜찮다" 고 하면 진짜 불균형이 있는 사람이 확인받았다고
+   * 믿고 넘어갑니다.
+   * ------------------------------------------------------------------ */
+  console.log('\n[5] 부위별 분석을 본 적 없으면 봤다고 안 한다');
+  /* 운동 카드는 P07 의 "운동" 탭(P07-T02)에 있습니다. */
+  const workoutCard = async () => {
+    await pg.evaluate(()=>window.MB_APP.go('P07'));
+    await pg.waitForTimeout(450);
+    await pg.evaluate(()=>{const b=document.querySelector('[data-uid="P07-T02"]'); if(b)b.click();});
+    await pg.waitForTimeout(400);
+    return pg.evaluate(()=>{
+      const c = document.querySelector('[data-uid="P07-C10"]');
+      return c ? c.innerText : '';
+    });
+  };
+
+  /* 시드에는 부위별 값이 있습니다 — 있을 때는 말해도 됩니다. */
+  const seg2 = await workoutCard();
+  ok('값이 있으면 부위별이라고 말한다', /부위별 분석 기반/.test(seg2), seg2.slice(0, 200));
+
+  /* 이제 부위별 값을 빼고 계획을 다시 만듭니다.
+     계획에 이미 박힌 문장을 보는 게 아니라, 값 없이 새로 만든 계획이
+     무엇이라고 말하는지를 봅니다. */
+  await pg.evaluate(()=>{
+    const st = window.MB_STORE.get();
+    st.scans = st.scans.map(x => { const y = Object.assign({}, x);
+      delete y.segmentalLean; delete y.segmentalFat; return y; });
+    st.plan = null; st.baselinePlan = null;
+    window.MB_STORE.save();
+    window.MB_APP.go('P05');
+  });
+  await pg.waitForTimeout(600);
+  await tap('P05-B05');
+  await tap('P06-B22');
+  await pg.waitForTimeout(500);
+  const seg = await workoutCard();
+  ok('"약점 없음" 이라고 단정하지 않는다', !/뚜렷한 약점 없음/.test(seg), seg.slice(0, 200));
+  ok('없다는 것을 말한다', /부위별 분석은 아직 넣을 수 없습니다/.test(seg), seg.slice(0, 200));
+  ok('제목도 부위별이라고 안 한다', !/부위별 분석 기반/.test(seg), seg.slice(0, 200));
+
+  console.log('\n[6] JS 오류');
   ok('오류 0건', errs.length===0, errs);
   console.log(`\n통과 ${pass} / 실패 ${fail}`);
   await b.close(); srv.close(); process.exit(fail?1:0);
