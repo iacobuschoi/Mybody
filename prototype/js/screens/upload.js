@@ -427,7 +427,7 @@
           /* "주소가 적혀 있다" 와 "그 주소에 우리 서버가 있다" 는 다릅니다.
              미리보기 링크로 열면 앱이 그 주소(claude.ai)를 기본값으로 잡는데,
              거기엔 서버가 없습니다. reachable === false 가 그걸 말해 줍니다. */
-          if (st.reachable === false && st.ownServer) {
+          if (st.reachable === false && st.ownServer && st.serverKind === 'down') {
             /* 이 페이지를 준 게 그 서버인데 지금은 안 닿는다면, 미리보기가
                아니라 그냥 꺼진 것입니다. 여기서 "미리보기입니다, 주소를
                넣으세요" 라고 하면 사람은 주소를 바꿉니다 — 브라우저는

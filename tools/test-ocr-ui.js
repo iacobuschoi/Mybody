@@ -126,6 +126,38 @@ async function main() {
      (await page.evaluate(() => window.MB_SYNC.status().reachable)) === false);
   ok('"서버가 없다"고 말한다', /서버가 없습니다/.test(await text()));
 
+  /* 정적 호스트에 올렸을 때 — 웹서버는 있는데 우리 API 가 없는 경우.
+     연결 자체가 안 되는 경우(서버가 꺼짐)와는 할 일이 다릅니다:
+     여기서는 주소를 넣어야 하고, 저기서는 주소를 그대로 둬야 합니다.
+     둘을 같은 말로 다루면 한쪽은 틀린 안내를 받습니다 — 그리고
+     "주소를 바꾸세요" 는 브라우저가 주소마다 따로 저장하는 탓에
+     그동안의 기록을 날립니다. */
+  console.log('\n[1-3] 웹서버는 있는데 우리 API 가 아닐 때');
+  {
+    const other = require('node:http').createServer((q, r) => { r.writeHead(200); r.end('hello'); });
+    await new Promise(r => other.listen(0, '127.0.0.1', r));
+    const op = other.address().port;
+    await page.evaluate(b => window.MB_SYNC.configure(b), 'http://127.0.0.1:' + op);
+    await page.waitForTimeout(700);
+    const kind = await page.evaluate(() => window.MB_SYNC.status().serverKind);
+    /* 다른 출처의 서버가 CORS 머리글을 안 붙이면 브라우저가 응답을
+       통째로 막아서, "꺼짐" 과 구분할 방법이 아예 없습니다. 그래서
+       'down' 이 나오는 게 맞습니다 — 대신 그 경우 ownServer 가 false 라
+       "주소가 틀렸거나 서버가 없습니다" 쪽 안내로 갑니다. 그게 맞는
+       안내입니다. 진짜로 갈라야 하는 것은 같은 출처일 때이고,
+       그건 test-release 가 정적 호스트로 확인합니다. */
+    ok('남의 출처는 구분할 수 없고, 그때는 꺼짐으로 본다', kind === 'down', kind);
+    await go('P02'); await go('P03');
+    ok('주소를 넣으라고 한다', await seen('P03-B15'));
+    await new Promise(r => other.close(r));
+
+    /* 연결 자체가 안 되는 경우 */
+    await page.evaluate(() => window.MB_SYNC.configure('http://127.0.0.1:9931'));
+    await page.waitForTimeout(700);
+    ok('연결이 안 되면 꺼진 것으로 본다',
+       (await page.evaluate(() => window.MB_SYNC.status().serverKind)) === 'down');
+  }
+
   /* --- 2. 서버는 있는데 로그인 안 했을 때 -------------------------------- */
   console.log('\n[2] 로그인 전');
   await page.evaluate(b => window.MB_SYNC.configure(b), BASE);
@@ -203,7 +235,9 @@ async function main() {
   console.log('\n[6] JS 오류');
   /* 일부러 닿지 않는 주소를 물어봤습니다(위 [1-2]). 브라우저는 그것도
      콘솔 오류로 찍습니다 — 예상한 것은 빼고 셉니다. */
-  const EXPECTED = /status of (400|401|429)|ERR_CONNECTION_REFUSED|ERR_UNSAFE_PORT|Failed to load resource/;
+  /* 일부러 닿지 않는 주소와 CORS 를 안 여는 남의 서버를 물어봤습니다
+     (위 [1-2]·[1-3]). 브라우저는 그것도 콘솔 오류로 찍습니다. */
+  const EXPECTED = /status of (400|401|429)|ERR_CONNECTION_REFUSED|ERR_UNSAFE_PORT|Failed to load resource|blocked by CORS policy/;
   const real = [...new Set(errs)].filter(e => !EXPECTED.test(e));
   ok('예상 못 한 오류 0건', real.length === 0, real.slice(0, 3));
 

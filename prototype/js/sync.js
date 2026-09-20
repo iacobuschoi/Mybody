@@ -59,13 +59,35 @@
    */
   var reachable = null;
 
+  /* 안 닿을 때도 이유가 둘입니다. 둘을 같은 말로 다루면 한쪽에 틀린
+     안내를 하게 됩니다:
+       'other'  그 주소에 웹서버는 있는데 이 앱의 서버가 아님
+                (미리보기 링크 · 정적 호스트). → 주소를 넣어야 합니다.
+       'down'   연결 자체가 안 됨. 컴퓨터가 꺼졌거나 서버를 멈춘 것.
+                → 주소는 그대로 둬야 합니다. 바꾸면 기록이 안 보이게
+                  됩니다(브라우저가 주소마다 따로 저장하니까). */
+  var serverKind = null;   // 'ours' | 'other' | 'down' | null(아직 모름)
+
   function probe() {
     var base = cfg.baseUrl || defaultBase();
-    if (!base) { reachable = false; emit(); return Promise.resolve(false); }
+    if (!base) { reachable = false; serverKind = 'other'; emit(); return Promise.resolve(false); }
     return fetch(base + '/health')
-      .then(function (r) { return r.ok ? r.json().catch(function () { return {}; }) : null; })
-      .then(function (j) { reachable = !!j; emit(); return reachable; })
-      .catch(function () { reachable = false; emit(); return false; });
+      .then(function (r) {
+        if (!r.ok) return null;
+        return r.json().catch(function () { return null; });
+      })
+      .then(function (j) {
+        /* 우리 /health 는 { ok: true } 를 줍니다. 남의 서버가 우연히
+           200 을 줘도 그것까지 우리 것으로 세지는 않습니다. */
+        var ours = !!(j && j.ok);
+        reachable = ours;
+        serverKind = ours ? 'ours' : 'other';
+        emit();
+        return ours;
+      })
+      .catch(function () {
+        reachable = false; serverKind = 'down'; emit(); return false;
+      });
   }
 
   /* 이 앱을 그 서버가 직접 내보내고 있는가.
@@ -82,6 +104,7 @@
     return {
       configured: !!cfg.baseUrl,
       reachable: reachable,
+      serverKind: serverKind,
       ownServer: servedByConfigured(),
       signedIn: !!cfg.token,
       baseUrl: cfg.baseUrl || null,
@@ -103,7 +126,7 @@
 
   function configure(baseUrl) {
     cfg.baseUrl = baseUrl ? String(baseUrl).replace(/\/+$/, '') : null;
-    reachable = null;              // 주소가 바뀌었으니 다시 물어봐야 합니다
+    reachable = null; serverKind = null;   // 주소가 바뀌었으니 다시 물어봐야 합니다
     saveCfg(cfg); emit();
     probe();
     return status();

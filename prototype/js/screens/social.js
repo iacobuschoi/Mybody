@@ -534,7 +534,7 @@
           }
           if (st.reachable === false) {
             return h('div.note.note--warn', { style: { marginTop: '10px' },
-              text: st.ownServer
+              text: (st.ownServer && st.serverKind === 'down')
                 ? st.baseUrl + ' 에 닿지 않습니다. 컴퓨터가 꺼져 있거나 서버를 멈춘 것 같습니다. ' +
                   '주소는 그대로 두세요 — 바꾸면 그동안의 기록이 안 보이게 됩니다.'
                 : st.baseUrl + ' 에 이 앱의 서버가 없습니다. 미리보기로 열었거나 ' +

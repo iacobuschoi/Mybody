@@ -262,6 +262,29 @@ const DEV_UIDS = ['P01-B05', 'P02-B02', 'P03-B03', 'P03-B09', 'P18-B08',
     ok('빌드 버전이 적혀 있다', build && foot.includes(build.version), foot.slice(0, 120));
   }
 
+  /* 정적 호스트에 올렸을 때 — 웹서버는 있는데 우리 API 가 없습니다.
+     이 검사의 서버가 딱 그것입니다(정적 파일만 내보냅니다).
+     이 경우와 "내 서버가 꺼짐" 은 할 일이 정반대입니다:
+     여기서는 주소를 넣어야 하고, 저기서는 주소를 그대로 둬야 합니다.
+     주소를 바꾸라고 잘못 안내하면, 브라우저는 주소마다 따로 저장하므로
+     그동안의 기록이 그 자리에서 안 보이게 됩니다. */
+  {
+    const st = await p2.evaluate(async () => {
+      await new Promise(r => setTimeout(r, 400));
+      return window.MB_SYNC.status();
+    });
+    ok('정적 호스트를 "우리 서버 아님" 으로 본다', st.serverKind === 'other', st.serverKind);
+    const card = await p2.evaluate(async () => {
+      window.MB_APP.go('P03');
+      await new Promise(r => setTimeout(r, 450));
+      const c = document.querySelector('[data-uid="P03-C08"]');
+      return { text: c ? c.innerText : '', hasSet: !!document.querySelector('[data-uid="P03-B15"]') };
+    });
+    ok('주소를 넣으라고 안내한다', card.hasSet, card.text.slice(0, 120));
+    ok('"주소는 그대로 두세요" 라고 하지 않는다',
+       !/주소는 그대로/.test(card.text), card.text.slice(0, 160));
+  }
+
   console.log('\n[8] 개인정보처리방침');
   {
     const pv = await ctx.newPage();
