@@ -64,7 +64,7 @@ const ok = (n, c, d) => {
   const hideDock = () => page.addStyleTag({ content: '.uid-dock{display:none!important}' });
 
   const go = async () => {
-    await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
+    await page.goto(`http://localhost:${PORT}/?app=1`, { waitUntil: 'load' });
     await page.waitForTimeout(350);
     await hideDock();
     await page.evaluate(() => { window.MB_STORE.seed(); window.MB_APP.go('P02'); });

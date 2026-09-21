@@ -50,7 +50,7 @@ const UID_RE = /^(P\d{2}|M\d{2}|A\d{2})(-[A-Z]\d{2})?(#\d+)?$/;
   });
   page.on('pageerror', e => errors.push('PAGEERROR: ' + e.message.slice(0, 200)));
 
-  await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
+  await page.goto(`http://localhost:${PORT}/?app=1`, { waitUntil: 'load' });
   await page.waitForTimeout(400);
 
   // 오너의 실제 인바디로 시드

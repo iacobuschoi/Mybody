@@ -59,7 +59,7 @@ async function device(browser, label) {
   const errs = [];
   page.on('pageerror', e => errs.push(label + ': ' + e.message));
   page.on('console', m => { if (m.type() === 'error') errs.push(label + ' CONSOLE: ' + m.text().slice(0, 160)); });
-  await page.goto(BASE + '/', { waitUntil: 'load' });
+  await page.goto(BASE + '/?app=1', { waitUntil: 'load' });
   await page.waitForTimeout(500);
   return { ctx, page, errs, label };
 }

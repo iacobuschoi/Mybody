@@ -53,8 +53,15 @@ self.addEventListener('fetch', e => {
   // 다른 출처(글꼴 등)는 브라우저 기본 처리에 맡깁니다.
   if (url.origin !== self.location.origin) return;
 
+  /* ignoreSearch: 물음표 뒤를 빼고 찾습니다.
+   *
+   * 매니페스트의 start_url 이 "./?app=1" 입니다 — 홈 화면 아이콘으로
+   * 열면 그 주소로 들어옵니다. 그런데 캐시에 담긴 것은 "./" 라서,
+   * 물음표까지 따지면 **깔아 둔 앱이 오프라인에서 안 열립니다.**
+   * 온라인일 때는 네트워크가 받아 주니 아무 증상이 없다가, 지하철에서
+   * 처음 드러납니다. 오프라인 검사가 이걸 잡았습니다. */
   e.respondWith(
-    caches.match(req).then(hit => {
+    caches.match(req, { ignoreSearch: true }).then(hit => {
       const net = fetch(req).then(res => {
         if (res && res.ok && res.type === 'basic') {
           const copy = res.clone();

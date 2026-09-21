@@ -3,7 +3,7 @@
   "short_name": "Mybody",
   "description": "인바디 결과지를 읽어 목표까지의 계획을 세우고, 오차보다 작은 변화를 성과로 세지 않습니다.",
   "lang": "ko",
-  "start_url": "./",
+  "start_url": "./?app=1",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

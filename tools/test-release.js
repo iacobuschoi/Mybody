@@ -80,7 +80,7 @@ const DEV_UIDS = ['P01-B05', 'P02-B02', 'P03-B03', 'P03-B09', 'P18-B08',
     if (m.type() === 'error' && !EXPECTED_404.test(m.text())) errs.push('console: ' + m.text().slice(0, 200));
   });
 
-  await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
+  await page.goto(`http://localhost:${PORT}/?app=1`, { waitUntil: 'load' });
   await page.waitForTimeout(600);
 
   console.log('\n[1] 빌드 플래그');
@@ -120,7 +120,7 @@ const DEV_UIDS = ['P01-B05', 'P02-B02', 'P03-B03', 'P03-B09', 'P18-B08',
   // P20 은 사진을 실제로 읽지 못합니다 — 지어낸 음식이 식단 기록에
   // 들어가면 칼로리·단백질 계산이 통째로 어긋납니다.
   ok('P20 (음식 사진) 이 등록조차 안 됨', !gated.P20);
-  await page.goto(`http://localhost:${PORT}/#P13`, { waitUntil: 'load' });
+  await page.goto(`http://localhost:${PORT}/?app=1#P13`, { waitUntil: 'load' });
   await page.waitForTimeout(500);
   ok('#P13 으로 들어와도 ID 목록이 아님',
      (await page.evaluate(() => window.MB_APP.current)) !== 'P13');
@@ -236,7 +236,7 @@ const DEV_UIDS = ['P01-B05', 'P02-B02', 'P03-B03', 'P03-B09', 'P18-B08',
   off.on('pageerror', e => offErrs.push(String(e.message).slice(0, 160)));
   let opened = false, txt = '';
   try {
-    await off.goto(`http://localhost:${PORT}/`, { waitUntil: 'load', timeout: 15000 });
+    await off.goto(`http://localhost:${PORT}/?app=1`, { waitUntil: 'load', timeout: 15000 });
     await off.waitForTimeout(900);
     txt = await off.evaluate(() => (document.getElementById('main') || {}).innerText || '');
     opened = txt.length > 30;
@@ -253,7 +253,7 @@ const DEV_UIDS = ['P01-B05', 'P02-B02', 'P03-B03', 'P03-B09', 'P18-B08',
   p2.on('console', m => {
     if (m.type() === 'error' && !EXPECTED_404.test(m.text())) appErrs.push('console: ' + m.text().slice(0, 200));
   });
-  await p2.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
+  await p2.goto(`http://localhost:${PORT}/?app=1`, { waitUntil: 'load' });
   await p2.waitForTimeout(500);
   await p2.evaluate(() => { localStorage.clear(); window.MB_STORE.seed(); });
   await p2.reload({ waitUntil: 'load' });
@@ -371,7 +371,7 @@ const DEV_UIDS = ['P01-B05', 'P02-B02', 'P03-B03', 'P03-B09', 'P18-B08',
     });
     await pw.goto(`http://localhost:${PORT}/privacy.html`, { waitUntil: 'load' });
     await pw.waitForTimeout(400);
-    await pw.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
+    await pw.goto(`http://localhost:${PORT}/?app=1`, { waitUntil: 'load' });
     await pw.waitForTimeout(900);
     ok('앱과 방침이 바깥으로 요청을 안 보낸다', out.length === 0, out.slice(0, 4));
     await pw.close();

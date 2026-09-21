@@ -65,6 +65,8 @@ const CHECKS = [
     why: '앱이 멀쩡해도 서버를 못 띄우면 아무도 못 씁니다' },
   { id: '주간 일정 화면', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-weekplan-ui.js'],
     why: '매일 누르는 칸입니다 — 한 번 안 눌리면 그 날 기록이 통째로 비어 버립니다' },
+  { id: '앱 받기 화면', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-gate-ui.js'],
+    why: '링크를 받은 친구가 제일 먼저 보는 화면입니다 — 못 까는 기기에서 들어올 길이 막히면 그 친구는 못 씁니다' },
   { id: '친구 주 이름', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-friendweek-ui.js'],
     why: '남의 지난주 성적을 "이번 주" 라고 부르면 화면이 남에 대해 사실이 아닌 말을 합니다' },
   { id: '가입 화면', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-signup-ui.js'],

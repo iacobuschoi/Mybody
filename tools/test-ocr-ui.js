@@ -108,7 +108,7 @@ async function main() {
   const errs = [];
   page.on('pageerror', e => errs.push(String(e.message).slice(0, 200)));
   page.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text().slice(0, 200)); });
-  await page.goto(BASE + '/', { waitUntil: 'load' });
+  await page.goto(BASE + '/?app=1', { waitUntil: 'load' });
   await page.waitForTimeout(500);
 
   const text = () => page.evaluate(() => (document.getElementById('main').innerText || ''));

@@ -68,7 +68,7 @@ const ok = (n, c, d) => {
   /** 앱을 새로 열고 계정 화면까지 갑니다. probe() 가 /health 를 한 번
    *  두드릴 시간을 줍니다 — 그 답이 이 시험의 전부입니다. */
   const open = async () => {
-    await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
+    await page.goto(`http://localhost:${PORT}/?app=1`, { waitUntil: 'load' });
     await page.waitForTimeout(400);
     await page.addStyleTag({ content: '.uid-dock{display:none!important}' });
     await page.evaluate(() => { window.MB_STORE.seed(); window.MB_APP.go('P14'); });

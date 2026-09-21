@@ -263,7 +263,7 @@ async function bootApi() {
     }
     console.log(`\n=== ${key} · ${state.label} ===`);
 
-    await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
+    await page.goto(`http://localhost:${PORT}/?app=1`, { waitUntil: 'load' });
     await page.waitForTimeout(250);
     await page.evaluate(state.setup);
     await page.reload({ waitUntil: 'load' });
@@ -481,7 +481,7 @@ async function bootApi() {
 
   for (const uid of DESTRUCTIVE) {
     const sid = uid.slice(0, 3);
-    await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
+    await page.goto(`http://localhost:${PORT}/?app=1`, { waitUntil: 'load' });
     await page.waitForTimeout(200);
     await page.evaluate(() => {
       localStorage.clear();

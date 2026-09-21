@@ -15,7 +15,7 @@ const SCREENS=['P01','P02','P03','P04','P05','P06','P07','P08','P09','P10','P11'
   await new Promise(r=>server.listen(8733,r));
   const b=await chromium.launch({executablePath:'/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
   const pg=await (await b.newContext({viewport:{width:420,height:900}})).newPage();
-  await pg.goto('http://localhost:8733/',{waitUntil:'load'});
+  await pg.goto('http://localhost:8733/?app=1',{waitUntil:'load'});
   await pg.waitForTimeout(400);
   await pg.evaluate(()=>{window.MB_STORE.seed();window.MB_APP.go('P05');});
   await pg.waitForTimeout(400);

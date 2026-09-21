@@ -63,7 +63,7 @@ const ok = (n, c, d) => {
     errs.push('CONSOLE: ' + m.text().slice(0, 200));
   });
 
-  await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
+  await page.goto(`http://localhost:${PORT}/?app=1`, { waitUntil: 'load' });
   await page.waitForTimeout(400);
   await page.addStyleTag({ content: '.uid-dock{display:none!important}' });
 

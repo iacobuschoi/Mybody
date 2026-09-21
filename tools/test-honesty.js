@@ -35,7 +35,7 @@ const ok=(n,c,d)=>{if(c){pass++;console.log('  ✓',n);}else{fail++;console.log(
   const b=await chromium.launch({executablePath: process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'});
   const pg=await (await b.newContext({viewport:{width:390,height:844}})).newPage();
   const errs=[]; pg.on('pageerror',e=>errs.push(e.message.slice(0,160)));
-  await pg.goto(`http://localhost:${PORT}/`,{waitUntil:'load'}); await pg.waitForTimeout(400);
+  await pg.goto(`http://localhost:${PORT}/?app=1`,{waitUntil:'load'}); await pg.waitForTimeout(400);
 
   console.log('\n[1] 유지 목표에서 NaN 이 안 나온다');
   const r1 = await pg.evaluate(async ()=>{

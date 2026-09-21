@@ -258,6 +258,33 @@
       });
     } catch (e) {}
     S.load();
+
+    /* 웹 주소로 처음 들어온 사람에게는 **앱 받는 법부터** 보여 줍니다.
+     *
+     * 이 앱은 브라우저에서도 그대로 돌아서, 친구가 링크를 열면 그냥
+     * 쓰기 시작하고 앱으로 깔 수 있다는 걸 영영 모릅니다. 아이폰은
+     * 깔아야만 알림이 오는데 그것도 모른 채 지나갑니다.
+     *
+     * 홈 화면 아이콘으로 연 경우(standalone), 매니페스트가 붙인 ?app=1
+     * 로 들어온 경우, 그리고 "브라우저에서 쓰기" 를 한 번 고른 경우에는
+     * 지나갑니다 — 한 번 고른 사람에게 같은 벽을 다시 세우지 않습니다. */
+    if (global.MB_GATE && global.MB_GATE.needed()) {
+      var gateRoot = document.createElement('div');
+      gateRoot.id = 'gate';
+      document.body.appendChild(gateRoot);
+      global.MB_GATE.render(gateRoot, function () {
+        gateRoot.remove();
+        bootApp();
+      });
+      /* 관문에도 번호를 붙입니다 — 여기서 막힌 사람이 어디가 막혔는지
+         말할 수 있어야 합니다. */
+      try { global.MB_UID.init(); } catch (e) {}
+      return;
+    }
+    bootApp();
+  }
+
+  function bootApp() {
     buildShell();
     global.MB_UID.init();
 
