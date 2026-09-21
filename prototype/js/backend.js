@@ -305,13 +305,29 @@
     }
 
     /* --- 공유 설정 ----------------------------------------------------- */
+    /* 저장된 행이 있으면 **그 행이 전부** 입니다.
+     *
+     * 없는 키를 blankShare() 로 채우면, 나중에 생긴 기본 켜짐 항목이
+     * 그 항목을 본 적도 없는 옛 관계에서 저절로 켜집니다. 서버에서
+     * 실제로 그렇게 됐습니다(server/db.js 의 마이그레이션 주석 참고).
+     * 여기는 원래 병합을 안 하고 있어서 운 좋게 안전했는데, 운에
+     * 기대지 않도록 규칙을 눈에 보이게 적어 둡니다. */
+    function readShare(ownerId, viewerId) {
+      var saved = db.shares[shareKey(ownerId, viewerId)];
+      if (!saved) return blankShare();
+      var out = { updatedAt: saved.updatedAt || null };
+      for (var i = 0; i < SHARE_FIELDS.length; i++) {
+        out[SHARE_FIELDS[i].key] = saved[SHARE_FIELDS[i].key] === true;
+      }
+      return out;
+    }
     function getShare(ownerId, viewerId) {
-      return JSON.parse(JSON.stringify(db.shares[shareKey(ownerId, viewerId)] || blankShare()));
+      return readShare(ownerId, viewerId);
     }
     function setShare(viewerId, patch) {
       var me = requireUser();
       if (!areFriends(me, viewerId)) return { ok: false, reason: '친구가 아닙니다' };
-      var cur = db.shares[shareKey(me, viewerId)] || blankShare();
+      var cur = readShare(me, viewerId);
       // !! 강제변환이면 문자열 "false" 가 true 가 됩니다. 이 앱에서 가장 민감한
       // 스위치가 한쪽 방향으로만(= 더 열리는 쪽으로만) 실패하던 자리입니다.
       for (var si = 0; si < SHARE_FIELDS.length; si++) {
@@ -331,7 +347,7 @@
       return { ok: true, share: JSON.parse(JSON.stringify(cur)) };
     }
     function shareSummary(ownerId, viewerId) {
-      var s = db.shares[shareKey(ownerId, viewerId)] || blankShare();
+      var s = readShare(ownerId, viewerId);
       var on = SHARE_FIELDS.filter(function (f) { return s[f.key]; }).map(function (f) { return f.label; });
       return { count: on.length, labels: on, settings: JSON.parse(JSON.stringify(s)) };
     }
@@ -364,7 +380,7 @@
     function getFriendSnapshots(ownerId, limit) {
       var me = requireUser();
       if (!areFriends(me, ownerId)) return { ok: false, reason: '친구가 아닙니다', rows: [] };
-      var s = db.shares[shareKey(ownerId, me)] || blankShare();
+      var s = readShare(ownerId, me);
 
       /* 서버에서 온 행은 이미 걸러진 값입니다. 여기서 다시 거르면
          로컬 설정이 서버 설정보다 앞서 적용되어, 서버가 허용한 것을

@@ -115,6 +115,43 @@ function open(file) {
               WHERE expires_at IS NULL`);
   } catch { /* 빈 DB 등 */ }
 
+  /* 공유 설정에 **나중에 생긴 항목이 조용히 켜지지 않게** 못을 박습니다.
+   *
+   * shareFields() 는 Object.assign(blankShare(), 저장된값) 으로 읽습니다.
+   * 저장된 행에 없는 키는 blankShare() 의 기본값이 그대로 남습니다.
+   * 그래서 기본 켜짐인 항목을 새로 만들면, 그 항목이 생기기 전에 저장된
+   * **모든 기존 관계에서 저절로 켜집니다.** "전부 끄기" 를 눌러 둔
+   * 사람까지 포함해서.
+   *
+   * 실제로 그렇게 됐습니다. schedule 을 기본 켜짐으로 넣자, 저장된 행이
+   * {… streak:false, absolute:false} 인 사람(전부 끈 사람)의 읽은 값이
+   * {… schedule:true} 가 되고 친구 화면에 "계획 4일 · 지킴 2일" 이
+   * 떴습니다. 껐다고 믿는 사람은 다시 확인하지 않습니다 — 이 앱에서
+   * 제일 나쁜 종류의 고장입니다.
+   *
+   * 규칙: **사용자가 본 적 없는 항목은 켜져 있을 수 없습니다.** 동의는
+   * 읽은 문장에 대해 하는 것이지 코드에 대해 하는 것이 아닙니다.
+   * 그래서 저장된 행에 없는 키는 전부 false 로 명시해 둡니다. 새로
+   * 맺는 관계는 blankShare() 를 그대로 쓰므로 기본 켜짐이 살아 있습니다 —
+   * 그 사람은 지금 화면에 적힌 문장을 읽고 친구를 맺은 사람입니다.
+   *
+   * 여러 번 돌아도 안전합니다. 한 번 지나가면 모든 행이 모든 키를
+   * 명시하고 있어서 그 뒤로는 아무것도 안 바뀝니다. */
+  try {
+    const rows = db.prepare('SELECT owner_id, viewer_id, fields FROM shares').all();
+    const fix = db.prepare('UPDATE shares SET fields=? WHERE owner_id=? AND viewer_id=?');
+    for (const r of rows) {
+      let f;
+      try { f = JSON.parse(r.fields); } catch { f = {}; }
+      if (!f || typeof f !== 'object') f = {};
+      let changed = false;
+      for (const k of SHARE_FIELDS) {
+        if (typeof f[k] !== 'boolean') { f[k] = false; changed = true; }
+      }
+      if (changed) fix.run(JSON.stringify(f), r.owner_id, r.viewer_id);
+    }
+  } catch { /* 빈 DB 등 */ }
+
   return db;
 }
 
@@ -614,8 +651,17 @@ function makeApi(db) {
     shareFields(owner, viewer) {
       const r = q.getShare.get(owner, viewer);
       if (!r) return blankShare();
-      try { return Object.assign(blankShare(), JSON.parse(r.fields)); }
-      catch { return blankShare(); }
+      /* 저장된 행이 있으면 **그 행이 전부** 입니다. 없는 키를 blankShare()
+         의 기본값으로 채우지 않습니다 — 그러면 나중에 생긴 기본 켜짐
+         항목이 옛 관계에서 저절로 켜집니다(위 마이그레이션 주석 참고).
+         행이 아예 없을 때만 기본값을 씁니다. 그건 아직 아무것도 정한
+         적이 없는 새 관계라는 뜻입니다. */
+      try {
+        const saved = JSON.parse(r.fields) || {};
+        const out = {};
+        for (const k of SHARE_FIELDS) out[k] = saved[k] === true;
+        return out;
+      } catch { return blankShare(); }
     },
     shareSummary(owner, viewer) {
       const s = this.shareFields(owner, viewer);

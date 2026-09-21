@@ -280,6 +280,31 @@ async function main() {
   ok('userId 없는 block 도 500이 아니다',
      (await call('POST', '/friends/block', {}, tv)).status === 400);
 
+  console.log('\n[6-1] 나중에 생긴 기본 켜짐 항목이 옛 관계에서 저절로 켜지지 않는가');
+  /* 이게 실제로 일어났습니다. shareFields() 가 Object.assign(blankShare(), 저장값)
+     이라, schedule 을 기본 켜짐으로 넣자 그 항목이 생기기 전에 저장된 모든
+     행에서 켜졌습니다 — "전부 끄기" 를 눌러 둔 사람까지 포함해서.
+     껐다고 믿는 사람은 다시 확인하지 않습니다. */
+  {
+    const L1 = await call('POST', '/auth/signup', { handle: 'legacy1', displayName: '옛사람' });
+    const L2 = await call('POST', '/auth/signup', { handle: 'legacy2', displayName: '옛친구' });
+    const tl1 = L1.json.token, tl2 = L2.json.token;
+    await call('POST', '/friends/request', { inviteCode: L2.json.user.inviteCode }, tl1);
+    await call('POST', '/friends/accept', { userId: L1.json.user.id }, tl2);
+    // L2 가 전부 끕니다 (지금 아는 항목 전부)
+    await call('PUT', '/share/' + L1.json.user.id, {
+      weightTrend: false, smmTrend: false, bfmTrend: false,
+      planProgress: false, streak: false, schedule: false, absolute: false }, tl2);
+    await call('POST', '/snapshots', { weekStart: '2026-09-14',
+      payload: { checkedIn: true, plannedDays: 4, keptDays: 2 } }, tl2);
+    const r = (await call('GET', '/snapshots/' + L2.json.user.id, null, tl1)).json.rows[0];
+    ok('전부 끄면 정말 아무것도 안 나간다',
+       Object.keys(r).filter(k => k !== 'weekStart').length === 0, r);
+    /* 여기서 서버를 다시 띄우는 것까지는 이 시험이 못 합니다 —
+       그 경로(구버전 저장 행 + 재시작)는 server/db.js 의 open() 안
+       마이그레이션이 처리하고, 그건 아래 db 단위 시험이 봅니다. */
+  }
+
   console.log('\n[6-2] 프로필 사진');
   /* 1×1 JPEG. 실제 사진을 만들 필요는 없습니다 — 서버는 형식과 크기만 봅니다. */
   const JPG = 'data:image/jpeg;base64,' + 'A'.repeat(64) + '==';

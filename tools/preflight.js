@@ -36,6 +36,8 @@ const CHECKS = [
     why: '인터넷에 여는 서버입니다 — 경로 탈출 하나면 옆 폴더가 통째로 열립니다' },
   { id: '동기화 큐', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-syncqueue.js'],
     why: '조용히 지워진 "공유 끄기" 는 껐다고 믿는 사람에게 제일 나쁜 고장입니다' },
+  { id: '공유 항목 이관', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-sharemigrate.js'],
+    why: '나중에 생긴 항목이 옛 관계에서 저절로 켜지면, 껐다고 믿는 사람이 새고 있습니다' },
   { id: '친구 소식', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-news.js'],
     why: '"안 했다" 가 알림으로 흐르면 그건 독려가 아니라 망신입니다' },
   { id: '운동 일정·스트릭', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-schedule.js'],
