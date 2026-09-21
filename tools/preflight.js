@@ -163,6 +163,26 @@ function staticChecks() {
       ? 'PAIR_SECRET 도 OPEN_SIGNUP 도 없는데 서버가 떴습니다 — 아무나 계정을 만들 수 있습니다'
       : '둘 다 비어 있으면 서버가 시작하지 않습니다 (열려면 OPEN_SIGNUP=1 로 분명히 말해야 합니다)' });
 
+  /* (3.5) 데이터베이스 파일이 git 에 들어가 있는가.
+   *
+   * 안에는 비밀번호 해시와 복구 코드 해시가 들어 있습니다. 한 번
+   * 커밋되면 히스토리에서 지우기 어렵고, 공개 저장소면 되돌릴 수
+   * 없습니다. .gitignore 는 막으려고 있는 것이지만, 경로가 어긋나면
+   * 조용히 통과합니다 — 실제로 undefined/t2/mybody.db 가 한 번
+   * 들어갔습니다(다행히 전 테이블 0행이었습니다).
+   * 규칙이 아니라 결과를 봅니다: 지금 추적 중인 파일 목록. */
+  {
+    let tracked = '';
+    try { tracked = execSync('git ls-files', { cwd: ROOT }).toString(); } catch {}
+    const bad = tracked.split('\n')
+      .filter(f => /\.(db|sqlite|sqlite3)(-shm|-wal)?$|\.db\.before-/.test(f));
+    out.push({ id: 'DB 파일 커밋', level: 'BLOCK', ok: bad.length === 0,
+      detail: bad.length
+        ? '데이터베이스가 git 에 들어 있습니다 (비밀번호·복구 코드 해시): ' + bad.join(', ') +
+          ' — git rm --cached 로 빼고 .gitignore 를 확인하세요'
+        : '데이터베이스 파일이 추적되고 있지 않습니다' });
+  }
+
   // (4) 커밋 안 된 변경 — 지금 올리는 것이 무엇인지 알 수 없게 됩니다
   let dirty = '';
   try { dirty = execSync('git status --porcelain', { cwd: ROOT }).toString().trim(); } catch {}

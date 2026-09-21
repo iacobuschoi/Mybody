@@ -11,6 +11,16 @@ release/
 
 # 서버 데이터베이스 — 계정·비밀번호 해시·복구 코드 해시가 들어 있습니다.
 # 한 번 커밋되면 히스토리에서 지우기 어렵습니다.
-server/*.db
-server/*.db-shm
-server/*.db-wal
+#
+# 경로를 고정하면 그물이 샙니다. 실제로 샜습니다:
+#   · DB 를 저장소 루트에 둔 운영자 (DB=./mybody.db)
+#   · 복구할 때 backup.js 가 옆으로 치우는 mybody.db.before-<시각>
+#   · 검사가 만든 undefined/t2/mybody.db (한 번 커밋됐었습니다)
+# 문서가 시키는 대로 --restore 를 한 뒤 git add -A 한 번이면
+# 비밀번호·복구 코드 해시가 커밋됩니다. 이름으로 막습니다.
+*.db
+*.db-shm
+*.db-wal
+*.db.before-*
+*.sqlite
+*.sqlite3
