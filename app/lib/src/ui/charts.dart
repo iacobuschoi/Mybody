@@ -82,6 +82,12 @@ class LineChart extends StatelessWidget {
             series: live, goals: goals, markers: markers,
             fg: fg, surface: Theme.of(context).colorScheme.surface,
             xTickFmt: xTickFmt ?? (v) => '${v.round()}',
+            /* **글꼴을 넘겨줍니다.** CustomPainter 안의 TextPainter 는 테마를
+               모릅니다. 글꼴을 안 주면 기본값(Roboto)을 쓰는데, 우리는 그걸
+               앱에 안 넣었습니다 — 웹에서는 축 숫자가 **통째로 안 보였고**
+               구글에 Roboto 를 받으러 갔습니다. 눈금 없는 그래프는 그림일
+               뿐이라 수치를 읽을 수가 없습니다. */
+            fontFamily: Theme.of(context).textTheme.bodySmall?.fontFamily,
           ),
         ),
       ),
@@ -105,12 +111,14 @@ class LineChart extends StatelessWidget {
 
 class _LinePainter extends CustomPainter {
   _LinePainter({required this.series, required this.goals, required this.markers,
-      required this.fg, required this.surface, required this.xTickFmt});
+      required this.fg, required this.surface, required this.xTickFmt,
+      required this.fontFamily});
   final List<Series> series;
   final List<GoalLine> goals;
   final List<Marker> markers;
   final Color fg, surface;
   final String Function(double) xTickFmt;
+  final String? fontFamily;
 
   static const padL = 34.0, padR = 12.0, padT = 12.0, padB = 22.0;
 
@@ -140,7 +148,12 @@ class _LinePainter extends CustomPainter {
 
     void label(String text, Offset at, {TextAlign align = TextAlign.left, Color? color, double fontSize = 8}) {
       final tp = TextPainter(
-        text: TextSpan(text: text, style: TextStyle(fontSize: fontSize, color: color ?? fg.withValues(alpha: 0.5))),
+        text: TextSpan(
+            text: text,
+            style: TextStyle(
+                fontFamily: fontFamily,
+                fontSize: fontSize,
+                color: color ?? fg.withValues(alpha: 0.55))),
         textDirection: ui.TextDirection.ltr,
       )..layout();
       var dx = at.dx;

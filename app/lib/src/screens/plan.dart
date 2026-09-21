@@ -15,6 +15,7 @@ import 'package:mybody_core/mybody_core.dart' as core;
 import '../scope.dart';
 import '../ui/charts.dart';
 import '../ui/fmt.dart';
+import '../ui/symbols.dart';
 import '../ui/widgets.dart';
 
 class PlanScreen extends StatelessWidget {
@@ -53,12 +54,20 @@ class PlanScreen extends StatelessWidget {
           const SizedBox(height: 12),
           Row(children: [
             Expanded(child: Stat(label: '기간', value: n0(plan['weeks']), unit: '주')),
-            Expanded(child: Stat(label: '목표일', value: '${plan['targetDate']}')),
+            Expanded(child: Stat(label: '목표일', value: dateK(plan['targetDate']))),
           ]),
           if (feas != null) ...[
             const SizedBox(height: 10),
-            Text('${feas['badge']} ${feas['message']}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.5)),
+            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 4, right: 6),
+                child: VerdictDot(feas['verdict']),
+              ),
+              Expanded(
+                child: Text('${feas['message']}',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.5)),
+              ),
+            ]),
           ],
           if (plan['capWarning'] != null) ...[
             const SizedBox(height: 8),
@@ -254,7 +263,7 @@ class _MilestoneCard extends StatelessWidget {
                       style: t.textTheme.labelSmall?.copyWith(
                           color: t.hintColor,
                           fontWeight: m['final'] == true ? FontWeight.w800 : null))),
-              SizedBox(width: 80, child: Text('${m['date']}', style: t.textTheme.labelSmall)),
+              SizedBox(width: 82, child: Text(dateShort(m['date']), style: t.textTheme.labelSmall)),
               Expanded(
                 child: Text(
                     '${n1(m['weightKg'])}kg · 근 ${n1(m['smmKg'])} · 지 ${n1(m['bfmKg'])} '

@@ -12,6 +12,7 @@
 import 'package:flutter/material.dart';
 
 import 'scope.dart';
+import 'ui/symbols.dart';
 import 'screens/food.dart';
 import 'screens/home.dart';
 import 'screens/plan.dart';
@@ -123,7 +124,8 @@ class NeedsSignIn extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('$what은 로그인해야 쓸 수 있습니다',
+          /* "친구은 로그인해야" 를 실제로 띄웠습니다 — 받침을 보고 붙입니다. */
+          Text('${josa(what, '은', '는')} 로그인해야 쓸 수 있습니다',
               textAlign: TextAlign.center, style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 6),
           Text(

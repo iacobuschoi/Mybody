@@ -20,6 +20,7 @@ import 'package:mybody_core/mybody_core.dart' as core;
 import '../scope.dart';
 import '../ui/charts.dart';
 import '../ui/fmt.dart';
+import '../ui/symbols.dart';
 import '../ui/widgets.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -412,7 +413,8 @@ Future<void> _openDay(BuildContext context, app, String key) async {
               for (final ty in core.kSchedTypes) ...[
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: Text('${ty['icon']} ${ty['label']} 하기로'),
+                  secondary: Icon(schedIcon(ty['id'])),
+                  title: Text('${ty['label']} 하기로'),
                   value: plan.contains(ty['id']),
                   onChanged: (on) {
                     app.store.setSchedulePlan(key, ty['id'], on);
@@ -464,7 +466,8 @@ class _TodayRow extends StatelessWidget {
     }
     return Wrap(spacing: 8, children: [
       for (final t in left)
-        FilledButton(
+        FilledButton.icon(
+          icon: Icon(schedIcon(t), size: 18),
           onPressed: () {
             app.store.setScheduleDone(day['key'], t, true);
             /* **저장이 실패했는데 "체크했습니다" 라고 하지 않습니다.** */
@@ -475,8 +478,7 @@ class _TodayRow extends StatelessWidget {
             final ty = core.kSchedTypes.firstWhere((x) => x['id'] == t);
             toast(context, '${ty['label']} 체크했습니다');
           },
-          child: Text(
-              '${core.kSchedTypes.firstWhere((x) => x['id'] == t)['icon']} '
+          label: Text(
               '${core.kSchedTypes.firstWhere((x) => x['id'] == t)['label']} 했어요'),
         ),
     ]);
@@ -500,7 +502,7 @@ class _StreakRow extends StatelessWidget {
       child: Row(children: [
         Expanded(
           child: _Streak(
-            icon: '🏋️',
+            icon: Icons.fitness_center,
             /* 오래된 기록은 숫자를 지우지 않고 **과거형으로** 말합니다 —
                지우면 "네 기록은 없다" 가 되고, 그건 사실이 아닙니다. */
             title: stale
@@ -513,7 +515,7 @@ class _StreakRow extends StatelessWidget {
         ),
         Expanded(
           child: _Streak(
-            icon: '🍚',
+            icon: Icons.rice_bowl,
             title: '식단 ${n0(f['days'])}일 연속',
             sub: '최근 7일 중 ${n0(f['last7'])}일',
           ),
@@ -525,13 +527,14 @@ class _StreakRow extends StatelessWidget {
 
 class _Streak extends StatelessWidget {
   const _Streak({required this.icon, required this.title, required this.sub});
-  final String icon, title, sub;
+  final IconData icon;
+  final String title, sub;
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     return Row(children: [
-      Text(icon, style: const TextStyle(fontSize: 18)),
+      Icon(icon, size: 18, color: t.hintColor),
       const SizedBox(width: 8),
       Expanded(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

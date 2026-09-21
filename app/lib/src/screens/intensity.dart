@@ -15,6 +15,7 @@ import 'package:mybody_core/mybody_core.dart' as core;
 import '../scope.dart';
 import '../ui/charts.dart';
 import '../ui/fmt.dart';
+import '../ui/symbols.dart';
 import '../ui/widgets.dart';
 
 class IntensityScreen extends StatefulWidget {
@@ -212,15 +213,24 @@ class _LevelCard extends StatelessWidget {
               const SizedBox(width: 8),
               if (recommended) const Pill('추천', tone: Tone.ok),
               const Spacer(),
-              Text('${feas['badge']}', style: const TextStyle(fontSize: 16)),
+              /* 코어가 보내는 ⛔🟢🟡🔴 를 글자로 안 찍습니다 — 우리 글꼴에
+                 이모지가 없어서 구글에서 받아 오려 합니다. */
+              VerdictDot(feas['verdict']),
             ]),
-            const SizedBox(height: 4),
+            const SizedBox(height: 6),
+            Row(children: [
+              DifficultyStars(core.jsToNumber(r['difficulty']).toInt()),
+              const SizedBox(width: 6),
+              Text(withoutStars(r['difficultyLabel']),
+                  style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+            ]),
+            const SizedBox(height: 6),
             Text('${r['blurb']}',
                 style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
             const SizedBox(height: 12),
             Row(children: [
               Expanded(child: Stat(label: '기간', value: n0(r['weeks']), unit: '주')),
-              Expanded(child: Stat(label: '목표일', value: '${r['targetDate']}')),
+              Expanded(child: Stat(label: '목표일', value: dateK(r['targetDate']))),
             ]),
             const SizedBox(height: 10),
             Row(children: [
