@@ -355,6 +355,39 @@ function startTunnel(tunnel, port, onUrl) {
 const VERIFY_TRIES = Number(process.env.MYBODY_VERIFY_TRIES || 12);
 const VERIFY_GAP = Number(process.env.MYBODY_VERIFY_GAP || 5000);
 
+/* 이 주소가 **바깥 세상의 DNS 에도 있는가.**
+ *
+ * 이게 없어서 제가 거짓말을 했습니다. 확인을 이 컴퓨터에서 하는데,
+ * Tailscale 이 깔린 컴퓨터는 <기기>.<테일넷>.ts.net 을 **자기 안에서**
+ * 풉니다(MagicDNS). 그래서 funnel 이 공개되지 않았는데도 "✓ 실제로
+ * 들어와집니다" 가 떴고, 주인은 그 말을 믿고 폰을 꺼냈다가
+ * DNS_PROBE_FINISHED_NXDOMAIN 을 봤습니다.
+ *
+ * 시스템 해석기를 쓰지 않고 공개 DNS 서버에 직접 묻습니다. 그게
+ * 친구 폰이 보는 세상입니다. */
+function publicDns(host) {
+  return new Promise(resolve => {
+    let R;
+    try {
+      R = new (require('node:dns').Resolver)();
+      R.setServers(['1.1.1.1', '8.8.8.8']);
+    } catch (e) { return resolve({ known: false }); }
+    let left = 2, found = false, errs = 0;
+    const done = () => { if (--left === 0) resolve({ known: errs < 2, found: found }); };
+    const ask = (fn) => {
+      try {
+        fn.call(R, host, (err, addrs) => {
+          if (!err && addrs && addrs.length) found = true;
+          else if (err && !/ENODATA|ENOTFOUND|NOTFOUND/.test(String(err.code))) errs++;
+          done();
+        });
+      } catch (e) { errs++; done(); }
+    };
+    ask(R.resolve4); ask(R.resolve6);
+    setTimeout(() => resolve({ known: errs < 2, found: found }), 6000);
+  });
+}
+
 function verifyUrl(url, tunnel, tries) {
   tries = tries || 0;
   const MAX = VERIFY_TRIES;
@@ -362,12 +395,49 @@ function verifyUrl(url, tunnel, tries) {
   return fetch(url + '/health', { redirect: 'follow' })
     .then(r => r.ok ? r.json().catch(() => null) : null)
     .then(j => {
-      if (j && j.ok) {
-        line('✓ 이 주소로 실제로 들어와집니다. 폰에서 열어 보세요.');
+      if (!(j && j.ok)) throw new Error('우리 서버가 아닌 답');
+      /* 여기까지는 **이 컴퓨터에서** 열린다는 뜻뿐입니다.
+         친구 폰이 보는 세상은 공개 DNS 입니다. 그걸 따로 봅니다. */
+      let host = '';
+      try { host = new URL(url).hostname; } catch (e) {}
+      return publicDns(host).then(dnsOk => {
+        if (!dnsOk.known) {
+          line('✓ 이 컴퓨터에서는 열립니다.');
+          line('  (바깥 DNS 는 확인하지 못했습니다 — 폰에서 한번 열어 보세요.)');
+          line('');
+          return true;
+        }
+        if (dnsOk.found) {
+          line('✓ 이 주소로 실제로 들어와집니다 — 바깥 DNS 에도 있습니다.');
+          line('  폰에서 열어 보세요.');
+          line('');
+          return true;
+        }
         line('');
-        return true;
-      }
-      throw new Error('우리 서버가 아닌 답');
+        line('⚠ 이 컴퓨터에서는 열리는데 **밖에서는 아직 안 됩니다.**');
+        line('  ' + host + ' 이 공개 DNS 에 아직 없습니다.');
+        line('  폰에서 열면 "사이트에 연결할 수 없음 · DNS_PROBE_FINISHED_NXDOMAIN"');
+        line('  이 뜹니다. 이 컴퓨터는 Tailscale 이 자기 안에서 풀어 주기 때문에');
+        line('  열리는 것뿐입니다.');
+        if (tunnel.kind === 'tailscale') {
+          line('');
+          line('  남은 것은 하나입니다 — 테일넷 정책에 Funnel 권한 주기.');
+          line('  ① https://login.tailscale.com/admin/acls 로 갑니다.');
+          line('  ② 왼쪽 메뉴에서 Access controls → **JSON editor** 를 누릅니다.');
+          line('     (첫 화면 Policies 에는 그 칸이 없습니다)');
+          line('  ③ "acls" 블록 다음에 이것을 넣고 Save:');
+          line('');
+          line('       "nodeAttrs": [');
+          line('         {"target": ["autogroup:member"], "attr": ["funnel"]},');
+          line('       ],');
+          line('');
+          line('  ④ 이 창을 끄고 node tools/launch.js 를 다시 치세요.');
+          line('     공개 DNS 에 뜨기까지 1~2분 더 걸릴 수 있습니다.');
+        }
+        line('');
+        line('  지금 당장 쓰려면:  node tools/launch.js --cloudflare');
+        return false;
+      });
     })
     .catch(() => {
       if (QUITTING.now) return false;
