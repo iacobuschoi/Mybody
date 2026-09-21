@@ -100,13 +100,13 @@ void main() {
     });
   });
 
-  group('홈 화면', () {
+  group('계정 화면', () {
     testWidgets('이름과 친구 수를 보여준다 (한글이 실제로 그려진다)', (t) async {
       final api = Api(baseUrl: 'https://x.test', client: fake({
         '/me': {'ok': true, 'user': {'handle': 'chulsoo', 'displayName': '철수'}},
         '/friends': {'ok': true, 'accepted': [{'id': 'a'}, {'id': 'b'}]},
       }));
-      await t.pumpWidget(wrap(HomeScreen(api: api, onServerChange: (_) async {})));
+      await t.pumpWidget(wrap(AccountScreen(api: api, onServerChange: (_) async {})));
       await t.pumpAndSettle();
       expect(find.text('철수님'), findsOneWidget);
       expect(find.text('친구 2명'), findsOneWidget);
@@ -118,7 +118,7 @@ void main() {
       final api = Api(baseUrl: 'https://x.test', client: MockClient((_) async {
         throw Exception('연결 실패');
       }));
-      await t.pumpWidget(wrap(HomeScreen(api: api, onServerChange: (_) async {})));
+      await t.pumpWidget(wrap(AccountScreen(api: api, onServerChange: (_) async {})));
       await t.pumpAndSettle();
       expect(find.textContaining('컴퓨터가 꺼져 있을 수 있습니다'), findsOneWidget);
     });

@@ -1,24 +1,70 @@
 /* =============================================================================
  * main.dart — 앱 껍데기
  *
- * 지금은 첫 조각입니다: 서버 주소를 정하고, 로그인하고, 서버가 뭐라고
- * 하는지 보여 주는 데까지. 화면 21개는 아직 안 옮겼습니다.
- *
- * 이 조각을 먼저 세우는 이유는 **파이프라인이 실제로 도는지**를 확인하기
- * 위해서입니다 — Flutter 가 한글을 그리는가, 서버에 닿는가, 폰 뒤로가기가
- * 먹는가. 여기서 막히면 화면을 아무리 옮겨도 소용이 없습니다.
+ * **서버 없이도 앱이 삽니다.** 측정·목표·계획·식단·일정은 전부 이 기기에만
+ * 있고, 서버는 친구 기능에만 필요합니다. 그래서 첫 화면이 "서버 주소를
+ * 넣으세요" 이면 안 됩니다 — 인바디를 넣고 계획을 세우는 데는 서버가
+ * 아무 역할도 하지 않으니까요. 주소와 로그인은 친구 탭과 설정에 둡니다.
  *
  * 폰 뒤로가기는 여기서 **공짜입니다.** 지금 쓰는 웹 앱에서는 popstate 를
- * 직접 엮어야 했는데(그게 없어서 앱이 통째로 닫혔습니다), Flutter 의
- * Navigator 는 안드로이드 뒤로가기를 원래 받습니다.
+ * 직접 엮어야 했는데(그게 없어서 뒤로가기가 앱을 통째로 닫았습니다),
+ * Flutter 의 Navigator 는 안드로이드 뒤로가기를 원래 받습니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/api.dart';
+import 'src/app_state.dart';
+import 'src/scope.dart';
+import 'src/shell.dart';
 import 'src/theme.dart';
 
-void main() => runApp(const MyBodyApp());
+void main() {
+  /* **회색 네모를 없앱니다.**
+   *
+   * 릴리스 빌드에서 화면을 그리다가 예외가 나면 Flutter 는 그 자리에
+   * 아무 글자도 없는 회색 네모를 그립니다. 콘솔에도 안 찍힙니다.
+   * 실제로 검수 화면이 통째로 회색이었는데 오류가 0건이었습니다 —
+   * 무엇이 잘못됐는지 알 방법이 없었습니다.
+   *
+   * 사용자에게도 회색 네모보다는 "여기서 막혔습니다" 가 낫습니다.
+   * 적어도 화면 이름과 함께 말해 줄 수 있으면 고칠 수 있습니다. */
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    debugPrint('화면을 그리다 막혔습니다: ${details.exception}');
+    return _Stuck(details: details);
+  };
+  runApp(const MyBodyApp());
+}
+
+class _Stuck extends StatelessWidget {
+  const _Stuck({required this.details});
+  final FlutterErrorDetails details;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFFDECEB),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('이 화면을 그리다 막혔습니다',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFFB91C1C))),
+            const SizedBox(height: 8),
+            const Text('다른 화면은 그대로 씁니다. 기록은 안 사라집니다.',
+                style: TextStyle(fontSize: 13, height: 1.5)),
+            const SizedBox(height: 12),
+            Text('${details.exception}',
+                maxLines: 8, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, height: 1.5, color: Color(0xFF8A1C1C))),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 const _serverKey = 'mybody.server.v1';
 
@@ -30,8 +76,8 @@ class MyBodyApp extends StatefulWidget {
 
 class _MyBodyAppState extends State<MyBodyApp> {
   Api? _api;
+  AppState? _app;
   bool _ready = false;
-  String _server = '';
 
   @override
   void initState() {
@@ -40,17 +86,18 @@ class _MyBodyAppState extends State<MyBodyApp> {
   }
 
   Future<void> _boot() async {
-    String s = '';
+    String base = '';
     try {
       final sp = await SharedPreferences.getInstance();
-      s = sp.getString(_serverKey) ?? '';
+      base = sp.getString(_serverKey) ?? '';
     } catch (_) {}
-    final api = Api(baseUrl: s);
+    final api = Api(baseUrl: base);
     await api.loadToken();
+    final app = await AppState.boot();
     if (!mounted) return;
     setState(() {
-      _server = s;
       _api = api;
+      _app = app;
       _ready = true;
     });
   }
@@ -64,27 +111,39 @@ class _MyBodyAppState extends State<MyBodyApp> {
     final api = Api(baseUrl: clean);
     await api.loadToken();
     if (!mounted) return;
-    setState(() {
-      _server = clean;
-      _api = api;
-    });
+    setState(() => _api = api);
   }
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    final app = MaterialApp(
       title: 'Mybody',
       theme: mbLight(),
       darkTheme: mbDark(),
       debugShowCheckedModeBanner: false,
+      /* 서버가 없어도 바로 들어갑니다 — 주소와 로그인은 나중 일입니다. */
       home: !_ready
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-          : _server.isEmpty
-              ? ServerScreen(onSet: _setServer)
-              : (_api!.signedIn
-                  ? HomeScreen(api: _api!, onServerChange: _setServer)
-                  : SignInScreen(api: _api!, onDone: () => setState(() {}),
-                                 onServerChange: _setServer)),
+          : const Shell(),
+    );
+    if (!_ready) return app;
+
+    /* **Scope 는 MaterialApp 위에 있어야 합니다.**
+     *
+     * home 안에 두면 Navigator 보다 아래에 놓입니다. 그러면 첫 화면은
+     * 멀쩡히 보이는데 **밀어 올린 화면(push)** 에서는 안 보입니다 —
+     * 그쪽은 home 의 자손이 아니라 형제이기 때문입니다.
+     *
+     * 실제로 그렇게 두고 릴리스로 빌드했더니, 검수 화면이 통째로
+     * 회색 네모가 됐습니다. 오류는 0건이었습니다(릴리스는 그리다 난
+     * 예외를 조용히 회색으로 덮습니다). 위젯 시험은 화면을 home 자리에
+     * 직접 세워서 보기 때문에 열아홉 개가 전부 통과했습니다 —
+     * 시험이 실제로 앱이 가는 길을 안 밟고 있었습니다. */
+    return Scope(
+      state: _app!,
+      api: _api!,
+      onServerChange: _setServer,
+      child: app,
     );
   }
 }
@@ -238,16 +297,19 @@ class _SignInScreenState extends State<SignInScreen> {
   }
 }
 
-/* --- 홈 (첫 조각) ---------------------------------------------------------- */
-class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key, required this.api, required this.onServerChange});
+/* --- P14 계정 --------------------------------------------------------------
+ * 서버에 있는 내 계정을 보여 줍니다. 몸 숫자는 여기 없습니다 — 그건 기기에만
+ * 있고 서버는 모릅니다.
+ * -------------------------------------------------------------------------- */
+class AccountScreen extends StatefulWidget {
+  const AccountScreen({super.key, required this.api, required this.onServerChange});
   final Api api;
   final Future<void> Function(String) onServerChange;
   @override
-  State<HomeScreen> createState() => _HomeScreenState();
+  State<AccountScreen> createState() => _AccountScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _AccountScreenState extends State<AccountScreen> {
   Map<String, dynamic>? _me;
   int _friendCount = 0;
   String? _err;
@@ -319,10 +381,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 decoration: BoxDecoration(
                   color: mb.accentSub, borderRadius: BorderRadius.circular(12)),
                 child: const Text(
-                  '여기까지가 옮긴 첫 조각입니다.\n\n'
-                  '서버 연결 · 로그인 · 한글 · 폰 뒤로가기가 되는지 확인하는 것이 '
-                  '목적이고, 측정 · 계획 · 친구 화면은 아직 옮기는 중입니다. '
-                  '그동안 쓰던 앱은 그대로 쓸 수 있습니다.',
+                  '몸 숫자는 여기 없습니다.\n\n'
+                  '측정 기록·목표·계획은 이 기기에만 있고 서버로 올라가지 않습니다. '
+                  '서버가 아는 것은 친구 관계와, 친구에게 보여 주기로 켠 주간 요약뿐입니다.',
                   style: TextStyle(height: 1.6),
                 ),
               ),

@@ -51,11 +51,22 @@ if (r.status !== 0) {
   process.exit(1);
 }
 
-/* CanvasKit 을 빌드에 딸려 온 사본으로 돌립니다. */
+/* CanvasKit 을 빌드에 딸려 온 사본으로 돌립니다.
+ *
+ * 안 고치면 엔진이 www.gstatic.com 에서 canvaskit.js 를 받으려 하고,
+ * 막힌 곳에서는 **화면이 통째로 안 뜹니다** — 흰 화면에 콘솔 오류만
+ * 남습니다. 빌드에 이미 canvaskit/ 사본이 들어 있는데도요.
+ *
+ * 처음에는 `s.indexOf('canvasKitBaseUrl') < 0` 으로 "이미 고쳤나" 를
+ * 봤는데, **압축된 엔진 코드 안에 그 이름이 원래 들어 있습니다.**
+ * 그래서 검사가 언제나 "이미 고쳐져 있다" 고 답했고 패치가 한 번도
+ * 안 걸렸습니다. 빌드는 성공하고, 오류도 없고, 화면만 안 떴습니다.
+ * 우리가 넣는 표식을 그대로 찾습니다. */
 const boot = path.join(APP, 'build', 'web', 'flutter_bootstrap.js');
 let s = fs.readFileSync(boot, 'utf8');
 const anchor = '_flutter.loader.load({';
-if (s.indexOf('canvasKitBaseUrl') < 0) {
+const MARK = 'canvasKitBaseUrl: "canvaskit/"';
+if (s.indexOf(MARK) < 0) {
   const i = s.indexOf(anchor);
   if (i < 0) {
     console.log('✗ flutter_bootstrap.js 의 모양이 바뀌었습니다 — CanvasKit 경로를 못 고쳤습니다.');
@@ -63,9 +74,18 @@ if (s.indexOf('canvasKitBaseUrl') < 0) {
     process.exit(1);
   }
   s = s.slice(0, i + anchor.length) +
-      '\n  config: { canvasKitBaseUrl: "canvaskit/" },' +
+      '\n  config: { ' + MARK + ' },' +
       s.slice(i + anchor.length);
   fs.writeFileSync(boot, s);
+  console.log('CanvasKit 을 내장 사본으로 돌렸습니다.');
+} else {
+  console.log('CanvasKit 은 이미 내장 사본을 씁니다.');
+}
+
+/* 고쳐졌는지 **확인합니다.** 위에서 한 번 조용히 실패했던 자리입니다. */
+if (fs.readFileSync(boot, 'utf8').indexOf(MARK) < 0) {
+  console.log('✗ CanvasKit 경로를 못 박았습니다 — 막힌 네트워크에서 화면이 안 뜹니다.');
+  process.exit(1);
 }
 
 const out = path.join(APP, 'build', 'web');

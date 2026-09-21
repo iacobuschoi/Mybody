@@ -74,6 +74,10 @@ class Api {
     } catch (_) {/* 못 적어도 이번 실행 동안은 씁니다 */}
   }
 
+  /// 확장(extension)에서도 부릅니다 — 친구·공유 호출이 여기 묶여 있습니다.
+  Future<ApiResult> send(String method, String path, [Map<String, dynamic>? body]) =>
+      _send(method, path, body);
+
   Future<ApiResult> _send(String method, String path, [Map<String, dynamic>? body]) async {
     final uri = Uri.parse('$baseUrl/api$path');
     final headers = <String, String>{
@@ -161,4 +165,46 @@ class Api {
     }
     return r.ok;
   }
+}
+
+/* --- 친구 · 공유 · 스냅샷 ---------------------------------------------------
+ *
+ * 서버 엔드포인트를 그대로 씁니다. 지금 쓰는 웹 앱과 **같은 서버**를 보므로,
+ * 옮기는 동안 두 앱이 같이 살아 있을 수 있습니다 — 친구들은 준비될 때까지
+ * 지금 것을 계속 씁니다.
+ * -------------------------------------------------------------------------- */
+extension ApiSocial on Api {
+  Future<ApiResult> updateMe(Map<String, dynamic> patch) => send('PATCH', '/me', patch);
+  Future<ApiResult> deleteMe() => send('DELETE', '/me');
+
+  Future<ApiResult> requestFriend(String inviteCode) =>
+      send('POST', '/friends/request', {'code': inviteCode});
+  Future<ApiResult> acceptFriend(String userId) =>
+      send('POST', '/friends/accept', {'userId': userId});
+  Future<ApiResult> declineFriend(String userId) =>
+      send('POST', '/friends/decline', {'userId': userId});
+  Future<ApiResult> blockFriend(String userId) =>
+      send('POST', '/friends/block', {'userId': userId});
+  Future<ApiResult> unblockFriend(String userId) =>
+      send('POST', '/friends/unblock', {'userId': userId});
+
+  Future<ApiResult> removeFriend(String userId) => send('DELETE', '/friends/$userId');
+
+  /// 친구별 공유 항목. **여기서 끄면 서버가 그 값을 안 보냅니다** —
+  /// 화면에서 가리는 것이 아니라 아예 나가지 않습니다. 권한 판정은 언제나
+  /// 서버가 하고, 앱은 이미 걸러진 값만 받습니다.
+  Future<ApiResult> getShare(String userId) => send('GET', '/share/$userId');
+  Future<ApiResult> setShare(String userId, Map<String, dynamic> flags) =>
+      send('PUT', '/share/$userId', flags);
+
+  Future<ApiResult> publishSnapshot(String weekStart, Map<String, dynamic> snap) =>
+      send('POST', '/snapshots', {'weekStart': weekStart, 'payload': snap});
+
+  Future<ApiResult> pull() => send('GET', '/sync/pull');
+
+  Future<ApiResult> changePassword(String current, String next) =>
+      send('POST', '/auth/password', {'current': current, 'next': next});
+  Future<ApiResult> newRecoveryCode(String password) =>
+      send('POST', '/auth/recovery-code', {'password': password});
+  Future<ApiResult> signOutEverywhere() => send('POST', '/auth/signout-all');
 }
