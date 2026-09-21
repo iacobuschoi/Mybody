@@ -447,6 +447,18 @@ const VAPID = (process.env.VAPID_PUBLIC && process.env.VAPID_PRIVATE) ? {
     : (process.env.ORIGIN || 'https://example.invalid')
 } : null;
 
+/** 한 사람의 기기 전부에게 보냅니다. 죽은 주소는 정리합니다. */
+async function pushToUser(userId, payload) {
+  if (!VAPID) return;
+  for (const sub of api.pushSubsOf(userId)) {
+    try {
+      const r = await PUSH.send(sub, payload, VAPID);
+      if (r.gone) api.dropPushSub(sub.endpoint);
+      else if (!r.ok) api.notePushFail(sub.endpoint);
+    } catch (e) { api.notePushFail(sub.endpoint); }
+  }
+}
+
 async function fanoutPush(ownerId, snap) {
   if (!VAPID) return;
   const who = api.me(ownerId);
@@ -570,7 +582,31 @@ async function handleApi(req, res, url) {
   if (p === '/friends' && method === 'GET') return send(res, 200, { ok: true, friends: api.listFriends(me) });
   if (p === '/friends/request' && method === 'POST') {
     const b = await readBody(req);
-    return send(res, 200, api.sendRequest(me, b.inviteCode));
+    const r = api.sendRequest(me, b.inviteCode);
+    /* 친구 요청은 **앱을 안 열면 영영 모르는** 소식이었습니다.
+     * 요청을 받은 쪽은 상대가 기다리는 줄도 모르고, 보낸 쪽은 무시당한
+     * 줄 압니다. 둘 다 앱을 안 여는 이유가 됩니다.
+     *
+     * 운동 알림(fanoutPush)과 달리 공유 설정으로 막지 않습니다. 아직
+     * 친구가 아니라 공유 설정이라는 것이 존재하지 않고, 여기서 나가는
+     * 것은 몸에 대한 정보가 아니라 "누가 너를 추가했다" 하나입니다.
+     * 이름을 싣는 이유: 초대 코드를 직접 건넨 사이라 누구인지 알아야
+     * 수락할지 정할 수 있습니다. 이름이 없으면 알림이 쓸모가 없습니다.
+     *
+     * 응답을 기다리게 하지 않습니다 — 푸시 서비스가 느리면 화면이 그만큼
+     * 멈춥니다. 알림이 늦는 것과 앱이 굳는 것 중에는 전자가 낫습니다. */
+    if (r.ok && r.otherId) {
+      const who = api.me(me);
+      const name = (who && who.displayName) || '누군가';
+      const msg = r.status === 'accepted'
+        ? { t: name + '님과 친구가 되었습니다',
+            b: '서로의 운동 체크가 보입니다 · 몸 숫자는 기본 비공개' }
+        : { t: name + '님이 친구 요청을 보냈습니다',
+            b: '수락하면 서로의 운동 체크가 보입니다 · 몸 숫자는 기본 비공개' };
+      pushToUser(r.otherId, JSON.stringify(Object.assign(msg, { u: '/#P15' })))
+        .catch(() => {});
+    }
+    return send(res, 200, r);
   }
   if (p === '/friends/accept' && method === 'POST') {
     const b = await readBody(req);

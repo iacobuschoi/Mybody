@@ -642,10 +642,17 @@ function makeApi(db) {
         if (e.status === 'blocked') return { ok: false, reason: '요청할 수 없는 상대입니다' };
         if (e.status === 'accepted') return { ok: false, reason: '이미 친구입니다' };
         if (e.requested_by === me) return { ok: false, reason: '이미 보낸 요청입니다' };
-        return this.accept(me, other.id);
+        return Object.assign({ otherId: other.id }, this.accept(me, other.id));
       }
       q.insertEdge.run(x, y, 'pending', me, nowISO());
-      return { ok: true, status: 'pending' };
+      /* 상대의 id 를 같이 돌려줍니다 — 서버가 그 사람에게 알림을 보내야
+         하는데, 여기 말고는 "방금 누구에게 갔는가" 를 아는 곳이 없습니다.
+         새어 나가는 것은 없습니다: 초대 코드를 쥐고 방금 그 사람을 추가한
+         쪽에게 그 사람의 id 를 주는 것뿐입니다.
+         **새로 생긴 요청일 때만** 여기까지 옵니다. 같은 요청을 다시 보내면
+         위에서 '이미 보낸 요청입니다' 로 끝나므로, 알림을 반복해서 울리는
+         길이 없습니다 — 버튼을 연타해도 한 번만 갑니다. */
+      return { ok: true, status: 'pending', otherId: other.id };
     },
     accept(me, otherId) {
       const [x, y] = pair(me, otherId);
