@@ -285,6 +285,36 @@ async function main() {
   ok('워크스페이스 지출 한도면 한도를 가리킨다',
      /지출 한도에 닿았습니다/.test(JSON.stringify(capped.json)), capped.json);
 
+  /* 조직 한도와 워크스페이스 한도는 갈 화면이 다릅니다. 조직 한도를
+     "워크스페이스를 보세요" 로 보내면, 기본 워크스페이스만 있는 사람은
+     열 화면조차 없습니다 — 기본 워크스페이스에는 한도 탭이 없습니다. */
+  nextReply = { status: 400, body: { error: { type: 'invalid_request_error',
+    message: 'Your organization has reached its monthly spend limit.' } } };
+  const orgCap = await call('POST', '/ocr', shot(), t);
+  ok('조직 지출 한도는 워크스페이스로 보내지 않는다',
+     !/Settings > Workspaces/.test(JSON.stringify(orgCap.json)), orgCap.json);
+  ok('조직 지출 한도라고 말한다',
+     /계정의 월 지출 한도/.test(JSON.stringify(orgCap.json)), orgCap.json);
+
+  /* 요금제가 자동으로 거는 상한은 429 로 오고 retry-after 가 없습니다.
+     "잠시 뒤에 다시" 라고 하면 영영 다시 하게 됩니다. 구분자는
+     상태코드가 아니라 details.error_code 입니다. */
+  nextReply = { status: 429, body: { error: { type: 'rate_limit_error',
+    message: 'You have reached your monthly spend limit.',
+    details: { error_code: 'enforced_spend_limit_reached' } } } };
+  const hardCap = await call('POST', '/ocr', shot(), t);
+  ok('월 상한 429 는 기다리라고 하지 않는다',
+     !/잠시 뒤에/.test(JSON.stringify(hardCap.json)), hardCap.json);
+  ok('기다려도 안 풀린다고 말한다',
+     /기다려도 안 풀립니다/.test(JSON.stringify(hardCap.json)), hardCap.json);
+
+  /* 반대로 **진짜** 429(잠깐 밀린 것)는 기다리라고 해야 맞습니다. */
+  nextReply = { status: 429, body: { error: { type: 'rate_limit_error',
+    message: 'Number of requests has exceeded your rate limit.' } } };
+  const busy2 = await call('POST', '/ocr', shot(), t);
+  ok('진짜 혼잡은 아직 기다리라고 한다',
+     /잠시 뒤에/.test(JSON.stringify(busy2.json)), busy2.json);
+
   nextReply = { status: 400, body: { error: { type: 'invalid_request_error',
     message: 'Your credit balance is too low to access the API.' } } };
   const broke3 = await call('POST', '/ocr', shot(), t);

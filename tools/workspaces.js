@@ -64,7 +64,19 @@ function flag(name) {
 /* wrkspc_ 로 시작하는 값이어야 합니다. 문서가 그렇게 적어 두었고,
    아니면 앤트로픽이 400 "must be a valid workspace ID" 를 줍니다.
    여기서 먼저 막으면 그 한 바퀴를 안 돕니다. */
-function looksLikeId(v) { return /^wrkspc_[A-Za-z0-9]+$/.test(String(v || '').trim()); }
+function looksLikeId(v) {
+  /* 길이도 봅니다. 문서의 예시가 wrkspc_ + 26자라, 복사하다 잘린 값은
+     여기서 걸립니다. 다만 앤트로픽이 언제 더 짧은 번호를 낼지 모르니
+     넉넉하게 10자 이상만 봅니다 — 최종 판정은 앤트로픽이 합니다. */
+  return /^wrkspc_[A-Za-z0-9]{10,}$/.test(String(v || '').trim());
+}
+
+/* 검사는 다듬고 했는데 **저장은 원본으로** 하고 있었습니다.
+   --set=" wrkspc_x " 가 검사를 통과한 뒤 공백째로 설정에 들어가고,
+   헤더에도 공백째로 실려 나가서 앤트로픽이 400 을 줍니다. 그러면
+   주인은 serve --show 에서 멀쩡해 보이는 값을 들여다보게 됩니다 —
+   공백은 화면에서 안 보입니다. 한 군데서 다듬고 그걸 씁니다. */
+function normalizeId(v) { return String(v || '').trim(); }
 
 async function callAdmin(key, path, init) {
   const ctrl = new AbortController();
@@ -165,17 +177,23 @@ async function main() {
       console.log('  wrkspc_ 로 시작해야 합니다. 예: wrkspc_01JwQvzr7rXLA5AGx3HKfFUJ');
       return 1;
     }
-    save(cfg, direct);
-    console.log('넣었습니다: ' + direct);
-    const v = await verify(key, direct, process.env.OCR_MODEL);
+    const id = normalizeId(direct);
+    save(cfg, id);
+    console.log('넣었습니다: ' + id);
+    const v = await verify(key, id, process.env.OCR_MODEL);
     console.log(v.ok ? '✓ 이 번호로 판독이 됩니다 — ' + v.reason
-                     : '✗ ' + v.reason + (v.raw ? '\n   앤트로픽이 한 말: ' + v.raw : ''));
+                     : '✗ ' + v.reason + (v.raw ? '\n   앤트로픽이 한 말: ' + v.raw : '') +
+                       '\n   설정에는 넣어 뒀습니다. 지우려면: node tools/workspaces.js --clear');
     return v.ok ? 0 : 1;
   }
 
   const create = flag('create');
   if (typeof create === 'string' && create) {
     console.log('워크스페이스를 만듭니다: ' + create);
+    /* 되돌릴 수 없습니다. 지우는 기능이 없고 보관(archive)만 있는데,
+       그것도 취소가 안 되고 그 안의 키를 전부 같이 죽입니다.
+       만들기 전에 말해 두는 편이 낫습니다 — 나중에 알면 늦습니다. */
+    console.log('  (한 번 만들면 지울 수 없습니다. 보관만 되고, 보관은 취소가 안 됩니다.)');
     const made = await createWorkspace(key, create);
     if (!made.ok) { console.log('✗ ' + made.why); return 1; }
     save(cfg, made.item.id);
@@ -241,4 +259,4 @@ if (require.main === module) {
   main().then(c => process.exit(c || 0))
         .catch(e => { console.error('워크스페이스 확인 중 오류: ' + (e && e.message || e)); process.exit(1); });
 }
-module.exports = { looksLikeId, adminTrouble, listWorkspaces, createWorkspace };
+module.exports = { looksLikeId, normalizeId, adminTrouble, listWorkspaces, createWorkspace };

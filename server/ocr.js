@@ -64,7 +64,10 @@ const WORKSPACE = (process.env.ANTHROPIC_WORKSPACE_ID || '').trim();
 
 function authHeaders(apiKey, workspace) {
   const h = { 'x-api-key': apiKey, 'anthropic-version': API_VERSION };
-  const w = workspace === undefined ? WORKSPACE : (workspace || '');
+  /* 다듬어서 싣습니다. 설정 파일에 공백이 섞여 들어오는 길이 여럿이고
+     (붙여넣기, --workspace=" ... "), 공백 하나 때문에 400 이 오면
+     화면에 보이지 않는 것을 의심해야 합니다. 여기서 한 번 막습니다. */
+  const w = String(workspace === undefined ? WORKSPACE : (workspace || '')).trim();
   if (w) h['anthropic-workspace-id'] = w;
   return h;
 }
@@ -120,15 +123,32 @@ function explain(status, err) {
   const ws = workspaceTrouble(status, msg);
   if (ws) return ws;
 
+  /* 요금제가 자동으로 거는 월 상한은 **429** 로 옵니다. 그리고
+     retry-after 가 안 옵니다 — 기다려도 안 풀립니다. 아래 429 갈래의
+     "잠시 뒤에 다시 해 주세요" 로 보내면 주인은 영영 다시 하게 됩니다.
+     구분자는 상태코드가 아니라 details.error_code 입니다. */
+  const code = String((err && err.details && err.details.error_code) || '');
+  if (code === 'enforced_spend_limit_reached') {
+    return '이 계정의 월 사용 한도에 닿았습니다 — 기다려도 안 풀립니다. ' +
+           '콘솔(platform.claude.com)의 결제에서 한도를 확인하세요';
+  }
+
   /* 잔액 문제는 종류가 invalid_request_error 하나로 뭉뚱그려져 오므로
      문장에서 찾습니다. 앤트로픽이 문구를 바꿔도 걸리게 넓게 봅니다 —
      이 한 줄이 "무엇을 해야 하는지" 를 아는 유일한 단서입니다. */
   if (/credit|balance|billing|quota|funds|payment|spend limit/i.test(msg)) {
-    /* 조직에 돈이 없는 것과, 워크스페이스에 걸어 둔 월 한도에 닿은 것은
-       할 일이 다릅니다. 앞은 결제, 뒤는 그 워크스페이스의 Spend limits 탭. */
-    if (/workspace|spend limit/i.test(msg)) {
+    /* 갈 곳이 셋입니다. 워크스페이스 한도는 그 워크스페이스의 Spend
+       limits 탭, 조직 한도는 결제 화면의 한도, 잔액은 결제 자체입니다.
+       셋을 뭉치면 못 고치는 화면을 열게 됩니다 — 특히 조직 한도를
+       "워크스페이스를 보세요" 로 보내면, 기본 워크스페이스만 있는
+       사람에게는 열 화면조차 없습니다. */
+    if (/workspace/i.test(msg)) {
       return '워크스페이스의 월 지출 한도에 닿았습니다 — 콘솔의 ' +
              'Settings > Workspaces 에서 그 워크스페이스의 Spend limits 를 보세요';
+    }
+    if (/spend limit/i.test(msg)) {
+      return '이 계정의 월 지출 한도에 닿았습니다 — ' +
+             '콘솔(platform.claude.com)의 결제에서 한도를 올리세요';
     }
     return '판독 계정에 돈이 없거나 결제에 문제가 있습니다 — ' +
            '콘솔(platform.claude.com)에서 결제 상태를 확인하세요';

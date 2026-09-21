@@ -118,10 +118,17 @@ async function main() {
   console.log('\n[1] 번호처럼 생겼는지 먼저 본다');
   ok('진짜 번호는 통과', W.looksLikeId('wrkspc_01JwQvzr7rXLA5AGx3HKfFUJ'));
   ok('접두사만 있으면 거부', !W.looksLikeId('wrkspc_'));
+  /* 복사하다 잘린 값이 제일 흔한 오타입니다. 통과시키면 앤트로픽까지
+     갔다가 400 을 받고 한 바퀴 더 돕니다. */
+  ok('잘린 번호도 거부', !W.looksLikeId('wrkspc_01Jw'));
   ok('이름은 거부', !W.looksLikeId('mybody'));
   ok('빈 값은 거부', !W.looksLikeId(''));
-  ok('앞뒤 공백이 붙어도 거부하지 않는다', W.looksLikeId('  wrkspc_01AAAA  ') === false
-     || W.looksLikeId('wrkspc_01AAAA') === true);
+  /* 공백이 붙은 값은 **통과시키되 다듬어서** 씁니다. 붙여넣기로 들어오는
+     흔한 모양이라 거부하면 성가시고, 그대로 저장하면 헤더에 공백째로
+     실려 나가 400 이 옵니다 — 그리고 그 공백은 화면에서 안 보입니다. */
+  ok('앞뒤 공백이 붙어도 통과시킨다', W.looksLikeId('  wrkspc_01AAAAAAAAAAAAAAAAAAAA  ') === true);
+  ok('다듬어서 돌려준다', W.normalizeId('  wrkspc_01AAAA  ') === 'wrkspc_01AAAA',
+     JSON.stringify(W.normalizeId('  wrkspc_01AAAA  ')));
 
   console.log('\n[2] 키가 없으면 워크스페이스부터 찾지 않는다');
   {
@@ -152,6 +159,15 @@ async function main() {
     ok('설정에 안 들어갔다', !readConfig().anthropicWorkspace, readConfig());
   }
 
+  console.log('\n[4-2] 공백이 섞여 들어와도 깨끗하게 저장한다');
+  {
+    /* 공백째로 저장되면 serve --show 에는 멀쩡해 보이는데 헤더만 틀립니다.
+       눈으로는 영영 못 찾습니다. */
+    await run(['--set=  wrkspc_01AAAAAAAAAAAAAAAAAAAA  ']);
+    ok('공백을 떼고 저장한다',
+       readConfig().anthropicWorkspace === 'wrkspc_01AAAAAAAAAAAAAAAAAAAA', readConfig());
+  }
+
   console.log('\n[5] 제대로 된 번호는 넣고, 넣은 걸로 확인까지 한다');
   {
     const r = await run(['--set=wrkspc_01AAAAAAAAAAAAAAAAAAAA']);
@@ -167,6 +183,7 @@ async function main() {
     const r = await run(['--set=wrkspc_01BBBBBBBBBBBBBBBBBBBB']);
     ok('실패로 끝난다', r.code !== 0, r.code);
     ok('키가 거부됐다고 말한다', /거부되었습니다/.test(r.out), r.out);
+    ok('설정이 어떻게 됐는지도 말해 준다', /--clear/.test(r.out), r.out);
     /* 유효기간은 새로 생긴 함정입니다 — 키를 만들 때 3시간·1일·7일·30일
        중 하나를 고를 수 있고, 지나면 401 입니다. 살릴 수 없습니다. */
     ok('유효기간도 의심하게 해 준다', /유효기간/.test(r.out), r.out);
@@ -204,6 +221,7 @@ async function main() {
     /* 만들기만 하고 한도 얘기를 안 하면, 한도 없는 워크스페이스가
        하나 더 생긴 것뿐입니다. 판독은 장당 돈이 나갑니다. */
     ok('월 지출 한도 거는 곳을 알려 준다', /Spend limits/.test(r.out), r.out);
+    ok('되돌릴 수 없다고 미리 말한다', /지울 수 없습니다/.test(r.out), r.out);
     ok('기본 워크스페이스엔 못 건다고 말해 준다', /기본 워크스페이스에는 한도를 못 겁니다/.test(r.out), r.out);
     ok('되는지 확인까지 한다', /✓/.test(r.out), r.out);
   }

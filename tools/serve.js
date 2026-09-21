@@ -163,7 +163,7 @@ async function setup() {
       port: f.port ? Number(f.port) || cfg0.port : cfg0.port,
       anthropicKey: f.key != null && f.key !== true ? String(f.key) : cfg0.anthropicKey,
       anthropicWorkspace: f.workspace != null && f.workspace !== true
-        ? String(f.workspace) : cfg0.anthropicWorkspace,
+        ? String(f.workspace).trim() : cfg0.anthropicWorkspace,
       origin: f.origin != null && f.origin !== true ? String(f.origin) : cfg0.origin,
       static: f.static === 'prototype' ? 'prototype' : cfg0.static
     });
