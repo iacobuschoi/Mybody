@@ -293,8 +293,22 @@ const DEV_UIDS = ['P01-B05', 'P02-B02', 'P03-B03', 'P03-B09', 'P18-B08',
     ok('주소로 열린다', r.status === 200, r);
     const txt = await pv.evaluate(() => document.body.innerText).catch(() => '');
     ok('자리표시자가 안 남아 있다', !/__OWNER_/.test(txt));
-    ok('운영자와 연락처가 적혀 있다', !txt.includes('따로 적어 두지 않았습니다'),
-       'node tools/serve.js --setup --owner="이름" --contact="연락처" 로 정하고 다시 빌드하세요');
+    /* 이름을 안 걸기로 **정한** 경우가 있습니다. 그 때도 방침에는 누구에게
+       말하면 되는지가 적혀 있어야 합니다 — 이름 대신 "이 주소를 알려준
+       사람" 이라는 경로가요. 그래서 "비어 있는가" 가 아니라 "물어볼 데가
+       있는가" 를 봅니다. (빈칸으로 두고 잊은 경우는 배포 전 점검의
+       "방침 운영자" 가 막습니다.) */
+    const omitted = /^(1|true|yes)$/i.test(String(process.env.OWNER_OMIT || '')) ||
+                    (() => { try { return !!require('./config.js').load().cfg.ownerOmitted; }
+                             catch (e) { return false; } })();
+    if (omitted) {
+      ok('이름 없이 나가도 물어볼 데는 적혀 있다',
+         /이 주소를 알려준 사람/.test(txt), txt.slice(0, 200));
+    } else {
+      ok('운영자와 연락처가 적혀 있다', !txt.includes('따로 적어 두지 않았습니다'),
+         'node tools/serve.js --setup --owner="이름" --contact="연락처" 로 정하고 다시 빌드하세요 ' +
+         '(안 걸기로 정했으면 --no-owner)');
+    }
     ok('민감정보라고 말한다', /민감정보/.test(txt));
     ok('앱으로 돌아가는 길이 있다',
        await pv.locator('a[href="./index.html"]').count().then(n => n > 0));
