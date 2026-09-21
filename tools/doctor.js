@@ -180,6 +180,32 @@ function add(level, ok, id, detail, todo) {
         '       사진에서 자동으로 읽게 하려면 ANTHROPIC_API_KEY 를 넣고 띄우세요.');
 }
 
+/* --- 7-2. 폰 알림 (선택) --------------------------------------------------
+ * 열쇠가 있어도 https 가 아니면 브라우저가 구독 자체를 막습니다. 그래서
+ * 두 조건을 같이 봅니다 — 하나만 맞으면 "켰는데 안 온다" 가 됩니다.
+ * -------------------------------------------------------------------------- */
+{
+  const hasKeys = !!(CFG.vapidPublic && CFG.vapidPrivate);
+  const origin = (CFG.origin || '').trim();
+  const https = /^https:\/\//.test(origin);
+  let detail, hint = null;
+  if (hasKeys && https) {
+    detail = '열쇠가 있고 https 주소도 있습니다';
+  } else if (hasKeys && !https) {
+    detail = '열쇠는 있는데 https 주소가 없습니다';
+    hint = '같은 와이파이의 http 주소에서는 브라우저가 알림을 막습니다.\n' +
+           '       터널로 열고 --setup --origin="https://..." 을 넣으세요.';
+  } else if (!hasKeys && https) {
+    detail = 'https 주소는 있는데 알림 열쇠가 없습니다';
+    hint = '만들려면: node tools/push-keys.js';
+  } else {
+    detail = '알림이 꺼져 있습니다';
+    hint = '없어도 앱은 그대로 돕니다 — 친구 소식은 앱을 열면 보입니다.\n' +
+           '       폰 알림까지 받으려면 터널(https) + node tools/push-keys.js.';
+  }
+  add('INFO', hasKeys && https, '폰 알림', detail, hint);
+}
+
 /* --- 8. 밖에서 접속 (선택) ------------------------------------------------ */
 {
   const has = which('cloudflared') || which('tailscale');
