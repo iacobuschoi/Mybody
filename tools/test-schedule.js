@@ -123,6 +123,38 @@ t('0일째', st.days === 0);
 t('끊긴 자리가 없다', st.missedAt === null);
 t('정한 적이 없다고 말할 수 있다', st.everPlanned === false);
 
+console.log('\n[7-2] 오래된 기록을 현재형으로 말하지 않는다');
+reset();
+['2026-08-10', '2026-08-11', '2026-08-12'].forEach(k => {
+  S.setSchedulePlan(k, 'gym', true); S.setScheduleDone(k, 'gym', true);
+});
+st = W.workoutStreak(TODAY);                    // TODAY = 2026-09-20
+t('숫자는 지우지 않는다', st.days === 3, JSON.stringify(st));
+t('며칠 지났는지 안다', st.staleDays === 39, st.staleDays);
+t('오래된 기록이라고 표시한다', st.stale === true);
+t('마지막으로 지킨 날을 안다', st.lastKept === '2026-08-12');
+
+console.log('\n[7-3] 몇 주씩 비어 있는 것은 쉬는 날이 아니다');
+/* 계획한 날만 세기 때문에, 그 사이에 끊길 날이 없어서 "5일 연속" 이
+   됐습니다. 38일 쉬고 돌아온 사람에게 그건 서로 다른 두 시기입니다. */
+['2026-09-19', '2026-09-20'].forEach(k => {
+  S.setSchedulePlan(k, 'gym', true); S.setScheduleDone(k, 'gym', true);
+});
+st = W.workoutStreak(TODAY);
+t('돌아온 뒤부터 다시 센다 (2일)', st.days === 2, JSON.stringify(st));
+t('더 이상 오래된 기록이 아니다', st.stale === false);
+/* 경계 확인: 14일 이내면 이어집니다 */
+reset();
+S.setSchedulePlan('2026-09-07', 'gym', true); S.setScheduleDone('2026-09-07', 'gym', true);
+S.setSchedulePlan('2026-09-20', 'gym', true); S.setScheduleDone('2026-09-20', 'gym', true);
+t('13일 떨어져 있으면 이어진다', W.workoutStreak(TODAY).days === 2,
+  JSON.stringify(W.workoutStreak(TODAY)));
+reset();
+S.setSchedulePlan('2026-09-05', 'gym', true); S.setScheduleDone('2026-09-05', 'gym', true);
+S.setSchedulePlan('2026-09-20', 'gym', true); S.setScheduleDone('2026-09-20', 'gym', true);
+t('15일 떨어져 있으면 끊긴다', W.workoutStreak(TODAY).days === 1,
+  JSON.stringify(W.workoutStreak(TODAY)));
+
 console.log('\n[8] 이번 주 일곱 칸');
 reset();
 const wk = W.week('2026-09-14');                 // 월요일
@@ -165,6 +197,10 @@ t('오늘은 "남음"', fs.openToday === true);
 reset();
 [-3, -1].forEach(n => S.addFoodLog({ date: d(n), meal: '점심', items: [{ name: '밥', kcal: 300 }] }));
 t('하루 비면 거기서 끊긴다', W.foodStreak(TODAY).days === 1);
+/* 연속이 끊긴 날에도 최근 7일 창은 남아야 합니다 — 연속 하나만
+   보여 주면 하루 빼먹은 사람은 앱을 닫습니다. */
+t('최근 7일 중 며칠인지도 센다', W.foodStreak(TODAY).last7 === 2,
+  JSON.stringify(W.foodStreak(TODAY)));
 
 console.log('\n[12] 기기에 실제로 남는가');
 reset();

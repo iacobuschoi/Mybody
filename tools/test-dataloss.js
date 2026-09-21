@@ -359,6 +359,68 @@ const ok=(n,c,d)=>{if(c){pass++;console.log('  ✓',n);}else{fail++;console.log(
    * 스냅샷을 덮어쓰면 그건 되돌릴 수 없습니다.
    * 기기 시계를 앱이 고칠 수는 없지만, 한 번 물어보면 대부분 걸립니다.
    * ------------------------------------------------------------------ */
+  /* --------------------------------------------------------------------
+   * [14-2] "모두 지웠습니다" 가 정말 모두인가
+   *
+   * 이 기기에는 친구의 이름 · 프로필 사진 · 그 사람이 나에게 보여 주기로
+   * 한 숫자가 거울로 남아 있습니다. 결과지 사진과 같은 이유입니다 —
+   * "전부 지웠다" 고 믿고 폰을 넘긴 사람에게는 그게 전부입니다.
+   * 게다가 이건 내 데이터가 아니라 **남의** 데이터입니다.
+   * ------------------------------------------------------------------ */
+  console.log('\n[14-2] "모두 지웠습니다" 가 정말 모두인가');
+  const oWipe = await pg.evaluate(async ()=>{
+    localStorage.clear(); window.MB_STORE.seed();
+    const S = window.MB_STORE, B = window.MB_BACKEND;
+    B.signIn({ provider: 'local', handle: 'wipe:me', displayName: '나' });
+    // 친구 하나를 거울에 심습니다 (사진 · 스냅샷 · 소식까지)
+    const raw = B.raw(), me = raw.session, fid = 'u_friend';
+    raw.users[fid] = { id: fid, handle: 'f', provider: 'local', displayName: '나린',
+                       inviteCode: 'CODE', createdAt: '2026-08-01T00:00:00Z',
+                       avatar: 'data:image/jpeg;base64,AAAA' };
+    raw.friendships.push({ id: 'f1', aId: me, bId: fid, status: 'accepted',
+      requestedBy: me, createdAt: '2026-08-01T00:00:00Z', respondedAt: '2026-08-01T00:00:00Z' });
+    raw.snapshots.push({ ownerId: fid, weekStart: S.weekStartOf(),
+      payload: { plannedDays: 4, keptDays: 2, dWeightKg: -0.8 } });
+    B._setSession(me);
+    window.MB_NEWS.apply([{ id: fid, rows: [{ weekStart: S.weekStartOf(), keptDays: 1 }] }],
+      [{ id: fid, displayName: '나린' }]);
+    window.MB_NEWS.apply([{ id: fid, rows: [{ weekStart: S.weekStartOf(), keptDays: 2 }] }],
+      [{ id: fid, displayName: '나린' }]);
+    S.setSchedulePlan(S.dayKey(), 'gym', true);
+    const before = {
+      news: window.MB_NEWS.list().length,
+      friends: B.listFriends().accepted.length,
+      raw: JSON.stringify(localStorage).includes('나린')
+    };
+
+    // 화면의 "삭제" 버튼이 하는 일 그대로
+    window.MB_MODALS.resetAll();
+    const inp = document.querySelector('[data-uid="M18"] input.input');
+    inp.value = '초기화';
+    /* 번호로 집습니다. 글자로 찾으면 고유번호 배지가 붙은 개발 빌드에서
+       textContent 가 '삭제M18-B02' 가 돼서 안 걸립니다. */
+    document.querySelector('[data-uid="M18-B02"]').click();
+    await new Promise(r => setTimeout(r, 400));
+
+    return { before, after: {
+      scans: S.get().scans.length,
+      schedule: Object.keys(S.get().schedule || {}).length,
+      news: window.MB_NEWS.list().length,
+      signedIn: !!B.currentUser(),
+      friendName: JSON.stringify(localStorage).includes('나린'),
+      avatar: JSON.stringify(localStorage).includes('data:image/jpeg')
+    } };
+  });
+  ok('지우기 전에는 친구 · 소식이 있었다',
+     oWipe.before.news >= 1 && oWipe.before.friends === 1 && oWipe.before.raw === true, oWipe.before);
+  ok('내 측정이 지워진다', oWipe.after.scans === 0, oWipe.after);
+  ok('운동 일정도 지워진다', oWipe.after.schedule === 0, oWipe.after);
+  ok('친구 소식도 지워진다', oWipe.after.news === 0, oWipe.after);
+  ok('로그아웃된다 (안 그러면 다음 동기화에 다시 내려옵니다)',
+     oWipe.after.signedIn === false, oWipe.after);
+  ok('친구 이름이 저장소에 안 남는다', oWipe.after.friendName === false, oWipe.after);
+  ok('친구 프로필 사진도 안 남는다', oWipe.after.avatar === false, oWipe.after);
+
   console.log('\n[15] 측정일이 거꾸로 가면 짚어 준다');
   const o5 = await pg.evaluate(async ()=>{
     localStorage.clear(); window.MB_STORE.seed();

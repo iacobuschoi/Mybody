@@ -115,14 +115,52 @@
       return k <= today && (sch[k].plan || []).length;
     }).sort().reverse();
 
-    var out = { days: 0, openToday: false, lastKept: null, missedAt: null, everPlanned: days.length > 0 };
+    var out = { days: 0, openToday: false, lastKept: null, missedAt: null,
+                everPlanned: days.length > 0, staleDays: null, stale: false };
+    /* 쉬는 날은 안 끊지만, 몇 주씩 비어 있는 것은 쉬는 날이 아닙니다.
+     *
+     * 계획한 날만 세기 때문에, 8월에 사흘 지키고 9월에 이틀 지킨 사람은
+     * 그 사이에 끊길 날이 없었습니다 — 아무 날도 안 정했으니까요.
+     * 그래서 "5일 연속" 이 됐습니다. 38일 쉬고 돌아온 사람에게 그건
+     * 연속이 아니라 서로 다른 두 시기입니다. 규칙은 사람이 쉬는 리듬을
+     * 벌주지 않으려고 만든 것이지, 없던 연속을 만들어 주려는 게 아닙니다.
+     *
+     * 지킨 날 사이가 14일을 넘으면 거기서 끊습니다 — 신선도와 같은
+     * 경계입니다. "이번 주도 지난주도 아니면 다른 시기" 하나로 설명됩니다. */
+    var GAP_DAYS = 14;
+    function gap(a, b) {
+      return Math.round((new Date(a + 'T00:00:00') - new Date(b + 'T00:00:00')) / 86400000);
+    }
+    var prevKept = null;
     for (var i = 0; i < days.length; i++) {
       var k = days[i], e = sch[k];
       var kept = isKept({ plan: e.plan || [], done: e.done || {} });
       if (k === today && !kept) { out.openToday = true; continue; }
       if (!kept) { out.missedAt = k; break; }
+      if (prevKept && gap(prevKept, k) > GAP_DAYS) break;   // 너무 오래 비었다
       out.days++;
+      prevKept = k;
       if (!out.lastKept) out.lastKept = k;
+    }
+
+    /* 얼마나 오래된 기록인가.
+     *
+     * 이 셈은 **계획한 날만** 봅니다. 그래서 8월에 사흘 지키고 그 뒤로
+     * 아무 날도 안 정한 사람은, 9월에도 끊긴 날이 없습니다 — 끊길 날이
+     * 없었으니까요. 화면은 그걸 "3일 연속" 이라고 그렸습니다. 40일 전
+     * 얘기인데 현재형입니다.
+     *
+     * 숫자를 0으로 지우지는 않습니다. 지우면 "네 기록은 없다" 가 되고,
+     * 그건 사실이 아닙니다. 대신 며칠 지났는지를 같이 돌려주고, 화면이
+     * 과거형으로 말합니다 — "있었고 지금은 안 세는 중" 이 사실입니다.
+     *
+     * 경계는 14일입니다. 이번 주도 지난주도 아니면 지난 기록으로 봅니다.
+     * 이 앱의 리듬이 주 단위라 설명할 수 있는 숫자여야 했습니다. */
+    if (out.lastKept) {
+      var a = new Date(out.lastKept + 'T00:00:00');
+      var b = new Date(today + 'T00:00:00');
+      out.staleDays = Math.round((b - a) / 86400000);
+      out.stale = out.staleDays > 14;
     }
     return out;
   }
@@ -138,13 +176,17 @@
     var has = {};
     (ST.get().foodLogs || []).forEach(function (x) { has[x.date] = true; });
 
-    var out = { days: 0, openToday: false };
+    var out = { days: 0, openToday: false, last7: 0 };
     var cursor = today;
     if (!has[today]) { out.openToday = true; cursor = shiftKey(today, -1); }
     for (var g = 0; g < 400 && has[cursor]; g++) {
       out.days++;
       cursor = shiftKey(cursor, -1);
     }
+    /* 연속이 끊긴 날에도 최근 7일 중 며칠 적었는지는 남습니다.
+       어제 하루 빼먹어 연속이 0이어도 7일 중 5일이면 잘 하고 있는
+       겁니다. 연속 하나만 보여 주면 그 사람은 앱을 닫습니다. */
+    for (var d2 = 0; d2 < 7; d2++) if (has[shiftKey(today, -d2)]) out.last7++;
     return out;
   }
 

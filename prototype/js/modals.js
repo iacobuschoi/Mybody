@@ -338,7 +338,16 @@
     UI.openModal({
       uid: 'M18', title: '모든 데이터를 지울까요?',
       body: [
-        h('div.note.note--bad', { text: '측정 기록, 목표, 플랜, 체크인, 결과지 사진이 전부 삭제되며 되돌릴 수 없습니다.' }),
+        h('div.note.note--bad', { text: '측정 기록, 목표, 플랜, 체크인, 운동 일정, 식단 기록, ' +
+          '결과지 사진이 전부 삭제되며 되돌릴 수 없습니다.' }),
+        /* 친구 쪽도 같이 지웁니다.
+           이 기기에는 친구의 이름 · 프로필 사진 · 그 사람이 나에게 보여
+           주기로 한 숫자가 거울로 남아 있습니다. "모두 지웠습니다" 를
+           읽고 폰을 넘기는 사람에게, 남의 얼굴과 몸 숫자가 남아 있으면
+           안 됩니다. 로그인 상태로 두면 다음 동기화에 그대로 다시
+           내려오므로, 지우는 것과 로그아웃은 같이 가야 합니다. */
+        h('div.note', { text: '이 기기에 받아 둔 친구 목록 · 프로필 사진 · 친구 소식도 같이 지우고 ' +
+          '로그아웃합니다. 계정과 서버의 기록은 남아 있어서, 다시 로그인하면 친구는 돌아옵니다.' }),
         h('p', { text: '확인을 위해 아래에 "초기화" 라고 입력해 주세요.' }),
         input = h('input.input', { placeholder: '초기화' })
       ],
@@ -349,7 +358,18 @@
               global.MB_UID.toast('"초기화" 라고 정확히 입력해 주세요');
               return true;   // 닫지 않음
             }
-            S.reset(); global.MB_UID.toast('모두 지웠습니다'); global.MB_APP.go('P01');
+            S.reset();
+            /* 서버에 말은 걸어 보되, 기다리지 않습니다 — 오프라인이라고
+               지우기가 안 되면 안 됩니다. 토큰과 거울은 어느 쪽이든
+               이 기기에서 사라집니다. */
+            var SY = global.MB_SYNC;
+            var done = (SY && SY.status().signedIn)
+              ? SY.signOut().catch(function () {})
+              : Promise.resolve(global.MB_BACKEND && global.MB_BACKEND.reset());
+            done.then(function () {
+              global.MB_UID.toast('모두 지웠습니다');
+              global.MB_APP.go('P01');
+            });
           } }
       ]
     });

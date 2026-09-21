@@ -130,8 +130,10 @@ const ok = (n, c, d) => {
      (await page.locator(u('P02-C08')).innerText()).includes('다 했습니다'));
   ok('오늘 칸에 완료 표시가 찍힌다',
      await page.locator(u('P02-L02#' + todayIdx) + ' .wk__m.is-done').count() === 1);
-  ok('스트릭이 1일째가 된다',
-     (await page.locator(u('P02-C09')).innerText()).includes('1일 연속'),
+  /* 하루는 "1일 연속" 이 아니라 "오늘 지킴" 입니다 — "1일 연속" 은
+     말도 이상하고 다음 날 0 으로 떨어지는 낙차를 매일 만듭니다. */
+  ok('스트릭이 "오늘 지킴" 이 된다',
+     (await page.locator(u('P02-C09')).innerText()).includes('오늘 지킴'),
      await page.locator(u('P02-C09')).innerText());
 
   console.log('\n[5] 새로고침해도 남는가');
@@ -142,7 +144,7 @@ const ok = (n, c, d) => {
   await page.waitForTimeout(300);
   ok('오늘 완료 표시가 그대로 있다',
      await page.locator(u('P02-L02#' + todayIdx) + ' .wk__m.is-done').count() === 1);
-  ok('스트릭도 그대로', (await page.locator(u('P02-C09')).innerText()).includes('1일 연속'));
+  ok('스트릭도 그대로', (await page.locator(u('P02-C09')).innerText()).includes('오늘 지킴'));
 
   console.log('\n[6] 아직 오지 않은 날은 체크할 수 없다');
   const futureIdx = await page.evaluate(() => {

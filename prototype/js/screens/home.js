@@ -632,21 +632,53 @@
     var w = W.workoutStreak(), f = W.foodStreak();
     var box = h('div.streaks', { uid: 'P02-C09', uidLabel: '스트릭' });
 
-    function cell(icon, name, st, cold) {
-      var sub = name;
-      if (st.days && st.openToday) sub += ' · 오늘 남음';
-      else if (!st.days) sub = cold;
-      return h('div.streak' + (st.days ? '.is-on' : ''), [
+    function cell(icon, name, st, cold, opts) {
+      opts = opts || {};
+      var val, sub, warm = st.days > 0 && !opts.stale;
+
+      if (!st.days) { val = '—'; sub = cold; }
+      else if (opts.stale) {
+        /* 오래된 기록을 현재형으로 말하지 않습니다.
+           "3일 연속" 이라고 써 놓고 마지막이 40일 전이면 그건 거짓말입니다.
+           숫자는 지우지 않습니다 — 지우면 "네 기록은 없다" 가 되는데,
+           있었고 지금 안 세는 중인 것이 사실입니다. */
+        val = '지난 기록 ' + st.days + '일';
+        sub = opts.staleSub;
+      } else if (st.days === 1) {
+        /* "1일 연속" 은 말도 이상하고, 다음 날 0 으로 떨어지는 낙차를
+           매일 만듭니다. 하루는 연속이 아니라 그냥 지킨 하루입니다. */
+        val = '오늘 지킴';
+        sub = name;
+      } else {
+        val = st.days + '일 연속';
+        sub = name + (st.openToday ? ' · 오늘 남음' : '');
+      }
+      if (opts.extra) sub += ' · ' + opts.extra;
+
+      return h('div.streak' + (warm ? '.is-on' : ''), [
         h('div.streak__ico', { text: icon }),
         h('div.streak__body', [
-          h('div.streak__v', { text: st.days ? st.days + '일 연속' : '—' }),
+          h('div.streak__v', { text: val }),
           h('div.streak__k', { text: sub, title: sub })
         ])
       ]);
     }
     box.appendChild(cell('\uD83C\uDFCB\uFE0F', '운동', w,
-      w.everPlanned ? '오늘부터 다시' : '날을 정하면 시작'));
-    box.appendChild(cell('\uD83C\uDF5A', '식단 기록', f, '한 끼만 적어도 1일'));
+      w.everPlanned ? '오늘부터 다시' : '날을 정하면 시작',
+      /* 부제는 짧아야 합니다 — 두 칸이 나란히 서는 자리라 길면 말줄임으로
+         잘리고, 잘린 설명은 없는 설명입니다. "다시 시작하세요" 는 카드
+         본문이 이미 말하고 있으므로 여기서는 날짜만 적습니다. */
+      { stale: w.stale,
+        staleSub: w.lastKept ? UI.dateShort(w.lastKept) + '까지' : '' }));
+    /* 식단은 "최근 7일 중 N일" 을 같이 적습니다. 어제 하루 빼먹어
+       연속이 0인 날에도 7일 중 5일이면 잘 하고 있는 겁니다.
+       연속이 0인데 7일 창에 기록이 있으면 그 사람에게 필요한 말은
+       "한 끼만 적어도 1일" 이 아니라 그 숫자입니다 — 이미 적고 있는
+       사람에게 적는 법을 알려 주는 칸이 되면 안 됩니다. */
+    var last7 = f.last7 ? '7일 중 ' + f.last7 + '일' : null;
+    box.appendChild(cell('\uD83C\uDF5A', '식단 기록', f,
+      last7 || '한 끼만 적어도 1일',
+      { extra: f.days ? last7 : null }));
 
     box.appendChild(h('div.muted', { style: { gridColumn: '1/-1' },
       text: '쉬는 날은 끊지 않습니다. 계획한 날만 셉니다.' }));
