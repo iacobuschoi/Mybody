@@ -51,6 +51,17 @@
       var me = B().currentUser();
 
       if (!me) {
+        /* 로그인했었는데 토큰이 죽은 경우 (만료 · 다른 기기에서 전체
+           로그아웃 · 서버 DB 교체 · 탈퇴). api() 가 조용히 로그아웃하는데,
+           그 뒤로 이 기기에서 하는 일은 서버에 안 갑니다 — 특히 공유 끄기가
+           그렇습니다. "로그인 / 가입" 만 보여 주면 사용자는 그냥 새 계정을
+           만들 수도 있습니다. 무슨 일이 있었는지 먼저 말합니다. */
+        if (global.MB_SYNC && global.MB_SYNC.status().disconnected) {
+          wrap.appendChild(h('div.note.note--bad', { uid: 'P14-C08', uidLabel: '끊김 안내',
+            text: '이 기기가 서버에서 끊겼습니다 — 로그인이 만료됐거나 다른 기기에서 ' +
+                  '전체 로그아웃을 했습니다. 다시 로그인하기 전에는 여기서 바꾼 것이 ' +
+                  '서버에 반영되지 않습니다. 공유를 껐다면 아직 안 껐다고 보세요.' }));
+        }
         wrap.appendChild(h('div.card', { uid: 'P14-C06', uidLabel: '로그인 카드' }, [
           h('div.card__title', { text: '로그인' }),
           /* "기기를 바꿔도 기록이 남습니다" 라고 적혀 있었습니다. 거짓입니다.
@@ -118,7 +129,18 @@
             onClick: function () {
               var S2 = global.MB_SYNC;
               var done = (S2 && S2.status().signedIn) ? S2.signOut() : Promise.resolve(B().signOut());
-              done.then(function () { global.MB_UID.toast('로그아웃했습니다'); A.refresh(); });
+              done.then(function (r) {
+                /* 못 보낸 것이 있으면 그렇다고 말합니다. 공유 끄기가
+                   거기 섞여 있을 수 있고, 그건 껐다고 믿은 채로
+                   계속 나간다는 뜻입니다. */
+                if (r && r.unsent) {
+                  global.MB_UID.toast('로그아웃했습니다 — 서버에 못 보낸 변경 ' +
+                                      r.unsent + '건은 사라졌습니다. 다시 로그인해 확인하세요');
+                } else {
+                  global.MB_UID.toast('로그아웃했습니다');
+                }
+                A.refresh();
+              });
             } }),
           h('button.btn.btn--sm', { text: '비밀번호 변경', uid: 'P14-B07', uidLabel: '비밀번호 변경',
             onClick: function () { global.MB_MODALS.changePassword(); } }),
@@ -943,7 +965,12 @@
               var o = {}; o[m.key] = false;
               B().setShare(fid, o);
               var after = B().getShare(me.id, fid);
-              global.MB_UID.toast(m.label + '을 껐습니다 — ' + friend.displayName + '님 화면에서 사라졌습니다');
+              /* 완료형으로 단정하지 않습니다 — setShare 는 큐를 탈 뿐이고,
+                 오프라인이면 아직 안 갔고 토큰이 죽었으면 영영 안 갑니다.
+                 판단은 MB_SYNC 한 곳에서 합니다. */
+              global.MB_UID.toast(m.label + '을 껐습니다 — ' +
+                (global.MB_SYNC ? global.MB_SYNC.deliveryNote(friend.displayName)
+                                : friend.displayName + '님 화면에서 사라졌습니다'));
               if (before.absolute && !after.absolute && m.key !== 'absolute') {
                 global.MB_UID.toast('실제 수치까지도 함께 꺼졌습니다');
               }

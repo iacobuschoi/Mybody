@@ -72,6 +72,18 @@
      있는 칸을 빼먹습니다. */
   var openSignup = null;
 
+  /* 서버가 내 토큰을 거절했습니다 (만료 · 탈퇴 · 비밀번호 변경 · 서버 DB 교체).
+   *
+   * api() 는 401 을 보면 조용히 로그아웃합니다. 조용한 것까지는 맞습니다 —
+   * 화면 한가운데에 모달을 띄울 일은 아니니까요. 문제는 그 뒤였습니다.
+   * enqueue() 가 "토큰 없으면 그냥 돌아감" 이라, 그 상태에서 공유를 끄면
+   *   · 로컬 거울은 꺼지고
+   *   · 큐에는 아무것도 안 들어가고 (pending 0, lastError null)
+   *   · 화면은 "상대 화면에서 사라졌습니다" 라고 말하고
+   *   · 다음 pull 이 서버 값으로 거울을 덮어써 **다시 켜진 채로 돌아옵니다.**
+   * 껐다고 믿는 사람은 다시 확인하지 않습니다. */
+  var disconnected = false;
+
   function probe() {
     var base = cfg.baseUrl || defaultBase();
     if (!base) { reachable = false; serverKind = 'other'; emit(); return Promise.resolve(false); }
@@ -113,6 +125,9 @@
       reachable: reachable,
       serverKind: serverKind,
       openSignup: openSignup,
+      /* 로그인한 적이 있는데 지금 토큰이 없는 상태. "아직 로그인 안 함" 과
+         다릅니다 — 이쪽은 이 기기에서 한 일이 서버에 안 갑니다. */
+      disconnected: disconnected && !cfg.token && !!cfg.handle,
       ownServer: servedByConfigured(),
       signedIn: !!cfg.token,
       baseUrl: cfg.baseUrl || null,
@@ -122,6 +137,42 @@
       lastError: lastError,
       online: (typeof navigator === 'undefined') || navigator.onLine !== false
     };
+  }
+
+  /* --- 방금 한 변경이 상대에게 닿았는가 ----------------------------------
+   *
+   * 화면이 "상대 화면에서 사라졌습니다" 라고 **완료형**으로 말하던 자리가
+   * 여럿 있었습니다. setShare 는 큐를 탈 뿐인데요. 오프라인이면 아직 안
+   * 갔고, 토큰이 죽었으면 영영 안 갑니다. 프라이버시 스위치에 대해
+   * 실제보다 튼튼하게 말하는 것이 제일 나쁩니다 — 껐다고 믿는 사람은
+   * 다시 확인하지 않습니다.
+   *
+   * 판단을 한 곳에 모읍니다. 화면마다 따로 재면 반드시 어긋납니다.
+   *   'local'    서버를 안 씁니다. 이 기기의 값이 곧 사실입니다.
+   *   'sending'  로그인·온라인. 큐가 곧 보냅니다 — 미래형으로 말합니다.
+   *   'offline'  인터넷이 없습니다. 연결되면 보냅니다.
+   *   'cut'      로그인했었는데 토큰이 죽었습니다. 다시 로그인해야 갑니다.
+   * -------------------------------------------------------------------- */
+  function deliveryMode() {
+    if (!cfg.token) return cfg.handle ? 'cut' : 'local';
+    try {
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'offline';
+    } catch (e) {}
+    return 'sending';
+  }
+
+  /**
+   * 끈 직후에 붙일 꼬리 문장.
+   * @param {string} who  상대 이름 (없으면 "상대")
+   */
+  function deliveryNote(who) {
+    var name = who || '상대';
+    switch (deliveryMode()) {
+      case 'local':   return name + '님 화면에서 사라졌습니다';
+      case 'sending': return name + '님 화면에서 사라집니다';
+      case 'offline': return '지금은 인터넷이 없어서 아직 안 갔습니다 — 연결되면 보냅니다';
+      default:        return '이 기기가 서버에서 끊겼습니다 — 다시 로그인해야 반영됩니다';
+    }
   }
 
   /** 서버 주소. 앱이 서버에서 서빙되고 있으면 같은 출처를 기본값으로 씁니다. */
@@ -150,16 +201,29 @@
     opts = opts || {};
     var headers = { 'content-type': 'application/json' };
     if (cfg.token) headers.authorization = 'Bearer ' + cfg.token;
+    /* 시간 제한이 없으면, 대답이 영영 안 오는 요청 하나가 flush() 의
+       flushing 플래그를 세션 내내 true 로 잠급니다 — 재시도 타이머조차
+       안 걸립니다. 노트북 서버가 잠들거나 폰이 와이파이에서 LTE 로
+       넘어가면 그 상태가 됩니다. 그 동안 화면은 "아직 못 올린 변경이
+       N건 있습니다 — 곧 다시 보냅니다" 라고 말합니다. 안 보냅니다.
+
+       판독은 자기 signal 을 씁니다(취소 버튼). 그쪽은 건드리지 않습니다. */
+    var signal = opts.signal;
+    if (!signal && typeof AbortSignal !== 'undefined' && AbortSignal.timeout) {
+      try { signal = AbortSignal.timeout(20000); } catch (e) { signal = undefined; }
+    }
     return fetch(base + '/api' + path, {
       method: opts.method || 'GET',
       headers: headers,
-      signal: opts.signal,          // 취소할 수 있게 (판독이 씁니다)
+      signal: signal,
       body: opts.body ? JSON.stringify(opts.body) : undefined
     }).then(function (r) {
       return r.json().catch(function () { return {}; }).then(function (j) {
         if (r.status === 401 && cfg.token) {
-          // 토큰이 죽었습니다(만료·탈퇴·비밀번호 변경). 조용히 로그아웃합니다.
-          cfg.token = null; saveCfg(cfg); emit();
+          // 토큰이 죽었습니다(만료·탈퇴·비밀번호 변경). 조용히 로그아웃하되,
+          // **끊겼다는 사실은 남깁니다** — 이걸 안 남기면 그 뒤로 하는 일이
+          // 전부 로컬에만 남고 사용자는 다 된 줄 압니다.
+          cfg.token = null; disconnected = true; saveCfg(cfg); emit();
         }
         if (!r.ok) {
           var e = new Error(j.reason || ('서버 오류 ' + r.status));
@@ -185,7 +249,7 @@
          서버가 거절하고, 서버가 느슨해져도 화면이 안 보냅니다. */
       healthConsent: o.healthConsent ? HEALTH_CONSENT_VERSION : null
     } }).then(function (r) {
-      cfg.token = r.token; cfg.handle = r.user.handle; saveCfg(cfg);
+      cfg.token = r.token; cfg.handle = r.user.handle; disconnected = false; saveCfg(cfg);
       emit();
       return pull().then(function () { return r; });
     });
@@ -195,20 +259,40 @@
     return api('/auth/signin', { method: 'POST', body: {
       handle: o.handle, password: o.password
     } }).then(function (r) {
-      cfg.token = r.token; cfg.handle = r.user.handle; saveCfg(cfg);
+      cfg.token = r.token; cfg.handle = r.user.handle; disconnected = false; saveCfg(cfg);
       emit();
       return pull().then(function () { return r; });
     });
   }
 
+  /**
+   * 로그아웃.
+   *
+   * @returns {Promise<{unsent:number}>} 끝내 못 보낸 작업 개수
+   *
+   * **나가기 전에 먼저 보냅니다.** 예전에는 큐를 통째로 버렸습니다.
+   * 오프라인에서 공유를 끄고 로그아웃하면 그 끄기가 사라졌고, 다시
+   * 로그인하면 pull 이 서버 값(= 켜진 채)으로 거울을 덮었습니다.
+   * "껐는데 계속 나간다" 는 이 앱에서 제일 나쁜 고장입니다.
+   *
+   * 그래도 못 보낸 것이 남을 수 있습니다(인터넷이 없을 때). 그때는
+   * 개수를 돌려주고, 화면이 그 사실을 말합니다 — 조용히 버리지 않습니다.
+   */
   function signOut() {
-    var done = cfg.token ? api('/auth/signout', { method: 'POST' }).catch(function () {})
-                         : Promise.resolve();
-    return done.then(function () {
-      cfg.token = null; cfg.queue = []; saveCfg(cfg);
-      // 로컬 거울도 비웁니다. 남의 기기에 내 친구 목록을 남기지 않습니다.
-      if (global.MB_BACKEND) global.MB_BACKEND.reset();
-      emit();
+    var first = cfg.token && cfg.queue.length
+      ? flush().catch(function () {})
+      : Promise.resolve();
+    return first.then(function () {
+      var unsent = cfg.queue.length;
+      var done = cfg.token ? api('/auth/signout', { method: 'POST' }).catch(function () {})
+                           : Promise.resolve();
+      return done.then(function () {
+        cfg.token = null; cfg.queue = []; disconnected = false; saveCfg(cfg);
+        // 로컬 거울도 비웁니다. 남의 기기에 내 친구 목록을 남기지 않습니다.
+        if (global.MB_BACKEND) global.MB_BACKEND.reset();
+        emit();
+        return { unsent: unsent };
+      });
     });
   }
 
@@ -262,7 +346,20 @@
   var QUEUE_MAX = 500;
 
   function enqueue(op, args) {
-    if (!cfg.token) return;          // 로그인 안 했으면 서버에 보낼 것이 없습니다
+    if (!cfg.token) {
+      /* 한 번도 로그인한 적이 없으면 서버에 보낼 것이 정말로 없습니다 —
+         친구도 없고 이 앱은 그대로 혼자 씁니다. 조용히 돌아가는 게 맞습니다.
+
+         하지만 **로그인했었는데 토큰이 죽은** 경우는 다릅니다. 방금 한
+         일이 로컬 거울에만 남고 서버에는 영영 안 가며, 다음 pull 이
+         그것마저 덮어씁니다. 조용히 넘기면 안 됩니다. */
+      if (cfg.handle) {
+        disconnected = true;
+        lastError = '이 기기가 서버에서 끊겼습니다 — 다시 로그인해야 반영됩니다';
+        emit();
+      }
+      return;
+    }
     if (!OPS[op]) { console.warn('알 수 없는 동기화 작업:', op); return; }
 
     /* 같은 주 스냅샷은 겹쳐 쌓지 않습니다.
@@ -306,6 +403,16 @@
   function flush() {
     if (flushing || !cfg.token || !cfg.queue.length) return Promise.resolve();
     flushing = true;
+    /* 아래 then/catch 사슬이 어떤 이유로든 안 끝나면 이 플래그가 잠깁니다.
+       요청에 시간 제한을 붙였으니 보통은 안 그렇지만, 잠기는 쪽의 대가가
+       "그 뒤로 아무것도 안 올라가는데 화면은 곧 보낸다고 말함" 이라
+       한 겹 더 둡니다. */
+    var unlock = null;
+    try {
+      unlock = global.setTimeout(function () {
+        if (flushing) { flushing = false; lastError = '서버가 대답하지 않습니다'; emit(); scheduleRetry(); }
+      }, 60000);
+    } catch (e) { unlock = null; }
     var failed = [];
 
     /* 보낸 작업만 정확히 집어서 뺍니다.
@@ -366,6 +473,7 @@
     }).catch(function (e) {
       lastError = e.message;
     }).then(function () {
+      try { if (unlock) global.clearTimeout(unlock); } catch (e) {}
       flushing = false; emit();
       /* 큐가 안 비었으면 스스로 다시 시도합니다.
          예전엔 다시 보낼 계기가 "저장을 또 한다" 와 "온라인이 됐다"
@@ -567,6 +675,7 @@
 
   global.MB_SYNC = {
     status: status, onChange: onChange, configure: configure,
+    deliveryMode: deliveryMode, deliveryNote: deliveryNote,
     signUp: signUp, signIn: signIn, signOut: signOut, changePassword: changePassword,
     recover: recover, newRecoveryCode: newRecoveryCode,
     HEALTH_CONSENT_VERSION: HEALTH_CONSENT_VERSION,

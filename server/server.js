@@ -700,13 +700,27 @@ function serveStatic(req, res, url) {
  */
 const LOG = process.env.LOG !== '0';
 
+/* 경로에 박힌 **상대방 계정 id** 를 가립니다.
+ *
+ * /api/friends/user_ab12… · /api/share/user_ab12… · /api/snapshots/user_ab12…
+ * 세 경로가 그대로 찍히고 있었습니다. 한 줄씩 보면 별것 아닌데, 쌓이면
+ * "누가 누구의 주간 요약을 언제 열었는가" 가 됩니다 — 이 앱이 친구에게
+ * 숫자를 안 보여 주려고 그렇게 애쓰는 바로 그 정보입니다. 게다가 이
+ * 로그는 회전도 보유 기간도 없습니다(운영자가 파일로 받으면 영원히 쌓입니다).
+ *
+ * 앞 네 글자만 남깁니다. 고장을 쫓을 때 "같은 상대인가" 는 알 수 있고,
+ * 누구인지는 로그만으로 알 수 없습니다. */
+function maskPath(p2) {
+  return p2.replace(/\/(user|snap|sess)_([0-9a-f]{4})[0-9a-f]*/g, '/$1_$2…');
+}
+
 function logLine(req, status, ms) {
   if (!LOG) return;
   const p2 = req.url.split('?')[0];
   if (!(p2.startsWith('/api/') || p2 === '/health')) return;
   if (p2 === '/health') return;          // 상태 확인은 1분에 몇 번씩 옵니다
   console.log(new Date().toISOString().slice(11, 19) + '  ' +
-              String(status) + '  ' + req.method.padEnd(6) + p2 + '  ' + ms + 'ms');
+              String(status) + '  ' + req.method.padEnd(6) + maskPath(p2) + '  ' + ms + 'ms');
 }
 
 const server = http.createServer(async (req, res) => {

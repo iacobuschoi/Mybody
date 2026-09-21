@@ -36,10 +36,13 @@ global.fetch = (url, opts) => {
   const rec = {
     url: String(url), body: opts && opts.body ? JSON.parse(opts.body) : null,
     done: false,
-    finish: () => { rec.done = true; resolve({
-      ok: true, status: 200,
-      json: () => Promise.resolve({ ok: true }),
-      text: () => Promise.resolve('{"ok":true}')
+    /* 상태 코드를 고를 수 있게 해 둡니다 — 401(토큰이 죽음) 뒤의
+       동작이 이 시험의 절반입니다. */
+    finish: (status, body) => { rec.done = true; resolve({
+      ok: !status || (status >= 200 && status < 300),
+      status: status || 200,
+      json: () => Promise.resolve(body || { ok: true }),
+      text: () => Promise.resolve(JSON.stringify(body || { ok: true }))
     }); }
   };
   sent.push(rec);
@@ -118,6 +121,95 @@ const drain = async (max = 12) => {
     sent[0].body.displayName === 'A' && sent[1].body.displayName === 'B',
     sent.map(s => s.body.displayName));
   t('큐가 비었다', SY.status().pending === 0);
+
+  console.log('\n[3] 토큰이 죽은 뒤에 끈 공유는 조용히 사라지지 않는다');
+  {
+    /* api() 는 401 을 보면 조용히 로그아웃합니다 — 거기까지는 맞습니다.
+       문제는 그 뒤였습니다. enqueue() 가 "토큰 없으면 그냥 돌아감" 이라,
+       그 상태에서 공유를 끄면
+         · 로컬 거울은 꺼지고
+         · 큐에는 아무것도 안 들어가고 (pending 0, lastError null)
+         · 화면은 "상대 화면에서 사라졌습니다" 라고 말하고
+         · 다음 pull 이 서버 값으로 거울을 덮어 **다시 켜집니다.**
+       껐다고 믿는 사람은 다시 확인하지 않습니다. */
+    mem['mybody.sync.v1'] = JSON.stringify({
+      baseUrl: 'http://localhost:9999', token: 'dead', handle: 'me', queue: [] });
+    delete require.cache[require.resolve('../prototype/js/sync.js')];
+    require('../prototype/js/sync.js');
+    await settle();
+    const S3 = window.MB_SYNC;
+    sent.length = 0;
+
+    S3.enqueue('setShare', { userId: 'friend1', patch: { streak: false } });
+    await settle();
+    t('일단 보내 본다', sent.length === 1, sent.map(x => x.url));
+    sent[0].finish(401, { ok: false, reason: '로그인이 필요합니다' });
+    await settle();
+    t('토큰이 죽으면 로그아웃된다', S3.status().signedIn === false, S3.status());
+    t('그냥 "로그인 안 함" 이 아니라 "끊김" 으로 구분한다',
+      S3.status().disconnected === true, S3.status());
+
+    // 이제 사용자가 또 하나를 끕니다 — 화면은 이게 되는 줄 압니다
+    sent.length = 0;
+    S3.enqueue('setShare', { userId: 'friend2', patch: { schedule: false } });
+    await settle();
+    /* 여기서 "lastError 가 있다" 만 보면 안 됩니다 — 바로 위 401 이
+       남긴 옛 오류가 그대로 있어서, 고치기 전에도 통과합니다.
+       **무엇이라고 적혀 있는가** 를 봐야 이 고장이 잡힙니다. */
+    t('끊겼다는 사실이 사람 말로 적힌다',
+      /끊겼|다시 로그인/.test(S3.status().lastError || ''), S3.status().lastError);
+  }
+
+  console.log('\n[4] 로그아웃은 나가기 전에 먼저 보낸다');
+  {
+    mem['mybody.sync.v1'] = JSON.stringify({
+      baseUrl: 'http://localhost:9999', token: 'tok', handle: 'me',
+      queue: [{ op: 'setShare', args: { userId: 'f1', patch: { streak: false } }, at: 1 }] });
+    delete require.cache[require.resolve('../prototype/js/sync.js')];
+    require('../prototype/js/sync.js');
+    await settle();
+    const S4 = window.MB_SYNC;
+    sent.length = 0;
+
+    /* 예전에는 여기서 큐를 통째로 버렸습니다. 오프라인에서 공유를 끄고
+       로그아웃하면 그 끄기가 사라졌고, 다시 로그인하면 pull 이 서버
+       값(= 켜진 채)으로 거울을 덮었습니다. */
+    const out = S4.signOut();
+    await settle();
+    const shareReq = sent.find(x => /\/share\//.test(x.url));
+    t('큐에 있던 공유 끄기를 먼저 보낸다', !!shareReq, sent.map(x => x.url));
+    if (shareReq) shareReq.finish();
+    await settle();
+    const bye = sent.find(x => /signout/.test(x.url));
+    if (bye) bye.finish();
+    const r = await out;
+    t('다 보냈으면 남은 것이 없다고 말한다', r && r.unsent === 0, r);
+    t('로그아웃됐다', S4.status().signedIn === false);
+  }
+
+  console.log('\n[5] 못 보낸 채로 로그아웃하면 그 사실을 돌려준다');
+  {
+    mem['mybody.sync.v1'] = JSON.stringify({
+      baseUrl: 'http://localhost:9999', token: 'tok', handle: 'me',
+      queue: [{ op: 'setShare', args: { userId: 'f1', patch: { streak: false } }, at: 1 }] });
+    delete require.cache[require.resolve('../prototype/js/sync.js')];
+    require('../prototype/js/sync.js');
+    await settle();
+    const S5 = window.MB_SYNC;
+    sent.length = 0;
+
+    const out = S5.signOut();
+    await settle();
+    // 네트워크가 죽은 척 — 요청에 아무 대답도 안 합니다... 가 아니라
+    // 500 으로 거절합니다(큐에 남는 쪽).
+    const req = sent.find(x => /\/share\//.test(x.url));
+    if (req) req.finish(500, { ok: false, reason: '서버 오류' });
+    await settle();
+    const bye = sent.find(x => /signout/.test(x.url));
+    if (bye) bye.finish();
+    const r = await out;
+    t('못 보낸 개수를 알려준다', r && r.unsent === 1, r);
+  }
 
   console.log('\n' + (fail ? '✗ ' + fail + '개 실패 / ' : '✓ 전부 통과 — ') + (pass + fail) + '개');
   process.exit(fail ? 1 : 0);

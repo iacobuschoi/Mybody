@@ -745,6 +745,28 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
       ok('비밀번호가 안 남는다', !/log-password-1/.test(out));
       ok('가입 코드가 안 남는다', !/log-secret/.test(out));
       ok('끄는 법을 알려준다', /LOG=0/.test(out));
+
+      /* 경로에 박힌 상대방 계정 번호.
+         한 줄씩 보면 별것 아닌데, 쌓이면 "누가 누구의 주간 요약을 언제
+         열었는가" 가 됩니다 — 이 앱이 친구에게 숫자를 안 보여 주려고
+         그렇게 애쓰는 바로 그 정보입니다. 게다가 이 로그에는 회전도
+         보유 기간도 없습니다. */
+      const other = await post('/auth/signup', { handle: 'loguser2', password: 'log-password-2',
+        displayName: '상대', pairSecret: 'log-secret', healthConsent: '2026-09-20' });
+      await fetch(`http://127.0.0.1:${port}/api/snapshots/${other.user.id}`, {
+        headers: { authorization: 'Bearer ' + me.token } }).catch(() => {});
+      await fetch(`http://127.0.0.1:${port}/api/share/${other.user.id}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer ' + me.token },
+        body: JSON.stringify({ streak: false }) }).catch(() => {});
+      await wait(400);
+
+      ok('그 요청도 로그에 남는다', /\/api\/snapshots\/user_/.test(out), out.slice(-400));
+      ok('상대 계정 번호가 통째로 안 남는다',
+         !out.includes(other.user.id), out.slice(-400));
+      ok('앞 네 글자는 남는다 (같은 상대인지는 알 수 있게)',
+         out.includes('/api/snapshots/user_' + other.user.id.slice(5, 9) + '…'),
+         out.slice(-400));
     }
     srv.kill();
     await wait(300);

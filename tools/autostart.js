@@ -70,18 +70,31 @@ if (process.platform === 'darwin') {
 </plist>`;
   const how = `launchctl load -w "${where}"      # 걸기
 launchctl unload -w "${where}"    # 풀기
-tail -f "${path.join(logDir, 'mybody.log')}"   # 뭐라고 하는지 보기`;
+tail -f "${path.join(logDir, 'mybody.log')}"   # 뭐라고 하는지 보기
+
+# 이 파일은 회전도 보유 기간도 없이 계속 자랍니다.
+# 요청 한 줄씩이라 느리게 자라지만, 몇 달이면 큽니다.
+# 가끔 비우기:  : > "${path.join(logDir, 'mybody.log')}"
+# 아예 안 남기려면 위 plist 에 이 두 줄을 넣으세요:
+#   <key>EnvironmentVariables</key><dict><key>LOG</key><string>0</string></dict>`;
   if (WRITE) { writeFile(where, body); console.log('\n걸려면:\n  launchctl load -w "' + where + '"\n'); }
   else out('macOS — 로그인하면 자동으로 켜집니다', body, where, how);
 
 } else if (process.platform === 'win32') {
   const where = path.join(ROOT, 'mybody-autostart.cmd');
-  const body = `@echo off\r\ncd /d "${ROOT}"\r\n"${NODE}" "${SERVE}"\r\n`;
+  const winLog = path.join(HOME, 'mybody.log');
+  /* 예전에는 출력이 어디로도 안 갔습니다. 자동 시작으로 걸어 두면
+     창이 없으니, 서버가 왜 안 뜨는지 볼 방법이 아예 없었습니다.
+     파일로 받되 **띄울 때마다 새로 씁니다**(>) — 이어 붙이면(>>)
+     회전도 보유 기간도 없이 영원히 자랍니다. */
+  const body = `@echo off\r\ncd /d "${ROOT}"\r\n"${NODE}" "${SERVE}" > "${winLog}" 2>&1\r\n`;
   const how = `작업 스케줄러(taskschd.msc)를 열고
   1. "작업 만들기"
   2. 트리거: "로그온할 때"
   3. 동작: 프로그램 시작 → "${where}"
-  4. 조건 탭에서 "컴퓨터가 배터리로 전환되면 중지" 를 끄세요`;
+  4. 조건 탭에서 "컴퓨터가 배터리로 전환되면 중지" 를 끄세요
+
+뭐라고 하는지 보기: ${winLog}  (띄울 때마다 새로 씁니다)`;
   if (WRITE) { writeFile(where, body); console.log('\n' + how + '\n'); }
   else out('윈도우 — 로그온하면 자동으로 켜집니다', body, where, how);
 
@@ -104,6 +117,7 @@ WantedBy=default.target`;
 systemctl --user enable --now mybody       # 걸기
 systemctl --user status mybody             # 지금 상태
 journalctl --user -u mybody -f             # 뭐라고 하는지 보기
+# 요청 줄을 아예 안 남기려면 위 [Service] 에:  Environment=LOG=0
 sudo loginctl enable-linger $USER          # 로그아웃해도 계속 돌게`;
   if (WRITE) { writeFile(where, body); console.log('\n' + how + '\n'); }
   else out('리눅스 — 켜지면 자동으로 켜집니다 (systemd user)', body, where, how);
@@ -111,6 +125,10 @@ sudo loginctl enable-linger $USER          # 로그아웃해도 계속 돌게`;
 
 if (!WRITE) {
   console.log('  이대로 만들어 드릴까요:  node tools/autostart.js --write');
+  console.log('');
+  console.log('  서버는 요청 한 줄씩(시각·방식·경로·상태·시간)을 찍습니다.');
+  console.log('  계정 번호는 앞 네 글자만 남기고 가립니다. 아예 안 남기려면');
+  console.log('  위 설정에 LOG=0 을 넣으세요 — 대신 고장을 쫓기 어려워집니다.');
   console.log('');
   console.log('  터널도 같이 떠 있어야 밖에서 접속됩니다. cloudflared 는');
   console.log('  자기 서비스 설치 기능이 있습니다 — Cloudflare 문서를 보세요.');

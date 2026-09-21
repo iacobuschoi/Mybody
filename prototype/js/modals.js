@@ -952,7 +952,7 @@
   M.stopSharing = function (friend, onConfirm) {
     UI.openModal({
       uid: 'M31', title: '공유를 모두 끌까요?',
-      body: h('div', { text: friend.displayName + '님 화면에서 바로 사라집니다. 친구 관계는 그대로입니다.' }),
+      body: h('div', { text: friend.displayName + '님 화면에서 사라집니다. 친구 관계는 그대로입니다.' }),
       actions: [{ label: '취소', kind: 'ghost' },
                 { label: '모두 끄기', kind: 'danger', onClick: onConfirm }]
     });
@@ -1146,7 +1146,8 @@
       });
 
       body.appendChild(h('div.note', { style: { marginTop: '10px' },
-        text: '끄면 지금까지 보여준 기록까지 상대 화면에서 사라집니다. 켜면 과거 기록도 함께 나타납니다.' }));
+        text: '끄면 지금까지 보여준 기록까지 상대 화면에서 사라집니다. 켜면 과거 기록도 함께 나타납니다. ' +
+              '인터넷이 없으면 연결된 다음에 반영됩니다.' }));
     }
 
     function keyed(k, v) { var o = {}; o[k] = v; return o; }
@@ -1188,7 +1189,9 @@
               var off = {};
               global.MB_BACKEND.SHARE_FIELDS.forEach(function (x) { off[x.key] = false; });
               global.MB_BACKEND.setShare(friend.id, off);
-              global.MB_UID.toast(friend.displayName + '님 화면에서 사라졌습니다');
+              global.MB_UID.toast(global.MB_SYNC
+                ? global.MB_SYNC.deliveryNote(friend.displayName)
+                : friend.displayName + '님 화면에서 사라졌습니다');
               draw();
             });
             return true;   // M27 은 열어 둡니다 — 확인 모달이 그 위에 뜹니다
@@ -1229,7 +1232,9 @@
             onClick: function () {
               var o = {}; o[fieldKey] = false;
               BE.setShare(r.id, o);
-              global.MB_UID.toast(r.displayName + '님 화면에서 사라졌습니다');
+              global.MB_UID.toast(global.MB_SYNC
+                ? global.MB_SYNC.deliveryNote(r.displayName)
+                : r.displayName + '님 화면에서 사라졌습니다');
               draw();
             } })
         ]));
@@ -1252,7 +1257,7 @@
             UI.openModal({
               uid: 'M39', title: fl.label + '을 모두 끌까요?',
               body: h('div', { text: targets.map(function (r) { return r.displayName; }).join('·') +
-                '님 화면에서 바로 사라집니다. 지금까지 보여준 기록도 함께 사라집니다.' }),
+                '님 화면에서 사라집니다. 지금까지 보여준 기록도 함께 사라집니다.' }),
               actions: [{ label: '취소', kind: 'ghost' },
                         { label: '모두 끄기', kind: 'danger', onClick: function () {
                             targets.forEach(function (r) {
