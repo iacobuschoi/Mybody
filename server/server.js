@@ -612,7 +612,30 @@ async function handleApi(req, res, url) {
     const b = await readBody(req);
     const uid = idParam(b.userId);
     if (!uid) return send(res, 400, { ok: false, reason: 'userId 가 필요합니다' });
-    return send(res, 200, api.accept(me, uid));
+    const r = api.accept(me, uid);
+    /* 수락됐다는 것도 알려 줍니다.
+     *
+     * 요청 알림만 있을 때는 흐름이 반쪽이었습니다. 보낸 사람은 수락이
+     * 됐는지 거절이 됐는지 **앱을 열어 봐야만** 알았고, 그래서 계속
+     * 기다리거나 무시당했다고 생각했습니다. 기다리게 만드는 쪽이
+     * 알림이 없는 쪽입니다.
+     *
+     * 거절(decline)은 안 보냅니다. 거절당했다는 알림은 받아서 할 수 있는
+     * 일이 없고, 알림으로 받을 말도 아닙니다. 보낸 사람 화면에서는 요청이
+     * 조용히 사라집니다 — 그게 맞습니다.
+     *
+     * ok 가 true 일 때만 옵니다. 이미 친구인데 다시 누르면 accept 가
+     * '받은 요청이 없습니다' 로 끝나므로, 연타로 울리는 길이 없습니다. */
+    if (r.ok) {
+      const who = api.me(me);
+      const name = (who && who.displayName) || '상대';
+      pushToUser(uid, JSON.stringify({
+        t: name + '님이 친구 요청을 수락했습니다',
+        b: '서로의 운동 체크가 보입니다 · 몸 숫자는 기본 비공개',
+        u: '/#P15'
+      })).catch(() => {});
+    }
+    return send(res, 200, r);
   }
   if (p === '/friends/decline' && method === 'POST') {
     const b = await readBody(req);

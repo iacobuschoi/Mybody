@@ -199,6 +199,49 @@ async function main() {
     ok('친구가 되었다고 말한다', !!(msg && /친구가 되었습니다/.test(msg.t)), msg && msg.t);
   }
 
+  console.log('\n[6-2] 보통 흐름 — A 가 요청하고 B 가 수락 버튼을 누른다');
+  {
+    /* 여기가 실제로 제일 흔한 길입니다. 앞의 [6] 은 서로 요청한 경우고,
+       보통은 한쪽이 요청하고 다른 쪽이 앱에서 수락을 누릅니다.
+       이 길에 알림이 없으면 보낸 사람은 계속 기다립니다. */
+    const a = await mk('dongsu', '동수');
+    const bb = await mk('sujin', '수진');
+    const subA = newSubscriber('dongsu');
+    const subB = newSubscriber('sujin');
+    for (const [sb, tok] of [[subA, a.token], [subB, bb.token]]) {
+      await call('POST', '/push/subscribe',
+        { endpoint: sb.endpoint, p256dh: sb.p256dh, auth: sb.auth }, tok);
+    }
+    got.length = 0;
+    await call('POST', '/friends/request', { inviteCode: bb.user.inviteCode }, a.token);
+    await wait(500);
+    ok('요청 알림은 수진에게', got.length === 1 && /\/sub\/sujin$/.test(got[0].path),
+       got.map(g => g.path));
+
+    got.length = 0;
+    const acc = await call('POST', '/friends/accept', { userId: a.user.id }, bb.token);
+    ok('수락된다', acc.json && acc.json.ok, acc.json);
+    await wait(600);
+    ok('수락 알림이 동수에게 간다', got.length === 1 && /\/sub\/dongsu$/.test(got[0].path),
+       got.map(g => g.path));
+    ok('수락한 본인에게는 안 간다', !got.some(g => /\/sub\/sujin$/.test(g.path)),
+       got.map(g => g.path));
+    if (got.length === 1) {
+      let msg = null;
+      try { msg = JSON.parse(PUSH.decrypt(got[0].body, subA.priv, subA.auth).toString('utf8')); }
+      catch (e) { msg = null; }
+      ok('수락한 사람 이름이 들어 있다', !!(msg && /수진/.test(msg.t)), msg && msg.t);
+      ok('수락했다고 말한다', !!(msg && /수락했습니다/.test(msg.t)), msg && msg.t);
+    }
+
+    /* 이미 친구인데 또 누르면 — 연타로 울리는 길이 없어야 합니다. */
+    got.length = 0;
+    const twice = await call('POST', '/friends/accept', { userId: a.user.id }, bb.token);
+    await wait(400);
+    ok('이미 친구면 수락이 안 된다', twice.json && !twice.json.ok, twice.json);
+    ok('알림도 다시 안 간다', got.length === 0, got.map(g => g.path));
+  }
+
   console.log('\n[7] 알림 열쇠가 없는 서버는 조용히 넘어간다');
   stop();
   await wait(300);
