@@ -52,5 +52,47 @@ for (const font of FONTS) {
           '사용자 이름·음식 이름은 우리가 정하는 글자가 아닙니다');
 }
 
+/* -----------------------------------------------------------------------
+ * pubspec 에 **Roboto 라는 이름표가 있는가**
+ *
+ * 글자가 다 들어 있어도, CanvasKit 은 `Roboto` 라는 이름의 글꼴이 앱에
+ * 없으면 **쓰든 안 쓰든** 구글에서 Roboto 를 받아 옵니다. 조건이 없습니다:
+ *
+ *     if (!loadedRoboto) { _downloadFont('Roboto', _robotoUrl, ...) }
+ *     (flutter_web_sdk/lib/_engine/engine/canvaskit/fonts.dart)
+ *
+ * 이름표를 떼면 위 글자 검사는 전부 통과하면서 요청은 다시 나갑니다.
+ * 그래서 여기서 따로 봅니다.
+ * -------------------------------------------------------------------- */
+const pubspec = fs.readFileSync(
+  path.join(__dirname, '..', 'app', 'pubspec.yaml'), 'utf8');
+const families = [...pubspec.matchAll(/^\s*-\s*family:\s*(\S+)/gm)].map(m => m[1]);
+if (families.includes('Roboto')) {
+  ok('pubspec 에 Roboto 이름표가 있습니다 — 구글에 Roboto 를 받으러 안 갑니다');
+} else {
+  no('pubspec 에 family: Roboto 가 없습니다 — 앱을 켤 때마다 fonts.gstatic.com 에 요청이 나갑니다',
+     '고치려면: python3 tools/make-latin-fallback.py 후 pubspec 에 family: Roboto 로 등록');
+}
+
+/* -----------------------------------------------------------------------
+ * pubspec 이 가리키는 글꼴 파일이 **다 있고, 끝까지 읽히는가**
+ *
+ * 글자를 붙여 넣다가 표 하나를 안 늘리면(실제로 vmtx 가 그랬습니다) 글꼴은
+ * 가로로 그리는 동안 멀쩡해 보이면서 **깨진 파일**이 됩니다. 그걸 제대로
+ * 읽는 쪽에서 터집니다.
+ * -------------------------------------------------------------------- */
+const assets = [...pubspec.matchAll(/^\s*-\s*asset:\s*(\S+)/gm)].map(m => m[1]);
+const { spawnSync } = require('node:child_process');
+for (const a of assets) {
+  const file = path.join(__dirname, '..', 'app', a);
+  if (!fs.existsSync(file)) { no('pubspec 이 없는 파일을 가리킵니다: ' + a); continue; }
+  const r = spawnSync('python3', ['-c',
+    'import sys;from fontTools.ttLib import TTFont;' +
+    'f=TTFont(sys.argv[1]);\nfor t in f.keys(): f[t]', file], { encoding: 'utf8' });
+  if (r.status === 0) ok(path.basename(a) + ': 표가 끝까지 읽힙니다');
+  else no(path.basename(a) + ': 글꼴 파일이 깨졌습니다',
+          (r.stderr || '').trim().split('\n').pop());
+}
+
 console.log('\n통과 ' + pass + ' / 실패 ' + fail);
 process.exit(fail ? 1 : 0);

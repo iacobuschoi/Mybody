@@ -38,3 +38,23 @@ flutter:
           weight: 400
         - asset: assets/fonts/NotoSansKR-Bold.ttf
           weight: 700
+
+    # **이 이름표가 요청 한 건을 막습니다.**
+    #
+    # Flutter 웹(CanvasKit)은 앱에 `Roboto` 라는 이름의 글꼴이 없으면
+    # **쓰든 안 쓰든** fonts.gstatic.com 에서 Roboto 를 받아 옵니다.
+    # 엔진 쪽이 조건 없이 그렇게 돼 있습니다:
+    #
+    #     if (!loadedRoboto) { _downloadFont('Roboto', _robotoUrl, ...) }
+    #
+    # 그래서 그 이름표를 우리가 답니다. 알맹이는 NotoSansKR 에서 라틴만
+    # 떼어낸 48KB 짜리입니다 (`tools/make-latin-fallback.py`).
+    # 통째로 또 넣으면 2.8MB 가 두 벌이 되고, 빈 껍데기를 넣으면 글꼴이
+    # 안 정해진 글자 자리가 네모가 됩니다 — 받아 오던 Roboto 가 덮어
+    # 주던 자리가 거기입니다.
+    - family: Roboto
+      fonts:
+        - asset: assets/fonts/Roboto-Latin-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Roboto-Latin-Bold.ttf
+          weight: 700

@@ -82,6 +82,11 @@ def main():
     # 넣는 일은 glyf 표에 맡기고, 우리는 이름이 겹치는지만 봅니다.
     order = dst.getGlyphOrder()
 
+    # 세로쓰기 표가 있는 글꼴이면(한글 글꼴은 대개 있습니다) 새 글자의
+    # 세로 폭을 기존 글자에서 그대로 빌려 옵니다.
+    tvmtx = dst['vmtx'] if 'vmtx' in dst else None
+    vdefault = tvmtx[order[1] if len(order) > 1 else order[0]] if tvmtx else None
+
     added = []
     for cp in need:
         src_name = dcmap[cp]
@@ -99,6 +104,12 @@ def main():
         rec.replay(pen)
         tglyf[name] = pen.glyph()        # 목록에는 이 줄이 알아서 넣습니다
         thmtx[name] = dhmtx[src_name]
+        # **세로쓰기 폭도 같이 넣습니다.** 안 넣으면 글자 수(maxp)만
+        # 늘고 vmtx 는 그대로라서, 저장된 글꼴이 **깨진 글꼴**이 됩니다.
+        # 가로로 그리는 동안에는 티가 안 나다가, 이 글꼴을 제대로 읽는
+        # 쪽에서 "vmtx 가 24바이트 모자랍니다" 하고 터집니다.
+        if tvmtx is not None:
+            tvmtx[name] = vdefault
 
         for table in dst['cmap'].tables:
             if table.isUnicode():
