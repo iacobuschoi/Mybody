@@ -23,6 +23,10 @@ import '../ui/fmt.dart';
 import '../ui/symbols.dart';
 import '../ui/widgets.dart';
 
+/* 아래쪽에 자리를 둡니다 — 떠 있는 "인바디" 버튼이 마지막 줄을 가렸습니다.
+   실제로 "칸을 눌러서 정하세요" 의 뒷부분이 버튼에 덮여 있었습니다. */
+const _pad = EdgeInsets.fromLTRB(16, 16, 16, 96);
+
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key, required this.go});
   final void Function(String route, [Object? arg]) go;
@@ -35,7 +39,7 @@ class HomeScreen extends StatelessWidget {
     final profile = app.profile ?? core.kSeedProfile;
 
     if (scans.isEmpty) {
-      return ListView(padding: const EdgeInsets.all(16), children: [
+      return ListView(padding: _pad, children: [
         EmptyState(
           title: '인바디 결과지를 올려주세요',
           detail: '사진 한 장이면 현재 상태를 읽고 계획을 만듭니다.',
@@ -52,7 +56,7 @@ class HomeScreen extends StatelessWidget {
     final prev = scans.length > 1 ? scans[scans.length - 2] : null;
     final pd = prev == null ? null : core.derive(prev, profile);
 
-    return ListView(padding: const EdgeInsets.all(16), children: [
+    return ListView(padding: _pad, children: [
       _SummaryCard(d: d, pd: pd, scan: scan, onTap: () => go('scan', scan['id'])),
       if (st['goal'] != null && st['plan'] != null && !app.store.planMatchesGoal())
         Note(

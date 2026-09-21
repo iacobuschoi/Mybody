@@ -19,9 +19,11 @@ import '../ui/symbols.dart';
 import '../ui/widgets.dart';
 
 class IntensityScreen extends StatefulWidget {
-  const IntensityScreen({super.key, required this.goal, this.manualModeId});
+  const IntensityScreen({super.key, required this.goal, this.modeId});
   final Map<String, Object?> goal;
-  final String? manualModeId;
+  /// 앱이 고른 모드이거나 사용자가 직접 고른 모드. 이 모드의 속도 상한과
+  /// 단백질 하한이 계획에 그대로 걸립니다 — 그게 모드를 두는 이유입니다.
+  final String? modeId;
 
   @override
   State<IntensityScreen> createState() => _IntensityScreenState();
@@ -43,7 +45,7 @@ class _IntensityScreenState extends State<IntensityScreen> {
       return;
     }
     final profile = app.profile ?? core.kSeedProfile;
-    final modeDef = widget.manualModeId == null ? null : core.modeById(widget.manualModeId);
+    final modeDef = widget.modeId == null ? null : core.modeById(widget.modeId);
     final cmp = core.compareLevels(
       scans.last, profile, widget.goal,
       app.store.dayKey(),

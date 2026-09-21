@@ -18,6 +18,7 @@ import 'package:mybody/src/screens/goal.dart';
 import 'package:mybody/src/screens/history.dart';
 import 'package:mybody/src/screens/home.dart';
 import 'package:mybody/src/screens/onboarding.dart';
+import 'package:mybody/src/screens/intensity.dart';
 import 'package:mybody/src/screens/plan.dart';
 import 'package:mybody/src/screens/progress.dart';
 import 'package:mybody/src/screens/review.dart';
@@ -292,6 +293,46 @@ void main() {
       }
       expect(stars, isEmpty, reason: '$name 화면에 별표가 그대로 나갑니다: $stars');
     }
+  });
+
+  /* **앱이 고른 모드가 계획까지 가야 합니다.**
+     모드를 보여 주는 이유는 그 모드의 속도 상한과 단백질 하한 때문입니다.
+     화면에는 "감량모드" 라고 써 놓고 계획은 아무 제약 없이 만들면,
+     그 글자는 장식이 됩니다. */
+  testWidgets('고른 모드의 제약이 계획에 실제로 걸린다', (t) async {
+    final app = await seeded();
+    await t.pumpWidget(host(app, const IntensityScreen(
+        goal: {'weightKg': 80.5, 'smmKg': 39.0, 'bfmKg': 12.0}, modeId: 'cutting')));
+    await t.pumpAndSettle();
+    expect(find.byType(ErrorWidget), findsNothing);
+
+    /* 커팅모드는 공격성 a 를 0.4~0.75 로 묶고 단백질 하한을 2.4 g/kg FFM
+       으로 올립니다(modes.js). 모드가 안 걸리면 a 가 0~1 전체에서 뽑힙니다.
+       **속도 상한이 장식이 아니라 잠금장치**라는 것이 이 시험의 전부입니다. */
+    final cmp = core.compareLevels({..._scan}, _profile,
+        {'weightKg': 80.5, 'smmKg': 39.0, 'bfmKg': 12.0},
+        '2026-03-01', null, core.modeById('cutting'));
+    final free = core.compareLevels({..._scan}, _profile,
+        {'weightKg': 80.5, 'smmKg': 39.0, 'bfmKg': 12.0},
+        '2026-03-01', null, null);
+
+    for (final r0 in (cmp['results'] as List)) {
+      final r = (r0 as Map).cast<String, Object?>();
+      final a = core.jsToNumber(r['a']);
+      expect(a >= 0.4 && a <= 0.75, isTrue,
+          reason: '커팅모드인데 공격성이 ${a.toStringAsFixed(2)} 입니다 (0.40~0.75 여야 합니다)');
+      final protein = core.jsToNumber((r['macros'] as Map)['proteinPerFFM']);
+      expect(protein >= 2.4, isTrue,
+          reason: '커팅모드인데 단백질 하한이 안 걸렸습니다 ($protein)');
+    }
+
+    /* 안 건 쪽은 그 범위 밖으로 나갑니다 — 안 나가면 이 시험이 아무것도
+       구분하지 못하는 것이라 그것도 잡습니다. */
+    final freeAs = [
+      for (final r in (free['results'] as List)) core.jsToNumber((r as Map)['a'])
+    ];
+    expect(freeAs.any((a) => a < 0.4 || a > 0.75), isTrue,
+        reason: '모드를 안 걸었는데도 같은 범위 안에 있습니다 — 시험이 구분을 못 합니다');
   });
 
   testWidgets('셸 — 탭 다섯 개가 다 선다', (t) async {

@@ -204,7 +204,12 @@ class _GoalScreenState extends State<GoalScreen> {
         FilledButton(
           onPressed: (!complete || refused || (targetPbf.isFinite && targetPbf < floorPct))
               ? null
-              : () => _next(app, g),
+              /* **앱이 고른 모드도 같이 넘깁니다.**
+                 예전에는 직접 고른 모드만 넘겨서, 앱이 "감량모드" 라고
+                 말해 놓고 계획은 아무 제약 없이 만들었습니다 — 그 모드의
+                 속도 상한도 단백질 하한도 안 걸렸습니다. 모드를 보여 주는
+                 이유가 그 제약 때문인데요. */
+              : () => _next(app, g, '${sel?['modeId'] ?? ''}'),
           child: const Text('기간 계산하기'),
         ),
       ]),
@@ -339,8 +344,11 @@ class _GoalScreenState extends State<GoalScreen> {
     return null;
   }
 
-  void _next(app, Map<String, Object?> g) {
+  void _next(app, Map<String, Object?> g, String modeId) {
     Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => IntensityScreen(goal: g, manualModeId: _manualModeId)));
+        builder: (_) => IntensityScreen(
+              goal: g,
+              modeId: _manualModeId ?? (modeId.isEmpty ? null : modeId),
+            )));
   }
 }
