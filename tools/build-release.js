@@ -146,6 +146,12 @@ fs.writeFileSync(path.join(OUT, 'js/build.js'), buildJs);
 {
   const priv = path.join(OUT, 'privacy.html');
   if (!fs.existsSync(priv)) throw new Error('privacy.html 이 없습니다 — 방침 없이 배포할 수 없습니다');
+  /* 계정 삭제 페이지도 같은 자리표시자를 씁니다.
+     구글 플레이가 "앱 밖에서도 계정을 지울 수 있는 URL" 을 요구하는데,
+     거기서 "비밀번호를 모르겠으면 __OWNER_CONTACT__ 에게" 가 그대로
+     보이면 그 URL 은 제출할 수 있는 상태가 아닙니다. */
+  const del = path.join(OUT, 'delete-account.html');
+  if (!fs.existsSync(del)) throw new Error('delete-account.html 이 없습니다 — 스토어가 웹 삭제 경로를 요구합니다');
   /* 안 채웠을 때 무엇이라고 적을 것인가.
    *
    * "아직 적지 않았습니다" 는 고장으로 보입니다. 그런데 이 앱은 주인이
@@ -156,11 +162,15 @@ fs.writeFileSync(path.join(OUT, 'js/build.js'), buildJs);
   const UNSET_CONTACT = '따로 적어 두지 않았습니다 — 이 주소를 알려준 사람에게 직접 말해 주세요';
   const owner = (process.env.OWNER || '').trim();
   const contact = (process.env.OWNER_CONTACT || '').trim();
-  let txt = fs.readFileSync(priv, 'utf8')
-    .replace(/__OWNER_NAME__/g, esc(owner || UNSET_NAME))
-    .replace(/__OWNER_CONTACT__/g, esc(contact || UNSET_CONTACT));
-  if (/__OWNER_/.test(txt)) throw new Error('방침의 자리표시자를 못 바꿨습니다');
-  fs.writeFileSync(priv, txt);
+  for (const f of [priv, del]) {
+    const txt = fs.readFileSync(f, 'utf8')
+      .replace(/__OWNER_NAME__/g, esc(owner || UNSET_NAME))
+      .replace(/__OWNER_CONTACT__/g, esc(contact || UNSET_CONTACT));
+    if (/__OWNER_/.test(txt)) {
+      throw new Error(path.basename(f) + ' 의 자리표시자를 못 바꿨습니다');
+    }
+    fs.writeFileSync(f, txt);
+  }
   if (!owner || !contact) {
     console.log('  ! 방침의 운영자 칸이 비었습니다 — OWNER · OWNER_CONTACT 를 넣고 다시 빌드하세요');
   }
@@ -239,6 +249,9 @@ const outFiles = walk(OUT);
 DEV_ONLY.forEach(f => { if (outFiles.includes(f)) problems.push('개발 전용 파일이 남았습니다: ' + f); });
 if (html.includes('idindex.js')) problems.push('index.html 이 아직 idindex.js 를 부릅니다');
 if (!outFiles.includes('privacy.html')) problems.push('개인정보처리방침이 빠졌습니다');
+if (!outFiles.includes('delete-account.html')) {
+  problems.push('계정 삭제 페이지가 빠졌습니다 — 스토어가 앱 밖 삭제 경로를 요구합니다');
+}
 if (html.includes('uid.css')) problems.push('index.html 이 아직 uid.css 를 부릅니다');
 // 껍데기 목록의 파일이 실제로 있는지 — 하나라도 없으면 서비스워커 설치가 통째로 실패합니다
 shell.filter(f => f !== './').forEach(f => {
