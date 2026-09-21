@@ -147,8 +147,42 @@ node tools/launch.js
 `--pair-code` 로 띄우면 가입 코드 줄이 한 줄 더 나오고, 그 값이 있어야
 계정을 만들 수 있게 됩니다.
 
-터널 도구가 없으면 **어떻게 까는지 운영체제에 맞게** 알려주고 멈춥니다.
-같은 와이파이에서만 써 볼 거면 `node tools/launch.js --no-tunnel`.
+### 터널 두 가지 — 주소가 바뀌느냐가 전부입니다
+
+`launch.js` 는 깔려 있는 것을 알아서 고릅니다. 둘 다 있으면 **Tailscale** 을 씁니다.
+
+| | Tailscale (추천) | Cloudflare 임시 터널 |
+|---|---|---|
+| 주소 | `https://<기기>.<테일넷>.ts.net` — **안 바뀜** | 띄울 때마다 **바뀜** |
+| 계정 | 필요 (개인 무료) | 불필요 |
+| 준비 | 5분 | 30초 |
+| 폰에 앱 설치 | **됩니다** | **안 됩니다** (아래) |
+
+**주소가 바뀌면 왜 치명적인가** — 브라우저는 기록을 주소별로 따로 저장합니다.
+주소가 바뀌면 친구들 폰에서 그동안의 기록이 통째로 안 보이게 됩니다.
+그리고 `trycloudflare.com` 은 아무나 즉석에서 받아 쓰는 공용 도메인이라
+구글이 위험 사이트로 표시하고, 크롬은 그런 사이트에 **앱 설치를 아예 안 내줍니다.**
+기다려도 안 나옵니다.
+
+Tailscale 준비 (한 번만):
+
+```bash
+# 맥
+brew install tailscale && sudo tailscale up
+# 윈도우
+winget install --id tailscale.tailscale     # 그다음 트레이에서 로그인
+# 리눅스
+curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up
+```
+
+로그인한 뒤 `node tools/launch.js` 를 치면 알아서 그쪽으로 엽니다.
+처음 한 번은 Funnel 을 테일넷에서 켜 달라고 할 수 있는데, 그 링크를
+화면에 그대로 찍어 줍니다.
+
+일부러 Cloudflare 로 가려면 `node tools/launch.js --cloudflare`.
+둘 다 없으면 **어떻게 까는지 운영체제에 맞게** 알려주고 멈춥니다.
+같은 와이파이에서만 써 볼 거면 `node tools/launch.js --no-tunnel`
+(그 주소는 https 가 아니라 앱 설치·알림·오프라인이 안 됩니다).
 
 맥이면 `start.command`, 윈도우면 `start.cmd` 를 더블클릭해도 같습니다.
 

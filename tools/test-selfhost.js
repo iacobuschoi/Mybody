@@ -998,6 +998,91 @@ function hostGet(port, p2, host) {
     fs.rmSync(fakebin, { recursive: true, force: true });
   }
 
+  console.log('\n[8-6] Tailscale 이 있으면 주소가 안 바뀌는 쪽을 쓴다');
+  if (process.platform === 'win32') {
+    console.log('  · 윈도우에서는 가짜 실행파일을 못 만들어 건너뜁니다');
+  } else {
+    /* 주소가 바뀌는 것이 이 앱의 제일 큰 함정입니다 — 브라우저가 기록을
+       주소별로 저장하므로, 주소가 바뀌면 친구들 폰에서 그동안의 기록이
+       통째로 안 보이게 됩니다. 그리고 trycloudflare 는 크롬이 위험
+       사이트로 표시해서 앱 설치까지 막힙니다.
+       그래서 둘 다 있으면 tailscale 을 써야 합니다. 취향이 아니라
+       데이터 문제라, 검사로 못 박아 둡니다. */
+    const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-ts-'));
+    const NAME = 'mypc.tail9f2c.ts.net';
+    fs.writeFileSync(path.join(bin, 'tailscale'),
+      '#!/bin/sh\n' +
+      'if [ "$1" = "status" ]; then echo \'{"Self":{"DNSName":"' + NAME + '."}}\'; exit 0; fi\n' +
+      'if [ "$1" = "funnel" ]; then echo "Available on the internet:"; ' +
+      'echo "https://' + NAME + '/"; sleep 60; fi\n');
+    fs.chmodSync(path.join(bin, 'tailscale'), 0o755);
+    /* cloudflared 도 같이 둡니다 — 둘 다 있을 때 무엇을 고르는지가
+       이 절이 보려는 것입니다. */
+    fs.writeFileSync(path.join(bin, 'cloudflared'),
+      '#!/bin/sh\nsleep 1\n>&2 echo "https://should-not-be-used.trycloudflare.com"\nsleep 60\n');
+    fs.chmodSync(path.join(bin, 'cloudflared'), 0o755);
+
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-tshome-'));
+    const port = await freePort();
+    fs.mkdirSync(path.join(home, '.mybody'), { recursive: true });
+    fs.writeFileSync(path.join(home, '.mybody', 'config.json'), JSON.stringify({
+      port: port, static: 'release', pairSecret: 'ts-test-secret',
+      owner: '', ownerContact: '', ownerOmitted: true, openSignup: true, alwaysOn: true,
+      vapidPublic: 'x', vapidPrivate: 'y', origin: '', trustProxy: false, db: ''
+    }), { mode: 0o600 });
+
+    const child = spawn(process.execPath, [path.join(ROOT, 'tools', 'launch.js')], {
+      cwd: ROOT,
+      env: Object.assign({}, baseEnv(), {
+        HOME: home, USERPROFILE: home,
+        PATH: bin + path.delimiter + (process.env.PATH || '')
+      }),
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let out = '';
+    child.stdout.on('data', d => { out += d; });
+    child.stderr.on('data', d => { out += d; });
+    await wait(9000);
+    child.kill('SIGTERM');
+    await wait(1500);
+
+    ok('둘 다 있으면 tailscale 을 고른다',
+       /Tailscale 로 엽니다/.test(out), out.slice(0, 400));
+    ok('cloudflared 주소를 안 쓴다',
+       !/should-not-be-used/.test(out), out.slice(-500));
+    ok('안 바뀌는 주소를 찍는다',
+       out.indexOf('https://' + NAME) >= 0, out.slice(-600));
+    ok('안 바뀐다고 말해 준다', /안 바뀝니다/.test(out), out.slice(-600));
+    ok('바뀐다는 경고는 안 한다', !/다시 띄우면 바뀝니다/.test(out), out.slice(-600));
+    ok('앱으로 깔 수 있다고 말한다', /앱으로 깔 수 있습니다/.test(out), out.slice(-600));
+    const cfg = JSON.parse(fs.readFileSync(path.join(home, '.mybody', 'config.json'), 'utf8'));
+    ok('그 주소를 설정에 적어 둔다',
+       cfg.origin === 'https://' + NAME && cfg.trustProxy === true, cfg);
+
+    /* 일부러 cloudflare 를 시킬 수도 있어야 합니다 — 타일스케일이
+       Funnel 정책에 막혀 있을 때의 유일한 탈출구입니다. */
+    const child2 = spawn(process.execPath,
+      [path.join(ROOT, 'tools', 'launch.js'), '--cloudflare'], {
+      cwd: ROOT,
+      env: Object.assign({}, baseEnv(), {
+        HOME: home, USERPROFILE: home,
+        PATH: bin + path.delimiter + (process.env.PATH || '')
+      }),
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let out2 = '';
+    child2.stdout.on('data', d => { out2 += d; });
+    child2.stderr.on('data', d => { out2 += d; });
+    await wait(7000);
+    child2.kill('SIGTERM');
+    await wait(1200);
+    ok('--cloudflare 로 일부러 바꿀 수 있다',
+       /Cloudflare 임시 터널로 엽니다/.test(out2), out2.slice(0, 400));
+
+    fs.rmSync(bin, { recursive: true, force: true });
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+
   console.log('\n[9] 자동 시작 · 더블클릭 실행');
   {
     /* 자동 시작은 평소 쓰는 PATH 도 HOME 도 안 물려받습니다. 손으로 적은

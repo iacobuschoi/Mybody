@@ -29,11 +29,17 @@
  *   "컴퓨터가 꺼지면 친구도 못 봅니다" 잔소리를 끕니다. 껐다 켰다 할
  *   거면:  node tools/launch.js --not-always-on
  *
- * 임시 터널 주의
- *   도메인 없이 쓰면 주소가 **띄울 때마다 바뀝니다.** 브라우저는 기록을
- *   주소별로 따로 저장하므로, 주소가 바뀌면 친구들 폰에서 그동안의
- *   기록이 통째로 안 보이게 됩니다. 그래서 처음 한 번은 이걸로 열어
- *   보되, 계속 쓸 거면 고정 주소를 만들라고 큰 소리로 말합니다.
+ * 터널 두 가지 — 주소가 바뀌느냐가 전부입니다
+ *   tailscale   주소가 **안 바뀝니다**. 계정이 필요하지만 개인은 무료입니다.
+ *               크롬이 이 도메인을 막지 않아서 **폰에 앱으로 깔 수 있습니다.**
+ *   cloudflared 계정 없이 30초면 되지만 **띄울 때마다 주소가 바뀌고**,
+ *               trycloudflare 는 구글이 위험 사이트로 표시해서 크롬이
+ *               앱 설치를 아예 안 내줍니다.
+ *
+ *   브라우저는 기록을 주소별로 따로 저장합니다. 주소가 바뀌면 친구들
+ *   폰에서 그동안의 기록이 통째로 안 보이게 됩니다. 그래서 둘 다 있으면
+ *   tailscale 을 씁니다 — 취향이 아니라 데이터 문제입니다.
+ *   일부러 바꾸려면 --cloudflare.
  * ========================================================================== */
 'use strict';
 const { spawn, spawnSync } = require('node:child_process');
@@ -61,31 +67,74 @@ function run(script, extra, env) {
 }
 
 /* --- 터널 도구 찾기 --------------------------------------------------------
- * cloudflared 가 제일 흔하고 계정 없이도 임시 주소를 줍니다.
- * 없으면 **어떻게 까는지 OS 별로** 말해 줍니다 — "설치하세요" 는
- * 아무에게도 도움이 안 됩니다.
+ *
+ * 두 가지를 씁니다. **주소가 바뀌느냐**가 갈림길입니다.
+ *
+ *   tailscale   주소가 **안 바뀝니다** (https://<기기>.<테일넷>.ts.net).
+ *               계정이 필요하지만 개인은 무료이고, 인증서도 진짜입니다.
+ *               크롬이 이 도메인을 막지 않아서 **앱 설치가 됩니다.**
+ *   cloudflared 계정 없이 30초면 되지만 **띄울 때마다 주소가 바뀝니다.**
+ *               그리고 trycloudflare 는 공용 도메인이라 크롬이 위험
+ *               사이트로 표시하고, 그 상태에서는 앱 설치를 막습니다.
+ *
+ * 브라우저는 기록을 주소별로 따로 저장합니다. 주소가 바뀌면 친구들
+ * 폰에서 그동안의 기록이 통째로 안 보이게 됩니다. 그래서 둘 다 있으면
+ * **tailscale 을 씁니다.** 이건 취향이 아니라 데이터 문제입니다.
  * -------------------------------------------------------------------------- */
-function findTunnel() {
+function findBin(bin) {
   const which = process.platform === 'win32' ? 'where' : 'which';
-  for (const bin of ['cloudflared']) {
-    const r = spawnSync(which, [bin], { encoding: 'utf8' });
-    if (r.status === 0 && (r.stdout || '').trim()) return bin;
+  const r = spawnSync(which, [bin], { encoding: 'utf8' });
+  return r.status === 0 && (r.stdout || '').trim() ? bin : null;
+}
+
+/** tailscale 이 깔려 있고 **로그인까지 돼 있는가**. 깔려만 있으면 소용없습니다. */
+function tailscaleName() {
+  if (!findBin('tailscale')) return null;
+  const r = spawnSync('tailscale', ['status', '--json'], { encoding: 'utf8', timeout: 8000 });
+  if (r.status !== 0) return null;
+  try {
+    const j = JSON.parse(r.stdout || '{}');
+    const dns = (j.Self && j.Self.DNSName) || '';
+    return dns ? dns.replace(/\.$/, '') : null;   // 끝의 점을 뗍니다
+  } catch (e) { return null; }
+}
+
+/** 어떤 터널을 쓸 것인가. { kind, name } 또는 null */
+function findTunnel() {
+  if (!has('cloudflare')) {
+    const name = tailscaleName();
+    if (name) return { kind: 'tailscale', name: name };
   }
+  if (has('tailscale')) return null;           // 타일스케일을 시켰는데 준비가 안 됨
+  if (findBin('cloudflared')) return { kind: 'cloudflared', name: null };
   return null;
 }
+
 function installHint() {
-  if (process.platform === 'darwin') {
-    return ['맥이면:', '    brew install cloudflared',
-            '  (brew 가 없으면 https://brew.sh 먼저)'];
-  }
-  if (process.platform === 'win32') {
-    return ['윈도우면:', '    winget install --id Cloudflare.cloudflared',
-            '  (winget 이 없으면 https://github.com/cloudflare/cloudflared/releases 에서', 
-            '   cloudflared-windows-amd64.exe 를 받아 PATH 에 두세요)'];
-  }
-  return ['리눅스면:',
-          '    curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64',
-          '    chmod +x cloudflared && sudo mv cloudflared /usr/local/bin/'];
+  /* 두 길을 다 보여 주되, **주소가 안 바뀌는 쪽을 먼저** 적습니다.
+     빠른 길만 알려 주면 나중에 반드시 다시 옵니다 — 주소가 바뀌어서. */
+  const ts = process.platform === 'darwin'
+    ? '    brew install tailscale && sudo tailscale up'
+    : process.platform === 'win32'
+      ? '    winget install --id tailscale.tailscale\n' +
+        '    그다음 트레이의 Tailscale 에서 로그인하세요 (개인 계정 무료)'
+      : '    curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up';
+  const cf = process.platform === 'darwin'
+    ? '    brew install cloudflared'
+    : process.platform === 'win32'
+      ? '    winget install --id Cloudflare.cloudflared'
+      : '    curl -L -o cloudflared https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64\n' +
+        '    chmod +x cloudflared && sudo mv cloudflared /usr/local/bin/';
+  return [
+    '① 주소가 안 바뀌는 길 (추천) — Tailscale, 개인 무료',
+    ...ts.split('\n'),
+    '   주소: https://<기기이름>.<테일넷>.ts.net  — 껐다 켜도 그대로입니다.',
+    '   크롬이 막지 않아서 **폰에 앱으로 깔 수 있습니다.**',
+    '',
+    '② 빨리 한 번 보는 길 — Cloudflare, 계정 없이 30초',
+    ...cf.split('\n'),
+    '   주소가 띄울 때마다 바뀌고, 크롬이 앱 설치를 막습니다.'
+  ];
 }
 
 /* --- 1~4. 준비 ------------------------------------------------------------ */
@@ -138,25 +187,56 @@ function prepare() {
  * cloudflared 는 주소를 **stderr** 로 찍습니다. stdout 만 보면 영원히
  * 안 옵니다 — 처음 짤 때 여기서 30분을 썼습니다.
  * -------------------------------------------------------------------------- */
-function startTunnel(port, onUrl) {
-  const child = spawn('cloudflared',
-    ['tunnel', '--no-autoupdate', '--url', 'http://localhost:' + port],
-    { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+function startTunnel(tunnel, port, onUrl) {
+  const isTs = tunnel.kind === 'tailscale';
+  const child = isTs
+    /* funnel 은 443·8443·10000 에서만 받습니다. 기본 443 으로 두고
+       안쪽 포트만 넘깁니다. --bg 를 안 붙이는 이유: 이 창을 닫으면
+       터널도 같이 꺼져야 합니다. 붙이면 서버만 죽고 주소는 살아남아
+       "열려 있는데 아무것도 없는 주소" 가 됩니다. */
+    ? spawn('tailscale', ['funnel', String(port)],
+            { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] })
+    : spawn('cloudflared',
+            ['tunnel', '--no-autoupdate', '--url', 'http://localhost:' + port],
+            { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
 
   let found = false;
+  let out = '';
+  const RE = isTs ? /https:\/\/[a-z0-9-]+\.[a-z0-9.-]+\.ts\.net/i
+                  : /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
   const scan = buf => {
-    const m = /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i.exec(String(buf));
-    if (m && !found) { found = true; onUrl(m[0]); }
+    out += String(buf);
+    const m = RE.exec(String(buf));
+    if (m && !found) { found = true; onUrl(m[0].replace(/\/$/, '')); }
   };
   child.stdout.on('data', scan);
   child.stderr.on('data', scan);
+
+  /* tailscale 은 이미 이름을 알고 있습니다 — 굳이 출력에서 긁어내지
+     않아도 됩니다. 출력 형식이 바뀌어도 여기서 안 막히게 해 둡니다. */
+  if (isTs && tunnel.name) {
+    setTimeout(() => {
+      if (!found) { found = true; onUrl('https://' + tunnel.name); }
+    }, 2500);
+  }
+
   child.on('exit', code => {
-    if (!found) {
-      line('');
-      line('터널이 주소를 못 만들고 끝났습니다 (종료 코드 ' + code + ').');
+    if (found) return;
+    line('');
+    line('터널이 주소를 못 만들고 끝났습니다 (종료 코드 ' + code + ').');
+    if (isTs) {
+      /* Funnel 은 테일넷 정책에서 한 번 켜 줘야 합니다. 처음 쓰는
+         사람은 여기서 막히는데, tailscale 이 그 링크를 출력에 적어
+         줍니다 — 그걸 그대로 보여 주는 편이 제 설명보다 정확합니다. */
+      const hint = (out.match(/https:\/\/login\.tailscale\.com\S*/) || [])[0];
+      line('Funnel 이 아직 이 테일넷에서 켜져 있지 않을 수 있습니다.');
+      if (hint) { line('여기서 한 번 켜 주세요:'); line('  ' + hint); }
+      else line('  https://login.tailscale.com/admin/dns 에서 Funnel 을 켜세요.');
+      line('그래도 안 되면 Cloudflare 로:  node tools/launch.js --cloudflare');
+    } else {
       line('인터넷이 막혀 있거나 cloudflared 가 차단됐을 수 있습니다.');
-      line('서버 자체는 그대로 돌고 있습니다 — 같은 와이파이에서는 쓸 수 있습니다.');
     }
+    line('서버 자체는 그대로 돌고 있습니다 — 같은 와이파이에서는 쓸 수 있습니다.');
   });
   return child;
 }
@@ -167,10 +247,18 @@ function main() {
   const cfg = prepare();
   const tunnel = has('no-tunnel') ? null : findTunnel();
 
+  if (tunnel) {
+    line(tunnel.kind === 'tailscale'
+      ? 'Tailscale 로 엽니다 — 주소가 안 바뀝니다.'
+      : 'Cloudflare 임시 터널로 엽니다 — 주소가 띄울 때마다 바뀝니다.');
+    line('');
+  }
+
   if (!has('no-tunnel') && !tunnel) {
     line('');
-    line('터널 도구(cloudflared)가 없습니다.');
-    line('없으면 **같은 와이파이에서만** 쓸 수 있고, 폰 알림도 안 됩니다.');
+    line('밖에서 접속할 길(터널)이 없습니다.');
+    line('없으면 **같은 와이파이에서만** 쓸 수 있고, 그 주소는 https 가');
+    line('아니라 **폰에 앱으로 깔 수도, 알림을 받을 수도 없습니다.**');
     line('');
     installHint().forEach(l => line('  ' + l));
     line('');
@@ -197,7 +285,7 @@ function main() {
   /* 서버가 뜰 시간을 줍니다. 너무 일찍 붙으면 cloudflared 가 502 를
      한참 뱉다가 스스로 회복하는데, 그 사이 사용자는 깨진 줄 압니다. */
   setTimeout(() => {
-    tun = startTunnel(cfg.port, url => {
+    tun = startTunnel(tunnel, cfg.port, url => {
       /* 주소를 설정에 적어 둡니다 — 서버가 터널 뒤에서 사람별로 요청을
          세려면 이 값이 필요합니다. 다음에 띄울 때 또 바뀌면 그 때 덮습니다. */
       try {
@@ -234,10 +322,26 @@ function main() {
         line('  닫으려면 이 창을 끄고:  node tools/launch.js --pair-code');
         line('');
       }
-      line('⚠ 이 주소는 **끌 때까지만** 살아 있고, 다시 띄우면 바뀝니다.');
-      line('  주소가 바뀌면 친구들 폰에서 그동안의 기록이 안 보이게 됩니다');
-      line('  (브라우저가 주소별로 따로 저장합니다).');
-      line('  계속 쓸 거면 고정 주소를 만드세요 — docs/START.md 4-B.');
+      if (tunnel.kind === 'tailscale') {
+        /* 주소가 안 바뀌면 이 앱의 제일 큰 함정 하나가 통째로 사라집니다.
+           그 사실을 말해 주는 편이, 없는 경고를 계속 찍는 것보다 낫습니다. */
+        line('✓ 이 주소는 **안 바뀝니다.** 껐다 켜도 그대로입니다 —');
+        line('  친구들 폰에 깔아 둔 앱과 그동안의 기록이 그대로 남습니다.');
+        line('  크롬도 이 도메인은 막지 않아서 **앱으로 깔 수 있습니다.**');
+        line('');
+        line('  다만 이 창을 닫으면 서버가 꺼지고, 그 동안은 아무도 못 씁니다.');
+        line('  켤 때마다 자동으로 띄우려면:  node tools/autostart.js --write');
+      } else {
+        line('⚠ 이 주소는 **끌 때까지만** 살아 있고, 다시 띄우면 바뀝니다.');
+        line('  주소가 바뀌면 친구들 폰에서 그동안의 기록이 안 보이게 됩니다');
+        line('  (브라우저가 주소별로 따로 저장합니다).');
+        line('');
+        line('  그리고 크롬이 trycloudflare 를 위험 사이트로 표시해서');
+        line('  **폰에 앱으로 깔 수가 없습니다.** 깔고 싶으면 주소를 고정하세요:');
+        line('    ① Tailscale — 개인 무료, 주소 안 바뀜. 깔아 두면 이 명령이');
+        line('       알아서 그쪽을 씁니다.');
+        line('    ② 내 도메인 — docs/START.md 4-B');
+      }
       line('');
       line('이 창을 닫으면 서버와 터널이 같이 꺼집니다.');
       line('');
