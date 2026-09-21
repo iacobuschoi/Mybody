@@ -85,7 +85,13 @@
              보여 주면 눌렀을 때 "로그인이 필요합니다" 만 나옵니다. */
           serverSignedIn() ? h('button.btn.btn--sm', { text: '복구 코드 새로 받기',
             uid: 'P14-B08', uidLabel: '복구 코드 새로 받기',
-            onClick: function () { global.MB_MODALS.newRecoveryCode(); } }) : null
+            onClick: function () { global.MB_MODALS.newRecoveryCode(); } }) : null,
+          /* 폰을 잃어버렸을 때 쓰는 버튼입니다. 서버는 이 기능을
+             "토큰이 샜을 때의 유일한 복구 수단" 이라고 적어 뒀는데,
+             그 유일한 수단에 누를 곳이 없었습니다. */
+          serverSignedIn() ? h('button.btn.btn--sm', { text: '모든 기기에서 로그아웃',
+            uid: 'P14-B12', uidLabel: '모든 기기에서 로그아웃',
+            onClick: function () { global.MB_MODALS.signOutEverywhere(function () { A.refresh(); }); } }) : null
         ])
       ]));
 

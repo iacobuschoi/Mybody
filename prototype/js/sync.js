@@ -533,7 +533,7 @@
     signUp: signUp, signIn: signIn, signOut: signOut, changePassword: changePassword,
     recover: recover, newRecoveryCode: newRecoveryCode,
     HEALTH_CONSENT_VERSION: HEALTH_CONSENT_VERSION,
-    signOutAll: function () { return api('/auth/signout-all', { method: 'POST' }); },
+    signOutEverywhere: function () { return api('/auth/signout-all', { method: 'POST' }); },
     deleteAccount: function () { return api('/me', { method: 'DELETE' }); },
     enqueue: enqueue, flush: flush, pull: pull, boot: boot, probe: probe,
     sendRequest: sendRequest,

@@ -544,6 +544,48 @@ async function main() {
   const allErrs = [...new Set([...A.errs, ...B.errs])];
   const real = allErrs.filter(e => !EXPECTED.test(e));
   /* --------------------------------------------------------------------
+   * [8-1] 모든 기기에서 로그아웃이 정말 모든 기기를 끊는가
+   *
+   * 서버는 이 기능을 "토큰이 샜을 때의 유일한 복구 수단" 이라고 적어
+   * 뒀는데, 그 유일한 수단에 누를 곳이 없었습니다 (sync.js 에 함수는
+   * 있고 부르는 곳이 0). 폰을 잃어버린 사람에게는 방법이 없었습니다.
+   * ------------------------------------------------------------------ */
+  console.log('\n[8-1] 모든 기기에서 로그아웃');
+  {
+    const P = await device(browser, '잃어버린폰');
+    await ev(P, s => window.MB_SYNC.configure(s), BASE);
+    await P.page.waitForTimeout(200);
+    const up = await ev(P, () => window.MB_SYNC.signUp({
+      handle: 'lostphone', password: 'lost-pass-12', displayName: '잃어버린폰',
+      pairSecret: 'e2e-pair-secret', healthConsent: window.MB_SYNC.HEALTH_CONSENT_VERSION
+    }).then(() => true).catch(() => false));
+    ok('계정을 만들었다', up === true);
+
+    /* 두 번째 기기에서 같은 계정으로 로그인 — 이게 "잃어버린 폰" 역할 */
+    const lost = await fetch(BASE + '/api/auth/signin', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ handle: 'lostphone', password: 'lost-pass-12' })
+    }).then(r => r.json());
+    ok('둘째 기기도 로그인돼 있다', lost.ok === true, lost);
+    const alive = t => fetch(BASE + '/api/me', { headers: { authorization: 'Bearer ' + t } })
+      .then(r => r.status === 200);
+    ok('둘째 기기 토큰이 살아 있다', await alive(lost.token) === true);
+
+    await ev(P, () => window.MB_MODALS.signOutEverywhere(function () {}));
+    await P.page.waitForTimeout(250);
+    await P.page.locator('[data-uid="M52-B02"]').click();
+    await P.page.waitForTimeout(1000);
+
+    ok('둘째 기기 토큰이 죽는다', await alive(lost.token) === false);
+    ok('이 기기도 로그아웃된다', await ev(P, () => !window.MB_SYNC.status().signedIn));
+    ok('계정은 그대로 남는다', await fetch(BASE + '/api/auth/signin', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ handle: 'lostphone', password: 'lost-pass-12' })
+    }).then(r => r.json()).then(j => j.ok === true));
+    await P.ctx.close();
+  }
+
+  /* --------------------------------------------------------------------
    * [8-2] "계정을 삭제했습니다" 가 서버에도 닿는가
    *
    * 예전엔 이 버튼이 로컬 거울만 비웠습니다. MB_SYNC.deleteAccount() 는

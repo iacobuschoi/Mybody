@@ -968,6 +968,56 @@
   };
 
   /* M32 계정 삭제 */
+  /* M52 — 모든 기기에서 로그아웃
+   *
+   * 폰을 잃어버렸거나 남의 컴퓨터에서 로그인한 채 나온 경우에 쓰는
+   * 유일한 수단입니다. 서버는 이 기능을 그렇게 적어 뒀는데(db.js
+   * signOutEverywhere) 화면에 누를 곳이 없었습니다.
+   *
+   * 이 기기도 같이 끊깁니다 — 서버가 세션을 전부 지우므로 지금 들고
+   * 있는 토큰도 죽습니다. 그걸 안 치우면 화면은 로그인한 것처럼 보이는데
+   * 모든 요청이 401 로 떨어집니다. 그래서 여기서 먼저 말해 둡니다.
+   */
+  M.signOutEverywhere = function (onDone) {
+    var msg, busy = false;
+    UI.openModal({
+      uid: 'M52', title: '모든 기기에서 로그아웃할까요?',
+      body: [
+        h('div.note.note--warn', { text: '이 기기를 포함해 로그인된 모든 기기가 끊깁니다. ' +
+          '다시 쓰려면 비밀번호로 다시 로그인하면 됩니다.' }),
+        h('div.muted', { style: { marginTop: '8px' },
+          text: '폰을 잃어버렸거나 남의 컴퓨터에서 로그인한 채 나왔을 때 쓰세요. ' +
+                '계정과 기록은 그대로 남습니다.' }),
+        msg = h('div.field__err', { style: { display: 'none' } })
+      ],
+      actions: [
+        { label: '취소', kind: 'ghost' },
+        { label: '전부 로그아웃', kind: 'danger', onClick: function (close) {
+            if (busy) return true;
+            var SY = global.MB_SYNC;
+            if (!SY || !SY.status().signedIn) { close(); return; }
+            busy = true; msg.style.display = 'none';
+            SY.signOutEverywhere().then(function () {
+              /* 서버 세션이 전부 지워졌으니 이 기기 토큰도 이미 죽었습니다.
+                 signOut() 은 서버에 한 번 더 말을 걸지만 실패해도 로컬은
+                 비웁니다 — 우리가 원하는 게 그겁니다. */
+              return SY.signOut().catch(function () {});
+            }).then(function () {
+              global.MB_UID.toast('모든 기기에서 로그아웃했습니다');
+              close();
+              if (onDone) onDone();
+            }).catch(function (e) {
+              busy = false;
+              msg.textContent = '로그아웃하지 못했습니다 — ' + (e && e.message || '연결 실패') +
+                '. 다른 기기는 그대로 로그인돼 있습니다.';
+              msg.style.display = '';
+            });
+            return true;
+          } }
+      ]
+    });
+  };
+
   M.deleteAccount = function (onDone) {
     var input, msg, busy = false;
     UI.openModal({
