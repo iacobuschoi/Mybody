@@ -120,6 +120,9 @@
        사진에는 보통 이름 · 나이 · 성별이 같이 인쇄돼 있습니다 — 전부
        지웠다고 믿고 폰을 넘긴 사람에게는 그게 전부입니다. */
     if (global.MB_PHOTO) { try { global.MB_PHOTO.clearAll(); } catch (e) {} }
+    /* 친구 소식도 같은 이유로 지웁니다 — 누가 언제 운동했는지가
+       이름째로 적혀 있고, 그건 내 데이터가 아니라 친구 데이터입니다. */
+    if (global.MB_NEWS) { try { global.MB_NEWS.reset(); } catch (e) {} }
     state = blank();
     save();
   }

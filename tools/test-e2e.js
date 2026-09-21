@@ -245,6 +245,66 @@ async function main() {
   }
 
   /* --------------------------------------------------------------------
+   * [5-4] 친구가 운동을 체크하면 내 화면에 소식이 뜨는가
+   *
+   * 사용자 요청: "운동 해서 체크하면 친구한테 알림가게".
+   * 같이 봐야 하는 것: **안 한 것은 절대 소식이 되지 않는가.**
+   * ------------------------------------------------------------------ */
+  console.log('\n[5-4] 친구가 체크하면 소식이 뜨는가');
+  {
+    /* 나린이 이번 주 하루를 더 지킵니다 (앞 절에서 계획 4 · 지킴 1). */
+    await ev(B, () => {
+      const S = window.MB_STORE, W = window.MB_SCHED;
+      S.setScheduleDone(W.shiftKey(S.weekStartOf(), 2), 'gym', true);
+    });
+    await ev(B, () => window.MB_SYNC.flush());
+    await B.page.waitForTimeout(800);
+    await ev(A, () => window.MB_SYNC.pull());
+    await A.page.waitForTimeout(600);
+
+    ok('가영 앱에 안 읽은 소식이 생긴다',
+       await ev(A, () => window.MB_NEWS.unread()) >= 1,
+       await ev(A, () => window.MB_NEWS.list(3)));
+    ok('친구 탭에 점이 켜진다', await (async () => {
+      await ev(A, () => window.MB_APP.go('P02'));
+      await A.page.waitForTimeout(300);
+      return await A.page.locator('.tabbar__item[data-to="P15"].has-dot').count() === 1;
+    })());
+
+    await ev(A, () => window.MB_APP.go('P15'));
+    await A.page.waitForTimeout(450);
+    const card = A.page.locator('[data-uid="P15-C25"]');
+    ok('친구 탭에 소식 카드가 있다', await card.count() === 1);
+    const txt = await card.count() ? await card.innerText() : '';
+    ok('누가 했는지 적혀 있다', txt.includes(rB.displayName + '님이 운동했습니다'), txt);
+    ok('모르는 시각을 아는 척하지 않는다',
+       /친구가 언제 운동했는지는 앱이 모릅니다/.test(txt), txt);
+    ok('폰 알림이 아니라고 말한다', /폰 알림은 가지 않습니다/.test(txt), txt);
+
+    ok('열어 보면 점이 꺼진다', await (async () => {
+      await ev(A, () => window.MB_APP.go('P02'));
+      await A.page.waitForTimeout(350);
+      return await A.page.locator('.tabbar__item[data-to="P15"].has-dot').count() === 0;
+    })());
+
+    /* 여기가 핵심입니다 — 지킴이 줄어드는 것은 소식이 되면 안 됩니다. */
+    const before = await ev(A, () => window.MB_NEWS.list(99).length);
+    await ev(B, () => {
+      const S = window.MB_STORE, W = window.MB_SCHED;
+      S.setScheduleDone(W.shiftKey(S.weekStartOf(), 2), 'gym', false);
+      S.setScheduleDone(W.shiftKey(S.weekStartOf(), 0), 'gym', false);
+    });
+    await ev(B, () => window.MB_SYNC.flush());
+    await B.page.waitForTimeout(800);
+    await ev(A, () => window.MB_SYNC.pull());
+    await A.page.waitForTimeout(600);
+    ok('체크를 물려도 소식이 안 생긴다',
+       await ev(A, () => window.MB_NEWS.list(99).length) === before);
+    ok('안 한 것으로는 점도 안 켜진다',
+       await ev(A, () => window.MB_NEWS.unread()) === 0);
+  }
+
+  /* --------------------------------------------------------------------
    * [5-2] 프로필 사진이 상대 화면에 실제로 뜨는가
    *
    * 화면 없이 API 로만 보면, 서버에는 잘 저장되는데 친구 목록에는

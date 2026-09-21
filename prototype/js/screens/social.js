@@ -238,6 +238,65 @@
     }
   });
 
+  /* --- 친구 소식 카드 (P15-C25) ------------------------------------------
+   * 소식은 기기 안에서 계산됩니다 (news.js). 서버에 소식 테이블 같은 것은
+   * 없고, 이 카드 때문에 새로 나가는 정보도 없습니다 — 이미 공유 설정으로
+   * 걸러져 온 "지킴 일수" 가 지난번보다 늘었는지만 봅니다.
+   * -------------------------------------------------------------------- */
+  function newsCard(wrap) {
+    var N = global.MB_NEWS;
+    if (!N) return;
+    var items = N.list(8);
+    if (!items.length) return;          // 소식이 없으면 빈 카드를 두지 않습니다
+
+    var card = h('div.card', { uid: 'P15-C25', uidLabel: '친구 소식' }, [
+      h('div.card__title', { text: '친구 소식' })
+    ]);
+    items.forEach(function (it, i) {
+      card.appendChild(h('div', {
+        uid: 'P15-L04#' + (i + 1), uidLabel: '소식 ' + (i + 1),
+        style: { display: 'flex', alignItems: 'center', gap: '9px',
+                 padding: '8px 0', borderBottom: '1px solid var(--border)' } }, [
+        UI.avatar({ id: it.friendId, displayName: it.name,
+                    avatar: avatarOf(it.friendId) }, 30),
+        h('div', { style: { flex: '1', minWidth: '0' } }, [
+          h('div', { style: { fontSize: '13px', fontWeight: '700' },
+            text: it.name + '님이 운동했습니다' }),
+          h('div.muted', { text: '이번 주 ' + it.keptDays + '일째' +
+            (it.plannedDays ? ' · 계획 ' + it.plannedDays + '일' : '') })
+        ]),
+        h('div.muted', { style: { flex: 'none' }, text: ago(it.at) })
+      ]));
+    });
+    /* 시각을 정직하게 적습니다. 친구가 언제 운동했는지는 모릅니다 —
+       스냅샷에 그 시각이 없습니다. 아는 건 내가 언제 알게 됐는가뿐입니다. */
+    card.appendChild(h('div.muted', { style: { marginTop: '10px' },
+      text: '내 앱이 받아온 시각입니다. 친구가 언제 운동했는지는 앱이 모릅니다. ' +
+            '폰 알림은 가지 않습니다 — 앱을 열 때 여기 쌓입니다.' }));
+    wrap.appendChild(card);
+    N.markRead();
+  }
+
+  /** 친구 목록에서 그 사람 사진 찾기 (소식 줄에 쓰려고) */
+  function avatarOf(id) {
+    try {
+      var f = B().listFriends().accepted;
+      for (var i = 0; i < f.length; i++) if (f[i].id === id) return f[i].avatar || null;
+    } catch (e) {}
+    return null;
+  }
+
+  function ago(iso) {
+    var ms = Date.now() - new Date(iso).getTime();
+    if (!isFinite(ms) || ms < 0) return '방금';
+    var m = Math.floor(ms / 60000);
+    if (m < 1) return '방금';
+    if (m < 60) return m + '분 전';
+    var hr = Math.floor(m / 60);
+    if (hr < 24) return hr + '시간 전';
+    return Math.floor(hr / 24) + '일 전';
+  }
+
   /* =====================================================================
    * 공유 헬퍼 — P15 행 · P16 카드가 같은 함수를 씁니다.
    * 여기 버그가 나면 두 곳이 같이 틀리므로 한 군데만 있어야 합니다.
@@ -334,6 +393,18 @@
 
       var f = B().listFriends();
 
+      /* --- C25 친구 소식 -------------------------------------------------
+         "운동 해서 체크하면 친구한테 알림" 의 받는 쪽입니다.
+
+         여기 흐르는 것은 **늘어난 것뿐**입니다 (news.js). "안 했다" 는
+         구조적으로 이 목록에 들어올 수 없습니다 — 못 만든 게 아니라
+         만들 수 없게 만들어 뒀습니다. 그래서 이 카드는 열어 볼 때
+         마음이 무거워지지 않습니다.
+
+         읽으면 탭 점이 꺼집니다. 개수는 어디에도 안 씁니다 — 숫자를
+         붙이는 순간 내가 이번 주에 몇 번 갔는지와 나란히 놓입니다. */
+      newsCard(wrap);
+
       /* --- C21 새로 맺어진 친구 — 내가 이 관계의 공유를 한 번도 안 건드렸을 때 --- */
       f.accepted.filter(function (r) {
         return r.iShare.settings.updatedAt == null;
@@ -342,8 +413,9 @@
         wrap.appendChild(h('div.card.card--accent', { uid: 'P15-C21#' + n, uidLabel: '새 친구 안내 ' + n }, [
           h('div.card__title', { text: r.displayName + '님과 친구가 되었습니다' }),
           h('div.muted', { style: { marginTop: '6px' },
-            text: '지금 ' + r.displayName + '님 화면에 보이는 것은 체크인 기록 하나입니다 — ' +
-                  '이번 주에 기록을 했는지 여부. 몸에 대한 숫자는 켜기 전까지 안 보입니다.' }),
+            text: '지금 ' + r.displayName + '님 화면에 보이는 것은 둘입니다 — ' +
+                  '이번 주에 기록을 했는지 여부, 그리고 "계획 O일 · 지킴 O일" 두 숫자. ' +
+                  '몸에 대한 숫자는 켜기 전까지 안 보입니다.' }),
           // 세 버튼은 같은 크기·같은 무게입니다. 아무것도 안 켜는 것이
           // 손해가 아니라는 걸 버튼 생김새로 말합니다.
           h('div.btn-row.btn-row--stack', { style: { marginTop: '12px' } }, [
@@ -353,9 +425,12 @@
                 B().setShare(r.id, {});            // 모달을 그냥 닫아도 카드가 다시 안 뜨게
                 global.MB_MODALS.shareWith(r, function () { A.refresh(); });
               } }),
-            h('button.btn.btn--sm', { text: '체크인 기록도 끄기',
-              uid: 'P15-B26#' + n, uidLabel: '체크인도 끄기 ' + n,
-              onClick: function () { B().setShare(r.id, { streak: false }); A.refresh(); } }),
+            h('button.btn.btn--sm', { text: '그 둘도 끄기',
+              uid: 'P15-B26#' + n, uidLabel: '기본 항목도 끄기 ' + n,
+              onClick: function () {
+                B().setShare(r.id, { streak: false, schedule: false });
+                A.refresh();
+              } }),
             h('button.btn.btn--sm', { text: '이대로 두기',
               uid: 'P15-B27#' + n, uidLabel: '이대로 두기 ' + n,
               onClick: function () { B().setShare(r.id, {}); A.refresh(); } })
@@ -578,7 +653,8 @@
           h('div.muted', { style: { marginTop: '6px' },
             text: '로그인하면 가장 최근 측정의 체중 · 골격근량 · 체지방량 · 체지방률이 ' +
                   '서버에 저장됩니다. 친구에게 보이는 것은 친구마다 직접 켠 항목뿐이고, ' +
-                  '기본으로 보이는 것은 이번 주에 기록을 했는지 여부 하나입니다.' }),
+                  '기본으로 보이는 것은 행동에 대한 둘뿐입니다 — 이번 주에 기록을 했는지, ' +
+                  '그리고 계획한 날과 지킨 날의 개수.' }),
           h('div', { style: { marginTop: '6px' } }, [
             h('a', { text: '무엇이 어디로 가는지 자세히 (개인정보처리방침)',
                      href: './privacy.html', target: '_blank', rel: 'noopener',
@@ -600,7 +676,8 @@
           h('div.chips', { style: { marginTop: '8px' } },
             B().SHARE_FIELDS.map(function (x) { return h('span.chip', { text: x.label }); })),
           h('div.muted', { style: { marginTop: '8px' },
-            text: '기본은 체크인 기록 하나만 켜져 있고, 나머지는 친구마다 하나씩 직접 켭니다. 안 켠 항목은 상대 화면에 존재하지도 않습니다.' })
+            text: '기본으로 켜진 것은 행동에 대한 둘(체크인 기록 · 이번 주 일정 숫자)뿐이고, ' +
+                  '몸에 대한 항목은 친구마다 하나씩 직접 켭니다. 안 켠 항목은 상대 화면에 존재하지도 않습니다.' })
         ]));
         w.appendChild(h('div.note', { uid: 'P15-C02', uidLabel: '공유 원칙',
           text: '친구 찾기는 초대 코드로만 됩니다. 전화번호나 이메일로는 찾을 수 없습니다.' }));

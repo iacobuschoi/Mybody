@@ -1,0 +1,132 @@
+/* =============================================================================
+ * news.js — 친구 소식 (기기 안에서만 계산합니다)
+ *
+ * 사용자 요청: "운동 해서 체크하면 친구한테 알림가게".
+ *
+ * 서버를 한 줄도 안 고치고 만듭니다. sync.pull() 이 이미 친구마다 주간
+ * 스냅샷을 받아 옵니다. 그 안의 "지킴 일수"가 지난번 본 값보다 **늘었을
+ * 때만** 소식 한 줄을 남깁니다. 새로 나가는 정보가 하나도 없습니다 —
+ * 이미 공유 설정으로 걸러져 온 숫자를, 내 기기가 비교할 뿐입니다.
+ *
+ * 이 구조가 중요한 이유: **나쁜 소식이 흐를 수 없습니다.**
+ * 늘어난 것만 소식이 되므로 "안 했다" 는 구조적으로 알림이 될 수 없습니다.
+ * 줄어든 것도, 0 인 것도, 주가 바뀌어 초기화된 것도 조용합니다.
+ * 찌르기 기능을 안 만드는 것과 같은 이유입니다 — 부재는 조용해야 합니다.
+ *
+ * 정직하게 말해 둘 것: 이건 폰 알림이 아닙니다. 서비스워커 푸시는
+ * 보안 컨텍스트(HTTPS)를 요구하는데, 같은 와이파이에서 http://192.168.x.x
+ * 로 쓰면 navigator.serviceWorker 자체가 없습니다(실측 확인). 그래서
+ * 내 앱이 서버에서 받아올 때 화면 안에 쌓입니다. 화면에도 그렇게 씁니다.
+ *
+ * 시각도 정직하게: 친구가 **언제 운동했는지는 모릅니다.** 스냅샷에 그
+ * 시각이 없습니다. 우리가 아는 건 "내가 언제 알게 됐는가" 뿐이라,
+ * 그것만 적고 카드 밑에 그렇다고 써 둡니다.
+ * ========================================================================== */
+(function (global) {
+  'use strict';
+
+  var KEY = 'mybody.news.v1';
+  var MAX = 40;
+
+  /* 읽음 표시를 시각이 아니라 번호로 합니다.
+     시각으로 하면 기기 시계가 틀어졌을 때(수동 변경 · 시간대 이동 ·
+     부팅 직후 동기화 전) 새 소식이 "이미 읽은 것" 으로 묻힙니다.
+     번호는 이 기기 안에서만 늘어나는 값이라 시계와 무관합니다. */
+  function blank() { return { seen: {}, items: [], readSeq: 0, seq: 0 }; }
+
+  function load() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(KEY) || 'null');
+      if (!raw || typeof raw !== 'object') return blank();
+      return { seen: raw.seen || {}, items: raw.items || [],
+               readSeq: raw.readSeq || 0, seq: raw.seq || 0 };
+    } catch (e) { return blank(); }
+  }
+  function save(db) {
+    try { localStorage.setItem(KEY, JSON.stringify(db)); return true; }
+    catch (e) { return false; }
+  }
+
+  /**
+   * 받아온 친구 스냅샷을 지난번 본 것과 견줍니다.
+   *
+   * snaps:   [{ id, rows }]   rows[0] 이 가장 최근 주 (sync.pull 이 주는 모양)
+   * friends: [{ id, displayName }]
+   * 돌려주는 값: 이번에 새로 생긴 소식 개수
+   */
+  function apply(snaps, friends, nowISO) {
+    var db = load();
+    var nameOf = {};
+    (friends || []).forEach(function (f) { nameOf[f.id] = f.displayName; });
+    var now = nowISO || new Date().toISOString();
+    var added = 0;
+
+    (snaps || []).forEach(function (s) {
+      var row = (s.rows || [])[0];
+      if (!row || row.keptDays == null) return;      // 일정을 공유 안 하는 친구
+      var prev = db.seen[s.id];
+      var cur = { weekStart: row.weekStart, keptDays: row.keptDays,
+                  plannedDays: row.plannedDays == null ? null : row.plannedDays };
+
+      /* 처음 보는 친구는 조용히 적어만 둡니다. 안 그러면 친구를 맺은
+         첫 pull 에서 "3일 운동했습니다" 가 새 소식으로 쏟아집니다 —
+         지난 일인데 방금 일어난 것처럼 보입니다. */
+      var quiet = !prev || prev.weekStart !== cur.weekStart;
+
+      if (!quiet && cur.keptDays > prev.keptDays) {
+        db.seq = (db.seq || 0) + 1;
+        db.items.unshift({
+          seq: db.seq,
+          id: s.id + '|' + cur.weekStart + '|' + cur.keptDays,
+          friendId: s.id,
+          name: nameOf[s.id] || '친구',
+          at: now,
+          weekStart: cur.weekStart,
+          keptDays: cur.keptDays,
+          plannedDays: cur.plannedDays
+        });
+        added++;
+      }
+      /* 줄어들었거나 그대로면 아무 일도 안 일어납니다. 주가 바뀌어
+         0 으로 돌아간 것도 소식이 아닙니다 — 그건 달력이 한 일입니다. */
+      db.seen[s.id] = cur;
+    });
+
+    if (added) {
+      // 같은 소식이 두 번 들어오지 않게 (id 로 한 번 더 거릅니다)
+      var got = {};
+      db.items = db.items.filter(function (it) {
+        if (got[it.id]) return false;
+        got[it.id] = true; return true;
+      }).slice(0, MAX);
+      save(db);
+    } else {
+      save(db);
+    }
+    return added;
+  }
+
+  function list(limit) { return load().items.slice(0, limit || MAX); }
+
+  /** 아직 안 읽은 소식 개수 */
+  function unread() {
+    var db = load();
+    var n = 0;
+    for (var i = 0; i < db.items.length; i++) {
+      if ((db.items[i].seq || 0) > (db.readSeq || 0)) n++; else break;   // items 는 최신순
+    }
+    return n;
+  }
+
+  function markRead() {
+    var db = load();
+    db.readSeq = db.items.length ? (db.items[0].seq || 0) : (db.seq || 0);
+    save(db);
+  }
+
+  /** 계정을 바꾸거나 지울 때. 남의 소식이 새 계정 화면에 남으면 안 됩니다. */
+  function reset() { try { localStorage.removeItem(KEY); } catch (e) {} }
+
+  global.MB_NEWS = { apply: apply, list: list, unread: unread,
+                     markRead: markRead, reset: reset, MAX: MAX };
+})(window);

@@ -51,13 +51,21 @@
      상태입니다. 여기서 던지면 render() 뒷부분(앱바 제목·뒤로가기·탭 활성화·
      고유번호 배지 스캔)이 모든 화면에서 멈춥니다.
 
-     점은 받은 친구 요청(관계)에만 켭니다. 내 몸 데이터를 보여달라는 요청에
-     빨간 점을 다는 건 압박입니다. 이 구분이 압박의 상한선입니다. */
+     점은 두 가지에만 켭니다 — 받은 친구 요청(내가 답해야 하는 일)과
+     친구 소식(친구가 운동했다는 좋은 소식). 둘 다 숫자를 안 붙입니다.
+     숫자를 붙이면 점수표가 되고, 그 순간 내가 이번 주에 몇 번 갔는지와
+     나란히 놓입니다.
+
+     그리고 **안 한 것에는 절대 안 켭니다.** 친구가 이번 주에 운동을
+     안 했다는 것은 점이 되지 않습니다 — 소식은 늘어난 것에서만 나오게
+     만들어져 있습니다(news.js). 내 몸 데이터를 보여달라는 요청에 빨간
+     점을 다는 것도 마찬가지로 안 합니다. 이 구분이 압박의 상한선입니다. */
   function updateTabDot() {
     var n = 0;
     try {
       var BE = global.MB_BACKEND;
       if (BE && BE.currentUser()) n = BE.listFriends().incoming.length;
+      if (global.MB_NEWS) n += global.MB_NEWS.unread();
     } catch (e) { n = 0; }
     var el = document.querySelector('.tabbar__item[data-to="P15"]');
     if (el) el.classList.toggle('has-dot', n > 0);

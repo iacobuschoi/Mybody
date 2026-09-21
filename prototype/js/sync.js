@@ -400,6 +400,12 @@
             .catch(function () { return { id: f.id, rows: [], allowed: {} }; });
         })).then(function (snaps) {
           B.mirror({ me: meRes.user, friends: friends, snapshots: snaps });
+          /* 친구 소식은 여기서 계산합니다 — 서버가 준 것을 지난번 본 것과
+             견주는 일이라, 받아오는 자리 말고는 할 데가 없습니다.
+             새로 나가는 정보는 없습니다. */
+          try {
+            if (global.MB_NEWS) global.MB_NEWS.apply(snaps, accepted);
+          } catch (e) {}
           lastPullAt = new Date().toISOString();
           lastError = null;
           emit();

@@ -414,7 +414,13 @@
       return { ok: true, rows: rows, allowed: s };
     }
 
-    function reset() { db = blankDb(); save(); }
+    function reset() {
+      db = blankDb(); save();
+      /* 친구 소식도 같이 지웁니다. 로컬 거울을 비우는 이유가 "남의 기기에
+         내 친구 목록을 남기지 않는다" 인데, 소식은 그보다 더 구체적입니다 —
+         누가 언제 운동했는지가 이름째로 적혀 있습니다. */
+      try { if (global.MB_NEWS) global.MB_NEWS.reset(); } catch (e) {}
+    }
     function raw() { return db; }
 
     /* --- 서버 상태를 로컬 거울에 쓴다 -----------------------------------
