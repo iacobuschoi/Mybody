@@ -202,6 +202,21 @@ t('하루 비면 거기서 끊긴다', W.foodStreak(TODAY).days === 1);
 t('최근 7일 중 며칠인지도 센다', W.foodStreak(TODAY).last7 === 2,
   JSON.stringify(W.foodStreak(TODAY)));
 
+console.log('\n[11-2] 요일 체크만 해도 "이번 주 기록함" 이 된다');
+/* 이것만 쓰는 사람이 친구 화면에서 영원히 "이번 주 아직" 으로 남았습니다 —
+   매일 체크하고 있는데요. 재는 것이 "기록을 했는가" 라면 둘 다 기록입니다. */
+reset();
+t('아무것도 안 했으면 false', S.weeklySnapshot().checkedIn === false);
+S.setSchedulePlan(S.dayKey(), 'gym', true);
+t('계획만 세운 것은 기록이 아니다', S.weeklySnapshot().checkedIn === false,
+  JSON.stringify(S.weeklySnapshot()));
+S.setScheduleDone(S.dayKey(), 'gym', true);
+t('체크하면 기록한 것이 된다', S.weeklySnapshot().checkedIn === true,
+  JSON.stringify(S.weeklySnapshot()));
+reset();
+S.set({ checkins: [{ at: new Date().toISOString(), weightKg: 80 }] });
+t('주간 체크인만 해도 여전히 true', S.weeklySnapshot().checkedIn === true);
+
 console.log('\n[12] 기기에 실제로 남는가');
 reset();
 S.setSchedulePlan(d(-1), 'gym', true);

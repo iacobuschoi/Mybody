@@ -27,6 +27,7 @@
 
   var KEY = 'mybody.news.v1';
   var MAX = 40;
+  var MAX_AGE_DAYS = 21;
 
   /* 읽음 표시를 시각이 아니라 번호로 합니다.
      시각으로 하면 기기 시계가 틀어졌을 때(수동 변경 · 시간대 이동 ·
@@ -56,14 +57,28 @@
    */
   function apply(snaps, friends, nowISO) {
     var db = load();
-    var nameOf = {};
-    (friends || []).forEach(function (f) { nameOf[f.id] = f.displayName; });
     var now = nowISO || new Date().toISOString();
     var added = 0;
 
+    /* 지금 친구가 아닌 사람, 그리고 일정 공유를 끈 친구의 소식은 지웁니다.
+     *
+     * backend.js 머리에 "끄면 즉시 사라진다" 가 적혀 있는데 여기에는
+     * 지우는 경로가 하나도 없었습니다. 친구가 공유를 꺼도 · 친구를
+     * 끊어도 · 차단해도, 그 사람 이름과 지킨 날 수가 내 기기에 그대로
+     * 남았습니다. 끈 사람 쪽에서는 사라진 줄 아는데요. */
+    var known = {};
+    (friends || []).forEach(function (f) { known[f.id] = true; });
+    var sharing = {};
+    (snaps || []).forEach(function (s) {
+      var r0 = (s.rows || [])[0];
+      if (r0 && r0.keptDays != null) sharing[s.id] = true;
+    });
+    db.items = db.items.filter(function (it) { return known[it.friendId] && sharing[it.friendId]; });
+    Object.keys(db.seen).forEach(function (id) { if (!known[id]) delete db.seen[id]; });
+
     (snaps || []).forEach(function (s) {
       var row = (s.rows || [])[0];
-      if (!row || row.keptDays == null) return;      // 일정을 공유 안 하는 친구
+      if (!row || row.keptDays == null) { delete db.seen[s.id]; return; }   // 공유 안 하는 친구
       var prev = db.seen[s.id];
       var cur = { weekStart: row.weekStart, keptDays: row.keptDays,
                   plannedDays: row.plannedDays == null ? null : row.plannedDays };
@@ -79,7 +94,8 @@
           seq: db.seq,
           id: s.id + '|' + cur.weekStart + '|' + cur.keptDays,
           friendId: s.id,
-          name: nameOf[s.id] || '친구',
+          /* 이름은 그릴 때 친구 목록에서 찾습니다. 여기 박아 두면
+             친구가 이름을 바꾼 뒤에도 옛 이름이 계속 남습니다. */
           at: now,
           weekStart: cur.weekStart,
           keptDays: cur.keptDays,
@@ -117,10 +133,13 @@
         if (got[it.id]) return false;
         got[it.id] = true; return true;
       }).slice(0, MAX);
-      save(db);
-    } else {
-      save(db);
     }
+    /* 오래된 소식은 버립니다. 개수 상한만 있으면, 소식이 뜸한 사이라면
+       석 달 전 "운동했습니다" 가 계속 첫 줄에 앉아 있습니다 — 소식이
+       아니라 화석입니다. */
+    var cut = new Date(new Date(now).getTime() - MAX_AGE_DAYS * 86400000).toISOString();
+    db.items = db.items.filter(function (it) { return (it.at || '') >= cut; });
+    save(db);
     return added;
   }
 

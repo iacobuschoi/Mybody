@@ -37,7 +37,10 @@ t('목록도 비어 있다', N.list().length === 0);
 console.log('\n[2] 늘어나면 소식이 된다');
 t('3 → 4 는 소식 1건', N.apply(snap('f1', 4), FR, '2026-09-20T11:00:00Z') === 1);
 const it = N.list()[0];
-t('누구인지 적혀 있다', it && it.name === '나린', it);
+/* 이름은 박아 두지 않습니다 — 친구가 이름을 바꾸면 옛 이름이 남습니다.
+   화면이 그릴 때 친구 목록에서 찾습니다. 여기서는 누구인지만 있으면 됩니다. */
+t('누구인지 알 수 있다', it && it.friendId === 'f1', it);
+t('이름을 박아 두지 않는다', it && it.name === undefined, it);
 t('몇 일째인지 적혀 있다', it && it.keptDays === 4, it);
 t('계획 일수도 같이 온다', it && it.plannedDays === 4, it);
 
@@ -76,6 +79,30 @@ t('새 주 첫 값은 조용하다',
   N.apply(snap('f1', 0, 4, '2026-09-21'), FR, '2026-09-21T09:00:00Z') === 0);
 t('그 주에 하나 하면 그때부터 소식',
   N.apply(snap('f1', 1, 4, '2026-09-21'), FR, '2026-09-21T20:00:00Z') === 1);
+
+console.log('\n[4-2] 친구가 아니게 되거나 공유를 끄면 소식도 사라진다');
+reset();
+N.apply(snap('f1', 1), FR, '2026-09-20T10:00:00Z');
+N.apply(snap('f1', 2), FR, '2026-09-20T11:00:00Z');
+t('소식이 있다', N.list().length === 1);
+/* 친구가 일정 공유를 끕니다 — 스냅샷에 keptDays 가 안 실려 옵니다 */
+N.apply([{ id: 'f1', rows: [{ weekStart: WK, checkedIn: true }] }], FR, '2026-09-20T12:00:00Z');
+t('공유를 끄면 그 사람 소식이 사라진다', N.list().length === 0, N.list());
+/* 친구를 끊으면 목록에서 빠집니다 */
+reset();
+N.apply(snap('f1', 1), FR, '2026-09-20T10:00:00Z');
+N.apply(snap('f1', 2), FR, '2026-09-20T11:00:00Z');
+N.apply([], [], '2026-09-20T12:00:00Z');
+t('친구를 끊으면 소식도 사라진다', N.list().length === 0, N.list());
+
+console.log('\n[4-3] 오래된 소식은 버린다');
+reset();
+N.apply(snap('f1', 1), FR, '2026-08-01T10:00:00Z');
+N.apply(snap('f1', 2), FR, '2026-08-01T11:00:00Z');
+t('그 시점엔 남아 있다', N.list().length === 1);
+N.apply(snap('f1', 3), FR, '2026-09-20T10:00:00Z');
+t('세 주가 지나면 옛 소식은 없다',
+  N.list().every(function (x) { return x.at > '2026-09-01'; }), N.list());
 
 console.log('\n[5] 일정을 공유 안 하는 친구');
 reset();

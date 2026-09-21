@@ -35,7 +35,7 @@
     { key: 'smmTrend',     label: '골격근 변화',   kind: 'trend' },
     { key: 'bfmTrend',     label: '체지방 변화',   kind: 'trend' },
     { key: 'planProgress', label: '목표 달성률',   kind: 'progress' },
-    { key: 'streak',       label: '체크인 기록',   kind: 'streak' },
+    { key: 'streak',       label: '이번 주 기록 여부', kind: 'streak' },
     { key: 'schedule',     label: '이번 주 운동 일정', kind: 'schedule' },
     { key: 'absolute',     label: '실제 수치까지', kind: 'absolute' }
   ];

@@ -255,6 +255,13 @@
     var items = N.list(8);
     if (!items.length) return;          // 소식이 없으면 빈 카드를 두지 않습니다
 
+    /* 이름과 사진은 지금 친구 목록에서 찾습니다. 소식 줄에 박아 두면
+       친구가 이름을 바꾼 뒤에도 옛 이름이 남습니다. */
+    var who = {};
+    try {
+      B().listFriends().accepted.forEach(function (f) { who[f.id] = f; });
+    } catch (e) {}
+
     var card = h('div.card', { uid: 'P15-C25', uidLabel: '친구 소식' }, [
       h('div.card__title', { text: '친구 소식' })
     ]);
@@ -263,11 +270,12 @@
         uid: 'P15-L04#' + (i + 1), uidLabel: '소식 ' + (i + 1),
         style: { display: 'flex', alignItems: 'center', gap: '9px',
                  padding: '8px 0', borderBottom: '1px solid var(--border)' } }, [
-        UI.avatar({ id: it.friendId, displayName: it.name,
-                    avatar: avatarOf(it.friendId) }, 30),
+        UI.avatar({ id: it.friendId,
+                    displayName: (who[it.friendId] || {}).displayName || '친구',
+                    avatar: (who[it.friendId] || {}).avatar || null }, 30),
         h('div', { style: { flex: '1', minWidth: '0' } }, [
           h('div', { style: { fontSize: '13px', fontWeight: '700' },
-            text: it.name + '님이 운동했습니다' }),
+            text: ((who[it.friendId] || {}).displayName || '친구') + '님이 운동했습니다' }),
           h('div.muted', { text: '이번 주 ' + it.keptDays + '일째' +
             (it.plannedDays ? ' · 계획 ' + it.plannedDays + '일' : '') })
         ]),
@@ -281,15 +289,6 @@
             '폰 알림은 가지 않습니다 — 앱을 열 때 여기 쌓입니다.' }));
     wrap.appendChild(card);
     N.markRead();
-  }
-
-  /** 친구 목록에서 그 사람 사진 찾기 (소식 줄에 쓰려고) */
-  function avatarOf(id) {
-    try {
-      var f = B().listFriends().accepted;
-      for (var i = 0; i < f.length; i++) if (f[i].id === id) return f[i].avatar || null;
-    } catch (e) {}
-    return null;
   }
 
   function ago(iso) {
@@ -692,7 +691,7 @@
           h('div.chips', { style: { marginTop: '8px' } },
             B().SHARE_FIELDS.map(function (x) { return h('span.chip', { text: x.label }); })),
           h('div.muted', { style: { marginTop: '8px' },
-            text: '기본으로 켜진 것은 행동에 대한 둘(체크인 기록 · 이번 주 일정 숫자)뿐이고, ' +
+            text: '기본으로 켜진 것은 행동에 대한 둘(이번 주 기록 여부 · 이번 주 일정 숫자)뿐이고, ' +
                   '몸에 대한 항목은 친구마다 하나씩 직접 켭니다. 안 켠 항목은 상대 화면에 존재하지도 않습니다.' })
         ]));
         w.appendChild(h('div.note', { uid: 'P15-C02', uidLabel: '공유 원칙',

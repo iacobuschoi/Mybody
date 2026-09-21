@@ -256,6 +256,11 @@ async function main() {
     await ev(B, id => window.MB_BACKEND.setShare(id, { schedule: true }), rA.id);
     await ev(B, () => window.MB_SYNC.flush());
     await B.page.waitForTimeout(600);
+    /* 다시 켠 뒤 한 번 받아 둡니다. 공유가 꺼져 있던 동안은 아무것도
+       모르므로, 다시 켜지면 그 값이 새 기준선이 됩니다 — 껐다 켠 것을
+       "그 사이에 다섯 번 운동했습니다" 로 알리면 안 됩니다. */
+    await ev(A, () => window.MB_SYNC.pull());
+    await A.page.waitForTimeout(500);
   }
 
   /* --------------------------------------------------------------------

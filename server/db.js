@@ -666,7 +666,7 @@ function makeApi(db) {
     shareSummary(owner, viewer) {
       const s = this.shareFields(owner, viewer);
       const LABEL = { weightTrend: '체중 변화', smmTrend: '골격근 변화', bfmTrend: '체지방 변화',
-                      planProgress: '목표 달성률', streak: '체크인 기록',
+                      planProgress: '목표 달성률', streak: '이번 주 기록 여부',
                       schedule: '이번 주 운동 일정', absolute: '실제 수치까지' };
       const on = SHARE_FIELDS.filter(k => s[k]);
       return { count: on.length, labels: on.map(k => LABEL[k]), settings: s };
