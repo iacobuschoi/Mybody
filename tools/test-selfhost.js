@@ -1079,6 +1079,31 @@ function hostGet(port, p2, host) {
     ok('--cloudflare 로 일부러 바꿀 수 있다',
        /Cloudflare 임시 터널로 엽니다/.test(out2), out2.slice(0, 400));
 
+    /* tailscale 이 있는데 **로그인이 안 된** 경우. 주인이 실제로 여기서
+       막혔습니다 — 깔았고 주소까지 받았는데 launch 는 조용히 cloudflared
+       로 갔고, 왜 그런지 아무 데도 안 적혀 있었습니다. */
+    fs.writeFileSync(path.join(bin, 'tailscale'),
+      '#!/bin/sh\nif [ "$1" = "status" ]; then >&2 echo "Logged out."; exit 1; fi\n');
+    fs.chmodSync(path.join(bin, 'tailscale'), 0o755);
+    const child3 = spawn(process.execPath, [path.join(ROOT, 'tools', 'launch.js')], {
+      cwd: ROOT,
+      env: Object.assign({}, baseEnv(), {
+        HOME: home, USERPROFILE: home,
+        PATH: bin + path.delimiter + (process.env.PATH || '')
+      }),
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let out3 = '';
+    child3.stdout.on('data', d => { out3 += d; });
+    child3.stderr.on('data', d => { out3 += d; });
+    await wait(7000);
+    child3.kill('SIGTERM');
+    await wait(1200);
+    ok('로그인이 안 됐으면 cloudflared 로 가되 이유를 말한다',
+       /Cloudflare 임시 터널로 엽니다/.test(out3) && /안 쓴 이유/.test(out3),
+       out3.slice(0, 500));
+    ok('무엇을 해야 하는지까지 말한다', /로그인/.test(out3), out3.slice(0, 500));
+
     fs.rmSync(bin, { recursive: true, force: true });
     fs.rmSync(home, { recursive: true, force: true });
   }

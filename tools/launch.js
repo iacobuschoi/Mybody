@@ -81,32 +81,91 @@ function run(script, extra, env) {
  * 폰에서 그동안의 기록이 통째로 안 보이게 됩니다. 그래서 둘 다 있으면
  * **tailscale 을 씁니다.** 이건 취향이 아니라 데이터 문제입니다.
  * -------------------------------------------------------------------------- */
+/* 방금 깐 프로그램은 **이미 열려 있는 터미널의 PATH 에 없습니다.**
+ * 윈도우가 특히 그렇습니다 — winget 으로 깔고 바로 쳐도 "없다" 고 나옵니다.
+ * 주인이 실제로 여기서 막혔습니다: Tailscale 을 깔았고 100.x 주소까지
+ * 받았는데, launch 는 끝내 cloudflared 로 갔습니다.
+ *
+ * "터미널을 새로 여세요" 라고 말하는 것도 필요하지만, 그 전에 **기본
+ * 설치 자리를 직접 봐 주는 편**이 낫습니다. 사람에게 시킬 수 있는 일을
+ * 도구가 할 수 있으면 도구가 합니다. */
+/** Tailscale 을 왜 안 썼는지. cloudflared 로 갈 때 같이 찍습니다. */
+let tunnelNote = null;
+
+const WELL_KNOWN = {
+  tailscale: process.platform === 'win32'
+    ? [path.join(process.env['ProgramFiles'] || 'C:\\Program Files', 'Tailscale', 'tailscale.exe'),
+       path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Tailscale', 'tailscale.exe')]
+    : process.platform === 'darwin'
+      ? ['/Applications/Tailscale.app/Contents/MacOS/Tailscale',
+         '/opt/homebrew/bin/tailscale', '/usr/local/bin/tailscale']
+      : ['/usr/bin/tailscale', '/usr/local/bin/tailscale'],
+  cloudflared: process.platform === 'win32'
+    ? [path.join(process.env['ProgramFiles'] || 'C:\\Program Files', 'cloudflared', 'cloudflared.exe')]
+    : ['/opt/homebrew/bin/cloudflared', '/usr/local/bin/cloudflared', '/usr/bin/cloudflared']
+};
+
+/** 실행 파일을 찾습니다. PATH 에 없으면 기본 설치 자리도 봅니다. */
 function findBin(bin) {
   const which = process.platform === 'win32' ? 'where' : 'which';
   const r = spawnSync(which, [bin], { encoding: 'utf8' });
-  return r.status === 0 && (r.stdout || '').trim() ? bin : null;
+  if (r.status === 0 && (r.stdout || '').trim()) return bin;
+  for (const p of (WELL_KNOWN[bin] || [])) {
+    try { if (fs.existsSync(p)) return p; } catch (e) {}
+  }
+  return null;
 }
 
-/** tailscale 이 깔려 있고 **로그인까지 돼 있는가**. 깔려만 있으면 소용없습니다. */
-function tailscaleName() {
-  if (!findBin('tailscale')) return null;
-  const r = spawnSync('tailscale', ['status', '--json'], { encoding: 'utf8', timeout: 8000 });
-  if (r.status !== 0) return null;
+/** tailscale 이 왜 안 되는지까지 알려줍니다. { bin, name, why } */
+function tailscaleState() {
+  const bin = findBin('tailscale');
+  if (!bin) {
+    return { bin: null, name: null,
+      why: process.platform === 'win32'
+        ? 'Tailscale 이 안 깔려 있습니다 (winget install --id tailscale.tailscale). ' +
+          '방금 깔았다면 **PowerShell 창을 닫고 새로 여세요.**'
+        : 'Tailscale 이 안 깔려 있습니다.' };
+  }
+  const r = spawnSync(bin, ['status', '--json'], { encoding: 'utf8', timeout: 8000 });
+  if (r.status !== 0) {
+    const msg = ((r.stderr || '') + (r.stdout || '')).trim().split('\n')[0];
+    return { bin: bin, name: null,
+      why: /logged out|NeedsLogin|not running|Tailscale is stopped/i.test(msg)
+        ? 'Tailscale 에 로그인해야 합니다 — 트레이(또는 메뉴 막대)의 Tailscale 에서 로그인하세요.'
+        : 'Tailscale 이 대답하지 않습니다' + (msg ? ' (' + msg.slice(0, 80) + ')' : '') };
+  }
+  let dns = '';
   try {
     const j = JSON.parse(r.stdout || '{}');
-    const dns = (j.Self && j.Self.DNSName) || '';
-    return dns ? dns.replace(/\.$/, '') : null;   // 끝의 점을 뗍니다
-  } catch (e) { return null; }
+    dns = ((j.Self && j.Self.DNSName) || '').replace(/\.$/, '');
+    if (!dns) {
+      return { bin: bin, name: null,
+        why: 'Tailscale 은 도는데 이 기기 이름이 없습니다 — 로그인이 끝났는지 보세요.' };
+    }
+  } catch (e) {
+    return { bin: bin, name: null, why: 'Tailscale 상태를 읽지 못했습니다' };
+  }
+  return { bin: bin, name: dns, why: null };
 }
 
-/** 어떤 터널을 쓸 것인가. { kind, name } 또는 null */
+/** 어떤 터널을 쓸 것인가. { kind, name, bin } 또는 null */
 function findTunnel() {
   if (!has('cloudflare')) {
-    const name = tailscaleName();
-    if (name) return { kind: 'tailscale', name: name };
+    const ts = tailscaleState();
+    if (ts.name) return { kind: 'tailscale', name: ts.name, bin: ts.bin };
+    /* 왜 안 썼는지 말합니다. 조용히 cloudflared 로 넘어가면, 주인은
+       Tailscale 을 깔아 놓고도 계속 바뀌는 주소를 받으면서 이유를
+       모릅니다 — 실제로 그렇게 됐습니다. */
+    if (has('tailscale')) {
+      line('Tailscale 을 쓰려고 했는데 준비가 안 됐습니다:');
+      line('  ' + ts.why);
+      line('');
+      return null;
+    }
+    tunnelNote = ts.why;
   }
-  if (has('tailscale')) return null;           // 타일스케일을 시켰는데 준비가 안 됨
-  if (findBin('cloudflared')) return { kind: 'cloudflared', name: null };
+  const cf = findBin('cloudflared');
+  if (cf) return { kind: 'cloudflared', name: null, bin: cf };
   return null;
 }
 
@@ -194,9 +253,9 @@ function startTunnel(tunnel, port, onUrl) {
        안쪽 포트만 넘깁니다. --bg 를 안 붙이는 이유: 이 창을 닫으면
        터널도 같이 꺼져야 합니다. 붙이면 서버만 죽고 주소는 살아남아
        "열려 있는데 아무것도 없는 주소" 가 됩니다. */
-    ? spawn('tailscale', ['funnel', String(port)],
+    ? spawn(tunnel.bin || 'tailscale', ['funnel', String(port)],
             { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] })
-    : spawn('cloudflared',
+    : spawn(tunnel.bin || 'cloudflared',
             ['tunnel', '--no-autoupdate', '--url', 'http://localhost:' + port],
             { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
 
@@ -248,9 +307,12 @@ function main() {
   const tunnel = has('no-tunnel') ? null : findTunnel();
 
   if (tunnel) {
-    line(tunnel.kind === 'tailscale'
-      ? 'Tailscale 로 엽니다 — 주소가 안 바뀝니다.'
-      : 'Cloudflare 임시 터널로 엽니다 — 주소가 띄울 때마다 바뀝니다.');
+    if (tunnel.kind === 'tailscale') {
+      line('Tailscale 로 엽니다 — 주소가 안 바뀝니다.');
+    } else {
+      line('Cloudflare 임시 터널로 엽니다 — 주소가 띄울 때마다 바뀝니다.');
+      if (tunnelNote) line('  (Tailscale 을 안 쓴 이유: ' + tunnelNote + ')');
+    }
     line('');
   }
 
