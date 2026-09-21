@@ -73,7 +73,7 @@ Mybody 서버 실행 중
 | `BODY_TIMEOUT_MS` | `30000` | 본문을 다 받기까지 기다리는 시간. 넘으면 끊습니다 |
 | `PAIR_SECRET` | (없으면 시작 안 함) | 가입 코드. 이걸 아는 사람만 계정을 만들 수 있습니다 |
 | `ANTHROPIC_API_KEY` | (없음) | 결과지 자동 판독용 키. **없으면 자동 판독만 꺼집니다** — 앱은 그대로 돕니다 |
-| `OCR_MODEL` | `claude-opus-5` | 판독에 쓸 모델 |
+| `OCR_MODEL` | `claude-sonnet-5` | 판독에 쓸 모델. `tools/ocr-compare.js` 로 자기 결과지에 재 보고 정하세요 |
 | `OCR_PER_DAY` | `40` | **사람당** 하루 판독 횟수 |
 | `OCR_PER_DAY_TOTAL` | `OCR_PER_DAY × 5` | **서버 전체** 하루 판독 횟수. 가입 코드가 새면 계정을 늘려 사람당 한도를 피할 수 있어서, 청구서는 이걸로 막습니다 |
 | `OCR_API_URL` | 앤트로픽 API | 사내 프록시를 거쳐야 할 때만 바꾸세요 |

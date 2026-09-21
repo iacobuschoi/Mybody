@@ -103,7 +103,7 @@ const OPEN_SIGNUP = /^(1|true|yes)$/i.test((process.env.OPEN_SIGNUP || '').trim(
 /* 2층 판독. 키가 없으면 /api/ocr 은 503 을 돌려주고, 앱은 0층(직접
    입력)으로 조용히 남습니다 — 판독은 편의기능이지 바닥이 아닙니다. */
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
-const OCR_MODEL = process.env.OCR_MODEL || 'claude-opus-5';
+const OCR_MODEL = process.env.OCR_MODEL || 'claude-sonnet-5';
 const OCR_PER_DAY = Number(process.env.OCR_PER_DAY || 40);
 
 function pairOk(given) {
