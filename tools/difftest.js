@@ -125,6 +125,16 @@ function makeCases(n, seed) {
     if (rnd() > 0.15) profile.heightCm = base.heightCm;
     if (rnd() > 0.3) profile.sex = rnd() > 0.5 ? 'male' : 'female';
     if (rnd() > 0.9) profile.heightCm = 0;
+    /* 엔진은 나이와 활동량도 읽습니다. 일부러 자주 비웁니다 —
+       없는 값으로 산수하면 NaN 이 나오는데, 그 NaN 이 양쪽에서
+       **같은 자리**에 나와야 옮긴 것이 맞습니다. */
+    if (rnd() > 0.2) profile.age = Math.round(18 + rnd() * 50);
+    if (rnd() > 0.25) {
+      const ls = ['sedentary', 'light', 'moderate', 'active', 'veryActive'];
+      profile.activityLevel = ls[(rnd() * ls.length) | 0];
+    } else if (rnd() > 0.5) {
+      profile.activityLevel = 'nonsense';   // 모르는 값이면 moderate 로 떨어져야 합니다
+    }
 
     let prev = null;
     if (rnd() > 0.35) {
@@ -148,15 +158,40 @@ function makeCases(n, seed) {
   return out.slice(0, n);
 }
 
-/* --- JS 쪽 실행 ---------------------------------------------------------- */
-function runJs(module, cases) {
-  const g = { window: undefined };
-  const sandbox = {};
-  // crosscheck.js 는 MB_MODES 를 읽습니다 (없으면 기본값).
+/* --- JS 쪽 실행 ----------------------------------------------------------
+ *
+ * engine.js 는 브라우저용이라 `window` 를 기대합니다. 노드에는 없으므로
+ * 얹어 주고 나서 읽습니다 — 파일을 고치지 않는 쪽이 낫습니다. 검사하려고
+ * 원본을 건드리면 검사한 것과 실제로 도는 것이 달라집니다.
+ * -------------------------------------------------------------------------- */
+function loadJs(file) {
   global.MB_MODES = global.MB_MODES || { NOISE: { weight: 1.0, smm: 0.6, bfm: 1.0 } };
-  const mod = require(path.join(ROOT, 'prototype', 'js', module + '.js'));
+  if (typeof global.window === 'undefined') global.window = global;
+  require(path.join(ROOT, 'prototype', 'js', file + '.js'));
+  return file === 'crosscheck' ? global.MB_CHECK : global.MB_ENGINE;
+}
+
+/** 모듈 이름 → JS 쪽에서 실제로 부를 함수 */
+function jsCaller(module) {
+  if (module === 'crosscheck') {
+    const m = loadJs('crosscheck');
+    return c => m.run(c.scan, c.profile, c.prev);
+  }
+  if (module === 'engine.validateScan') {
+    const m = loadJs('engine');
+    return c => m.validateScan(c.scan, c.prev);
+  }
+  if (module === 'engine.derive') {
+    const m = loadJs('engine');
+    return c => m.derive(c.scan, c.profile);
+  }
+  throw new Error('모르는 모듈: ' + module);
+}
+
+function runJs(module, cases) {
+  const call = jsCaller(module);
   return cases.map(c => {
-    try { return { ok: true, v: mod.run(c.scan, c.profile, c.prev) }; }
+    try { return { ok: true, v: JSON.parse(JSON.stringify(call(c) ?? null)) }; }
     catch (e) { return { ok: false, v: String(e && e.message || e) }; }
   });
 }
@@ -214,16 +249,28 @@ if (!fs.existsSync(DART)) {
   process.exit(0);
 }
 
-const MODULES = ['crosscheck'];
+const MODULES = ['crosscheck', 'engine.validateScan', 'engine.derive'];
 let failed = 0;
 
 for (const m of MODULES) {
   if (ONLY && ONLY !== m) continue;
   process.stdout.write('\n' + m + ' — 사례 ' + N + '개 (씨앗 ' + SEED + ')\n');
 
-  const cases = makeCases(N, SEED);
+  const made = makeCases(N, SEED);
   const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mybody-diff-')), 'cases.json');
-  fs.writeFileSync(tmp, JSON.stringify(cases));
+  fs.writeFileSync(tmp, JSON.stringify(made));
+
+  /* **파일에서 다시 읽어서 JS 에 넣습니다.**
+   *
+   * 안 그러면 양쪽이 다른 입력을 받습니다. JSON.stringify 는 NaN 을
+   * null 로 바꿔 쓰는데, 메모리의 배열에는 NaN 이 그대로 있습니다.
+   * 그래서 JS 는 NaN 을, Dart 는 null 을 받고 — 자바스크립트에서 그 둘은
+   * 산수 결과가 다릅니다(NaN*2=NaN, null*2=0). 옮긴 코드가 멀쩡한데도
+   * 갈렸다고 나왔습니다. 한동안 진짜 차이인 줄 알고 들여다봤습니다.
+   *
+   * 검사가 비교하는 것은 **같은 입력에 대한 두 답**이어야 합니다.
+   * 입력이 다르면 무엇을 비교하고 있는지 알 수가 없습니다. */
+  const cases = JSON.parse(fs.readFileSync(tmp, 'utf8'));
 
   const js = runJs(m, cases);
   const dr = runDart(m, tmp);
