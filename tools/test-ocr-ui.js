@@ -53,16 +53,34 @@ const SHEET = {
   measuredAt: '2026-09-19T11:09:00+09:00', notInBody: false
 };
 let sawRequest = null;
+/* 가짜 모델의 대답을 시험이 바꿔 가며 씁니다.
+     'ok'        평소대로 읽어 줍니다
+     'slow'      3초 뒤에 대답합니다 (취소를 눌러 볼 틈)
+     'notInBody' 인바디 결과지가 아니라고 합니다
+     'busy'      429 — 서버가 "판독 서비스가 바쁩니다" 로 옮겨 줍니다 */
+let fakeMode = 'ok';
+let fakeReplies = 0;
 const fake = http.createServer((req, res) => {
   let body = '';
   req.on('data', c => { body += c; });
   req.on('end', () => {
     try { sawRequest = JSON.parse(body); } catch { sawRequest = null; }
-    res.writeHead(200, { 'content-type': 'application/json' });
-    res.end(JSON.stringify({
-      content: [{ type: 'tool_use', name: 'record_sheet', input: SHEET }],
-      usage: { input_tokens: 1200, output_tokens: 80 }
-    }));
+    const reply = () => {
+      fakeReplies++;
+      if (fakeMode === 'busy') {
+        res.writeHead(429, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ error: { type: 'rate_limit_error' } }));
+      }
+      const input = fakeMode === 'notInBody'
+        ? { notInBody: true }
+        : SHEET;
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        content: [{ type: 'tool_use', name: 'record_sheet', input: input }],
+        usage: { input_tokens: 1200, output_tokens: 80 }
+      }));
+    };
+    if (fakeMode === 'slow') setTimeout(reply, 3000); else reply();
   });
 });
 
@@ -223,6 +241,101 @@ async function main() {
   ok('체지방량이 채워져 있다', String(after.b).indexOf('20') === 0, after.b);
   ok('검산 결과를 같이 보여 준다', /검산|검산됨|미검산/.test(after.txt), after.txt.slice(0, 160));
 
+  /* --- 4-2. 취소가 진짜로 멈추는가 --------------------------------------- */
+  console.log('\n[4-2] "판독을 취소했습니다" 가 진짜로 멈추는가');
+  {
+    /* ocr() 이 취소 함수를 안 돌려주고 있었습니다 — 거절 분기 셋은
+       돌려주는데 정작 업로드를 시작하는 경로에만 return 이 없었습니다.
+       그래서 화면의 cancelOcr 은 언제나 undefined 였고, 취소를 눌러도
+       결과지 사진은 그대로 외부 판독 서비스로 올라갔습니다. 화면은
+       "판독을 취소했습니다" 라고 말하면서요.
+
+       눈으로는 절대 못 봅니다 — 화면은 멀쩡하게 되돌아가니까요. */
+    fakeMode = 'slow';
+    await go('P02'); await go('P03');
+    await page.setInputFiles('[data-uid="P03-F01"]', {
+      name: 'inbody.jpg', mimeType: 'image/jpeg', buffer: JPEG_1PX
+    });
+    await page.waitForTimeout(900);
+    await page.click('[data-uid="P03-B13"]');
+    await page.waitForTimeout(500);
+    ok('취소 버튼이 보인다', await seen('P03-B05'));
+
+    /* 여기가 이 절의 핵심입니다.
+       "화면이 안 바뀐다" 만 보면 안 됩니다 — 그건 취소가 가짜여도
+       통과합니다(콜백이 mode 를 보고 그냥 돌아가니까요). 실제로
+       **요청이 끊겼는가** 를 봐야 합니다. 브라우저는 abort 된 요청을
+       requestfailed 로 알려 줍니다. */
+    const failed = [];
+    const onFail = req => {
+      if (req.url().indexOf('/api/ocr') >= 0) {
+        failed.push(String((req.failure() || {}).errorText || 'failed'));
+      }
+    };
+    page.on('requestfailed', onFail);
+
+    await page.click('[data-uid="P03-B05"]');
+    await page.waitForTimeout(400);
+    const st = await page.evaluate(() => ({
+      screen: window.MB_APP.current,
+      txt: (document.getElementById('main').innerText || '').slice(0, 300)
+    }));
+    ok('판독 화면에서 빠져나온다', st.screen === 'P03', st.screen);
+    ok('업로드가 실제로 끊긴다 (결과만 무시하는 게 아니라)',
+       failed.length > 0, failed);
+
+    /* 느린 대답이 도착할 시간을 넉넉히 줍니다. 취소가 진짜였다면
+       그 대답은 화면에 아무 영향을 못 줍니다. */
+    await page.waitForTimeout(3500);
+    const later = await page.evaluate(() => ({
+      screen: window.MB_APP.current,
+      w: (document.querySelector('[data-uid="P04-F01"]') || {}).value || null
+    }));
+    ok('뒤늦게 도착한 결과가 화면을 바꾸지 않는다',
+       later.screen === 'P03' && later.w == null, later);
+    page.off('requestfailed', onFail);
+  }
+
+  /* --- 4-3. 결과지가 아닐 때 --------------------------------------------- */
+  console.log('\n[4-3] 결과지가 아니면 그렇다고 말한다');
+  {
+    /* 서버는 "인바디 결과지로 보이지 않습니다" 를 200 으로 정확히
+       구분해 보내는데, sync.js 가 fields 만 꺼내 버려서 화면에는
+       "핵심 세 칸을 읽지 못했습니다" 가 떴습니다. 영수증을 찍은
+       사람은 그 말을 듣고 같은 사진을 다시 찍습니다. */
+    fakeMode = 'notInBody';
+    await go('P02'); await go('P03');
+    await page.setInputFiles('[data-uid="P03-F01"]', {
+      name: 'receipt.jpg', mimeType: 'image/jpeg', buffer: JPEG_1PX
+    });
+    await page.waitForTimeout(900);
+    await page.click('[data-uid="P03-B13"]');
+    await page.waitForTimeout(2000);
+    const toast = await page.evaluate(() =>
+      [...document.querySelectorAll('.toast, .uid-toast, [class*="toast"]')]
+        .map(e => e.textContent).join(' | '));
+    ok('결과지가 아니라고 말한다', /결과지로 보이지 않습니다/.test(toast), toast.slice(0, 200));
+    ok('"세 칸을 읽지 못했습니다" 라고 안 한다', !/세 칸/.test(toast), toast.slice(0, 200));
+  }
+
+  /* --- 4-4. 서버가 말한 이유를 그대로 전한다 ------------------------------ */
+  console.log('\n[4-4] 실패 이유를 뭉개지 않는다');
+  {
+    fakeMode = 'busy';
+    await go('P02'); await go('P03');
+    await page.setInputFiles('[data-uid="P03-F01"]', {
+      name: 'inbody.jpg', mimeType: 'image/jpeg', buffer: JPEG_1PX
+    });
+    await page.waitForTimeout(900);
+    await page.click('[data-uid="P03-B13"]');
+    await page.waitForTimeout(2000);
+    const toast = await page.evaluate(() =>
+      [...document.querySelectorAll('.toast, .uid-toast, [class*="toast"]')]
+        .map(e => e.textContent).join(' | '));
+    ok('서버가 말한 이유가 그대로 보인다', /바쁩니다/.test(toast), toast.slice(0, 200));
+    fakeMode = 'ok';
+  }
+
   /* --- 5. 끄면 정말 안 나가는가 ------------------------------------------ */
   console.log('\n[5] 끄면 그 뒤로 한 장도 안 나간다');
   sawRequest = null;
@@ -237,7 +350,7 @@ async function main() {
      콘솔 오류로 찍습니다 — 예상한 것은 빼고 셉니다. */
   /* 일부러 닿지 않는 주소와 CORS 를 안 여는 남의 서버를 물어봤습니다
      (위 [1-2]·[1-3]). 브라우저는 그것도 콘솔 오류로 찍습니다. */
-  const EXPECTED = /status of (400|401|429)|ERR_CONNECTION_REFUSED|ERR_UNSAFE_PORT|Failed to load resource|blocked by CORS policy/;
+  const EXPECTED = /status of (400|401|429)|ERR_CONNECTION_REFUSED|ERR_UNSAFE_PORT|Failed to load resource|blocked by CORS policy|ERR_ABORTED|net::ERR_ABORTED/;
   const real = [...new Set(errs)].filter(e => !EXPECTED.test(e));
   ok('예상 못 한 오류 0건', real.length === 0, real.slice(0, 3));
 

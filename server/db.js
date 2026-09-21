@@ -293,9 +293,10 @@ function inviteCode() {
 function pair(a, b) { return a < b ? [a, b] : [b, a]; }
 function blankShare() {
   // 친구가 되어도 몸에 대한 정보는 기본으로 아무것도 안 나갑니다.
-  // 행동에 대한 것 둘만 켜 둡니다 — 체크인 여부와 이번 주 일정 두 숫자.
+  // 행동에 대한 것 둘만 켜 둡니다 — 체크인 여부와 이번 주 일정 숫자 네 개.
   //
-  // 일정이 기본 켜짐인 이유: 나가는 것이 "계획 4일 · 지킴 2일" 두 숫자뿐이고,
+  // 일정이 기본 켜짐인 이유: 나가는 것이 주 단위 숫자 네 개(하기로 한 날 ·
+  // 지킨 날 · 지나갔는데 체크가 없는 날 · 아직 남은 날)뿐이고,
   // 무슨 요일에 무슨 운동을 했는지는 안 나갑니다. 몸이 아니라 본인이 적은
   // 행동이고, 같이 운동하자고 친구를 맺은 사이에서 이 둘이 안 보이면
   // 친구 기능이 아무것도 아닌 것이 됩니다. 한 번 눌러 끌 수 있습니다.
@@ -589,9 +590,15 @@ function makeApi(db) {
       if (!e || e.status !== 'pending') return { ok: false, reason: '받은 요청이 없습니다' };
       if (e.requested_by === me) return { ok: false, reason: '내가 보낸 요청은 내가 수락할 수 없습니다' };
       q.setEdgeStatus.run('accepted', nowISO(), x, y);
-      const t = nowISO();
-      q.upsertShare.run(me, otherId, JSON.stringify(blankShare()), t);
-      q.upsertShare.run(otherId, me, JSON.stringify(blankShare()), t);
+      /* updated_at 을 **빈 문자열**로 둡니다 — "기본값 그대로, 아직 아무도
+         고른 적 없음" 이라는 뜻입니다.
+         여기에 수락 시각을 넣으면 "한 번도 안 고른 것" 과 "고른 것" 이
+         구분되지 않고, 앱은 그 구분으로 "친구가 되었습니다 — 지금 보이는
+         것은 둘입니다" 안내를 띄울지 정합니다. 시각을 넣어 두면 그 안내가
+         아무에게도 안 뜨거나(서버 기준) 누구에게나 다시 뜹니다(거울 기준).
+         빈 문자열을 쓰는 이유는 컬럼이 NOT NULL 이기 때문입니다. */
+      q.upsertShare.run(me, otherId, JSON.stringify(blankShare()), '');
+      q.upsertShare.run(otherId, me, JSON.stringify(blankShare()), '');
       return { ok: true, status: 'accepted' };
     },
     decline(me, otherId) {
@@ -684,6 +691,13 @@ function makeApi(db) {
     },
     shareSummary(owner, viewer) {
       const s = this.shareFields(owner, viewer);
+      /* 언제 정했는가도 같이 보냅니다.
+         이게 빠져 있어서 pull() 한 번마다 모든 친구의 updatedAt 이
+         null 로 돌아갔고, 이미 전부 꺼 둔 사람에게 "친구가 되었습니다"
+         안내가 계속 다시 떴습니다 — 끄기를 누른 직후 flush→pull 로
+         곧바로요. 서버가 아는 값을 안 보내서 생긴 일입니다. */
+      const r = q.getShare.get(owner, viewer);
+      s.updatedAt = (r && r.updated_at) || null;
       const LABEL = { weightTrend: '체중 변화', smmTrend: '골격근 변화', bfmTrend: '체지방 변화',
                       planProgress: '목표 달성률', streak: '이번 주 기록 여부',
                       schedule: '이번 주 운동 일정', absolute: '실제 수치까지' };
@@ -826,7 +840,8 @@ function makeApi(db) {
         if (s.bfmTrend && p.dBfmKg != null) o.dBfmKg = p.dBfmKg;
         if (s.planProgress && p.progressPct != null) o.progressPct = p.progressPct;
         if (s.streak && p.checkedIn != null) o.checkedIn = p.checkedIn;
-        /* 일정은 숫자 두 개만 나갑니다 — 며칠 하기로 했고 며칠 지켰는가.
+        /* 일정은 주 단위 숫자 네 개만 나갑니다 — 며칠 하기로 했고,
+           며칠 지켰고, 지나간 날 중 몇 날이 체크가 없고, 며칠이 남았는가.
            무슨 요일에 무슨 운동을 했는지는 여기에 없습니다. 요일까지
            나가면 친구가 남의 한 주를 재구성할 수 있고, 그건 "확인"이
            아니라 일과 감시입니다. */

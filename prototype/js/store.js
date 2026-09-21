@@ -443,9 +443,21 @@
   /* 영원히 "아직 공유한 게 없습니다" 였다. 공유 토글의 반대편이 없었다.  */
   /* ------------------------------------------------------------------ */
 
-  /** 그 날짜가 속한 주의 월요일 (ISO 문자열) */
+  /** 그 날짜가 속한 주의 월요일 (ISO 문자열)
+   *
+   * 'YYYY-MM-DD' 를 그대로 new Date() 에 넣으면 **UTC 자정**으로 읽힙니다.
+   * 한국(UTC+9)에서는 같은 날이지만 미국 서부(UTC-7)에서는 전날이 되고,
+   * 그 전날이 일요일이면 한 주가 통째로 밀립니다. dayKey() 가 같은
+   * 이유로 이미 한 번 틀렸던 자리입니다 — 여기도 같은 가드를 둡니다.
+   */
   function weekStartOf(date) {
-    var d = date ? new Date(date) : new Date();
+    var d;
+    if (typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      var yy = date.split('-');
+      d = new Date(Number(yy[0]), Number(yy[1]) - 1, Number(yy[2]));
+    } else {
+      d = date ? new Date(date) : new Date();
+    }
     d.setHours(0, 0, 0, 0);
     var dow = (d.getDay() + 6) % 7;          // 월=0
     d.setDate(d.getDate() - dow);

@@ -511,7 +511,7 @@
            보낸 사진과 지금 사진이 같을 때만 받습니다. */
         var forShot = shot.id;
 
-        cancelOcr = global.MB_SYNC.ocr(shot.dataUrl, function (err, fields) {
+        cancelOcr = global.MB_SYNC.ocr(shot.dataUrl, function (err, fields, res) {
           cancelOcr = null;
           clearTimers();
           if (A.current !== 'P03' || !body.isConnected) return;
@@ -520,9 +520,22 @@
 
           if (err) {
             mode = 'shot'; draw();
-            global.MB_UID.toast(err.notInBody
-              ? '인바디 결과지로 보이지 않습니다 — 직접 넣으시면 됩니다'
-              : '자동 판독에 실패했습니다 — 직접 넣으시면 됩니다');
+            /* 서버는 이유를 정확히 말해 줍니다 — "오늘 판독 한도를 다
+               썼습니다", "이 서버에는 판독 키가 설정되지 않았습니다".
+               그걸 "자동 판독에 실패했습니다" 한 문장으로 뭉개면, 한도를
+               넘긴 사람은 같은 버튼을 계속 누르고 키가 없는 서버에서는
+               영영 이유를 모릅니다. api() 가 e.message 에 서버 문장을
+               그대로 담아 줍니다. */
+            global.MB_UID.toast((err.message || '자동 판독에 실패했습니다') +
+                                ' — 직접 넣으시면 됩니다');
+            return;
+          }
+          /* 결과지가 아니라고 서버가 판단한 경우. 이건 오류가 아니라
+             200 으로 옵니다(fields 가 빈 채로). 예전에는 err.notInBody 를
+             봤는데 오류 경로로는 절대 안 와서 닿을 수 없는 분기였습니다. */
+          if (res && res.notInBody) {
+            mode = 'shot'; draw();
+            global.MB_UID.toast('인바디 결과지로 보이지 않습니다 — 직접 넣으시면 됩니다');
             return;
           }
           var read = 0;

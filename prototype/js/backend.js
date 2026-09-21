@@ -42,7 +42,8 @@
 
   function blankShare() {
     // 몸에 대한 것은 전부 꺼짐이 기본. 행동에 대한 것 둘만 켜 둔다 —
-    // 체크인 여부와 이번 주 일정("계획 4일 · 지킴 2일" 두 숫자).
+    // 체크인 여부와 이번 주 일정(하기로 한 날 · 지킨 날 · 빼먹은 날 ·
+    // 남은 날, 숫자 네 개).
     // 서버의 blankShare() 와 같아야 한다. 어긋나면 오프라인에서 켜 둔
     // 것이 로그인 순간 꺼지거나, 그 반대가 된다.
     return { weightTrend: false, smmTrend: false, bfmTrend: false,
@@ -413,8 +414,13 @@
           if (s.bfmTrend && p.dBfmKg != null) out.dBfmKg = p.dBfmKg;
           if (s.planProgress && p.progressPct != null) out.progressPct = p.progressPct;
           if (s.streak && p.checkedIn != null) out.checkedIn = p.checkedIn;
-          /* 일정은 숫자 두 개만 — 며칠 하기로 했고 며칠 지켰는가.
-             요일과 종목은 안 나갑니다 (server/db.js 와 같은 규칙). */
+          /* 일정은 숫자 네 개 — 며칠 하기로 했고, 며칠 지켰고, 지나간
+             날 중 몇 날이 체크가 없고, 며칠이 남았는가. 요일과 종목은
+             안 나갑니다 (server/db.js 와 같은 규칙).
+
+             뒤의 둘을 빼면 "아직 안 한 것" 과 "못 한 것" 이 구분되지
+             않아, 주 초에 남의 한 주를 실패로 읽게 됩니다. 대신 이건
+             앞의 둘보다 많이 말하는 것이므로 문구도 넷이라고 적습니다. */
           if (s.schedule && p.plannedDays != null) {
             out.plannedDays = p.plannedDays;
             out.keptDays = p.keptDays;

@@ -507,7 +507,8 @@
 
   /**
    * @param {string} dataUrl  photo.js 가 줄여 놓은 JPEG 데이터 URL
-   * @param {function(err, fields)} cb
+   * @param {function(err, fields, res)} cb  res 는 서버 응답 전체
+   *        (notInBody 같은 이유가 여기 들어 있습니다)
    */
   /**
    * @returns {function} 취소 함수. 부르면 업로드를 실제로 멈춥니다.
@@ -533,11 +534,35 @@
     api('/ocr', { method: 'POST', signal: ctrl ? ctrl.signal : undefined, body: {
       mediaType: mime, data: dataUrl.slice(comma + 1)
     } }).then(function (r) {
-      cb(null, (r && r.fields) || {});
+      if (cancelled) return;
+      /* 응답 전체를 세 번째 인자로 같이 넘깁니다.
+         fields 만 꺼내면 서버가 애써 구분해 준 "인바디 결과지로 보이지
+         않습니다"(notInBody) 가 사라지고, 영수증을 찍은 사람이 "핵심 세
+         칸을 읽지 못했습니다" 를 받아 같은 사진을 다시 찍게 됩니다. */
+      cb(null, (r && r.fields) || {}, r || {});
     }).catch(function (e) {
+      /* 취소해서 난 오류는 오류가 아닙니다. 여기서 안 걸러 내면
+         "판독을 취소했습니다" 바로 뒤에 "판독에 실패했습니다" 가
+         같이 뜹니다 — 사용자가 시킨 일을 실패라고 부르는 셈입니다. */
+      if (cancelled) return;
       lastError = e.message; emit();
       cb(e);
     });
+
+    /* 이 return 이 없었습니다.
+     *
+     * 거절 분기 셋은 전부 함수를 돌려주는데 정작 **업로드를 시작하는
+     * 경로에만** return 이 없어서, 화면이 받아 둔 cancelOcr 은 언제나
+     * undefined 였습니다. 취소 · 사진 바꾸기 · 사진 빼기 세 군데의
+     * if (cancelOcr) 가 전부 빈 분기였고, 화면은 "판독을 취소했습니다"
+     * 라고 말하면서 결과지 사진은 그대로 외부 판독 서비스로 올라가고
+     * 서버의 하루 한도까지 깎았습니다. 바로 위 JSDoc 이 "부르면
+     * 업로드를 실제로 멈춥니다" 라고 계약을 적어 둔 채로요. */
+    return function cancel() {
+      if (cancelled) return;
+      cancelled = true;
+      try { if (ctrl) ctrl.abort(); } catch (e) {}
+    };
   }
 
   global.MB_SYNC = {

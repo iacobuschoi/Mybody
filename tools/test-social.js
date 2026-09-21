@@ -305,6 +305,46 @@ async function main() {
        마이그레이션이 처리하고, 그건 아래 db 단위 시험이 봅니다. */
   }
 
+  console.log('\n[6-1-2] "아직 안 골랐다" 와 "골랐다" 를 서버가 구분해서 보내는가');
+  /* 친구 탭의 "OO님과 친구가 되었습니다 — 지금 보이는 것은 …" 안내는
+     **한 번도 안 고른 관계**에만 떠야 합니다. 그 판단을 앱은
+     iShare.settings.updatedAt 로 합니다.
+
+     서버가 그 값을 안 실어 보내고 있었습니다. 그래서 pull() 한 번마다
+     모든 친구의 updatedAt 이 null 로 돌아갔고, 이미 전부 꺼 둔 사람에게
+     그 안내가 계속 다시 떴습니다 — 끄기를 누른 직후 flush→pull 로
+     곧바로요. 화면 입장에서는 "껐는데 안 껐다고 한다" 로 보입니다. */
+  {
+    const U1 = await call('POST', '/auth/signup', { handle: 'chose1', displayName: '고른이' });
+    const U2 = await call('POST', '/auth/signup', { handle: 'chose2', displayName: '안고른이' });
+    const t1 = U1.json.token, t2 = U2.json.token;
+    await call('POST', '/friends/request', { inviteCode: U2.json.user.inviteCode }, t1);
+    await call('POST', '/friends/accept', { userId: U1.json.user.id }, t2);
+
+    const mine = async (tok) => (await call('GET', '/friends', null, tok)).json.friends.accepted[0];
+    const a1 = await mine(t1);
+    ok('수락 직후에는 "아직 안 골랐다" 로 온다',
+       a1 && a1.iShare && a1.iShare.settings.updatedAt == null, a1 && a1.iShare);
+
+    await call('PUT', '/share/' + U2.json.user.id, { streak: false }, t1);
+    const a2 = await mine(t1);
+    ok('한 번 고르면 시각이 실려 온다',
+       !!(a2 && a2.iShare && a2.iShare.settings.updatedAt), a2 && a2.iShare);
+    ok('그 시각이 실제 날짜다',
+       Number.isFinite(Date.parse(a2.iShare.settings.updatedAt)), a2.iShare.settings.updatedAt);
+
+    /* 상대가 고른 것은 내 쪽 updatedAt 을 건드리면 안 됩니다 —
+       안내는 "내가 무엇을 보내는가" 에 대한 것입니다. */
+    const b1 = await mine(t2);
+    ok('상대가 골라도 내 쪽은 아직 안 고른 상태',
+       b1 && b1.iShare && b1.iShare.settings.updatedAt == null, b1 && b1.iShare);
+
+    /* 공유 항목 자체는 그대로여야 합니다 — updatedAt 이 끼어들어
+       "켜진 항목" 으로 세어지면 안 됩니다. */
+    ok('updatedAt 이 공유 항목 수에 안 섞인다',
+       a2.iShare.count === 1 && a2.iShare.labels.length === 1, a2.iShare);
+  }
+
   console.log('\n[6-2] 프로필 사진');
   /* 1×1 JPEG. 실제 사진을 만들 필요는 없습니다 — 서버는 형식과 크기만 봅니다. */
   const JPG = 'data:image/jpeg;base64,' + 'A'.repeat(64) + '==';

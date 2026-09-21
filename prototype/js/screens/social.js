@@ -5,6 +5,45 @@
   var h = UI.h;
   function B() { return global.MB_BACKEND; }
 
+  /* --- 남의 주(week)를 몇 주 전이라고 부를 것인가 --------------------------
+   *
+   * 스냅샷은 친구가 **자기 앱에서 저장할 때만** 올라갑니다. 그래서 새 주가
+   * 시작되고 친구가 아직 앱을 안 열었으면 그 주의 행이 아예 없고, rows[0]
+   * 은 지난주가 됩니다. 월요일 아침의 기본 상태입니다.
+   *
+   * 그걸 "이번 주" 라고 부르면 남의 지난주 성적을 이번 주라고 말하는
+   * 것이 됩니다. 같은 화면이 위에서는 "마지막 소식 · 1주 전" 이라고
+   * 적으면서 바로 아래 카드는 같은 행을 "이번 주 일정" 이라 부르고
+   * 있었습니다 — 화면이 자기 자신과 어긋나 있었습니다.
+   *
+   * 그래서 행의 weekStart 를 지금 주와 견줘서 이름을 붙입니다.
+   * ---------------------------------------------------------------------- */
+
+  /** 두 주 시작일 사이가 몇 주인가. 모르면 null.
+   *  일수 반올림이 아니라 주 시작일끼리 빼서 셉니다 — 그래야
+   *  "6일 23시간" 이 0주로, "7일 1분" 이 1주로 정확히 갈립니다. */
+  function weeksAgo(weekStart) {
+    if (!weekStart) return null;
+    var a = S.weekStartOf(weekStart), b = S.weekStartOf();
+    if (!a || !b) return null;
+    var pa = a.split('-'), pb = b.split('-');
+    var ta = Date.UTC(+pa[0], +pa[1] - 1, +pa[2]);
+    var tb = Date.UTC(+pb[0], +pb[1] - 1, +pb[2]);
+    return Math.round((tb - ta) / (7 * 86400000));
+  }
+
+  /** '이번 주' · '지난주' · 'N주 전'. 모르면 빈 문자열(붙이지 않습니다). */
+  function weekLabel(weekStart) {
+    var n = weeksAgo(weekStart);
+    if (n == null) return '';
+    if (n <= 0) return '이번 주';
+    if (n === 1) return '지난주';
+    return n + '주 전';
+  }
+
+  /** 이 행이 지금 주의 것인가 */
+  function isThisWeek(row) { return !!row && weeksAgo(row.weekStart) === 0; }
+
   /* ===================== P14 계정 ===================== */
   A.register('P14', {
     title: '계정', label: '계정',
@@ -341,7 +380,9 @@
         h('div', { style: { flex: '1', minWidth: '0' } }, [
           h('div', { style: { fontSize: '13px', fontWeight: '700' },
             text: ((who[it.friendId] || {}).displayName || '친구') + '님이 운동했습니다' }),
-          h('div.muted', { text: '이번 주 ' + it.keptDays + '일째' +
+          /* 소식은 21일까지 남습니다. 그 줄에 "이번 주" 를 붙이면
+             3주 전 운동이 방금 일어난 것처럼 읽힙니다. */
+          h('div.muted', { text: (weekLabel(it.weekStart) || '그 주') + ' ' + it.keptDays + '일째' +
             (it.plannedDays ? ' · 계획 ' + it.plannedDays + '일' : '') })
         ]),
         h('div.muted', { style: { flex: 'none' }, text: ago(it.at) })
@@ -483,10 +524,30 @@
         var n = i + 1;
         wrap.appendChild(h('div.card.card--accent', { uid: 'P15-C21#' + n, uidLabel: '새 친구 안내 ' + n }, [
           h('div.card__title', { text: r.displayName + '님과 친구가 되었습니다' }),
+          /* 본문을 고정 문구로 두면 언젠가 기본값과 어긋납니다 —
+             실제로 켜져 있는 것을 읽어서 씁니다. 이 카드가 뜨는 조건이
+             "아직 아무것도 안 골랐다" 라서 지금은 기본값과 같지만,
+             기본값이 바뀌는 날 이 문장만 옛말을 하고 있게 둘 수는 없습니다. */
           h('div.muted', { style: { marginTop: '6px' },
-            text: '지금 ' + r.displayName + '님 화면에 보이는 것은 둘입니다 — ' +
-                  '이번 주에 기록을 했는지 여부, 그리고 "계획 O일 · 지킴 O일" 두 숫자. ' +
-                  '몸에 대한 숫자는 켜기 전까지 안 보입니다.' }),
+            text: (function () {
+              /* 라벨 문자열로 분류하지 않습니다 — 라벨은 문구라서 바뀝니다.
+                 kind 로 나눕니다: streak · schedule 이 행동, 나머지가 몸. */
+              var set = r.iShare.settings || {};
+              var onF = B().SHARE_FIELDS.filter(function (x) { return set[x.key] === true; });
+              if (!onF.length) {
+                return '지금 ' + r.displayName + '님 화면에 보이는 것은 없습니다. ' +
+                       '보여주고 싶은 것이 있으면 직접 켜세요.';
+              }
+              var bodyF = onF.filter(function (x) {
+                return x.kind !== 'streak' && x.kind !== 'schedule';
+              });
+              return '지금 ' + r.displayName + '님 화면에 보이는 것은 ' +
+                     onF.map(function (x) { return x.label; }).join(' · ') + ' 입니다. ' +
+                     (bodyF.length
+                       ? '몸에 대한 숫자(' + bodyF.map(function (x) { return x.label; }).join(' · ') +
+                         ')가 켜져 있습니다.'
+                       : '몸에 대한 숫자는 켜기 전까지 안 보입니다.');
+            })() }),
           // 세 버튼은 같은 크기·같은 무게입니다. 아무것도 안 켜는 것이
           // 손해가 아니라는 걸 버튼 생김새로 말합니다.
           h('div.btn-row.btn-row--stack', { style: { marginTop: '12px' } }, [
@@ -528,7 +589,9 @@
         });
         // 수락 전에 무엇이 기본으로 나가는지 말하는 자리가 지금까지 없었습니다.
         inc.appendChild(h('div.muted', { style: { marginTop: '8px' },
-          text: '수락하면 이번 주에 기록을 했는지 여부만 나갑니다. 몸에 대한 숫자는 직접 켜야 나갑니다.' }));
+          text: '수락하면 행동에 대한 둘이 기본으로 나갑니다 — 이번 주에 기록을 했는지, ' +
+                '그리고 이번 주 일정의 숫자 네 개(하기로 한 날 · 지킨 날 · 지나갔는데 ' +
+                '체크가 없는 날 · 아직 남은 날). 몸에 대한 숫자는 직접 켜야 나갑니다.' }));
         wrap.appendChild(inc);
       }
 
@@ -609,7 +672,8 @@
       /* --- C02 공유 원칙 --- */
       wrap.appendChild(h('div.note', { uid: 'P15-C02', uidLabel: '공유 원칙',
         text: '친구를 맺으면 행동에 대한 둘만 기본으로 나갑니다 — 이번 주에 기록을 했는지, ' +
-              '그리고 계획한 날과 지킨 날의 개수. 체중·골격근·체지방·달성률은 친구마다 직접 켜야 나갑니다.' }));
+              '그리고 이번 주 일정의 숫자 네 개(하기로 한 날 · 지킨 날 · 지나갔는데 체크가 없는 날 · ' +
+              '아직 남은 날). 체중·골격근·체지방·달성률은 친구마다 직접 켜야 나갑니다.' }));
 
       /* ---------------- 조각 ---------------- */
 
@@ -676,7 +740,11 @@
            읽힙니다. 안 켠 것과 숨기는 것은 다릅니다. */
         var schedLine = null;
         if (latest && latest.plannedDays != null) {
-          schedLine = '이번 주 계획 ' + latest.plannedDays + '일 · 지킴 ' + (latest.keptDays || 0) + '일';
+          /* 라벨은 그 행의 주에서 가져옵니다. 친구가 이번 주에 아직 앱을
+             안 열었으면 이 행은 지난주 것이고, 그걸 "이번 주" 라고 부르면
+             남의 지난주를 이번 주라고 말하는 것이 됩니다. */
+          schedLine = (weekLabel(latest.weekStart) || '최근') +
+                      ' 계획 ' + latest.plannedDays + '일 · 지킴 ' + (latest.keptDays || 0) + '일';
           /* 체크 없는 날을 여기까지 올립니다. 사용자가 요청한 "확인" 이
              친구를 한 명씩 열어 봐야만 되면, 확인하려는 사람은 결국
              매일 다섯 화면을 돌게 됩니다 — 그게 더 감시에 가깝습니다.
@@ -735,7 +803,8 @@
             text: '로그인하면 가장 최근 측정의 체중 · 골격근량 · 체지방량 · 체지방률이 ' +
                   '서버에 저장됩니다. 친구에게 보이는 것은 친구마다 직접 켠 항목뿐이고, ' +
                   '기본으로 보이는 것은 행동에 대한 둘뿐입니다 — 이번 주에 기록을 했는지, ' +
-                  '그리고 계획한 날과 지킨 날의 개수.' }),
+                  '그리고 이번 주 일정의 숫자 네 개(하기로 한 날 · 지킨 날 · 지나갔는데 ' +
+                  '체크가 없는 날 · 아직 남은 날).' }),
           h('div', { style: { marginTop: '6px' } }, [
             h('a', { text: '무엇이 어디로 가는지 자세히 (개인정보처리방침)',
                      href: './privacy.html', target: '_blank', rel: 'noopener',
@@ -757,7 +826,7 @@
           h('div.chips', { style: { marginTop: '8px' } },
             B().SHARE_FIELDS.map(function (x) { return h('span.chip', { text: x.label }); })),
           h('div.muted', { style: { marginTop: '8px' },
-            text: '기본으로 켜진 것은 행동에 대한 둘(이번 주 기록 여부 · 이번 주 일정 숫자)뿐이고, ' +
+            text: '기본으로 켜진 것은 행동에 대한 둘(이번 주 기록 여부 · 이번 주 일정 숫자 네 개)뿐이고, ' +
                   '몸에 대한 항목은 친구마다 하나씩 직접 켭니다. 안 켠 항목은 상대 화면에 존재하지도 않습니다.' })
         ]));
         w.appendChild(h('div.note', { uid: 'P15-C02', uidLabel: '공유 원칙',
@@ -834,8 +903,10 @@
       /* --- C01 헤더 --- */
       var lastNews = null;
       if (latest) {
-        var wks = Math.round((Date.now() - new Date(latest.weekStart)) / (7 * 86400000));
-        lastNews = wks <= 0 ? '마지막 소식 · 이번 주' : '마지막 소식 · ' + wks + '주 전';
+        /* 경과 시간을 7로 나눠 반올림하면 주 경계와 어긋납니다 —
+           월요일 아침의 지난주 행이 "0주" 로 반올림돼 "이번 주" 가 됐습니다.
+           주 시작일끼리 견주면 그 경계가 정확합니다. */
+        lastNews = '마지막 소식 · ' + (weekLabel(latest.weekStart) || '언제인지 모름');
       }
       wrap.appendChild(h('div.card', { uid: 'P16-C01', uidLabel: '친구 헤더' }, [
         h('div.card__head', [
@@ -891,7 +962,8 @@
       }
 
       /* --- 상대가 보여주는 것 --- */
-      var weeksKnown = Math.round((Date.now() - new Date(friend.since)) / (7 * 86400000));
+      var weeksKnown = weeksAgo(friend.since);
+      if (weeksKnown == null) weeksKnown = 0;
       if (!onKeys.length) {
         wrap.appendChild(h('div.empty', { uid: 'P16-S02', uidLabel: '상대가 항목 미선택' }, [
           h('div.empty__ico', { text: '🔒' }),
@@ -908,7 +980,7 @@
         ]));
       } else if (!hasNews(latest) && weeksKnown < 2) {
         wrap.appendChild(h('div.empty', { uid: 'P16-S21', uidLabel: '새 관계' }, [
-          h('div.empty__t', { text: '이번 주에 친구가 되었습니다' }),
+          h('div.empty__t', { text: (weekLabel(friend.since) || '최근') + '에 친구가 되었습니다' }),
           h('div.empty__d', { text: '기록은 주마다 하나씩 쌓입니다.' })
         ]));
       } else {
@@ -968,11 +1040,21 @@
           var kept = latest.keptDays || 0;
           var missed = latest.missedDays || 0;
           var open = latest.openDays || 0;
+          var thisWk = isThisWeek(latest);
           var second = [];
-          if (missed) second.push('지나간 날 중 ' + missed + '일은 체크가 없습니다');
-          if (open) second.push(open + '일이 남았습니다');
-          wrap.appendChild(h('div.card', { uid: 'P16-C06', uidLabel: '친구 이번 주 일정' }, [
-            h('div.card__title', { text: '이번 주 일정' }),
+          if (missed) {
+            second.push(thisWk ? '지나간 날 중 ' + missed + '일은 체크가 없습니다'
+                               : '그 주에 체크가 없던 날이 ' + missed + '일입니다');
+          }
+          /* "N일이 남았습니다" 는 **지금 주에만** 참입니다. 끝난 주에
+             대해 그렇게 쓰면 이미 지나간 날을 아직 기회가 있는 것처럼
+             말하게 됩니다. 지난주라면 남은 날은 그냥 체크가 없던 날입니다. */
+          if (open) {
+            second.push(thisWk ? open + '일이 남았습니다'
+                               : '체크 없이 지나간 날이 ' + open + '일 더 있습니다');
+          }
+          wrap.appendChild(h('div.card', { uid: 'P16-C06', uidLabel: '친구 주간 일정' }, [
+            h('div.card__title', { text: (weekLabel(latest.weekStart) || '최근') + ' 일정' }),
             h('div', { style: { fontSize: '20px', fontWeight: '800', marginTop: '6px' },
               text: '계획 ' + latest.plannedDays + '일 · 지킴 ' + kept + '일' }),
             second.length ? h('div.muted', { style: { marginTop: '4px' },
@@ -991,8 +1073,15 @@
           wrap.appendChild(h('div.card.card--flat', { uid: 'P16-S22', uidLabel: '친구 일정 없음' }, [
             h('div.card__title', { text: '이번 주 일정' }),
             h('div.muted', { style: { marginTop: '4px' },
-              text: friend.displayName + '님이 이번 주에 적은 일정이 없습니다. ' +
-                    '운동을 안 했다는 뜻이 아니라, 앱에 적지 않았다는 뜻입니다.' })
+              /* "적은 일정이 없다" 와 "이번 주 것이 아직 안 올라왔다" 는
+                 다른 말입니다. 스냅샷은 친구가 앱을 열어야 올라가므로,
+                 주 초에는 뒤쪽이 정상입니다. 앞엣말로 뭉개면 앱을 아직
+                 안 연 사람을 "아무 계획도 안 세운 사람" 으로 만듭니다. */
+              text: isThisWeek(latest)
+                ? friend.displayName + '님이 이번 주에 적은 일정이 없습니다. ' +
+                  '운동을 안 했다는 뜻이 아니라, 앱에 적지 않았다는 뜻입니다.'
+                : friend.displayName + '님의 이번 주 기록이 아직 안 올라왔습니다. ' +
+                  '친구가 앱을 열면 올라옵니다.' })
           ]));
         }
 

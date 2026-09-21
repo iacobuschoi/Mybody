@@ -65,6 +65,8 @@ const CHECKS = [
     why: '앱이 멀쩡해도 서버를 못 띄우면 아무도 못 씁니다' },
   { id: '주간 일정 화면', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-weekplan-ui.js'],
     why: '매일 누르는 칸입니다 — 한 번 안 눌리면 그 날 기록이 통째로 비어 버립니다' },
+  { id: '친구 주 이름', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-friendweek-ui.js'],
+    why: '남의 지난주 성적을 "이번 주" 라고 부르면 화면이 남에 대해 사실이 아닌 말을 합니다' },
   { id: '가입 화면', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-signup-ui.js'],
     why: '이 서버가 코드를 쓰는지 화면이 모르면, 친구는 받은 적 없는 코드를 넣으라는 빈칸 앞에서 멈춥니다' },
   { id: '판독 화면', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-ocr-ui.js'],
@@ -264,7 +266,12 @@ function staticChecks() {
     if (srvOn && srvOn.length !== 1) {
       const ONLY_ONE = [
         '여부 하나입니다', '여부만 기본으로', '기록 하나입니다', '하나만 켜져',
-        '여부 하나뿐입니다', '하나뿐입니다'
+        '여부 하나뿐입니다', '하나뿐입니다',
+        /* 커밋 7676cbb 가 같은 거짓말을 다섯 군데 고치면서 하필
+           **수락 버튼 바로 밑** 한 줄을 빠뜨렸습니다 — 동의가 실제로
+           일어나는 유일한 자리입니다. 어미가 달라서 위 목록에 안 걸렸습니다.
+           같은 뜻의 다른 어미를 같이 적어 둡니다. */
+        '여부만 나갑니다', '여부만 갑니다', '여부만 보입니다', '여부뿐입니다'
       ];
       const files = ['prototype/js/screens/social.js', 'prototype/js/modals.js',
                      'prototype/privacy.html'];
@@ -283,6 +290,48 @@ function staticChecks() {
             hits.join(', ')
           : '기본 ' + srvOn.length + '개를 "하나뿐" 이라고 말하는 곳이 없습니다' });
     }
+  }
+
+  /* (4.9) 일정 공유가 "숫자 두 개" 라고 적힌 곳.
+   *
+   * 실제로 나가는 것은 넷입니다 — plannedDays · keptDays · missedDays ·
+   * openDays. 뒤의 둘은 앞의 둘로 복원되지 않습니다: planned − kept 가
+   * "빼먹은 날 + 남은 날" 이라는 것만 알 뿐, 그 둘의 나눔은 별도의
+   * 사실이고 친구 화면에 그대로 그려집니다("지나간 날 중 2일은 체크가
+   * 없습니다").
+   *
+   * 이 공유는 **기본 켜짐** 이라, 아무 설정도 안 만진 사람에게도
+   * 해당합니다. 실제보다 적게 말하는 문구는 그래서 막습니다.
+   */
+  {
+    const emitted = (() => {
+      const m = read('server/db.js')
+        .match(/if \(s\.schedule && p\.plannedDays != null\) \{[\s\S]*?\}/);
+      if (!m) return null;
+      const keys = new Set();
+      m[0].replace(/o\.(\w+)\s*=/g, (_, k) => { keys.add(k); return _; });
+      return keys.size;
+    })();
+    const WORDS = ['두 숫자', '숫자 두 개', '숫자 두개'];
+    const files = ['prototype/js/screens/social.js', 'prototype/js/modals.js',
+                   'prototype/privacy.html', 'docs/START.md'];
+    const hits = [];
+    if (emitted && emitted !== 2) {
+      files.forEach(f => {
+        const src = read(f);
+        src.split('\n').forEach((line, i) => {
+          if (/^\s*(\/\/|\*|\/\*)/.test(line)) return;      // 주석은 기록입니다
+          if (WORDS.some(w => line.includes(w))) hits.push(f + ':' + (i + 1));
+        });
+      });
+    }
+    out.push({ id: '일정 공유 개수', level: 'BLOCK',
+      ok: emitted != null && hits.length === 0,
+      detail: emitted == null
+        ? 'server/db.js 에서 일정으로 나가는 항목을 못 읽었습니다 (규칙이 헛돕니다)'
+        : hits.length
+          ? '일정으로 ' + emitted + '개가 나가는데 "두 개" 라고 적힌 곳: ' + hits.join(', ')
+          : '일정으로 나가는 ' + emitted + '개를 "두 개" 라고 말하는 곳이 없습니다' });
   }
 
   // (5) 알고 올리는 것들
