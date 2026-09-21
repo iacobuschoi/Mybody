@@ -164,6 +164,86 @@ console.log('\n[6] 보내기 — 실패를 어떻게 다루는가');
   t('TTL 이 붙는다', !!seen.opt.headers.TTL);
   t('본문이 Buffer', Buffer.isBuffer(seen.opt.body));
 
+  /* --- 받는 쪽: 서비스워커가 **반드시 하나는 띄우는가** ------------------
+   *
+   * 구독할 때 userVisibleOnly: true 로 약속합니다 — "푸시를 받으면 꼭
+   * 알림을 띄우겠다". 그 약속을 어기면
+   *   · 크롬은 대신 "이 사이트가 백그라운드에서 업데이트되었습니다" 같은
+   *     제 문구를 우리 앱 이름으로 띄웁니다
+   *   · 사파리는 **알림 권한을 회수합니다.** 한 번 회수되면 앱이 다시
+   *     물어볼 수 없고, 친구가 iOS 설정에서 직접 풀어야 합니다 —
+   *     그걸 알아낼 방법이 없습니다. 조용히 영영 안 오게 됩니다.
+   *
+   * 본문이 깨져 오는 경우는 실제로 있습니다(payload 없는 푸시를 보내는
+   * 브라우저가 있습니다). 그때 조용히 돌아가면 안 됩니다. */
+  console.log('\n[서비스워커] 어떤 푸시가 와도 알림을 띄운다');
+  {
+    const vm = require('node:vm');
+    const fs = require('node:fs');
+    const path = require('node:path');
+
+    /** sw.js 를 가짜 self 안에서 돌리고, push 이벤트를 던져 봅니다. */
+    function fire(data) {
+      const handlers = {};
+      const shown = [];
+      const self = {
+        addEventListener: (k, fn) => { (handlers[k] = handlers[k] || []).push(fn); },
+        registration: {
+          showNotification: (title, opt) => { shown.push({ title, opt }); return Promise.resolve(); },
+          pushManager: { getSubscription: () => Promise.resolve(null) }
+        },
+        location: { origin: 'https://x.test' },
+        clients: { matchAll: () => Promise.resolve([]), openWindow: () => Promise.resolve() },
+        skipWaiting: () => {}, caches: undefined
+      };
+      const ctx = vm.createContext({
+        self, caches: { open: () => Promise.resolve({ addAll: () => Promise.resolve() }),
+                        keys: () => Promise.resolve([]), match: () => Promise.resolve(null),
+                        delete: () => Promise.resolve(true) },
+        fetch: () => Promise.resolve({ ok: false }),
+        URL, console, setTimeout, clearTimeout, Promise
+      });
+      /* 원본 sw.js 에는 빌드가 채우는 자리표시자가 하나 있습니다.
+         배포본을 읽으면 "빌드한 뒤의 것" 만 보게 되므로, 원본을 읽고
+         그 한 자리만 빌드와 같은 방식으로 채웁니다. */
+      const src = fs.readFileSync(
+        path.join(__dirname, '..', 'prototype', 'sw.js'), 'utf8')
+        .replace('__SHELL_FILES__', '[]');
+      vm.runInContext(src, ctx);
+      const push = (handlers.push || [])[0];
+      if (!push) return { shown: null };
+      const waits = [];
+      push({ data: data, waitUntil: p2 => waits.push(p2) });
+      return { shown, waits, handlers };
+    }
+
+    const good = fire({ json: () => ({ t: '나린님이 운동했습니다', b: '이번 주 3일째', u: '/#P15' }) });
+    t('정상 본문이면 그대로 띄운다',
+      good.shown.length === 1 && good.shown[0].title === '나린님이 운동했습니다',
+      JSON.stringify(good.shown));
+    t('본문도 그대로', good.shown[0].opt.body === '이번 주 3일째');
+
+    const broken = fire({ json: () => { throw new Error('bad json'); } });
+    t('본문이 깨져도 하나는 띄운다 (조용한 푸시 금지)',
+      broken.shown.length === 1, JSON.stringify(broken.shown));
+    t('그때도 제목이 비어 있지 않다',
+      !!(broken.shown[0] && broken.shown[0].title), JSON.stringify(broken.shown));
+
+    const empty = fire(null);
+    t('본문이 아예 없어도 띄운다', empty.shown.length === 1, JSON.stringify(empty.shown));
+
+    const noTitle = fire({ json: () => ({ b: '제목이 없습니다' }) });
+    t('제목만 없어도 띄운다', noTitle.shown.length === 1, JSON.stringify(noTitle.shown));
+    t('열 주소가 없으면 기본값', empty.shown[0].opt.data.url === '/', JSON.stringify(empty.shown[0].opt.data));
+
+    /* 구독이 갈렸을 때 되살리는 손잡이가 있는가.
+       없으면 그 순간부터 알림이 영영 안 옵니다 — 화면 어디에도 안 뜨는
+       고장입니다. */
+    t('구독이 갈릴 때를 대비해 둔다',
+      !!(good.handlers && good.handlers.pushsubscriptionchange),
+      Object.keys(good.handlers || {}).join(','));
+  }
+
   console.log('\n' + (fail ? '✗ ' + fail + '개 실패 / ' : '✓ 전부 통과 — ') + (pass + fail) + '개');
   process.exit(fail ? 1 : 0);
 })();

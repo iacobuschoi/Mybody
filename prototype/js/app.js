@@ -285,6 +285,9 @@
   }
 
   function bootApp() {
+    /* 알림 구독이 갈렸는지 조용히 맞춰 둡니다. 안 하면 어느 날부터
+       알림이 영영 안 오는데, 화면 어디에도 그 사실이 안 나타납니다. */
+    try { if (global.MB_PUSH && global.MB_PUSH.resync) global.MB_PUSH.resync(); } catch (e) {}
     buildShell();
     global.MB_UID.init();
 

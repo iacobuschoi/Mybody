@@ -32,6 +32,21 @@
     } catch (e) {}
   }
 
+  function isIos() {
+    try {
+      var ua = global.navigator.userAgent || '';
+      var touch = global.navigator.maxTouchPoints || 0;
+      // 아이패드는 iPadOS 13 부터 UA 가 "Macintosh" 입니다
+      return /iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && touch > 1);
+    } catch (e) { return false; }
+  }
+  function standalone() {
+    try {
+      if (global.navigator.standalone === true) return true;
+      return !!(global.matchMedia && global.matchMedia('(display-mode: standalone)').matches);
+    } catch (e) { return false; }
+  }
+
   function b64uToBytes(s) {
     var pad = '='.repeat((4 - s.length % 4) % 4);
     var raw = atob((s + pad).replace(/-/g, '+').replace(/_/g, '/'));
@@ -66,7 +81,20 @@
         : '이 브라우저는 알림을 지원하지 않습니다.';
       return out;
     }
-    if (!('PushManager' in global)) { out.why = '이 브라우저는 알림을 지원하지 않습니다.'; return out; }
+    if (!('PushManager' in global)) {
+      /* 아이폰·아이패드는 **홈 화면에 추가한 뒤에만** PushManager 가
+         생깁니다 (Safari 16.4+). 사파리 탭에서는 영영 안 옵니다.
+         "이 브라우저는 알림을 지원하지 않습니다" 로 뭉개면, 할 일이
+         있는 사람에게 할 일이 없다고 말하는 셈입니다. */
+      out.why = isIos()
+        ? (standalone()
+            ? '이 아이폰에서는 알림을 지원하지 않습니다 (iOS 16.4 이상이어야 합니다).'
+            : '아이폰은 **홈 화면에 추가한 뒤에만** 알림이 옵니다. ' +
+              '사파리 아래쪽 공유 버튼 → "홈 화면에 추가" 를 하고, ' +
+              '거기 생긴 아이콘으로 다시 열어 주세요.')
+        : '이 브라우저는 알림을 지원하지 않습니다.';
+      return out;
+    }
     if (typeof Notification === 'undefined') { out.why = '이 브라우저는 알림을 지원하지 않습니다.'; return out; }
     if (!S || !S.status().signedIn) { out.why = '로그인해야 친구 소식을 받습니다.'; return out; }
     if (Notification.permission === 'denied') {
@@ -163,5 +191,48 @@
     }).then(function () { return { ok: true }; });
   }
 
-  global.MB_PUSH = { state: state, enable: enable, disable: disable, serverKey: serverKey };
+  /**
+   * 브라우저가 구독을 갈아 끼웠는지 보고, 갈렸으면 서버에 다시 알립니다.
+   *
+   * endpoint 는 열쇠 회전 · 앱 업데이트 · 푸시 서비스 사정으로 바뀝니다.
+   * 그러면 서버는 죽은 주소로 계속 보내고, 사용자는 **"켜 뒀는데 안 온다"**
+   * 만 겪습니다. 아무 화면에도 안 나타나는 고장이라, 앱이 열릴 때마다
+   * 조용히 맞춰 둡니다.
+   *
+   * 서비스워커 쪽(pushsubscriptionchange)은 구독만 되살릴 수 있습니다 —
+   * 로그인 토큰을 못 읽거든요. 서버에 말하는 일은 여기서 합니다.
+   */
+  function resync() {
+    var S = global.MB_SYNC;
+    if (!saved()) return Promise.resolve({ ok: true, changed: false });   // 안 켜 둔 기기
+    if (!S || !S.status().signedIn) return Promise.resolve({ ok: false, changed: false });
+    if (typeof navigator === 'undefined' || !navigator.serviceWorker) {
+      return Promise.resolve({ ok: false, changed: false });
+    }
+    return navigator.serviceWorker.ready
+      .then(function (reg) { return reg.pushManager.getSubscription(); })
+      .then(function (sub) {
+        if (!sub) {
+          /* 구독이 통째로 사라졌습니다. 우리 기억도 지웁니다 —
+             안 그러면 화면이 "켜져 있습니다" 라고 거짓말합니다. */
+          remember(null);
+          return { ok: false, changed: true };
+        }
+        if (sub.endpoint === (saved() || {}).endpoint) return { ok: true, changed: false };
+        var j = sub.toJSON ? sub.toJSON() : null;
+        var keys = (j && j.keys) || {};
+        return S._api('/push/subscribe', { method: 'POST', body: {
+          endpoint: sub.endpoint,
+          p256dh: keys.p256dh || bytesToB64u(sub.getKey('p256dh')),
+          auth: keys.auth || bytesToB64u(sub.getKey('auth'))
+        } }).then(function (r) {
+          if (r && r.ok) { remember(sub.endpoint); return { ok: true, changed: true }; }
+          return { ok: false, changed: true };
+        });
+      })
+      .catch(function () { return { ok: false, changed: false }; });
+  }
+
+  global.MB_PUSH = { state: state, enable: enable, disable: disable,
+                     serverKey: serverKey, resync: resync };
 })(window);

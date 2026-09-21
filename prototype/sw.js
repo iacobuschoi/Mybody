@@ -87,15 +87,54 @@ self.addEventListener('fetch', e => {
 self.addEventListener('push', e => {
   let d = null;
   try { d = e.data ? e.data.json() : null; } catch (err) { d = null; }
-  if (!d || !d.t) return;
-  e.waitUntil(self.registration.showNotification(d.t, {
-    body: d.b || '',
+
+  /* 본문이 없거나 깨졌어도 **반드시 하나는 띄웁니다.**
+   *
+   * 예전엔 여기서 조용히 돌아갔습니다. 그게 "조용한 푸시"인데,
+   * 구독할 때 userVisibleOnly: true 로 약속해 놓고 안 띄우는 것이라
+   * 브라우저가 약속을 깬 것으로 봅니다.
+   *   · 크롬은 대신 "이 사이트가 백그라운드에서 업데이트되었습니다"
+   *     같은 제 문구를 띄웁니다 — 우리 앱 이름으로 남의 문장이 나갑니다.
+   *   · 사파리는 더 세게 나옵니다. 조용한 푸시가 반복되면 **알림 권한을
+   *     회수합니다.** 한 번 회수되면 앱이 다시 물어볼 수 없고, 친구가
+   *     iOS 설정에서 직접 풀어야 합니다 — 그걸 알아낼 방법이 없습니다.
+   *
+   * 그래서 못 읽었을 때도 띄울 말을 정해 둡니다. 내용이 없는 알림보다
+   * 나쁜 것은, 알림이 영영 안 오게 되는 것입니다. */
+  const title = (d && d.t) || 'Mybody';
+  const body = (d && d.b) || '친구 소식이 있습니다. 앱을 열어 확인하세요.';
+
+  e.waitUntil(self.registration.showNotification(title, {
+    body: body,
     tag: 'mybody-news',          // 여러 건이 쌓이면 최신 하나로 접힙니다
     renotify: false,
     icon: './assets/icon-192.png',
     badge: './assets/icon-192.png',
-    data: { url: d.u || '/' }
+    data: { url: (d && d.u) || '/' }
   }));
+});
+
+/* 브라우저가 구독을 갈아 끼울 때.
+ *
+ * 열쇠 회전 · 앱 업데이트 · 푸시 서비스 사정으로 endpoint 가 바뀝니다.
+ * 이 핸들러가 없으면 **그 순간부터 알림이 영영 안 옵니다** — 서버는 죽은
+ * 주소로 계속 보내고, 사용자는 "켜 뒀는데 안 온다" 만 겪습니다. 아무
+ * 화면에도 안 나타나는 고장입니다.
+ *
+ * 서비스워커는 로그인 토큰을 못 읽어서(localStorage 가 없습니다) 서버에
+ * 직접 말할 수가 없습니다. 그래서 여기서는 **구독만 되살려 두고**,
+ * 앱이 다음에 열릴 때 push.js 의 resync() 가 서버에 알립니다. */
+self.addEventListener('pushsubscriptionchange', e => {
+  e.waitUntil((async () => {
+    try {
+      const old = e.oldSubscription || await self.registration.pushManager.getSubscription();
+      const key = old && old.options && old.options.applicationServerKey;
+      if (!key) return;
+      await self.registration.pushManager.subscribe({
+        userVisibleOnly: true, applicationServerKey: key
+      });
+    } catch (err) { /* 되살리지 못하면 앱이 열릴 때 다시 구독합니다 */ }
+  })());
 });
 
 self.addEventListener('notificationclick', e => {
