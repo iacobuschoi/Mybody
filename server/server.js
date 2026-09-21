@@ -40,6 +40,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { open, makeApi, str } = require('./db.js');
 const { runOcr: callOcr } = require('./ocr.js');
+const PUSH = require('./push.js');
 
 const PORT = Number(process.env.PORT || 8080);
 const DB_FILE = process.env.DB || path.join(__dirname, 'mybody.db');
@@ -345,6 +346,46 @@ function bearer(req) {
 }
 
 /* --- 라우팅 --------------------------------------------------------------- */
+/* --- 폰 알림 보내기 -------------------------------------------------------
+ *
+ * 키는 환경변수(VAPID_PUBLIC/VAPID_PRIVATE)로 받습니다. 없으면 알림 기능
+ * 전체가 꺼진 채로 돌고, 화면은 "이 서버에는 알림이 꺼져 있습니다" 라고
+ * 말합니다 — 켜 둔 줄 알았는데 안 오는 상태를 만들지 않습니다.
+ * 키 만들기: node tools/push-keys.js
+ * -------------------------------------------------------------------------- */
+const VAPID = (process.env.VAPID_PUBLIC && process.env.VAPID_PRIVATE) ? {
+  publicKey: process.env.VAPID_PUBLIC,
+  privateKey: process.env.VAPID_PRIVATE,
+  /* sub 은 푸시 서비스가 문제 생겼을 때 연락할 곳입니다. 운영자 연락처가
+     없으면 서버 주소를 씁니다 — mailto: 를 지어내면 그게 거짓말입니다. */
+  subject: process.env.OWNER_CONTACT && /^(mailto:|https:)/.test(process.env.OWNER_CONTACT)
+    ? process.env.OWNER_CONTACT
+    : (process.env.ORIGIN || 'https://example.invalid')
+} : null;
+
+async function fanoutPush(ownerId, snap) {
+  if (!VAPID) return;
+  const who = api.me(ownerId);
+  const name = (who && who.displayName) || '친구';
+  /* 보내는 말은 한 줄뿐이고, 늘 좋은 소식입니다.
+     "이번 주 3일째" 처럼 늘어난 숫자만 들어갑니다 — 무슨 요일에 무슨
+     운동을 했는지는 스냅샷에 아예 없으므로 보낼 수도 없습니다. */
+  const payload = JSON.stringify({
+    t: name + '님이 운동했습니다',
+    b: '이번 주 ' + snap.keptDays + '일째' +
+       (snap.plannedDays ? ' · 계획 ' + snap.plannedDays + '일' : ''),
+    u: '/#P15'
+  });
+  const targets = api.pushTargetsFor(ownerId);
+  for (const { sub } of targets) {
+    try {
+      const r = await PUSH.send(sub, payload, VAPID);
+      if (r.gone) api.dropPushSub(sub.endpoint);
+      else if (!r.ok) api.notePushFail(sub.endpoint);
+    } catch (e) { api.notePushFail(sub.endpoint); }
+  }
+}
+
 async function handleApi(req, res, url) {
   const reqIp = clientIp(req);
   const p = url.pathname.replace(/^\/api/, '') || '/';
@@ -478,8 +519,29 @@ async function handleApi(req, res, url) {
     const b = await readBody(req);
     if (!b.weekStart) return send(res, 400, { ok: false, reason: 'weekStart 가 필요합니다' });
     const snap = api.publishSnapshot(me, b.weekStart, b.payload);
+    /* 지킨 날이 늘었으면 친구들 폰에 한 줄 보냅니다.
+       기다리지 않습니다 — 푸시 서비스가 느리다고 저장이 늦어지면 안 됩니다.
+       실패는 fanout 안에서 처리하고 여기서는 응답을 막지 않습니다. */
+    if (snap.ok && snap.grew) fanoutPush(me, snap).catch(() => {});
     // 거절을 200 으로 보내면 클라이언트가 성공으로 읽고 큐에서 지웁니다.
     return send(res, snap.ok ? 200 : 400, snap);
+  }
+
+  /* --- 폰 알림 ---------------------------------------------------------
+   * 브라우저는 https 에서만 구독할 수 있습니다. 같은 와이파이 http 로
+   * 열면 serviceWorker 자체가 없어서 여기까지 오지도 않습니다.
+   * -------------------------------------------------------------------- */
+  if (p === '/push/key' && method === 'GET') {
+    return send(res, 200, { ok: true, key: VAPID ? VAPID.publicKey : null });
+  }
+  if (p === '/push/subscribe' && method === 'POST') {
+    if (!VAPID) return send(res, 503, { ok: false, reason: '이 서버에는 알림 키가 없습니다' });
+    const b = await readBody(req);
+    return send(res, 200, api.addPushSub(me, b));
+  }
+  if (p === '/push/unsubscribe' && method === 'POST') {
+    const b = await readBody(req);
+    return send(res, 200, api.removePushSub(me, b && b.endpoint));
   }
   m = p.match(/^\/snapshots\/([\w-]+)$/);
   if (m && method === 'GET') {

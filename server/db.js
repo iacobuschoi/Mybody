@@ -74,6 +74,15 @@ function open(file) {
       payload TEXT NOT NULL,
       PRIMARY KEY (user_id, kind, id)
     );
+    CREATE TABLE IF NOT EXISTS push_subs (
+      endpoint TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      p256dh TEXT NOT NULL,
+      auth TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      fails INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_user ON push_subs(user_id);
     CREATE INDEX IF NOT EXISTS idx_records_sync ON records(user_id, updated_at, kind, id);
     CREATE INDEX IF NOT EXISTS idx_snapshots_owner ON snapshots(owner_id, week_start DESC);
   `);
@@ -347,7 +356,17 @@ function makeApi(db) {
       'SELECT * FROM records WHERE user_id=? AND (updated_at, kind, id) > (?,?,?) ' +
       'ORDER BY updated_at, kind, id LIMIT ?'),
     countRecords: db.prepare('SELECT COUNT(*) c FROM records WHERE user_id=?'),
-    updateAvatar: db.prepare('UPDATE users SET avatar=? WHERE id=?')
+    updateAvatar: db.prepare('UPDATE users SET avatar=? WHERE id=?'),
+
+    addPush: db.prepare(
+      'INSERT INTO push_subs (endpoint,user_id,p256dh,auth,created_at,fails) VALUES (?,?,?,?,?,0) ' +
+      'ON CONFLICT(endpoint) DO UPDATE SET user_id=excluded.user_id, p256dh=excluded.p256dh, ' +
+      'auth=excluded.auth, fails=0'),
+    delPush: db.prepare('DELETE FROM push_subs WHERE endpoint=?'),
+    delPushOf: db.prepare('DELETE FROM push_subs WHERE user_id=?'),
+    pushOf: db.prepare('SELECT * FROM push_subs WHERE user_id=?'),
+    bumpPushFail: db.prepare('UPDATE push_subs SET fails=fails+1 WHERE endpoint=?'),
+    prevSnap: db.prepare('SELECT payload FROM snapshots WHERE owner_id=? AND week_start=?')
   };
 
   /* 프로필 사진 검사.
@@ -714,6 +733,20 @@ function makeApi(db) {
       if (!Number.isFinite(t) || y < 1900 || y > 2200) {
         return { ok: false, reason: 'weekStart 가 쓸 수 있는 범위 밖입니다' };
       }
+      /* 덮어쓰기 전에 지난 값을 봐 둡니다 — 알림을 보낼지 판단하는
+         재료입니다. **늘어났을 때만** 보냅니다. 안 한 것은 알림이 될 수
+         없고, 그건 못 만든 게 아니라 만들 수 없게 만들어 둔 것입니다
+         (news.js 와 같은 규칙). */
+      let grew = false;
+      try {
+        const before = q.prevSnap.get(me, wk);
+        const prev = before ? JSON.parse(before.payload) : null;
+        const now = payload || {};
+        if (now.keptDays != null && prev && prev.keptDays != null && now.keptDays > prev.keptDays) {
+          grew = true;
+        }
+      } catch { /* 지난 값이 깨져 있으면 알림만 안 보냅니다 */ }
+
       q.upsertSnap.run(me, wk, JSON.stringify(payload || {}), nowISO());
       /* 보유 기간을 지킵니다.
        *
@@ -727,7 +760,57 @@ function makeApi(db) {
        * 처리방침에 적힌 숫자와 같습니다. 셋이 어긋나면 그중 하나는
        * 거짓말이 됩니다. */
       q.pruneSnaps.run(me, SNAPSHOT_WEEKS);
+      return { ok: true, grew, keptDays: (payload || {}).keptDays,
+               plannedDays: (payload || {}).plannedDays };
+    },
+
+    /* --- 폰 알림 구독 -------------------------------------------------
+     * 브라우저가 준 PushSubscription 을 그대로 보관합니다. endpoint 가
+     * 키라서 같은 기기가 다시 구독하면 덮어씁니다 — 기기를 바꾸거나
+     * 알림을 껐다 켜면 endpoint 가 바뀌고, 옛것은 푸시 서비스가
+     * 404/410 을 주는 순간 지웁니다.
+     * ---------------------------------------------------------------- */
+    addPushSub(uid, sub) {
+      if (!this.exists(uid)) return { ok: false, reason: '없는 계정입니다' };
+      const ep = str(sub && sub.endpoint);
+      const p256dh = str(sub && sub.p256dh);
+      const auth = str(sub && sub.auth);
+      if (!/^https:\/\//.test(ep)) return { ok: false, reason: 'endpoint 는 https 여야 합니다' };
+      if (ep.length > 800) return { ok: false, reason: 'endpoint 가 너무 깁니다' };
+      /* 키 길이를 여기서 봅니다. 틀린 키를 받아 두면 보낼 때마다
+         조용히 실패하고, 사용자는 "알림을 켰는데 안 온다" 만 겪습니다. */
+      if (!/^[A-Za-z0-9\-_]{86,88}$/.test(p256dh)) return { ok: false, reason: 'p256dh 형식 오류' };
+      if (!/^[A-Za-z0-9\-_]{22,24}$/.test(auth)) return { ok: false, reason: 'auth 형식 오류' };
+      q.addPush.run(ep, uid, p256dh, auth, nowISO());
       return { ok: true };
+    },
+    removePushSub(uid, endpoint) {
+      const row = db.prepare('SELECT user_id FROM push_subs WHERE endpoint=?').get(str(endpoint));
+      if (!row) return { ok: true };                      // 없으면 이미 없는 것
+      if (row.user_id !== uid) return { ok: false, reason: '내 구독이 아닙니다' };
+      q.delPush.run(str(endpoint));
+      return { ok: true };
+    },
+    pushSubsOf(uid) {
+      return q.pushOf.all(uid).map(r => ({
+        endpoint: r.endpoint, p256dh: r.p256dh, auth: r.auth, fails: r.fails
+      }));
+    },
+    dropPushSub(endpoint) { q.delPush.run(str(endpoint)); },
+    notePushFail(endpoint) { q.bumpPushFail.run(str(endpoint)); },
+
+    /** 이 사람이 운동했다는 소식을 받을 친구들 (일정 공유를 켠 사람만) */
+    pushTargetsFor(ownerId) {
+      const out = [];
+      for (const e of q.edgesOf.all(ownerId, ownerId)) {
+        if (e.status !== 'accepted') continue;
+        const viewer = e.a_id === ownerId ? e.b_id : e.a_id;
+        /* 그 친구에게 일정을 안 보여주기로 했으면 알림도 안 갑니다.
+           알림이 공유 설정을 우회하는 뒷문이 되면 안 됩니다. */
+        if (!this.shareFields(ownerId, viewer).schedule) continue;
+        for (const s of this.pushSubsOf(viewer)) out.push({ viewer, sub: s });
+      }
+      return out;
     },
     /** 친구가 나에게 허용한 항목만. 허용 안 된 키는 응답 객체에 존재하지 않습니다. */
     friendSnapshots(me, ownerId, limit = 26) {

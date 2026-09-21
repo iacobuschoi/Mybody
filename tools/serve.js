@@ -252,6 +252,10 @@ function envFor(cfg) {
   if (cfg.owner) e.OWNER = cfg.owner;
   if (cfg.ownerContact) e.OWNER_CONTACT = cfg.ownerContact;
   if (cfg.anthropicKey) e.ANTHROPIC_API_KEY = cfg.anthropicKey;
+  if (cfg.vapidPublic && cfg.vapidPrivate) {
+    e.VAPID_PUBLIC = cfg.vapidPublic;
+    e.VAPID_PRIVATE = cfg.vapidPrivate;
+  }
   if (cfg.origin) e.ORIGIN = cfg.origin;
   if (cfg.trustProxy) e.TRUST_PROXY = '1';
   /* node:sqlite 가 시작할 때마다 "experimental" 경고를 찍습니다.

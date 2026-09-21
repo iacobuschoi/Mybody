@@ -60,3 +60,45 @@ self.addEventListener('fetch', e => {
     })
   );
 });
+
+/* --- 폰 알림 --------------------------------------------------------------
+ *
+ * 서버가 보낸 한 줄을 잠금화면에 띄웁니다. 들어오는 것은 언제나
+ * "누가 운동했다" 뿐입니다 — 안 한 것은 서버가 보내지 않습니다.
+ *
+ * 본문이 깨져 있거나 비어 있어도 아무것도 안 띄웁니다. 제목 없는 알림을
+ * 띄우느니 안 띄우는 게 낫습니다. (브라우저에 따라 payload 없는 푸시를
+ * 보낼 수 있는데, 그때 "새 알림" 같은 빈 껍데기를 띄우면 열어 봐도
+ * 아무것도 없습니다.)
+ * -------------------------------------------------------------------------- */
+self.addEventListener('push', e => {
+  let d = null;
+  try { d = e.data ? e.data.json() : null; } catch (err) { d = null; }
+  if (!d || !d.t) return;
+  e.waitUntil(self.registration.showNotification(d.t, {
+    body: d.b || '',
+    tag: 'mybody-news',          // 여러 건이 쌓이면 최신 하나로 접힙니다
+    renotify: false,
+    icon: './assets/icon-192.png',
+    badge: './assets/icon-192.png',
+    data: { url: d.u || '/' }
+  }));
+});
+
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  const want = (e.notification.data && e.notification.data.url) || '/';
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(list => {
+      /* 이미 열려 있는 탭이 있으면 그걸 씁니다. 누를 때마다 새 탭이
+         쌓이면 그 자체가 짜증입니다. */
+      for (const c of list) {
+        if (c.url.indexOf(self.location.origin) === 0 && 'focus' in c) {
+          c.navigate(want).catch(() => {});
+          return c.focus();
+        }
+      }
+      return self.clients.openWindow(want);
+    })
+  );
+});

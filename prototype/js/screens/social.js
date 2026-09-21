@@ -244,6 +244,68 @@
     }
   });
 
+  /* --- 폰 알림 (P15-C27) -------------------------------------------------
+   * 앱 안 소식(P15-C25)은 앱을 열어야 보입니다. 이건 잠금화면에 뜹니다.
+   *
+   * 못 켜는 이유를 하나로 뭉치지 않습니다 — https 가 아니라서인지,
+   * 서버에 열쇠가 없어서인지, 브라우저에서 거절해 둬서인지에 따라
+   * 할 일이 전혀 다릅니다. "알림을 켤 수 없습니다" 한 줄은 아무에게도
+   * 도움이 안 됩니다.
+   * -------------------------------------------------------------------- */
+  function pushCard(wrap) {
+    var P = global.MB_PUSH;
+    if (!P) return;
+    var st = P.state();
+
+    /* 로그인도 안 한 사람에게 알림 이야기를 꺼내지 않습니다 —
+       지금 할 일은 로그인이고, 그건 다른 카드가 말합니다. */
+    if (!st.on && /로그인/.test(st.why || '')) return;
+
+    var card = h('div.card', { uid: 'P15-C27', uidLabel: '폰 알림' }, [
+      h('div.card__head', [
+        h('div.card__title', { text: '폰 알림' }),
+        h('div.card__sub', { text: st.on ? '켜짐' : '꺼짐' })
+      ])
+    ]);
+
+    if (st.on) {
+      card.appendChild(h('div.muted', {
+        text: '친구가 운동을 체크하면 이 기기에 알림이 옵니다. ' +
+              '안 한 것은 알림이 오지 않습니다 — 그렇게 만들어 뒀습니다.' }));
+      card.appendChild(h('button.btn.btn--sm', { text: '알림 끄기',
+        style: { marginTop: '10px' },
+        uid: 'P15-B33', uidLabel: '알림 끄기',
+        onClick: function () {
+          P.disable().then(function () {
+            global.MB_UID.toast('알림을 껐습니다');
+            A.refresh();
+          });
+        } }));
+    } else if (st.can) {
+      card.appendChild(h('div.muted', {
+        text: '친구가 운동을 체크하면 앱을 안 열어도 알림이 옵니다. ' +
+              '오는 것은 "누가 운동했다" 뿐이고, 안 한 것은 오지 않습니다.' }));
+      var err = h('div.field__err', { style: { display: 'none', marginTop: '8px' } });
+      card.appendChild(h('button.btn.btn--sm.btn--primary', { text: '알림 켜기',
+        style: { marginTop: '10px' },
+        uid: 'P15-B34', uidLabel: '알림 켜기',
+        onClick: function (e) {
+          var btn = e.currentTarget;
+          btn.disabled = true; err.style.display = 'none';
+          P.enable().then(function (r) {
+            btn.disabled = false;
+            if (r.ok) { global.MB_UID.toast('알림을 켰습니다'); A.refresh(); }
+            else { err.textContent = r.reason; err.style.display = ''; }
+          });
+        } }));
+      card.appendChild(err);
+    } else {
+      /* 왜 안 되는지 그대로 적습니다. */
+      card.appendChild(h('div.muted', { text: st.why }));
+    }
+    wrap.appendChild(card);
+  }
+
   /* --- 친구 소식 카드 (P15-C25) ------------------------------------------
    * 소식은 기기 안에서 계산됩니다 (news.js). 서버에 소식 테이블 같은 것은
    * 없고, 이 카드 때문에 새로 나가는 정보도 없습니다 — 이미 공유 설정으로
@@ -409,6 +471,7 @@
          읽으면 탭 점이 꺼집니다. 개수는 어디에도 안 씁니다 — 숫자를
          붙이는 순간 내가 이번 주에 몇 번 갔는지와 나란히 놓입니다. */
       newsCard(wrap);
+      pushCard(wrap);
 
       /* --- C21 새로 맺어진 친구 — 내가 이 관계의 공유를 한 번도 안 건드렸을 때 --- */
       f.accepted.filter(function (r) {

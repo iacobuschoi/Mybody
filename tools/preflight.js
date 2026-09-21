@@ -37,6 +37,8 @@ const CHECKS = [
     why: '모델이 내놓은 헛소리가 그대로 저장되면 안 됩니다' },
   { id: '서버 굳히기', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-hardening.js'],
     why: '인터넷에 여는 서버입니다 — 경로 탈출 하나면 옆 폴더가 통째로 열립니다' },
+  { id: '폰 알림 암호', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-push.js'],
+    why: '암호가 조금만 틀려도 브라우저가 조용히 버립니다 — 서버는 보냈다고 하는데 폰엔 안 뜹니다' },
   { id: '동기화 큐', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-syncqueue.js'],
     why: '조용히 지워진 "공유 끄기" 는 껐다고 믿는 사람에게 제일 나쁜 고장입니다' },
   { id: '공유 항목 이관', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-sharemigrate.js'],

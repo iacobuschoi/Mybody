@@ -30,6 +30,9 @@ const DEFAULTS = {
   /* 이름을 안 걸기로 **정했다** 는 표시. 빈칸(깜빡함)과 구분하려고
      따로 둡니다 — preflight 의 "방침 운영자" 가 이 둘을 다르게 봅니다. */
   ownerOmitted: false,
+  /* 폰 알림(웹푸시) 열쇠. 없으면 알림 기능 전체가 꺼진 채로 돕니다. */
+  vapidPublic: '',
+  vapidPrivate: '',
   anthropicKey: '',
   origin: '',
   trustProxy: false,

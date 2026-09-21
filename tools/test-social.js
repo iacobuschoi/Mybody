@@ -347,6 +347,67 @@ async function main() {
      ((await friendsOf2()).incoming[0] || {}).avatar === undefined,
      (await friendsOf2()).incoming[0]);
 
+  console.log('\n[6-3] 폰 알림 구독');
+  {
+    const N1 = await call('POST', '/auth/signup', { handle: 'pushone', displayName: '알림하나' });
+    const N2 = await call('POST', '/auth/signup', { handle: 'pushtwo', displayName: '알림둘' });
+    const t1 = N1.json.token, t2 = N2.json.token;
+    const P256 = 'B'.repeat(87);          // 86~88자 base64url
+    const AUTH = 'C'.repeat(22);
+    const good = { endpoint: 'https://push.example.com/aaa', p256dh: P256, auth: AUTH };
+
+    /* 이 서버에 열쇠가 없으면 구독 자체를 안 받습니다 — 받아 두면
+       "켰는데 안 온다" 가 됩니다. 시험 서버는 열쇠 없이 띄웁니다. */
+    const sub = await call('POST', '/push/subscribe', good, t1);
+    ok('열쇠 없는 서버는 구독을 거절한다', sub.status === 503, sub.json);
+    ok('공개 열쇠를 물으면 없다고 한다',
+       (await call('GET', '/push/key', null, t1)).json.key === null);
+
+    /* 형식 검사는 db 계층이 하므로 직접 확인합니다 (라우트는 열쇠가
+       없어서 503 에서 멈춥니다). */
+    const { open, makeApi } = require('../server/db.js');
+    const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mb-push-')), 'p.db');
+    const dbx = open(tmp); const apix = makeApi(dbx);
+    const A2 = apix.signUp({ handle: 'pushdb-a', password: PW, displayName: '가', healthConsent: '2026-09-20' });
+    const B2 = apix.signUp({ handle: 'pushdb-b', password: PW, displayName: '나', healthConsent: '2026-09-20' });
+    ok('정상 구독은 받는다', apix.addPushSub(A2.user.id, good).ok === true);
+    ok('http 엔드포인트는 거절', apix.addPushSub(A2.user.id,
+       Object.assign({}, good, { endpoint: 'http://push.example.com/x' })).ok === false);
+    ok('키 형식이 틀리면 거절', apix.addPushSub(A2.user.id,
+       Object.assign({}, good, { p256dh: 'short' })).ok === false);
+    ok('같은 endpoint 는 덮어쓴다 (한 줄만 남는다)', (() => {
+      apix.addPushSub(A2.user.id, good);
+      return apix.pushSubsOf(A2.user.id).length === 1;
+    })());
+    ok('남의 구독은 못 지운다',
+       apix.removePushSub(B2.user.id, good.endpoint).ok === false);
+    ok('내 구독은 지운다', apix.removePushSub(A2.user.id, good.endpoint).ok === true);
+
+    /* --- 여기가 핵심입니다 -----------------------------------------
+       알림이 공유 설정을 우회하는 뒷문이 되면 안 됩니다. 일정을 안
+       보여주기로 한 친구에게는 알림도 가면 안 됩니다. */
+    apix.addPushSub(B2.user.id, good);
+    apix.sendRequest(A2.user.id, B2.user.inviteCode);
+    apix.accept(B2.user.id, A2.user.id);
+    ok('일정을 공유하면 알림 대상이 된다',
+       apix.pushTargetsFor(A2.user.id).length === 1, apix.pushTargetsFor(A2.user.id));
+    apix.setShare(A2.user.id, B2.user.id, { schedule: false });
+    ok('일정 공유를 끄면 알림도 안 간다',
+       apix.pushTargetsFor(A2.user.id).length === 0);
+    apix.setShare(A2.user.id, B2.user.id, { schedule: true });
+
+    /* --- 늘었을 때만 보냅니다 -------------------------------------- */
+    const pub = (kept) => apix.publishSnapshot(A2.user.id, '2026-09-14',
+      { plannedDays: 4, keptDays: kept });
+    ok('첫 기록은 알림이 아니다 (비교할 지난 값이 없음)', pub(1).grew === false);
+    ok('늘어나면 알림', pub(2).grew === true);
+    ok('그대로면 알림 없음', pub(2).grew === false);
+    ok('줄어들면 알림 없음', pub(1).grew === false);
+    ok('일정 숫자가 아예 없으면 알림 없음',
+       apix.publishSnapshot(A2.user.id, '2026-09-14', { checkedIn: true }).grew === false);
+    dbx.close();
+  }
+
   console.log('\n[7] 탈퇴 뒷정리');
   const C = await call('POST', '/auth/signup', { handle: 'temp', displayName: '임시' });
   ok('탈퇴', (await call('DELETE', '/me', null, C.json.token)).json.ok === true);
@@ -356,7 +417,10 @@ async function main() {
 }
 
 const srv = spawn(process.execPath, [path.join(__dirname, '..', 'server', 'server.js')], {
-  env: { ...process.env, PORT: String(PORT), DB, PAIR_SECRET: PAIR },
+  /* 검증 도구는 분당 수백 번 두드립니다. 기본 한도(300/분)는 인터넷에
+     열었을 때를 위한 것이고, 여기서 걸리면 제품이 아니라 시험이
+     막히는 겁니다 — 실제로 한 번 그래서 뒤쪽 절이 통째로 죽었습니다. */
+  env: { ...process.env, PORT: String(PORT), DB, PAIR_SECRET: PAIR, RATE_MAX: '100000', AUTH_MAX: '100000' },
   stdio: 'ignore'
 });
 process.on('exit', () => srv.kill());
