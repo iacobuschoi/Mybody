@@ -399,13 +399,20 @@ function verifyUrl(url, tunnel, tries) {
           line('  ' + link);
           line('');
         }
-        line('손으로 켜려면 두 군데를 봐야 합니다. 둘 다 누르는 것뿐입니다:');
+        line('손으로 켜려면 두 군데입니다:');
+        line('');
         line('  ① https://login.tailscale.com/admin/acls');
-        line('     그 페이지에서 **Funnel** 칸을 펼치고');
-        line('     **"Add Funnel to policy"** 를 누르세요. 저장까지 알아서 됩니다.');
-        line('     (JSON 을 손으로 고칠 필요 없습니다)');
+        line('     왼쪽 메뉴에서 Access controls → **JSON editor** 를 누르세요.');
+        line('     (Policies 화면에는 Funnel 칸이 없습니다 — 거긴 접속 규칙만입니다)');
+        line('     열린 JSON 안, "acls" 블록 **다음에** 이걸 넣고 Save:');
+        line('');
+        line('       "nodeAttrs": [');
+        line('         {"target": ["autogroup:member"], "attr": ["funnel"]},');
+        line('       ],');
+        line('');
         line('  ② https://login.tailscale.com/admin/dns');
         line('     **MagicDNS** 와 **HTTPS Certificates** 를 둘 다 켜세요.');
+        line('');
         line('  그다음 이 창을 끄고 node tools/launch.js 를 다시 치세요.');
         line('');
         line('지금 당장 쓰려면:  node tools/launch.js --cloudflare');

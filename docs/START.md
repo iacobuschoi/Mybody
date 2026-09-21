@@ -182,9 +182,29 @@ curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up
 화면에 tailscale 이 하는 말이 그대로 나오므로 거기 링크가 있으면 그걸
 누르는 게 제일 빠릅니다. 없으면 두 군데를 누르면 됩니다:
 
-1. <https://login.tailscale.com/admin/acls> → **Funnel** 칸을 펼치고
-   **"Add Funnel to policy"** 클릭. 저장까지 알아서 됩니다
-   (정책 파일을 손으로 고칠 필요 없습니다).
+1. <https://login.tailscale.com/admin/acls> → 왼쪽 메뉴 **Access controls →
+   JSON editor**. (첫 화면인 **Policies** 에는 Funnel 칸이 없습니다 —
+   거기는 "누가 누구에게 접속할 수 있나" 만 다룹니다. 한참 찾게 됩니다.)
+   열린 JSON 의 `"acls"` 블록 **다음에** 이 세 줄을 넣고 **Save**:
+
+   ```json
+   "nodeAttrs": [
+     {"target": ["autogroup:member"], "attr": ["funnel"]},
+   ],
+   ```
+
+   기본 정책이라면 전체가 이렇게 됩니다:
+
+   ```json
+   {
+     "acls": [
+       {"action": "accept", "src": ["*"], "dst": ["*:*"]},
+     ],
+     "nodeAttrs": [
+       {"target": ["autogroup:member"], "attr": ["funnel"]},
+     ],
+   }
+   ```
 2. <https://login.tailscale.com/admin/dns> → **MagicDNS** 와
    **HTTPS Certificates** 를 둘 다 켜기. 인증서가 꺼져 있으면 Funnel 이
    주소를 못 만듭니다.
