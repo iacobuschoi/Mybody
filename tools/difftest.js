@@ -216,6 +216,55 @@ function planGoal(rnd, cur) {
   return g;
 }
 
+/* 인바디 결과지의 **부위별 근육/지방** 칸. 앱에 들어오는 길은 아직 없지만
+   워크아웃 처방이 이걸 읽고 종목을 바꾸므로, 있을 때와 없을 때를 둘 다 넣습니다. */
+function withSegmental(scan, rnd) {
+  if (rnd() > 0.45) return scan;
+  const v = () => ['표준이하', '표준', '표준이상'][(rnd() * 3) | 0];
+  const s2 = Object.assign({}, scan);
+  if (rnd() > 0.2) s2.segmentalLean = { rightArm: v(), leftArm: v(), trunk: v(), rightLeg: v(), leftLeg: v() };
+  if (rnd() > 0.4) s2.segmentalFat = { rightArm: v(), leftArm: v(), trunk: v(), rightLeg: v(), leftLeg: v() };
+  return s2;
+}
+
+/** 식단 기록 사례 — 미기록일·빈칸·문자열까지 섞습니다. */
+function logCase(rnd, module) {
+  const target = {
+    intakeKcal: Math.round(1200 + rnd() * 1800),
+    proteinG: Math.round(90 + rnd() * 120),
+    carbG: rnd() > 0.12 ? Math.round(80 + rnd() * 300) : 0,     // 0 은 거짓 → pct null
+    fatG: rnd() > 0.12 ? Math.round(30 + rnd() * 90) : 0
+  };
+  const day = () => {
+    const logged = rnd() > 0.3;
+    const d = { date: '2026-03-01', logged: logged };
+    if (logged) {
+      d.kcal = Math.round(target.intakeKcal * (0.6 + rnd() * 0.8));
+      d.p = Math.round(target.proteinG * (0.5 + rnd() * 0.9));
+      if (rnd() > 0.15) d.c = Math.round(rnd() * 350);
+      if (rnd() > 0.15) d.f = Math.round(rnd() * 110);
+      if (rnd() > 0.95) d.kcal = 0;
+    }
+    return d;
+  };
+  if (module === 'engine.dietAdherence') {
+    const n = (rnd() * 10) | 0;                                  // 0일도 넣습니다
+    return { days: Array.from({ length: n }, day), target: rnd() > 0.05 ? target : null };
+  }
+  if (module === 'engine.dietNudge') {
+    return { today: day(), target: rnd() > 0.05 ? target : null,
+             /* 원본은 new Date().getHours() 를 읽습니다. 양쪽이 **같은 시각**을
+                봐야 비교가 성립하므로 시계를 고정해서 넘깁니다. */
+             nowISO: '2026-03-01T' + String((rnd() * 24) | 0).padStart(2, '0') + ':30:00' };
+  }
+  return {
+    plan: null,
+    expected: { weightKg: 70 + (rnd() - 0.5) * 20, prevWeightKg: 70 + (rnd() - 0.5) * 20 },
+    actual: { weightKg: 70 + (rnd() - 0.5) * 20 },
+    adherence: rnd() > 0.4 ? { dietPct: Math.round(rnd() * 120) } : (rnd() > 0.5 ? {} : null)
+  };
+}
+
 /**
  * 계획 엔진 사례. module 에 따라 필요한 칸을 채웁니다.
  * cur · goalInfo · params 는 **JS 로 미리 계산해서** 넣습니다.
@@ -267,6 +316,35 @@ function makePlanCases(n, seed, module) {
                  weekIndex: wi > 0.6 ? Math.round(rnd() * 200) : (wi > 0.3 ? 0 : null) });
       continue;
     }
+    if (module === 'engine.dietAdherence' || module === 'engine.dietNudge' ||
+        module === 'engine.checkinAdvice') {
+      out.push(logCase(rnd, module));
+      continue;
+    }
+
+    /* 여기서부터는 **시뮬레이션 결과가 입력**입니다. 미리 계산해서 넣습니다. */
+    if (module === 'engine.macrosFor' || module === 'engine.workoutFor' ||
+        module === 'engine.dietFor' || module === 'engine.milestonesFrom') {
+      const sim = E.bestAt(cur, goal, profile, a, goalInfo, con);
+      if (module === 'engine.macrosFor') { out.push({ sim: sim, cur: cur, profile: profile }); continue; }
+      if (module === 'engine.milestonesFrom') {
+        out.push({ traj: sim.trajectory, startISO: rnd() > 0.2 ? '2026-03-15' : '2026-12-28' });
+        continue;
+      }
+      const macros = E.macrosFor(sim, cur, profile);
+      if (module === 'engine.dietFor') {
+        const pr = Object.assign({}, profile);
+        const r = rnd();
+        if (r > 0.66) pr.mealsPerDay = 2; else if (r > 0.33) pr.mealsPerDay = 4;
+        else if (rnd() > 0.5) pr.mealsPerDay = 5;      // 모르는 값 → 3끼로 떨어져야
+        out.push({ macros: macros, profile: pr });
+        continue;
+      }
+      out.push({ sim: sim, cur: cur, profile: profile,
+                 scan: withSegmental(scan, rnd), goalInfo: rnd() > 0.1 ? goalInfo : null });
+      continue;
+    }
+
     if (module === 'engine.compareLevels') {
       const modes = realModeDefs();
       const roll = rnd();
@@ -292,17 +370,25 @@ function makePlanCases(n, seed, module) {
  * 얹어 주고 나서 읽습니다 — 파일을 고치지 않는 쪽이 낫습니다. 검사하려고
  * 원본을 건드리면 검사한 것과 실제로 도는 것이 달라집니다.
  * -------------------------------------------------------------------------- */
+let depsLoaded = false;
 function loadJs(file) {
   if (typeof global.window === 'undefined') global.window = global;
-  /* **진짜 modes.js 를 먼저 얹습니다.**
-     engine.js 의 classifyGoal 은 `global.MB_MODES.NOISE` 를 읽고, 그 객체를
-     goalInfo.noise 칸에 **통째로** 실어 내보냅니다. 예전엔 여기서 숫자 세 개
-     짜리 가짜를 얹었는데, 그러면 앱이 실제로 내보내는 값과 다른 것을
-     비교하게 됩니다 — 검사가 통과해도 보증되는 게 없습니다. */
-  if (file !== 'modes' && typeof global.MB_MODES === 'undefined') loadJs('modes');
+  /* 먼저 얹어야 하는 것들.
+     · modes.js — engine.js 의 classifyGoal 이 `global.MB_MODES.NOISE` 를 읽고
+       그 객체를 goalInfo.noise 칸에 **통째로** 실어 내보냅니다. 예전엔 여기서
+       숫자 세 개짜리 가짜를 얹었는데, 그러면 앱이 실제로 내보내는 값과 다른
+       것을 비교하게 됩니다 — 통과해도 보증되는 게 없습니다.
+     · data.js — dietFor·workoutFor 가 `global.MB_DATA` 에서 식품과 종목을 읽습니다.
+     한 번만 합니다. 서로 부르게 두면 끝없이 돕니다 (실제로 그랬습니다). */
+  if (!depsLoaded) {
+    depsLoaded = true;
+    require(path.join(ROOT, 'prototype', 'js', 'modes.js'));
+    require(path.join(ROOT, 'prototype', 'js', 'data.js'));
+  }
   require(path.join(ROOT, 'prototype', 'js', file + '.js'));
   if (file === 'crosscheck') return global.MB_CHECK;
   if (file === 'modes') return global.MB_MODES;
+  if (file === 'data') return global.MB_DATA;
   return global.MB_ENGINE;
 }
 
@@ -316,6 +402,21 @@ function realModeDefs() {
     id: m.id, nameKo: m.nameKo, aMin: m.aMin, aMax: m.aMax, strategy: m.strategy,
     proteinPerFfmMin: m.proteinPerFfmMin, proteinPerFfmMax: m.proteinPerFfmMax
   }));
+}
+
+/* dietNudge 는 `new Date().getHours()` 로 지금 시각을 읽습니다. 양쪽이 서로
+   다른 순간을 보면 19시 경계에서 답이 갈리고, 그건 옮긴 코드의 잘못이
+   아닙니다. 그래서 검사하는 동안만 시계를 세웁니다 — 원본은 안 건드립니다. */
+function withFrozenClock(iso, fn) {
+  const Real = global.Date;
+  const fixed = new Real(iso).getTime();
+  function Frozen(...a) { return a.length === 0 ? new Real(fixed) : new Real(...a); }
+  Frozen.prototype = Real.prototype;
+  Frozen.now = () => fixed;
+  Frozen.parse = Real.parse;
+  Frozen.UTC = Real.UTC;
+  global.Date = Frozen;
+  try { return fn(); } finally { global.Date = Real; }
 }
 
 /** 모듈 이름 → JS 쪽에서 실제로 부를 함수 */
@@ -345,6 +446,13 @@ function jsCaller(module) {
       return c => m.scanCurve(c.cur, c.goal, c.profile, m.classifyGoal(c.cur, c.goal), c.con);
     case 'engine.compareLevels':
       return c => m.compareLevels(c.scan, c.profile, c.goal, c.startDateISO, c.deadlineWeeks, c.modeDef);
+    case 'engine.macrosFor':      return c => m.macrosFor(c.sim, c.cur, c.profile);
+    case 'engine.workoutFor':     return c => m.workoutFor(c.sim, c.cur, c.profile, c.scan, c.goalInfo);
+    case 'engine.dietFor':        return c => m.dietFor(c.macros, c.profile);
+    case 'engine.milestonesFrom': return c => m.milestonesFrom(c.traj, c.startISO);
+    case 'engine.dietAdherence':  return c => m.dietAdherence(c.days, c.target);
+    case 'engine.dietNudge':      return c => withFrozenClock(c.nowISO, () => m.dietNudge(c.today, c.target));
+    case 'engine.checkinAdvice':  return c => m.checkinAdvice(c.plan, c.expected, c.actual, c.adherence);
     default: throw new Error('모르는 모듈: ' + module);
   }
 }
@@ -427,7 +535,14 @@ const MODULES = [
   { name: 'engine.simulateSplit',     gen: makePlanCases, cap: 300 },
   { name: 'engine.bestAt',            gen: makePlanCases, cap: 300 },
   { name: 'engine.scanCurve',         gen: makePlanCases, cap: 12 },
-  { name: 'engine.compareLevels',     gen: makePlanCases, cap: 10 }
+  { name: 'engine.compareLevels',     gen: makePlanCases, cap: 10 },
+  { name: 'engine.macrosFor',         gen: makePlanCases, cap: 200 },
+  { name: 'engine.workoutFor',        gen: makePlanCases, cap: 200 },
+  { name: 'engine.dietFor',           gen: makePlanCases, cap: 200 },
+  { name: 'engine.milestonesFrom',    gen: makePlanCases, cap: 200 },
+  { name: 'engine.dietAdherence',     gen: makePlanCases },
+  { name: 'engine.dietNudge',         gen: makePlanCases },
+  { name: 'engine.checkinAdvice',     gen: makePlanCases }
 ];
 let failed = 0;
 

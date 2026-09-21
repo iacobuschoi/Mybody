@@ -1507,6 +1507,8 @@
        compareLevels 만으로는 어느 층에서 갈렸는지 알 수가 없습니다. */
     simulateSimultaneous: simulateSimultaneous, simulateSplit: simulateSplit,
     bestAt: bestAt, scanCurve: scanCurve, snapshot: snapshot,
+    milestonesFrom: milestonesFrom, feasibility: feasibility, spanNote: spanNote,
+    maintenancePlan: maintenancePlan, bottleneckNote: bottleneckNote,
     addWeeks: addWeeks, toISODate: toISODate, daysUntil: daysUntil, r1: r1
   };
 })(window);

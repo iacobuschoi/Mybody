@@ -100,6 +100,33 @@ void main(List<String> args) {
           v = engine.compareLevels(_m(c['scan'])!, _m(c['profile'])!, _m(c['goal'])!,
               c['startDateISO'], c['deadlineWeeks'], _m(c['modeDef']));
           break;
+        case 'engine.macrosFor':
+          v = engine.macrosFor(_m(c['sim'])!, _m(c['cur'])!, _m(c['profile'])!);
+          break;
+        case 'engine.workoutFor':
+          v = engine.workoutFor(_m(c['sim'])!, _m(c['cur'])!, _m(c['profile'])!,
+              _m(c['scan']), _m(c['goalInfo']));
+          break;
+        case 'engine.dietFor':
+          v = engine.dietFor(_m(c['macros'])!, _m(c['profile'])!);
+          break;
+        case 'engine.milestonesFrom':
+          v = engine.milestonesFrom(
+              (c['traj'] as List).map((x) => _m(x)!).toList(), c['startISO']);
+          break;
+        case 'engine.dietAdherence':
+          v = engine.dietAdherence(
+              (c['days'] as List).map((x) => _m(x)!).toList(), _m(c['target']));
+          break;
+        case 'engine.dietNudge':
+          /* 시계를 고정해서 받습니다 — JS 쪽도 같은 순간을 봅니다. */
+          v = engine.dietNudge(_m(c['today'])!, _m(c['target']),
+              now: DateTime.parse('${c['nowISO']}'));
+          break;
+        case 'engine.checkinAdvice':
+          v = engine.checkinAdvice(
+              _m(c['plan']), _m(c['expected'])!, _m(c['actual'])!, _m(c['adherence']));
+          break;
         case 'engine.scanCurve':
           v = engine.scanCurve(_m(c['cur'])!, _m(c['goal'])!, _m(c['profile'])!,
               engine.classifyGoal(_m(c['cur'])!, _m(c['goal'])!), _m(c['con']));

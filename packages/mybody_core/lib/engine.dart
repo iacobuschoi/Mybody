@@ -22,6 +22,7 @@
 library;
 
 import 'dart:math' as math;
+import 'data.dart';
 import 'js_date.dart';
 import 'js_num.dart';
 
@@ -1324,3 +1325,394 @@ Map<String, Object?> compareLevels(
     'bottleneckNote': bottleneckNote(results, goalInfo),
   };
 }
+
+/* --- 9. 매크로 / 운동 / 식단 ------------------------------------------------ */
+
+const Map<String, Map<String, Object?>> kSplits = {
+  '3': {'name': '전신 3분할', 'days': ['전신 A', '휴식', '전신 B', '휴식', '전신 C', '휴식', '휴식']},
+  '4': {'name': '상하체 4분할', 'days': ['상체 A', '하체 A', '휴식', '상체 B', '하체 B', '휴식', '휴식']},
+  '5': {'name': 'PPL + 상하체', 'days': ['가슴·어깨·삼두', '등·이두', '하체', '휴식', '상체 전체', '하체·코어', '휴식']},
+  '6': {'name': 'PPL 2회전', 'days': ['푸시 A', '풀 A', '레그 A', '푸시 B', '풀 B', '레그 B', '휴식']},
+};
+
+final RegExp _reFullBody = RegExp('전신');
+final RegExp _reUpper = RegExp('상체');
+final RegExp _reLower = RegExp('하체|레그');
+final RegExp _rePush = RegExp('푸시|가슴');
+final RegExp _rePull = RegExp('풀|등');
+final RegExp _reCompound = RegExp('스쿼트|데드|벤치|프레스|로우|풀업|딥스');
+
+Map<String, Object?> workoutFor(Map<String, Object?> sim, Map<String, Object?> cur,
+    Map<String, Object?> profile, Map<String, Object?>? scan, Map<String, Object?>? goalInfo) {
+  final p = sim['params'] as Map<String, Object?>;
+  final tr = resolveTraining(profile, p, goalInfo);
+  final days = tr['days'];
+  /* JS 객체의 키는 문자열이라 `SPLITS[days]` 는 String(days) 로 찾습니다 —
+     4.5 나 NaN 이면 없어서 4분할로 떨어집니다. */
+  final split = kSplits[_s(days)] ?? kSplits['4']!;
+
+  // 인바디 부위별 분석 → 종목 편향
+  final bias = <String>[];
+  final segLean = scan == null ? null : scan['segmentalLean'];
+  if (segLean is Map) {
+    if (segLean['rightArm'] == '표준이하' || segLean['leftArm'] == '표준이하') {
+      bias.add('팔 근육 표준 이하 → 팔 보조 볼륨 주 +2세트');
+    }
+    if (segLean['trunk'] == '표준이하') bias.add('몸통 근육 표준 이하 → 코어·척추기립근 보강');
+    if (segLean['rightLeg'] == '표준이하' || segLean['leftLeg'] == '표준이하') {
+      bias.add('하체 근육 표준 이하 → 하체 볼륨 주 +3세트');
+    }
+    if (segLean['rightArm'] != segLean['leftArm']) bias.add('좌우 팔 불균형 → 원암(편측) 종목 우선');
+    if (segLean['rightLeg'] != segLean['leftLeg']) bias.add('좌우 다리 불균형 → 불가리안 스플릿스쿼트 필수');
+  }
+  final segFat = scan == null ? null : scan['segmentalFat'];
+  if (segFat is Map) {
+    if (segFat['trunk'] == '표준이상') bias.add('몸통 지방 표준 이상 → 내장지방 우선, Z2 유산소 비중 ↑');
+    if (segFat['rightArm'] == '표준이상' && segFat['rightLeg'] == '표준') {
+      bias.add('상체에 지방이 몰린 패턴 → 상체 볼륨보다 전신 에너지 소모 우선');
+    }
+  }
+  /* 부위별 값이 없으면 "약점 없음" 이라고 말하지 않습니다 — 본 적이 없으니까요.
+     이유는 원본 주석에 길게 있습니다. */
+  final hasSegmental = scan != null && (jsTruthy(scan['segmentalLean']) || jsTruthy(scan['segmentalFat']));
+  if (bias.isEmpty) {
+    bias.add(hasSegmental
+        ? '부위별 분석상 뚜렷한 약점 없음 → 균형 프로그램'
+        : '부위별 분석은 아직 넣을 수 없습니다 → 지금은 균형 배분입니다');
+  }
+
+  List<Object?> pick(String group, int n) {
+    final pool = (kExercises[group] as List?) ?? const <Object?>[];
+    return pool.sublist(0, math.min(n, pool.length));
+  }
+
+  final setsPerMuscle = jsToNumber(tr['setsPerMuscle']);
+  final difficulty = jsToNumber(p['difficulty']);
+  final labels = (split['days'] as List).cast<String>();
+  final sessions = <Map<String, Object?>>[];
+  for (var i = 0; i < labels.length; i++) {
+    final label = labels[i];
+    if (label == '휴식') {
+      sessions.add({'day': i, 'label': label, 'rest': true, 'exercises': <Object?>[]});
+      continue;
+    }
+    List<List<Object>> groups;
+    if (_reFullBody.hasMatch(label)) {
+      groups = [['quads', 1], ['back', 1], ['chest', 1], ['shoulder', 1], ['core', 1]];
+    } else if (_reUpper.hasMatch(label)) {
+      groups = [['chest', 2], ['back', 2], ['shoulder', 1], ['arms', 2]];
+    } else if (_reLower.hasMatch(label)) {
+      groups = [['quads', 2], ['hamsGlutes', 2], ['core', 1]];
+    } else if (_rePush.hasMatch(label)) {
+      groups = [['chest', 2], ['shoulder', 2], ['arms', 1]];
+    } else if (_rePull.hasMatch(label)) {
+      groups = [['back', 3], ['arms', 1]];
+    } else {
+      groups = [['chest', 1], ['back', 1], ['quads', 1], ['core', 1]];
+    }
+
+    final ex = <Map<String, Object?>>[];
+    for (final g in groups) {
+      for (final item0 in pick(g[0] as String, g[1] as int)) {
+        final item = (item0 as Map).cast<String, Object?>();
+        final isCompound = _reCompound.hasMatch('${item['name']}');
+        ex.add({
+          'name': item['name'], 'equip': item['equip'], 'note': item['note'], 'group': g[0],
+          'sets': isCompound ? (setsPerMuscle >= 16 ? 4 : 3) : 3,
+          'reps': isCompound ? '5-8' : '10-15',
+          'restSec': isCompound ? 150 : 75,
+          'rpe': difficulty >= 3 ? '8-9' : (p['difficulty'] == 2 ? '7-8' : '6-8'),
+        });
+      }
+    }
+    sessions.add({
+      'day': i, 'label': label, 'rest': false, 'exercises': ex, 'minutes': tr['sessionMin'],
+    });
+  }
+
+  bias.addAll((tr['reason'] as List).cast<String>());
+
+  final cardioMin = jsToNumber(tr['cardioMin']);
+  return {
+    'splitName': split['name'],
+    'daysPerWeek': days,
+    'sessionMinutes': tr['sessionMin'],
+    'setsPerMuscle': tr['setsPerMuscle'],
+    'cardioMinPerWeek': tr['cardioMin'],
+    'cardioPlan': cardioMin >= 180
+        ? 'Z2 저강도 40분 × 4회 + HIIT 15분 × 2회'
+        : (cardioMin >= 120 ? 'Z2 저강도 45분 × 3회' : 'Z2 저강도 40분 × 2회'),
+    'deloadEvery': p['deloadEvery'],
+    'progression': '더블 프로그레션 — 목표 반복 상단에 도달하면 다음 세션에 중량 2.5~5kg 증가',
+    'inbodyBias': bias,
+    'hasSegmental': hasSegmental,
+    'sessions': sessions,
+  };
+}
+
+Map<String, Object?> dietFor(Map<String, Object?> macros, Map<String, Object?> profile) {
+  final mpd = profile['mealsPerDay'];
+  final meals = mpd == 2 ? 2 : (mpd == 4 ? 4 : 3);
+  final names = meals == 2
+      ? ['점심', '저녁']
+      : (meals == 4 ? ['아침', '점심', '간식', '저녁'] : ['아침', '점심', '저녁']);
+  final weights = meals == 2
+      ? [0.5, 0.5]
+      : (meals == 4 ? [0.25, 0.30, 0.15, 0.30] : [0.30, 0.35, 0.35]);
+
+  List<Map<String, Object?>> byTag(String t) => [
+        for (final x0 in kFoods)
+          if (((x0 as Map)['tags'] as List).contains(t)) x0.cast<String, Object?>()
+      ];
+  final proteins = byTag('protein'), carbs = byTag('carb'),
+      sides = byTag('side'), soups = byTag('soup');
+
+  final mealPlan = <Map<String, Object?>>[];
+  for (var i = 0; i < names.length; i++) {
+    final kcal = jsRound(_f(macros, 'intakeKcal') * weights[i]);
+    final protein = jsRound(_f(macros, 'proteinG') * weights[i]);
+    final carb = jsRound(_f(macros, 'carbG') * weights[i]);
+    final fat = jsRound(_f(macros, 'fatG') * weights[i]);
+    final pf = proteins[i % proteins.length];
+    final cf = carbs[i % carbs.length];
+    final sf = sides[i % sides.length];
+    final soup = soups[i % soups.length];
+    /* `cf.c || 60` — 탄수 0 인 식품이 들어와도 0 으로 나누지 않게 하는 방어입니다. */
+    final riceG = jsRound(carb / (jsTruthy(cf['c']) ? jsToNumber(cf['c']) : 60) * 100);
+    final meatG = jsRound(protein / (jsTruthy(pf['p']) ? jsToNumber(pf['p']) : 20) * 100);
+    mealPlan.add({
+      'name': names[i], 'kcal': kcal, 'proteinG': protein, 'carbG': carb, 'fatG': fat,
+      'options': [
+        {
+          'label': '한식 A',
+          'items': [
+            '${cf['name']} 약 ${_s(riceG)}g',
+            '${pf['name']} ${_s(meatG)}g',
+            '${soup['name']} (국물 남기기)',
+            sf['name'],
+          ],
+        },
+        {
+          'label': '간편 B',
+          'items': ['유청단백 1스쿱', '고구마 150g', '삶은계란 2개', '샐러드채소 100g'],
+        },
+      ],
+    });
+  }
+
+  return {
+    'mealsPerDay': meals,
+    'meals': mealPlan,
+    'proteinPerMeal': jsRound(_f(macros, 'proteinG') / meals),
+    'hydrationL': 2.5,
+    'eatingOut': kEatingOut,
+    'notes': [
+      '단백질은 끼니당 30~40g씩 고르게 나누는 편이 근단백 합성에 유리합니다.',
+      '한식은 국·찌개의 나트륨이 높아 체중계 숫자를 며칠씩 흔듭니다. 국물은 남기세요.',
+      '체중은 수분·나트륨 때문에 하루 ±1kg 흔들립니다. 하루 값이 아니라 주 평균으로 보세요.',
+    ],
+  };
+}
+
+/// 선택된 강도로 최종 플랜을 조립합니다.
+Map<String, Object?>? buildPlan(Map<String, Object?> comparison, Object? level,
+    Map<String, Object?>? scan, Map<String, Object?> profile) {
+  Map<String, Object?>? r;
+  for (final x0 in (comparison['results'] as List)) {
+    final x = (x0 as Map).cast<String, Object?>();
+    if (x['level'] == level) {
+      r = x;
+      break;
+    }
+  }
+  if (r == null) return null;
+  final sim = r['sim'] as Map<String, Object?>;
+  final goal = (comparison['goal'] as Map).cast<String, Object?>();
+  final macros = r['macros'] as Map<String, Object?>;
+  return {
+    'level': level,
+    'mode': comparison['mode'],
+    'goal': {
+      'weightKg': goal['weightKg'],
+      'smmKg': goal['smmKg'],
+      'bfmKg': goal['bfmKg'],
+      'modeId': goal.containsKey('modeId') && goal['modeId'] != null ? goal['modeId'] : null,
+    },
+    'label': r['label'],
+    'title': r['title'],
+    'weeks': r['weeks'],
+    'targetDate': r['targetDate'],
+    'startDate': comparison['startDate'],
+    'strategy': sim['strategy'],
+    'strategyLabel': sim['strategyLabel'],
+    'strategyDesc': sim['strategyDesc'],
+    'phases': sim['phases'],
+    'trajectory': sim['trajectory'],
+    'bottleneck': comparison['bottleneckNote'],
+    'macros': macros,
+    'workout': workoutFor(sim, (comparison['current'] as Map).cast<String, Object?>(),
+        profile, scan, _mapOrNull(comparison['goalInfo'])),
+    'diet': dietFor(macros, profile),
+    'feasibility': r['feasibility'],
+    'capWarning': r['capWarning'],
+    'milestones': milestonesFrom(_traj(sim), comparison['startDate']),
+  };
+}
+
+Map<String, Object?>? _mapOrNull(Object? x) =>
+    x == null ? null : (x as Map).cast<String, Object?>();
+
+List<Map<String, Object?>> milestonesFrom(List<Map<String, Object?>> traj, Object? startISO) {
+  final out = <Map<String, Object?>>[];
+  for (var i = 4; i < traj.length; i += 4) {
+    final t = traj[i];
+    out.add({
+      'week': t['week'], 'date': addWeeks(startISO, jsToNumber(t['week'])),
+      'weightKg': t['weightKg'], 'smmKg': t['smmKg'], 'bfmKg': t['bfmKg'], 'pbfPct': t['pbfPct'],
+    });
+  }
+  final last = traj[traj.length - 1];
+  if (out.isEmpty || out[out.length - 1]['week'] != last['week']) {
+    out.add({
+      'week': last['week'], 'date': addWeeks(startISO, jsToNumber(last['week'])),
+      'weightKg': last['weightKg'], 'smmKg': last['smmKg'], 'bfmKg': last['bfmKg'],
+      'pbfPct': last['pbfPct'], 'final': true,
+    });
+  } else {
+    out[out.length - 1]['final'] = true;
+  }
+  return out;
+}
+
+/* --- 10. 식단 기록 / 체크인 ------------------------------------------------- */
+
+/// 식단 달성률. **미기록일은 분모에서 뺍니다** — 0 으로 치환하면 평균이
+/// 폭락하고, 그 값을 보고 칼로리를 더 깎으면 실제로 사람을 굶깁니다.
+Map<String, Object?>? dietAdherence(List<Map<String, Object?>> days, Map<String, Object?>? target) {
+  if (target == null) return null;
+  final logged = days.where((d) => jsTruthy(d['logged'])).toList();
+  final n = logged.length;
+  final intake = _f(target, 'intakeKcal');
+  final out = <String, Object?>{
+    'totalDays': days.length, 'loggedDays': n, 'missedDays': days.length - n,
+    'logRatePct': days.isNotEmpty ? jsRound(n / days.length * 100) : 0,
+    'avg': null, 'pct': null, 'inBandDays': 0, 'proteinHitDays': 0, 'band': null,
+  };
+  /* 칼로리는 점이 아니라 밴드입니다. 2,400 목표에 2,500 먹고 빨간불이 켜지는
+     앱은 없는 정밀도를 파는 것입니다. */
+  final band = {'lo': jsRound(intake * 0.9), 'hi': jsRound(intake * 1.1)};
+  out['band'] = band;
+  if (n == 0) return out;
+
+  var sumKcal = 0.0, sumP = 0.0, sumC = 0.0, sumF = 0.0;
+  var inBand = 0, proteinHit = 0;
+  final lo = jsToNumber(band['lo']), hi = jsToNumber(band['hi']);
+  for (final d in logged) {
+    /* `d.kcal || 0` — 없거나 0 이면 0. 문자열이 들어오면 그대로 쓰이고
+       합계가 NaN 이 됩니다(원본과 같습니다). */
+    final kcal = jsTruthy(d['kcal']) ? jsToNumber(d['kcal']) : 0;
+    final p = jsTruthy(d['p']) ? jsToNumber(d['p']) : 0;
+    sumKcal += kcal;
+    sumP += p;
+    sumC += jsTruthy(d['c']) ? jsToNumber(d['c']) : 0;
+    sumF += jsTruthy(d['f']) ? jsToNumber(d['f']) : 0;
+    if (kcal >= lo && kcal <= hi) inBand++;
+    if (p >= _f(target, 'proteinG') * 0.9) proteinHit++;
+  }
+  out['inBandDays'] = inBand;
+  out['proteinHitDays'] = proteinHit;
+  final avg = {
+    'kcal': jsRound(sumKcal / n),
+    'p': jsRound(sumP / n * 10) / 10,
+    'c': jsRound(sumC / n * 10) / 10,
+    'f': jsRound(sumF / n * 10) / 10,
+  };
+  out['avg'] = avg;
+  out['pct'] = {
+    'kcal': jsRound(jsToNumber(avg['kcal']) / intake * 100),
+    'p': jsRound(jsToNumber(avg['p']) / _f(target, 'proteinG') * 100),
+    'c': jsTruthy(target['carbG']) ? jsRound(jsToNumber(avg['c']) / _f(target, 'carbG') * 100) : null,
+    'f': jsTruthy(target['fatG']) ? jsRound(jsToNumber(avg['f']) / _f(target, 'fatG') * 100) : null,
+  };
+  out['inBandPct'] = jsRound(inBand / n * 100);
+  out['proteinHitPct'] = jsRound(proteinHit / n * 100);
+  return out;
+}
+
+/// 오늘 상태에 대한 한 줄. **명령이 아니라 상태 보고**입니다 —
+/// "그만 드세요" 는 앱이 내리는 지시이고, "다 채웠습니다" 는 정보입니다.
+///
+/// [now] 는 시험을 위해 시계를 고정할 때만 씁니다 (원본은 `new Date()`).
+Map<String, Object?>? dietNudge(Map<String, Object?> today, Map<String, Object?>? target,
+    {DateTime? now}) {
+  if (target == null) return null;
+  final kcal = jsTruthy(today['kcal']) ? jsToNumber(today['kcal']) : 0;
+  final p = jsTruthy(today['p']) ? jsToNumber(today['p']) : 0;
+  final intake = _f(target, 'intakeKcal');
+  final proteinG = _f(target, 'proteinG');
+  final remainKcal = intake - kcal;
+  final remainP = math.max(0.0, proteinG - p);
+  final bandLo = intake * 0.9, bandHi = intake * 1.1;
+  final hour = (now ?? DateTime.now()).toLocal().hour;
+
+  if (!jsTruthy(today['logged'])) {
+    return {'kind': 'none', 'tone': '', 'text': '오늘은 아직 기록이 없습니다.',
+            'detail': '한 끼만 적어도 주 평균이 살아납니다.'};
+  }
+  if (remainP > 25 && hour >= 19) {
+    return {'kind': 'protein', 'tone': 'warn',
+            'text': '단백질이 ${_s(jsRound(remainP))}g 남았습니다.',
+            'detail': '닭가슴살 한 팩이 약 23g, 계란 두 개가 약 12g입니다.'};
+  }
+  if (kcal > bandHi) {
+    return {'kind': 'over', 'tone': 'warn',
+            'text': '오늘 목표 범위를 넘었습니다 (${_s(jsRound(kcal))} / ${_s(jsRound(intake))}kcal).',
+            'detail': '하루로 계획이 무너지지 않습니다. 내일 목표대로 돌아오면 주 평균은 유지됩니다.'};
+  }
+  if (kcal >= bandLo && kcal <= bandHi && remainP <= 10) {
+    return {'kind': 'done', 'tone': 'ok', 'text': '오늘 목표치를 다 채웠습니다.',
+            'detail': '칼로리도 단백질도 범위 안입니다.'};
+  }
+  if (remainP > 25) {
+    return {'kind': 'protein', 'tone': '',
+            'text': '단백질이 ${_s(jsRound(remainP))}g 남았습니다.',
+            'detail': '남은 끼니에 단백질 반찬을 하나 더 넣으면 채워집니다.'};
+  }
+  return {
+    'kind': 'ok', 'tone': '',
+    'text': remainKcal > 0 ? '${_s(jsRound(remainKcal))}kcal 남았습니다.' : '목표 범위 안입니다.',
+    'detail': '단백질 ${_s(jsRound(p))} / ${_s(target['proteinG'])}g',
+  };
+}
+
+/// 주간 체크인 → 재조정 제안
+Map<String, Object?> checkinAdvice(Map<String, Object?>? plan, Map<String, Object?> expected,
+    Map<String, Object?> actual, Map<String, Object?>? adherence) {
+  final dExp = _f(expected, 'weightKg') - _f(actual, 'weightKg');
+  final dAct = _f(expected, 'prevWeightKg') - _f(actual, 'weightKg');
+  final gap = dAct - dExp;
+  final suggestions = <Map<String, Object?>>[];
+
+  if (adherence != null && _lt(adherence['dietPct'], 70)) {
+    suggestions.add({
+      'kind': 'adherence', 'title': '칼로리는 그대로 두고 순응도부터',
+      'detail': '식단 준수도가 ${_s(adherence['dietPct'])}%입니다. 계획이 틀린 게 아니라 실행이 덜 된 '
+          '상태라 칼로리를 더 줄이면 역효과입니다.',
+    });
+    return {'status': 'adherence', 'suggestions': suggestions};
+  }
+  if (gap.abs() < 0.15) {
+    suggestions.add({'kind': 'hold', 'title': '계획 유지', 'detail': '예상 범위 안입니다. 바꾸지 마세요.'});
+    return {'status': 'onTrack', 'suggestions': suggestions};
+  }
+  if (gap < -0.15) {  // 덜 빠짐
+    suggestions.add({'kind': 'kcal', 'title': '하루 150kcal 줄이기', 'detail': '2주 연속 정체일 때만 적용하세요.'});
+    suggestions.add({'kind': 'cardio', 'title': '유산소 주 1회 추가', 'detail': '칼로리를 더 줄이는 것보다 근육 보존에 유리합니다.'});
+    return {'status': 'slow', 'suggestions': suggestions};
+  }
+  suggestions.add({'kind': 'kcal', 'title': '하루 150kcal 늘리기', 'detail': '너무 빠르면 근손실 위험이 올라갑니다.'});
+  return {'status': 'fast', 'suggestions': suggestions};
+}
+
+/// JS 의 `a < b` — 한쪽이 없으면 false.
+bool _lt(Object? a, num b) => a is num && a < b;

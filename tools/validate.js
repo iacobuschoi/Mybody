@@ -638,7 +638,7 @@ function engineStamp() {
    숫자가 그대로면 파일도 그대로 둡니다. */
 const payload = {
   engine: 'prototype/js/engine.js',
-  engineChange: 'exports added only: MB_ENGINE.stepWeek, simulateSimultaneous, simulateSplit, bestAt, scanCurve, snapshot (no parameter or logic change)',
+  engineChange: 'exports added only: MB_ENGINE.stepWeek plus the simulator/plan internals used by tools/difftest.js (no parameter or logic change)',
   provenance: engineStamp(),
   kSmmToFfm: K_SMM_TO_FFM,
   caseCount: rows.length,
