@@ -34,6 +34,14 @@ void main(List<String> args) {
   final module = args[0];
   final cases = jsonDecode(File(args[1]).readAsStringSync()) as List;
 
+  /* 측정 노이즈 바닥은 modes.js 가 정합니다. 사례마다 실어 보내면 (근거
+     문장이 10KB 라) 파일이 수십 MB 가 되므로 따로 한 번만 받습니다.
+     안 주면 engine.js 의 대체값과 같은 기본값을 씁니다. */
+  if (args.length > 2 && args[2].isNotEmpty) {
+    engine.engineNoise =
+        (jsonDecode(File(args[2]).readAsStringSync()) as Map).cast<String, Object?>();
+  }
+
   final out = <Map<String, Object?>>[];
   for (final c0 in cases) {
     final c = c0 as Map<String, Object?>;
@@ -87,6 +95,10 @@ void main(List<String> args) {
           v = engine.bestAt(_m(c['cur'])!, _m(c['goal'])!, _m(c['profile'])!,
               c['a'], engine.classifyGoal(_m(c['cur'])!, _m(c['goal'])!),
               _m(c['con']));
+          break;
+        case 'engine.compareLevels':
+          v = engine.compareLevels(_m(c['scan'])!, _m(c['profile'])!, _m(c['goal'])!,
+              c['startDateISO'], c['deadlineWeeks'], _m(c['modeDef']));
           break;
         case 'engine.scanCurve':
           v = engine.scanCurve(_m(c['cur'])!, _m(c['goal'])!, _m(c['profile'])!,

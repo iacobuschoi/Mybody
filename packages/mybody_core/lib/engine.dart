@@ -22,6 +22,7 @@
 library;
 
 import 'dart:math' as math;
+import 'js_date.dart';
 import 'js_num.dart';
 
 const double kcalPerKgFat = 7700;
@@ -199,14 +200,20 @@ int? _parseDate(Object? x) {
 
 /* --- 2. 목표 분류 ----------------------------------------------------------- */
 
-/// 측정 노이즈 바닥. 원본은 window.MB_MODES.NOISE 를 읽습니다.
-class EngineNoise {
-  final double weight, smm, bfm;
-  const EngineNoise({this.weight = 1.0, this.smm = 0.6, this.bfm = 1.0});
-}
+/* 측정 노이즈 바닥. 원본은 `global.MB_MODES ? global.MB_MODES.NOISE : {…}` 입니다.
+ *
+ * **맵 통째로** 들고 있어야 합니다. classifyGoal 은 이 객체를 `noise:` 칸에
+ * 그대로 실어 내보내는데, modes.js 의 NOISE 에는 세 숫자 말고 근거를 적은
+ * 긴 `rationale` 문자열도 들어 있습니다. 숫자 세 개만 들고 있으면 계산은
+ * 맞는데 내보내는 값이 달라집니다 — 차이 검사가 바로 이걸 잡았습니다.
+ * 화면이 그 근거를 읽는 날이 오면 옮긴 앱에서는 비어 있게 됩니다. */
+const Map<String, Object?> kNoiseFallback = {'weight': 1.0, 'smm': 0.6, 'bfm': 1.0};
 
-EngineNoise _noise = const EngineNoise();
-set engineNoise(EngineNoise n) => _noise = n;
+Map<String, Object?> _noise = kNoiseFallback;
+
+/// modes 쪽에서 실제 NOISE 를 넣어 줍니다. 안 넣으면 원본의 대체값과 같습니다.
+set engineNoise(Map<String, Object?> n) => _noise = n;
+Map<String, Object?> get engineNoise => _noise;
 
 Map<String, Object?> classifyGoal(Map<String, Object?> cur, Map<String, Object?> goal) {
   final dW = _f(goal, 'weightKg') - _f(cur, 'weightKg');
@@ -218,10 +225,11 @@ Map<String, Object?> classifyGoal(Map<String, Object?> cur, Map<String, Object?>
   final mismatchKg = _f(goal, 'weightKg') - impliedWeight;
 
   final nf = _noise;
-  final wantsFatLoss = dBFM < -nf.bfm;
-  final wantsFatGain = dBFM > nf.bfm;
-  final wantsMuscle = dSMM > nf.smm;
-  final losesMuscle = dSMM < -nf.smm;
+  final nBfm = _f(nf, 'bfm'), nSmm = _f(nf, 'smm'), nWeight = _f(nf, 'weight');
+  final wantsFatLoss = dBFM < -nBfm;
+  final wantsFatGain = dBFM > nBfm;
+  final wantsMuscle = dSMM > nSmm;
+  final losesMuscle = dSMM < -nSmm;
 
   String type, typeLabel;
   if (wantsFatLoss && wantsMuscle) {
@@ -251,11 +259,11 @@ Map<String, Object?> classifyGoal(Map<String, Object?> cur, Map<String, Object?>
     'impliedWeightKg': r1(impliedWeight),
     'mismatchKg': r1(mismatchKg),
     'isConsistent': mismatchKg.abs() <= 1.0,
-    'noise': {'weight': nf.weight, 'smm': nf.smm, 'bfm': nf.bfm},
+    'noise': nf,
     'subNoise': {
-      'weight': dW.abs() < nf.weight,
-      'smm': dSMM.abs() < nf.smm,
-      'bfm': dBFM.abs() < nf.bfm,
+      'weight': dW.abs() < nWeight,
+      'smm': dSMM.abs() < nSmm,
+      'bfm': dBFM.abs() < nBfm,
     },
   };
 }
@@ -838,4 +846,481 @@ List<Map<String, Object?>> scanCurve(
       'sim': sim,
     };
   }).toList();
+}
+
+/* --- 8. 세 강도 비교 -------------------------------------------------------- */
+
+class LevelSpec {
+  final String key, label, title, blurb;
+  final double durationMult;
+  const LevelSpec(this.key, this.label, this.title, this.durationMult, this.blurb);
+}
+
+const List<LevelSpec> kLevelSpec = [
+  LevelSpec('high', '상', '최단', 1.0, '가능한 가장 빠르게. 식단 제약이 가장 빡빡합니다.'),
+  LevelSpec('mid', '중', '표준', 1.4, '여유를 조금 두고. 근육 보존과 지속성의 균형점입니다.'),
+  LevelSpec('low', '하', '여유', 2.0, '생활을 크게 바꾸지 않고. 중도 포기 확률이 가장 낮습니다.'),
+];
+
+/* JS 의 Array.prototype.sort 는 **안정** 정렬입니다(ES2019 부터 명세).
+   Dart 의 List.sort 는 길이가 짧을 때만 우연히 안정적이라 보장이 없습니다.
+   여기서 정렬하는 것은 세 장의 카드뿐이지만, 동점일 때 어느 쪽이 추천으로
+   뽑히느냐가 사용자에게 보이는 답이라 명시적으로 안정화합니다. */
+List<T> _sortedStable<T>(List<T> list, num Function(T, T) cmp) {
+  final order = List<int>.generate(list.length, (i) => i);
+  order.sort((i, j) {
+    final c = cmp(list[i], list[j]);
+    if (c < 0) return -1;
+    if (c > 0) return 1;
+    return i - j;          // NaN 도 여기로 옵니다 — JS 가 순서를 지키는 것과 같습니다
+  });
+  return [for (final i in order) list[i]];
+}
+
+double avgWeeklyRate(List<Map<String, Object?>> traj, int n) {
+  final end = math.min(n, traj.length - 1);
+  if (end < 1) return 0;
+  return r2((_f(traj[end], 'weightKg') - _f(traj[0], 'weightKg')) / end);
+}
+
+double avgWeeklyFat(List<Map<String, Object?>> traj, int n) {
+  final end = math.min(n, traj.length - 1);
+  if (end < 1) return 0;
+  return r2((_f(traj[end], 'bfmKg') - _f(traj[0], 'bfmKg')) / end);
+}
+
+double avgWeeklySmm(List<Map<String, Object?>> traj, int n) {
+  final end = math.min(n, traj.length - 1);
+  if (end < 1) return 0;
+  return jsRound((_f(traj[end], 'smmKg') - _f(traj[0], 'smmKg')) / end * 1000) / 1000;
+}
+
+List<Map<String, Object?>> _traj(Map<String, Object?> sim) =>
+    (sim['trajectory'] as List).cast<Map<String, Object?>>();
+
+/// 계획 1주차 기준 매크로. 체크인마다 다시 계산되는 값입니다.
+Map<String, Object?> macrosFor(
+    Map<String, Object?> sim, Map<String, Object?> cur, Map<String, Object?> profile) {
+  final traj = _traj(sim);
+  final t = traj.length > 1 ? traj[1] : traj[0];
+  /* `t.intake || cur.tdeeKcal` — 0 도 거짓이라 TDEE 로 떨어집니다. */
+  final intake = jsTruthy(t['intake']) ? _f(t, 'intake') : _f(cur, 'tdeeKcal');
+  final ffm = _f(t, 'ffmKg'), bw = _f(t, 'weightKg');
+  final phases = (sim['phases'] as List);
+  final firstPhase = (phases.isNotEmpty &&
+          jsTruthy((phases[0] as Map)['phase']))
+      ? '${(phases[0] as Map)['phase']}'
+      : 'cut';
+  final isBulk = firstPhase == 'bulk';
+  final p = isBulk
+      ? ((sim['bulkParams'] as Map<String, Object?>?) ?? paramsAt(sim['a'], 'bulk'))
+      : sim['params'] as Map<String, Object?>;
+
+  // 체중 기준 하한도 함께 겁니다 — 단백질이 모자라면 계획 자체가 무의미합니다.
+  final proteinG = jsRound(math.max(ffm * _f(p, 'proteinPerFFM'), bw * 1.6));
+  var fatG = isBulk
+      ? jsRound(intake * _f(p, 'fatPctKcal') / 9)
+      : jsRound(bw * _f(p, 'fatPerKg'));
+  var carbKcal = intake - proteinG * 4 - fatG * 9;
+  if (carbKcal < 200) {                       // 탄수 바닥 — 지방부터 줄입니다
+    final need = 200 - carbKcal;
+    fatG = math.max(jsRound(bw * 0.4), fatG - (need / 9).ceilToDouble());
+    carbKcal = intake - proteinG * 4 - fatG * 9;
+  }
+  final carbG = math.max(50, jsRound(carbKcal / 4));
+
+  return {
+    'intakeKcal': jsRound(intake),
+    'tdeeKcal': jsTruthy(t['tdee']) ? t['tdee'] : cur['tdeeKcal'],
+    'deficitKcal': jsTruthy(t['deficit']) ? t['deficit'] : 0,
+    'proteinG': proteinG,
+    'carbG': carbG,
+    'fatG': fatG,
+    'proteinPerFFM': r1(_f(p, 'proteinPerFFM')),
+    'proteinPerBW': r1(proteinG / bw),
+    'pctProtein': jsRound(proteinG * 4 / intake * 100),
+    'pctCarb': jsRound(carbG * 4 / intake * 100),
+    'pctFat': jsRound(fatG * 9 / intake * 100),
+  };
+}
+
+Map<String, Object?> feasibility(Map<String, Object?> sim, Map<String, Object?> goalInfo,
+    Map<String, Object?> cur, Map<String, Object?> profile, Object? deadlineWeeks) {
+  final blockers = <String>[];
+  final essentialFat = profile['sex'] == 'male' ? 8 : 15;
+  final goalFfm = (_f(cur, 'smmKg') + _f(goalInfo, 'dSmmKg')) / _f(cur, 'smmToFfm');
+  final goalFfmi = ffmiOf(goalFfm, profile['heightCm']);
+  final ceil = ffmiCeiling(profile['sex']);
+  if (goalFfmi > ceil) {
+    blockers.add('목표 골격근량이 약물 없이 도달 가능한 상한을 넘습니다 (제지방량지수 '
+        '${jsNumToString(r1(goalFfmi))}, 상한 약 ${jsNumToString(ceil)}).');
+  }
+  if (_f(goalInfo, 'targetPbfPct') < essentialFat) {
+    blockers.add('목표 체지방률 ${jsNumToString(_f(goalInfo, 'targetPbfPct'))}%는 '
+        '필수지방($essentialFat%) 아래입니다.');
+  }
+  if (sim['reached'] != true) blockers.add('이 설정으로는 4년 안에도 목표에 도달하지 않습니다.');
+
+  final weeks = sim['weeks'];
+  final dw = jsToNumber(deadlineWeeks);
+  String verdict, badge, message;
+  if (blockers.isNotEmpty) {
+    verdict = 'blocked';
+    badge = '⛔';
+    message = blockers[0];
+  } else if (!jsTruthy(deadlineWeeks)) {
+    verdict = 'ok';
+    badge = '🟢';
+    message = '이 강도로 약 ${_s(weeks)}주 걸립니다.';
+  } else if (jsToNumber(weeks) <= dw) {
+    verdict = 'ok';
+    badge = '🟢';
+    message = '희망하신 ${_s(deadlineWeeks)}주 안에 가능합니다 (예상 ${_s(weeks)}주).';
+  } else if (jsToNumber(weeks) <= dw * 1.5) {
+    verdict = 'tough';
+    badge = '🟡';
+    message = '가능은 하지만 ${_s(weeks)}주가 필요합니다 '
+        '(희망보다 ${jsNumToString(jsToNumber(weeks) - dw)}주 김).';
+  } else {
+    verdict = 'unrealistic';
+    badge = '🔴';
+    message = '${_s(deadlineWeeks)}주 안에는 어렵습니다. 정직하게 약 ${_s(weeks)}주가 필요합니다.';
+  }
+  return {
+    'verdict': verdict, 'badge': badge, 'message': message,
+    'blockers': blockers, 'weeks': weeks,
+  };
+}
+
+/// JS 의 문자열 붙이기(`'' + x`). null 은 "null", 숫자는 정수면 소수점 없이.
+String _s(Object? x) {
+  if (x == null) return 'null';
+  if (x is num) return jsNumToString(x);
+  if (x is bool) return x ? 'true' : 'false';
+  return '$x';
+}
+
+/// 이 모드에서 고를 수 있는 기간 폭이 **왜** 이만큼인지 설명합니다.
+/// 좁으면 좁은 이유를 말해야지, 세 장의 카드로 넓은 척하면 안 됩니다.
+Map<String, Object?> spanNote(num minW, num maxW, Map<String, Object?>? modeDef) {
+  final spread = maxW - minW;
+  final ratio = minW > 0 ? maxW / minW : 1;
+  if (modeDef == null) {
+    return {
+      'spread': spread,
+      'tight': ratio < 1.35,
+      'text': '이 목표는 ${_s(minW)}~${_s(maxW)}주 사이에서 고를 수 있습니다.',
+    };
+  }
+  var text = '「${_s(modeDef['nameKo'])}」 안에서는 이 목표가 ${_s(minW)}~${_s(maxW)}주입니다.';
+  if (ratio < 1.35) {
+    text += ' 폭이 좁은 이유는 두 가지입니다 — 아래로는 이 모드가 허용하는 가장 느린 속도(공격성 '
+        '${_s(modeDef['aMin'])})에 이미 닿았고, 위로는 체지방이 하루에 안전하게 내놓을 수 있는 '
+        '에너지 상한에 걸립니다. 더 여유롭게 가고 싶으면 강도가 아니라 모드를 바꿔야 합니다.';
+  }
+  return {'spread': spread, 'tight': ratio < 1.35, 'text': text};
+}
+
+Map<String, Object?>? bottleneckNote(
+    List<Map<String, Object?>> results, Map<String, Object?> goalInfo) {
+  Map<String, Object?>? r;
+  for (final x in results) {
+    if ((x['sim'] as Map)['reached'] == true) {
+      r = x;
+      break;
+    }
+  }
+  if (r == null) return null;
+  final b = (r['sim'] as Map)['bottleneck'];
+  if (b == 'muscle') {
+    return {'key': 'muscle', 'text': '병목은 근육 목표입니다. 체지방은 훨씬 먼저 도달하지만, 근육은 생리적 속도 상한 때문에 기다려야 합니다.'};
+  }
+  if (b == 'fat') return {'key': 'fat', 'text': '병목은 체지방 목표입니다. 근육 목표는 먼저 달성됩니다.'};
+  if (b == 'sequence') {
+    return {'key': 'sequence', 'text': '감량과 증량을 순서대로 나누는 전략이 더 빠릅니다. 동시에 하면 근육 증가가 거의 멈추기 때문입니다.'};
+  }
+  return {'key': 'both', 'text': '체지방과 근육 목표가 비슷한 시점에 도달합니다.'};
+}
+
+/// 유지 계획 — 상/중/하가 "얼마나 오래 유지할까" 가 됩니다.
+Map<String, Object?> maintenancePlan(
+    Map<String, Object?> cur,
+    Map<String, Object?> goal,
+    Map<String, Object?> goalInfo,
+    Map<String, Object?> profile,
+    Object? start,
+    Map<String, Object?>? modeDef,
+    Object? deadlineWeeks) {
+  var span = <String, int>{'high': 4, 'mid': 8, 'low': 12};
+  if (jsTruthy(deadlineWeeks)) {
+    final d = jsToNumber(deadlineWeeks);
+    span = {
+      'high': math.max(2, jsRound(d * 0.5)).toInt(),
+      'mid': math.max(3, d).toInt(),
+      'low': math.max(4, jsRound(d * 1.5)).toInt(),
+    };
+  }
+  final k = _f(cur, 'smmToFfm');
+  final params = paramsAt(0, 'cut',
+      modeDef == null
+          ? null
+          : {
+              'aMin': modeDef['aMin'], 'aMax': modeDef['aMax'],
+              'proteinPerFfmMin': modeDef['proteinPerFfmMin'],
+              'proteinPerFfmMax': modeDef['proteinPerFfmMax'],
+            });
+
+  const titles = {'high': '짧게', 'mid': '표준', 'low': '길게'};
+  const blurbs = {
+    'high': '4주만 굳히고 다음 단계로',
+    'mid': '8주 — 대사 회복에 보통 권하는 길이',
+    'low': '12주 — 습관이 자리 잡을 때까지',
+  };
+
+  final results = kLevelSpec.map((spec) {
+    final weeks = span[spec.key]!;
+    var st = <String, Object?>{
+      'smmKg': cur['smmKg'], 'bfmKg': cur['bfmKg'],
+      'ffmKg': cur['ffmKg'], 'weightKg': cur['weightKg'],
+    };
+    final traj = <Map<String, Object?>>[snapshot(st, 0, 'maintain', null)];
+    for (var w = 1; w <= weeks; w++) {
+      final r = stepWeek(st, 'maintain', params, profile, k, w);
+      st = (r['state'] as Map).cast<String, Object?>();
+      traj.add(snapshot(st, w, 'maintain', r));
+    }
+    final sim = <String, Object?>{
+      'strategy': 'maintain', 'strategyLabel': '유지',
+      'strategyDesc': '지금 몸을 지키면서 대사와 습관을 안정시킵니다',
+      'a': 0, 'params': params, 'mode': 'maintain',
+      'weeks': weeks, 'reached': true, 'bottleneck': 'none',
+      'trajectory': traj, 'capped': false, 'floored': false,
+      'continuousCutWeeks': 0, 'leanLossKg': 0, 'alternative': null,
+      'phases': [
+        {'name': '유지', 'from': 0, 'to': weeks, 'phase': 'maintain', 'weeks': weeks}
+      ],
+    };
+    final macros = macrosFor(sim, cur, profile);
+    final training = resolveTraining(profile, params, goalInfo);
+    return <String, Object?>{
+      'level': spec.key, 'label': spec.label,
+      'title': titles[spec.key], 'blurb': blurbs[spec.key],
+      'targetWeeks': weeks, 'weeks': weeks, 'months': r1(weeks / 4.345),
+      'targetDate': addWeeks(start, weeks), 'a': 0,
+      'sim': sim, 'macros': macros,
+      'feasibility': {
+        'verdict': 'ok', 'badge': '🟢',
+        'message': '$weeks주 동안 지금 몸을 지킵니다.', 'blockers': <String>[], 'weeks': weeks,
+      },
+      'difficulty': 1, 'difficultyLabel': '★☆☆ 낮음',
+      'training': training,
+      'daysPerWeek': training['days'], 'sessionMin': training['sessionMin'],
+      'cardioMin': training['cardioMin'], 'setsPerMuscle': training['setsPerMuscle'],
+      'cheatMeals': 2, 'tracking': '무게만 주 2~3회',
+      'muscleLossRisk': '매우 낮음',
+      'weeklyRateKg': 0, 'weeklyRatePct': 0, 'weeklyFatKg': 0,
+      'weeklySmmKg': avgWeeklySmm(traj, 8),
+    };
+  }).toList();
+
+  return {
+    'current': cur, 'goal': goal, 'goalInfo': goalInfo, 'mode': modeDef,
+    'startDate': toISODate(start),
+    'minWeeks': span['high'], 'maxWeeks': span['low'],
+    'spanWeeks': [span['high'], span['low']],
+    'spanNote': {
+      'spread': span['low']! - span['high']!, 'tight': false,
+      'text': '유지는 도달할 목표가 아니라 지켜낼 기간입니다. 얼마나 오래 유지할지를 고릅니다.',
+    },
+    'curve': <Object?>[], 'results': results, 'recommended': 'mid',
+    'warnings': <String>[],
+    'bottleneckNote': {'key': 'none', 'text': '유지 구간입니다. 체중이 ±1kg 안에서 움직이면 성공입니다.'},
+    'isMaintenance': true,
+  };
+}
+
+/// 세 강도(상=최단 / 중=×1.4 / 하=×2.0)를 계산합니다.
+Map<String, Object?> compareLevels(
+    Map<String, Object?> scan,
+    Map<String, Object?> profile,
+    Map<String, Object?> goal,
+    Object? startDateISO,
+    Object? deadlineWeeks,
+    Map<String, Object?>? modeDef) {
+  final cur = derive(scan, profile);
+  final goalInfo = classifyGoal(cur, goal);
+  final start = jsTruthy(startDateISO) ? jsParseDate(startDateISO) : DateTime.now();
+  final con = modeDef == null
+      ? null
+      : <String, Object?>{
+          'aMin': modeDef['aMin'], 'aMax': modeDef['aMax'],
+          'strategy': modeDef['strategy'],
+          'proteinPerFfmMin': modeDef['proteinPerFfmMin'],
+          'proteinPerFfmMax': modeDef['proteinPerFfmMax'],
+        };
+  if (goalInfo['type'] == 'maintain') {
+    return maintenancePlan(cur, goal, goalInfo, profile, start, modeDef, deadlineWeeks);
+  }
+
+  final curve = scanCurve(cur, goal, profile, goalInfo, con);
+  final reachable = curve.where((c) => c['weeks'] != null).toList();
+
+  if (reachable.isEmpty) {
+    return {
+      'current': cur, 'goal': goal, 'goalInfo': goalInfo, 'curve': curve,
+      'mode': modeDef, 'startDate': toISODate(start),
+      'results': <Object?>[], 'recommended': null,
+      'warnings': ['어떤 강도로도 4년 안에 목표에 도달하지 않습니다. 목표치를 조정해 주세요.'],
+      'bottleneckNote': null, 'impossible': true,
+    };
+  }
+
+  final weeksOf = (Map<String, Object?> c) => jsToNumber(c['weeks']);
+  var minWeeks = weeksOf(reachable[0]);
+  var maxW = weeksOf(reachable[0]);
+  for (final c in reachable) {
+    minWeeks = math.min(minWeeks, weeksOf(c));
+    maxW = math.max(maxW, weeksOf(c));
+  }
+  // 동률이면 가장 여유로운(a 작은) 쪽 — 같은 기간이면 쉬운 게 낫습니다.
+  final fastest = reachable.firstWhere((c) => weeksOf(c) == minWeeks);
+
+  /* 고정 배수로 목표를 잡으면 모드가 a 하한을 걸어 둔 경우 중·하가 둘 다
+     하한에 붙어 같은 계획이 됩니다. 그래서 "갈 수 있는 범위" 안으로 접습니다. */
+  var gentlePool =
+      reachable.where((c) => jsToNumber(c['a']) <= jsToNumber(fastest['a'])).toList();
+  if (gentlePool.isEmpty) gentlePool = reachable;
+  var slowest = gentlePool[0];
+  for (final c in gentlePool) {
+    if (weeksOf(c) > weeksOf(slowest)) slowest = c;
+  }
+  final slowWeeks = math.min(weeksOf(slowest), jsRound(minWeeks * 2.0));
+  final target = <String, num>{
+    'high': minWeeks,
+    'mid': jsRound((minWeeks + slowWeeks) / 2),
+    'low': slowWeeks,
+  };
+
+  final results = kLevelSpec.map((spec) {
+    final targetWeeks = target[spec.key]!;
+    var chosen = gentlePool[0];
+    if (spec.key == 'high') {
+      chosen = fastest;
+    } else {
+      for (final c in gentlePool) {
+        if ((weeksOf(c) - targetWeeks).abs() < (weeksOf(chosen) - targetWeeks).abs()) {
+          chosen = c;
+        }
+      }
+    }
+    final sim = chosen['sim'] as Map<String, Object?>;
+    final macros = macrosFor(sim, cur, profile);
+    final params = sim['params'] as Map<String, Object?>;
+    final training = resolveTraining(profile, params, goalInfo);
+    final feas = feasibility(sim, goalInfo, cur, profile, deadlineWeeks);
+    final traj = _traj(sim);
+    return <String, Object?>{
+      'level': spec.key, 'label': spec.label, 'title': spec.title, 'blurb': spec.blurb,
+      'targetWeeks': targetWeeks,
+      'weeks': sim['weeks'],
+      'months': r1(jsToNumber(sim['weeks']) / 4.345),
+      'targetDate': addWeeks(start, jsToNumber(sim['weeks'])),
+      'a': chosen['a'],
+      'sim': sim, 'macros': macros, 'feasibility': feas,
+      'difficulty': params['difficulty'],
+      'difficultyLabel': params['difficultyLabel'],
+      'training': training,
+      'daysPerWeek': training['days'],
+      'sessionMin': training['sessionMin'],
+      'cardioMin': training['cardioMin'],
+      'setsPerMuscle': training['setsPerMuscle'],
+      'cheatMeals': params['cheatMealsPerWeek'],
+      'tracking': params['tracking'],
+      'muscleLossRisk': params['muscleLossRisk'],
+      'weeklyRateKg': avgWeeklyRate(traj, 8),
+      'weeklyRatePct': r2(avgWeeklyRate(traj, 8).abs() / _f(cur, 'weightKg') * 100),
+      'weeklyFatKg': avgWeeklyFat(traj, 8),
+      'weeklySmmKg': avgWeeklySmm(traj, 8),
+    };
+  }).toList();
+
+  // 중복 제거: 세 강도가 같은 a 로 수렴하면 표시로 알립니다.
+  final warnings = <String>[];
+  /* JS 객체의 키는 문자열이라 `uniqueA[r.a]` 는 String(a) 로 묶입니다. */
+  final uniqueA = <String>{for (final r in results) _s(r['a'])};
+  if (uniqueA.length < 3) {
+    if (modeDef != null) {
+      final atFloor = results
+              .where((r) => (jsToNumber(r['a']) - jsToNumber(modeDef['aMin'])).abs() < 0.005)
+              .length >= 2;
+      final atCeil = results
+              .where((r) => (jsToNumber(r['a']) - jsToNumber(modeDef['aMax'])).abs() < 0.005)
+              .length >= 2;
+      if (atFloor) {
+        warnings.add('「${_s(modeDef['nameKo'])}」는 이보다 느리게 가지 않습니다. 이 모드가 허용하는 '
+            '가장 여유로운 속도에 이미 닿아 있어서, 중·하가 같은 계획이 됩니다. '
+            '더 천천히 가고 싶으면 모드를 바꿔야 합니다.');
+      } else if (atCeil) {
+        warnings.add('「${_s(modeDef['nameKo'])}」는 이보다 빠르게 가지 않습니다. 이 모드의 속도 상한은 '
+            '장식이 아니라 근육을 지키기 위한 잠금장치입니다.');
+      } else {
+        warnings.add('일부 강도가 같은 계획으로 수렴했습니다. 체지방이 줄면서 안전하게 쓸 수 있는 '
+            '에너지 상한에 먼저 걸려서, 강도를 올려도 속도가 더 나오지 않는 구간입니다.');
+      }
+    } else {
+      warnings.add('일부 강도가 같은 계획으로 수렴했습니다. 목표 변화량이 작아 속도를 더 낮출 여지가 없다는 뜻입니다.');
+    }
+  }
+
+  // 역설 탐지 — 제일 빡센 계획이 오히려 더 걸리는 구간
+  final aggressive = curve[curve.length - 1];
+  if (aggressive['weeks'] != null && weeksOf(aggressive) > minWeeks * 1.1) {
+    warnings.add('가장 공격적인 계획(a=1.0)은 ${_s(aggressive['weeks'])}주로, 최단(${_s(minWeeks)}'
+        '주)보다 오히려 깁니다. 적자가 크면 근육이 거의 늘지 않아서입니다 — 근육 목표가 있을 때는 무작정 빡세게가 답이 아닙니다.');
+  }
+
+  for (final r in results) {
+    final sim = r['sim'] as Map<String, Object?>;
+    final params = sim['params'] as Map<String, Object?>;
+    if (jsTruthy(params['maxContinuousWeeks']) &&
+        jsToNumber(sim['continuousCutWeeks']) > jsToNumber(params['maxContinuousWeeks'])) {
+      r['capWarning'] = '이 강도의 감량은 연속 ${_s(params['maxContinuousWeeks'])}'
+          '주가 한계인데 계획상 ${_s(sim['continuousCutWeeks'])}주 연속입니다. 중간에 2주 유지기를 넣으세요.';
+    }
+    if (jsToNumber(sim['leanLossKg']) > 0.3) {
+      r['leanLossWarning'] = '이 속도로 가면 계획 기간 동안 제지방이 약 '
+          '${jsNumToString(r1(jsToNumber(sim['leanLossKg'])))}kg 빠질 것으로 계산됩니다. 적자가 깊거나 단백질이 부족하거나 '
+          '체지방이 이미 낮을 때 생깁니다.';
+    }
+    if (sim['capped'] == true) {
+      r['capNote'] = '체지방이 줄면서 안전하게 동원 가능한 에너지 상한에 걸려, 후반부에는 계획보다 적자가 자동으로 작아집니다.';
+    }
+    if (sim['floored'] == true) {
+      r['floorNote'] = '계산상 섭취량이 최소 섭취 기준 아래로 내려가 바닥값으로 올렸습니다.';
+    }
+  }
+
+  // 추천: 기간 차이가 15% 이내면 더 쉬운 쪽
+  final ok = results.where((r) => (r['sim'] as Map)['reached'] == true).toList();
+  Object? recommended;
+  if (ok.isNotEmpty) {
+    final best = _sortedStable(ok, (x, y) => jsToNumber(x['weeks']) - jsToNumber(y['weeks']))[0];
+    final near = ok
+        .where((r) => jsToNumber(r['weeks']) <= jsToNumber(best['weeks']) * 1.15)
+        .toList();
+    final sorted = _sortedStable(
+        near, (x, y) => jsToNumber(x['difficulty']) - jsToNumber(y['difficulty']));
+    recommended = sorted[0]['level'];
+  }
+
+  return {
+    'current': cur, 'goal': goal, 'goalInfo': goalInfo, 'mode': modeDef,
+    'startDate': toISODate(start),
+    'minWeeks': minWeeks, 'maxWeeks': maxW,
+    'spanWeeks': [minWeeks, slowest['weeks']],
+    'spanNote': spanNote(minWeeks, weeksOf(slowest), modeDef),
+    'curve': [for (final c in curve) {'a': c['a'], 'weeks': c['weeks']}],
+    'results': results, 'recommended': recommended, 'warnings': warnings,
+    'bottleneckNote': bottleneckNote(results, goalInfo),
+  };
 }

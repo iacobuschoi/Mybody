@@ -267,6 +267,19 @@ function makePlanCases(n, seed, module) {
                  weekIndex: wi > 0.6 ? Math.round(rnd() * 200) : (wi > 0.3 ? 0 : null) });
       continue;
     }
+    if (module === 'engine.compareLevels') {
+      const modes = realModeDefs();
+      const roll = rnd();
+      out.push({
+        scan: scan, profile: profile, goal: goal,
+        /* 시작일은 **반드시 넣습니다.** 안 넣으면 원본이 new Date() 를 써서
+           양쪽이 서로 다른 순간을 봅니다 — 자정을 넘기면 하루가 갈립니다. */
+        startDateISO: roll > 0.5 ? '2026-03-15' : '2026-12-28T00:00:00',
+        deadlineWeeks: rnd() > 0.5 ? Math.round(4 + rnd() * 60) : (rnd() > 0.5 ? 0 : null),
+        modeDef: rnd() > 0.35 ? modes[(rnd() * modes.length) | 0] : null
+      });
+      continue;
+    }
     out.push(c);  /* bestAt · scanCurve · simulate* 는 통째로 씁니다 */
     void goalInfo;
   }
@@ -280,10 +293,29 @@ function makePlanCases(n, seed, module) {
  * 원본을 건드리면 검사한 것과 실제로 도는 것이 달라집니다.
  * -------------------------------------------------------------------------- */
 function loadJs(file) {
-  global.MB_MODES = global.MB_MODES || { NOISE: { weight: 1.0, smm: 0.6, bfm: 1.0 } };
   if (typeof global.window === 'undefined') global.window = global;
+  /* **진짜 modes.js 를 먼저 얹습니다.**
+     engine.js 의 classifyGoal 은 `global.MB_MODES.NOISE` 를 읽고, 그 객체를
+     goalInfo.noise 칸에 **통째로** 실어 내보냅니다. 예전엔 여기서 숫자 세 개
+     짜리 가짜를 얹었는데, 그러면 앱이 실제로 내보내는 값과 다른 것을
+     비교하게 됩니다 — 검사가 통과해도 보증되는 게 없습니다. */
+  if (file !== 'modes' && typeof global.MB_MODES === 'undefined') loadJs('modes');
   require(path.join(ROOT, 'prototype', 'js', file + '.js'));
-  return file === 'crosscheck' ? global.MB_CHECK : global.MB_ENGINE;
+  if (file === 'crosscheck') return global.MB_CHECK;
+  if (file === 'modes') return global.MB_MODES;
+  return global.MB_ENGINE;
+}
+
+/* 몸만들기 모드의 **진짜** 값들. 지어내면 실제로 도는 구간을 안 밟습니다 —
+   예컨대 유지모드의 a 범위는 0~0.08 이라 세 강도가 전부 한 점에 모입니다.
+   compareLevels 가 읽는 칸만 가져옵니다(나머지는 몇 KB 짜리 산문이라
+   사례 파일만 부풀립니다 — 어차피 양쪽이 같은 파일을 읽습니다). */
+function realModeDefs() {
+  const M = loadJs('modes');
+  return M.MODES.map(m => ({
+    id: m.id, nameKo: m.nameKo, aMin: m.aMin, aMax: m.aMax, strategy: m.strategy,
+    proteinPerFfmMin: m.proteinPerFfmMin, proteinPerFfmMax: m.proteinPerFfmMax
+  }));
 }
 
 /** 모듈 이름 → JS 쪽에서 실제로 부를 함수 */
@@ -311,6 +343,8 @@ function jsCaller(module) {
       return c => m.bestAt(c.cur, c.goal, c.profile, c.a, m.classifyGoal(c.cur, c.goal), c.con);
     case 'engine.scanCurve':
       return c => m.scanCurve(c.cur, c.goal, c.profile, m.classifyGoal(c.cur, c.goal), c.con);
+    case 'engine.compareLevels':
+      return c => m.compareLevels(c.scan, c.profile, c.goal, c.startDateISO, c.deadlineWeeks, c.modeDef);
     default: throw new Error('모르는 모듈: ' + module);
   }
 }
@@ -324,8 +358,8 @@ function runJs(module, cases) {
 }
 
 /* --- Dart 쪽 실행 -------------------------------------------------------- */
-function runDart(module, casesFile) {
-  const r = spawnSync(DART, ['run', path.join(PKG, 'bin', 'diffrun.dart'), module, casesFile],
+function runDart(module, casesFile, noiseFile) {
+  const r = spawnSync(DART, ['run', path.join(PKG, 'bin', 'diffrun.dart'), module, casesFile, noiseFile || ''],
     { cwd: PKG, encoding: 'utf8', timeout: 300000, maxBuffer: 256 * 1024 * 1024 });
   if (r.status !== 0) {
     return { error: (r.stderr || r.stdout || '').trim().split('\n').slice(0, 20).join('\n') };
@@ -392,7 +426,8 @@ const MODULES = [
   { name: 'engine.simulateSimultaneous', gen: makePlanCases, cap: 300 },
   { name: 'engine.simulateSplit',     gen: makePlanCases, cap: 300 },
   { name: 'engine.bestAt',            gen: makePlanCases, cap: 300 },
-  { name: 'engine.scanCurve',         gen: makePlanCases, cap: 12 }
+  { name: 'engine.scanCurve',         gen: makePlanCases, cap: 12 },
+  { name: 'engine.compareLevels',     gen: makePlanCases, cap: 10 }
 ];
 let failed = 0;
 
@@ -418,8 +453,12 @@ for (const spec of MODULES) {
    * 입력이 다르면 무엇을 비교하고 있는지 알 수가 없습니다. */
   const cases = JSON.parse(fs.readFileSync(tmp, 'utf8'));
 
+  /* NOISE 는 사례마다 같은 객체라 따로 한 번만 넘깁니다 (근거 문장이 10KB). */
+  const noiseFile = path.join(path.dirname(tmp), 'noise.json');
+  fs.writeFileSync(noiseFile, JSON.stringify(loadJs('modes').NOISE));
+
   const js = runJs(m, cases);
-  const dr = runDart(m, tmp);
+  const dr = runDart(m, tmp, noiseFile);
   if (dr.error) {
     console.log('  ✗ Dart 쪽이 못 돌았습니다:\n' + dr.error.split('\n').map(l => '    ' + l).join('\n'));
     failed++;
