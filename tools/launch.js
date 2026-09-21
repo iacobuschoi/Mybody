@@ -52,6 +52,10 @@ const CONFIG = require(path.join(__dirname, 'config.js'));
 const args = process.argv.slice(2);
 const has = f => args.includes('--' + f);
 
+/* 내가 일부러 끄는 중인가. 종료 중에 나오는 "끊겼습니다" 는 고장이
+   아니라 정상인데, 그렇게 말하면 사람이 고장으로 읽습니다. */
+const QUITTING = { now: false };
+
 function line(s) { console.log(s); }
 function box(lines) {
   const w = Math.max(...lines.map(l => [...l].reduce((n, c) => n + (c.charCodeAt(0) > 0x2000 ? 2 : 1), 0)));
@@ -260,6 +264,7 @@ function startTunnel(tunnel, port, onUrl) {
             { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
 
   let found = false;
+  let alive = true;
   let out = '';
   const RE = isTs ? /https:\/\/[a-z0-9-]+\.[a-z0-9.-]+\.ts\.net/i
                   : /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
@@ -272,25 +277,42 @@ function startTunnel(tunnel, port, onUrl) {
   child.stderr.on('data', scan);
 
   /* tailscale 은 이미 이름을 알고 있습니다 — 굳이 출력에서 긁어내지
-     않아도 됩니다. 출력 형식이 바뀌어도 여기서 안 막히게 해 둡니다. */
+     않아도 됩니다. 출력 형식이 바뀌어도 여기서 안 막히게 해 둡니다.
+     다만 **프로세스가 아직 살아 있을 때만** 씁니다. 죽은 뒤에 이름만
+     보고 주소를 찍으면, 안 열리는 주소를 자신 있게 알려 주게 됩니다 —
+     주인이 실제로 그 주소를 받고 "안 들어가진다" 고 했습니다. */
   if (isTs && tunnel.name) {
     setTimeout(() => {
-      if (!found) { found = true; onUrl('https://' + tunnel.name); }
+      if (!found && alive) { found = true; onUrl('https://' + tunnel.name); }
     }, 2500);
   }
 
   child.on('exit', code => {
-    if (found) return;
+    alive = false;
+    /* 내가 끄는 중이면 아무 말도 안 합니다. 사용자가 Ctrl+C 를 눌렀는데
+       "터널이 끊겼습니다" 가 뜨면 고장으로 읽힙니다. */
+    if (QUITTING.now) return;
     line('');
-    line('터널이 주소를 못 만들고 끝났습니다 (종료 코드 ' + code + ').');
+    /* found 여도 말해야 합니다. 주소를 이미 찍은 뒤에 터널이 죽으면,
+       그 주소는 이제 거짓입니다. 조용하면 사람은 주소를 의심하지 않고
+       자기 폰을 의심합니다. */
+    line(found ? '터널이 끊겼습니다 (종료 코드 ' + code + '). 위 주소는 이제 안 됩니다.'
+               : '터널이 주소를 못 만들고 끝났습니다 (종료 코드 ' + code + ').');
     if (isTs) {
       /* Funnel 은 테일넷 정책에서 한 번 켜 줘야 합니다. 처음 쓰는
          사람은 여기서 막히는데, tailscale 이 그 링크를 출력에 적어
          줍니다 — 그걸 그대로 보여 주는 편이 제 설명보다 정확합니다. */
       const hint = (out.match(/https:\/\/login\.tailscale\.com\S*/) || [])[0];
-      line('Funnel 이 아직 이 테일넷에서 켜져 있지 않을 수 있습니다.');
-      if (hint) { line('여기서 한 번 켜 주세요:'); line('  ' + hint); }
-      else line('  https://login.tailscale.com/admin/dns 에서 Funnel 을 켜세요.');
+      const said = out.trim().split('\n').filter(l => l.trim()).slice(-4);
+      if (said.length) { line('tailscale 이 한 말:'); said.forEach(l => line('  ' + l.trim())); }
+      if (hint) { line(''); line('여기서 한 번 켜 주세요:'); line('  ' + hint); }
+      else {
+        line('');
+        line('Funnel 이 이 테일넷에서 아직 안 켜져 있을 수 있습니다:');
+        line('  https://login.tailscale.com/admin/settings/keys 가 아니라');
+        line('  https://login.tailscale.com/admin/acls 의 nodeAttrs 에 funnel 이 필요합니다.');
+        line('  (관리자 화면에서 Funnel 을 켜면 자동으로 들어갑니다)');
+      }
       line('그래도 안 되면 Cloudflare 로:  node tools/launch.js --cloudflare');
     } else {
       line('인터넷이 막혀 있거나 cloudflared 가 차단됐을 수 있습니다.');
@@ -298,6 +320,71 @@ function startTunnel(tunnel, port, onUrl) {
     line('서버 자체는 그대로 돌고 있습니다 — 같은 와이파이에서는 쓸 수 있습니다.');
   });
   return child;
+}
+
+/* --- 6-2. 그 주소가 **진짜로 열리는가** ------------------------------------
+ *
+ * 주소를 찍었다는 것과 그 주소가 열린다는 것은 다릅니다. 주인이 그
+ * 사이에서 막혔습니다 — 예쁜 상자에 담긴 주소를 받았는데 폰에서 안
+ * 열렸고, 화면은 아무 말도 안 했습니다.
+ *
+ * 그래서 우리가 직접 두드려 봅니다. 첫 실행이면 Tailscale 이 인증서를
+ * 받아 오느라 30초~1분 걸릴 수 있어서, 한 번 실패로 단정하지 않고
+ * 그 동안 기다립니다.
+ * -------------------------------------------------------------------------- */
+/* 얼마나 기다릴 것인가. 첫 실행이면 Tailscale 이 인증서를 받아 오느라
+   30초~1분 걸립니다. 검사에서는 1분을 기다릴 수 없어서 줄일 수 있게
+   열어 둡니다 (RATE_MAX · OCR_PER_DAY 와 같은 방식). */
+const VERIFY_TRIES = Number(process.env.MYBODY_VERIFY_TRIES || 12);
+const VERIFY_GAP = Number(process.env.MYBODY_VERIFY_GAP || 5000);
+
+function verifyUrl(url, tunnel, tries) {
+  tries = tries || 0;
+  const MAX = VERIFY_TRIES;
+  if (QUITTING.now) return Promise.resolve(false);
+  return fetch(url + '/health', { redirect: 'follow' })
+    .then(r => r.ok ? r.json().catch(() => null) : null)
+    .then(j => {
+      if (j && j.ok) {
+        line('✓ 이 주소로 실제로 들어와집니다. 폰에서 열어 보세요.');
+        line('');
+        return true;
+      }
+      throw new Error('우리 서버가 아닌 답');
+    })
+    .catch(() => {
+      if (QUITTING.now) return false;
+      if (tries < MAX) {
+        if (tries === 2) {
+          line('… 주소가 아직 안 열립니다. 첫 실행이면 인증서를 받느라');
+          line('  30초~1분 걸립니다. 기다리는 중…');
+        }
+        return new Promise(r => setTimeout(r, VERIFY_GAP)).then(() => verifyUrl(url, tunnel, tries + 1));
+      }
+      line('');
+      line('⚠ 이 주소가 안 열립니다. 지금 폰에서 열어도 안 됩니다.');
+      if (tunnel.kind === 'tailscale') {
+        const st = spawnSync(tunnel.bin || 'tailscale', ['funnel', 'status'],
+                             { encoding: 'utf8', timeout: 8000 });
+        const said = ((st.stdout || '') + (st.stderr || '')).trim();
+        if (said) { line(''); line('tailscale funnel status:');
+                    said.split('\n').slice(0, 10).forEach(l => line('  ' + l)); }
+        line('');
+        line('흔한 원인 둘입니다:');
+        line('  ① 테일넷에서 Funnel 이 아직 안 켜져 있습니다.');
+        line('     https://login.tailscale.com/admin/acls 에서 Funnel 을 켜세요.');
+        line('  ② HTTPS 인증서가 꺼져 있습니다 (MagicDNS · HTTPS).');
+        line('     https://login.tailscale.com/admin/dns 에서 둘 다 켜세요.');
+        line('');
+        line('지금 당장 쓰려면:  node tools/launch.js --cloudflare');
+        line('  (주소가 바뀌고 앱 설치는 안 되지만, 열리기는 합니다)');
+      } else {
+        line('cloudflared 가 주소를 만들었지만 아직 연결이 안 됐습니다.');
+        line('잠시 뒤 다시 열어 보세요. 계속 안 되면 서버를 끄고 다시 띄우세요.');
+      }
+      line('');
+      return false;
+    });
 }
 
 /* --- 달리기 --------------------------------------------------------------- */
@@ -335,6 +422,7 @@ function main() {
 
   let tun = null;
   const bye = () => {
+    QUITTING.now = true;
     try { if (tun) tun.kill(); } catch (e) {}
     try { server.kill(); } catch (e) {}
   };
@@ -407,6 +495,9 @@ function main() {
       line('');
       line('이 창을 닫으면 서버와 터널이 같이 꺼집니다.');
       line('');
+      /* 마지막으로 **정말 열리는지** 우리가 두드려 봅니다.
+         주소를 찍는 것과 그 주소가 열리는 것은 다른 일입니다. */
+      verifyUrl(url, tunnel).catch(() => {});
     });
   }, 1500);
 }

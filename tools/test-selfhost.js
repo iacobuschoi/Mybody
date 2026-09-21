@@ -1104,6 +1104,41 @@ function hostGet(port, p2, host) {
        out3.slice(0, 500));
     ok('무엇을 해야 하는지까지 말한다', /로그인/.test(out3), out3.slice(0, 500));
 
+    /* funnel 이 곧바로 죽는 경우 — 테일넷에서 Funnel 을 안 켠 상태가
+       딱 이렇습니다. 예전에는 **이름만 보고 주소를 찍고 끝냈습니다.**
+       그래서 주인은 https://desktop-….ts.net 을 받아 들고 "안 들어가진다"
+       고 했고, 화면은 아무 말도 안 했습니다. 죽었으면 주소를 찍으면
+       안 되고, tailscale 이 한 말을 그대로 보여 줘야 합니다. */
+    fs.writeFileSync(path.join(bin, 'tailscale'),
+      '#!/bin/sh\n' +
+      'if [ "$1" = "status" ]; then echo \'{"Self":{"DNSName":"' + NAME + '."}}\'; exit 0; fi\n' +
+      'if [ "$1" = "funnel" ] && [ "$2" = "status" ]; then echo "Funnel off"; exit 0; fi\n' +
+      'if [ "$1" = "funnel" ]; then >&2 echo "Funnel is not enabled on your tailnet."; ' +
+      '>&2 echo "To enable: https://login.tailscale.com/f/funnel?node=abc"; exit 1; fi\n');
+    fs.chmodSync(path.join(bin, 'tailscale'), 0o755);
+    const child4 = spawn(process.execPath, [path.join(ROOT, 'tools', 'launch.js')], {
+      cwd: ROOT,
+      env: Object.assign({}, baseEnv(), {
+        HOME: home, USERPROFILE: home,
+        MYBODY_VERIFY_TRIES: '2', MYBODY_VERIFY_GAP: '300',
+        PATH: bin + path.delimiter + (process.env.PATH || '')
+      }),
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let out4 = '';
+    child4.stdout.on('data', d => { out4 += d; });
+    child4.stderr.on('data', d => { out4 += d; });
+    await wait(8000);
+    child4.kill('SIGTERM');
+    await wait(1200);
+    ok('터널이 죽으면 주소를 찍지 않는다',
+       !out4.includes('https://' + NAME), out4.slice(-700));
+    ok('죽었다고 말한다', /터널이 주소를 못 만들고 끝났습니다/.test(out4), out4.slice(-700));
+    ok('tailscale 이 한 말을 그대로 보여 준다',
+       /Funnel is not enabled/.test(out4), out4.slice(-700));
+    ok('켜는 링크를 찍어 준다',
+       /login\.tailscale\.com\/f\/funnel/.test(out4), out4.slice(-700));
+
     fs.rmSync(bin, { recursive: true, force: true });
     fs.rmSync(home, { recursive: true, force: true });
   }
