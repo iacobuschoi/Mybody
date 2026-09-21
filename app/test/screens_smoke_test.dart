@@ -267,6 +267,33 @@ void main() {
     expect(app.profile?['heightCm'], isNot(187));
   });
 
+  /* **별표가 화면에 나가면 안 됩니다.**
+     문구 안의 `**굵게**` 표시를 Flutter 의 Text 는 모릅니다 — 그대로 찍습니다.
+     실제로 온보딩 고지에 "측정 기록은 **이 기기에만** 저장됩니다" 가
+     별표째로 나갔습니다. 제일 중요한 문장이 제일 어설퍼 보이는 자리였습니다. */
+  testWidgets('화면에 마크다운 별표가 안 나온다', (t) async {
+    SharedPreferences.setMockInitialValues({});
+    final fresh = await AppState.boot();
+    final planned = await seeded(withPlan: true, twoScans: true);
+
+    for (final (name, app, screen) in <(String, AppState, Widget)>[
+      ('온보딩', fresh, const OnboardingScreen()),
+      ('설정', planned, const SettingsScreen()),
+      ('홈', planned, Scaffold(body: HomeScreen(go: noop))),
+      ('플랜', planned, Scaffold(body: PlanScreen(go: noop))),
+      ('추이', planned, Scaffold(body: ProgressScreen(go: noop))),
+    ]) {
+      await t.pumpWidget(host(app, screen));
+      await t.pump(const Duration(milliseconds: 200));
+      final stars = <String>[];
+      for (final w in t.widgetList<Text>(find.byType(Text))) {
+        final s = w.data ?? w.textSpan?.toPlainText() ?? '';
+        if (s.contains('**')) stars.add(s);
+      }
+      expect(stars, isEmpty, reason: '$name 화면에 별표가 그대로 나갑니다: $stars');
+    }
+  });
+
   testWidgets('셸 — 탭 다섯 개가 다 선다', (t) async {
     final app = await seeded(withPlan: true, twoScans: true);
     await t.pumpWidget(host(app, const Shell()));

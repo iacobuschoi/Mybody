@@ -255,7 +255,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
             ])
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: Text('· $line',
+                child: RichishText('· $line',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.6)),
               ),
           ]),

@@ -23,6 +23,7 @@ import 'screens/upload.dart';
 import 'screens/goal.dart';
 import 'screens/history.dart';
 import 'screens/account.dart';
+import 'screens/checkin.dart';
 import 'screens/onboarding.dart';
 import 'screens/scandetail.dart';
 
@@ -64,6 +65,8 @@ class _ShellState extends State<Shell> {
       case 'scan':
         Navigator.of(context)
             .push(MaterialPageRoute(builder: (_) => ScanDetailScreen(scanId: arg)));
+      case 'checkin':
+        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CheckinScreen()));
       case 'settings':
         Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
       case 'signin':

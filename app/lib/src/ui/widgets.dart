@@ -256,3 +256,43 @@ void toast(BuildContext context, String message) {
       duration: const Duration(seconds: 3),
     ));
 }
+
+/* --- 굵게 --------------------------------------------------------------------
+ *
+ * 문구 안에서 한 대목을 굵게 하고 싶을 때가 자주 있습니다 — "**이 기기에만**
+ * 저장됩니다" 같은 자리는 그 대목이 문장의 전부니까요.
+ *
+ * 그런데 Flutter 의 Text 는 마크다운을 모릅니다. `**` 를 그대로 찍습니다.
+ * 실제로 온보딩 고지에 "측정 기록은 **이 기기에만** 저장됩니다" 가
+ * 별표째로 나갔습니다 — 제일 중요한 문장이 제일 어설퍼 보이는 자리였습니다.
+ * -------------------------------------------------------------------------- */
+
+final RegExp _bold = RegExp(r'\*\*(.+?)\*\*', dotAll: true);
+
+/// `**굵게**` 표시를 실제로 굵게 그립니다.
+TextSpan boldSpan(String text, {TextStyle? style}) {
+  final parts = <TextSpan>[];
+  var at = 0;
+  for (final m in _bold.allMatches(text)) {
+    if (m.start > at) parts.add(TextSpan(text: text.substring(at, m.start)));
+    parts.add(TextSpan(
+        text: m.group(1), style: const TextStyle(fontWeight: FontWeight.w700)));
+    at = m.end;
+  }
+  if (at < text.length) parts.add(TextSpan(text: text.substring(at)));
+  return TextSpan(style: style, children: parts);
+}
+
+/// `**굵게**` 를 알아보는 Text.
+class RichishText extends StatelessWidget {
+  const RichishText(this.text, {super.key, this.style, this.textAlign});
+  final String text;
+  final TextStyle? style;
+  final TextAlign? textAlign;
+
+  @override
+  Widget build(BuildContext context) => Text.rich(
+        boldSpan(text, style: style ?? DefaultTextStyle.of(context).style),
+        textAlign: textAlign,
+      );
+}

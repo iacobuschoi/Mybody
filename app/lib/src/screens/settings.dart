@@ -120,7 +120,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const SectionTitle('백업'),
-            Text(
+            RichishText(
               '측정 기록·목표·계획은 **이 기기에만** 있습니다. 서버로 올라가지 않으므로 '
               '기기를 바꾸면 따라오지 않습니다. 내보내기가 유일한 백업입니다.',
               style: t.textTheme.bodySmall?.copyWith(height: 1.5),
@@ -143,7 +143,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const SectionTitle('지우기'),
-            Text(
+            RichishText(
               '이 기기의 모든 기록을 지웁니다 — 측정·목표·계획·식단·일정, '
               '그리고 **결과지 사진까지**. 결과지에는 보통 이름과 나이가 함께 '
               '인쇄돼 있습니다.',
@@ -157,7 +157,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
             if (api.signedIn) ...[
               const Divider(height: 24),
-              Text(
+              RichishText(
                 '계정을 지우면 친구 관계와 서버에 올라간 주간 요약이 사라집니다. '
                 '**이 기기의 측정 기록은 그대로 남습니다** — 그건 위 버튼으로 지웁니다.',
                 style: t.textTheme.bodySmall?.copyWith(height: 1.5),

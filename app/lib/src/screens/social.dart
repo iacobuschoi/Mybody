@@ -300,7 +300,7 @@ class _FriendDetailScreenState extends State<FriendDetailScreen> {
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const SectionTitle('이 친구에게 보여 줄 것'),
-            Text(
+            RichishText(
               '끄면 화면에서 가리는 게 아니라 **서버가 안 보냅니다.** '
               '기본은 전부 꺼져 있고, 운동 체크만 보입니다.',
               style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5),

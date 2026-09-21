@@ -137,7 +137,17 @@ class PlanScreen extends StatelessWidget {
       if (plan['milestones'] != null) _MilestoneCard(
           milestones: (plan['milestones'] as List).cast<Map<String, Object?>>()),
 
-      OutlinedButton(onPressed: () => go('goal'), child: const Text('목표 바꾸기')),
+      Row(children: [
+        Expanded(
+          child: FilledButton.tonal(
+              onPressed: () => go('checkin'), child: const Text('주간 체크인')),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: OutlinedButton(
+              onPressed: () => go('goal'), child: const Text('목표 바꾸기')),
+        ),
+      ]),
     ]);
   }
 }
