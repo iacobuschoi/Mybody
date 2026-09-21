@@ -216,6 +216,135 @@ function planGoal(rnd, cur) {
   return g;
 }
 
+/* --- 저장소·일정용 사례 -----------------------------------------------------
+ *
+ * store 와 schedule 은 **상태 전체**가 입력입니다. 그래서 사례 하나가
+ * 앱의 저장 파일 한 벌이고, 그걸 양쪽에 통째로 넣고 같은 답이 나오는지
+ * 봅니다.
+ *
+ * 날짜가 이 두 파일의 전부입니다 — 스트릭·주 시작·"오늘" 판정이 전부
+ * 날짜 산수라, 오늘을 고정하지 않으면 자정 근처에서 갈립니다.
+ * -------------------------------------------------------------------------- */
+function storeCase(rnd) {
+  const pad = n => String(n).padStart(2, '0');
+  const key = (y, m, d) => y + '-' + pad(m) + '-' + pad(d);
+  /* 기준일을 흔듭니다 — 월요일·일요일·월말·연말을 다 밟아야 합니다. */
+  const base = Date.UTC(2026, 0, 1) + Math.round(rnd() * 700) * 86400000;
+  const today = new Date(base);
+  const todayKey = key(today.getUTCFullYear(), today.getUTCMonth() + 1, today.getUTCDate());
+
+  const schedule = {};
+  const nDays = (rnd() * 40) | 0;
+  for (let i = 0; i < nDays; i++) {
+    const off = Math.round((rnd() - 0.75) * 60);        // 대부분 과거, 일부 미래
+    const d = new Date(base + off * 86400000);
+    const k = key(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+    const plan = [];
+    if (rnd() > 0.25) plan.push('gym');
+    if (rnd() > 0.6) plan.push('cardio');
+    if (!plan.length) continue;
+    const done = {};
+    plan.forEach(t => { if (rnd() > 0.35) done[t] = '2026-01-01T10:00:00.000Z'; });
+    schedule[k] = { plan: plan, done: done };
+  }
+
+  const foodLogs = [];
+  const nLogs = (rnd() * 30) | 0;
+  for (let i = 0; i < nLogs; i++) {
+    const off = Math.round((rnd() - 0.85) * 40);
+    const d = new Date(base + off * 86400000);
+    const items = [];
+    const nItems = 1 + ((rnd() * 3) | 0);
+    for (let j = 0; j < nItems; j++) {
+      const it = { name: '음식' + ((rnd() * 8) | 0), kcal: Math.round(rnd() * 800) };
+      if (rnd() > 0.1) it.p = Math.round(rnd() * 50 * 10) / 10;
+      if (rnd() > 0.2) it.c = Math.round(rnd() * 90 * 10) / 10;
+      if (rnd() > 0.2) it.f = Math.round(rnd() * 40 * 10) / 10;
+      if (rnd() > 0.95) it.kcal = null;                 // 빈 칸도 들어옵니다
+      items.push(it);
+    }
+    foodLogs.push({
+      id: 'f' + i,
+      date: key(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate()),
+      meal: ['아침', '점심', '저녁', '간식'][(rnd() * 4) | 0],
+      items: items, source: 'manual', at: '2026-01-01T10:00:00.000Z'
+    });
+  }
+
+  const base2 = plausible(rnd);
+  const scans = [];
+  const nScans = (rnd() * 4) | 0;
+  for (let i = 0; i < nScans; i++) {
+    const sc = Object.assign({ id: 's' + i }, plausible(rnd).scan);
+    const off = Math.round((rnd() - 0.9) * 200);
+    sc.measuredAt = new Date(base + off * 86400000).toISOString();
+    if (rnd() > 0.93) sc.measuredAt = 'not-a-date';     // 못 읽는 날짜
+    scans.push(sc);
+  }
+
+  const state = Object.assign({}, {
+    version: 1, profile: null, scans: scans, goal: null, goalHistory: [],
+    comparison: null, plan: null, baselinePlan: null, checkins: [],
+    foodLogs: foodLogs, schedule: schedule, foodFavorites: [],
+    settings: { theme: 'auto', units: 'metric', checkinEveryWeeks: 1, defaultLevel: 'mid' },
+    onboarded: rnd() > 0.2, disclaimerAccepted: true
+  });
+  if (rnd() > 0.35) {
+    state.profile = { sex: rnd() > 0.5 ? 'male' : 'female', age: 20 + ((rnd() * 40) | 0),
+                      heightCm: base2.heightCm, activityLevel: 'moderate',
+                      trainingAge: 'novice', daysPerWeek: 4 };
+  }
+  if (rnd() > 0.6) {
+    state.checkins = [{ at: new Date(base - Math.round(rnd() * 20) * 86400000).toISOString() }];
+  }
+  return {
+    state: state,
+    todayISO: today.toISOString(),
+    date: rnd() > 0.5 ? todayKey : key(today.getUTCFullYear(), today.getUTCMonth() + 1,
+                                       Math.max(1, today.getUTCDate() - ((rnd() * 20) | 0))),
+    limit: rnd() > 0.6 ? 1 + ((rnd() * 15) | 0) : undefined
+  };
+}
+
+/* --- 식단 추천용 사례 -------------------------------------------------------
+ *
+ * suggest 는 후보 수천 개를 만들어 점수순으로 세 개를 고릅니다. 점수가
+ * 같은 조합이 흔해서 **정렬이 안정적인지**가 결과를 가릅니다. 그래서
+ * 남은 칼로리를 넓게 흔들어 후보가 많이 생기는 구간을 밟습니다.
+ * -------------------------------------------------------------------------- */
+function foodCase(rnd, module) {
+  const F = loadJs('fooddb');
+  if (module === 'fooddb.search') {
+    const names = F.FOODS.map(x => x.name);
+    const pick = names[(rnd() * names.length) | 0];
+    const q = rnd() > 0.65 ? pick
+            : (rnd() > 0.5 ? pick.slice(0, 1 + ((rnd() * 3) | 0))
+            : ['프로틴', '밥', '닭', '치킨', '', '   ', 'zzz', '국', '쉐이크'][(rnd() * 9) | 0]);
+    return { q: q, limit: rnd() > 0.7 ? Math.round(rnd() * 8) : undefined };
+  }
+  if (module === 'fooddb.scaled') {
+    const f = F.FOODS[(rnd() * F.FOODS.length) | 0];
+    return { name: f.name, mult: [0.5, 1, 1.5, 2, 0, null, 3][(rnd() * 7) | 0] };
+  }
+  /* 추천 세 종류 공통 입력 */
+  const opts = {
+    remainP: Math.round(rnd() * 160),
+    remainKcal: Math.round(rnd() * 2200),
+    mealsLeft: 1 + ((rnd() * 3) | 0)
+  };
+  if (rnd() > 0.7) opts.aimP = Math.round(10 + rnd() * 60);
+  if (rnd() > 0.75) opts.aimKcal = Math.round(200 + rnd() * 900);
+  if (rnd() > 0.6) opts.limit = 1 + ((rnd() * 5) | 0);
+  if (rnd() > 0.7) {
+    const F2 = loadJs('fooddb');
+    opts.avoid = [F2.FOODS[(rnd() * F2.FOODS.length) | 0].name,
+                  F2.FOODS[(rnd() * F2.FOODS.length) | 0].name];
+  }
+  if (rnd() > 0.93) delete opts.remainKcal;   // 예산이 없으면 검사가 전부 통과합니다
+  if (rnd() > 0.95) opts.remainP = 0;
+  return { opts: opts };
+}
+
 /* --- 모드 선택용 사례 -------------------------------------------------------
  *
  * modes.select 는 **계획을 만들어도 되는지**를 먼저 정합니다. 그래서
@@ -350,6 +479,14 @@ function makePlanCases(n, seed, module) {
   const out = [];
   if (module.indexOf('modes.') === 0) {
     while (out.length < n) out.push({ input: modeCase(rnd) });
+    return out;
+  }
+  if (module.indexOf('fooddb.') === 0 || module.indexOf('suggest.') === 0) {
+    while (out.length < n) out.push(foodCase(rnd, module));
+    return out;
+  }
+  if (module.indexOf('store.') === 0 || module.indexOf('sched.') === 0) {
+    while (out.length < n) out.push(storeCase(rnd));
     return out;
   }
   while (out.length < n) {
@@ -504,6 +641,10 @@ function loadJs(file) {
   if (file === 'crosscheck') return global.MB_CHECK;
   if (file === 'modes') return global.MB_MODES;
   if (file === 'data') return global.MB_DATA;
+  if (file === 'fooddb') return global.MB_FOOD;
+  if (file === 'suggest') return global.MB_SUGGEST;
+  if (file === 'store') return global.MB_STORE;
+  if (file === 'schedule') return global.MB_SCHED;
   return global.MB_ENGINE;
 }
 
@@ -539,6 +680,61 @@ function jsCaller(module) {
   if (module === 'crosscheck') {
     const m = loadJs('crosscheck');
     return c => m.run(c.scan, c.profile, c.prev);
+  }
+  if (module.indexOf('store.') === 0 || module.indexOf('sched.') === 0) {
+    /* store.js 는 localStorage 를 씁니다. 노드에는 없어서 save() 가 전부
+       실패하고, 그러면 importJSON 이 던져서 상태를 넣을 수조차 없습니다.
+       그래서 아주 얇은 가짜를 깔아 줍니다 — 원본은 안 건드립니다. */
+    if (typeof global.localStorage === 'undefined') {
+      const mem = new Map();
+      global.localStorage = {
+        getItem: k => (mem.has(k) ? mem.get(k) : null),
+        setItem: (k, v) => { mem.set(k, String(v)); },
+        removeItem: k => { mem.delete(k); }
+      };
+    }
+    loadJs('data'); loadJs('engine');
+    const ST = loadJs('store');
+    const SC = loadJs('schedule');
+    const fn = module.slice(module.indexOf('.') + 1);
+    return c => withFrozenClock(c.todayISO, function () {
+      ST.importJSON(JSON.stringify(c.state));
+      if (module.indexOf('sched.') === 0) {
+        if (fn === 'week') return SC.week();
+        if (fn === 'weekSummary') return SC.weekSummary();
+        if (fn === 'workoutStreak') return SC.workoutStreak();
+        if (fn === 'foodStreak') return SC.foodStreak();
+        throw new Error('모르는 모듈: ' + module);
+      }
+      if (fn === 'dayTotals') return ST.dayTotals(c.date);
+      if (fn === 'weekStartOf') return ST.weekStartOf(c.date);
+      if (fn === 'dayKey') return ST.dayKey(c.date);
+      if (fn === 'loggedDates') return ST.loggedDates();
+      if (fn === 'recentFoods') return ST.recentFoods(c.limit);
+      if (fn === 'sortedScans') return ST.sortedScans();
+      if (fn === 'weeklySnapshot') return ST.weeklySnapshot();
+      if (fn === 'lastMealLike') return ST.lastMealLike('점심', c.date);
+      if (fn === 'yesterdayLogs') return ST.yesterdayLogs(c.date);
+      if (fn === 'scheduleDay') return ST.scheduleDay(c.date);
+      throw new Error('모르는 모듈: ' + module);
+    });
+  }
+  if (module.indexOf('fooddb.') === 0) {
+    const F = loadJs('fooddb');
+    if (module === 'fooddb.search') return c => F.search(c.q, c.limit);
+    if (module === 'fooddb.scaled') return c => F.scaled(F.byName(c.name), c.mult);
+    throw new Error('모르는 모듈: ' + module);
+  }
+  if (module.indexOf('suggest.') === 0) {
+    loadJs('fooddb');
+    const S = loadJs('suggest');
+    const fn = module.slice('suggest.'.length);
+    if (fn === 'summaryText') {
+      /* 요약 문구는 추천 결과를 받습니다 — 먼저 추천을 돌립니다. */
+      return c => S.summaryText(S.suggestMeal(c.opts));
+    }
+    if (!S[fn]) throw new Error('모르는 모듈: ' + module);
+    return c => S[fn](c.opts);
   }
   if (module.indexOf('modes.') === 0) {
     const M = loadJs('modes');
@@ -610,6 +806,17 @@ function runDart(module, casesFile, noiseFile) {
 function diff(a, b, at) {
   at = at || '';
   if (a === b) return null;
+  /* **undefined 와 null 은 같은 것으로 봅니다.**
+   *
+   * Dart 에는 undefined 가 없습니다. 자바스크립트가 `{budget: undefined}` 를
+   * 내면 JSON.stringify 가 그 칸을 통째로 빼 버리고, 옮긴 쪽은 같은 자리에
+   * NaN 을 담는데 그것도 JSON 에서는 null 이 됩니다. 두 표현이 다를 뿐
+   * **뒤에서 하는 산수는 같습니다** (undefined 도 NaN 도 더하면 NaN 이고,
+   * 문구에는 둘 다 "NaN" 으로 찍힙니다).
+   *
+   * 값이 있는 쪽과 없는 쪽이 갈리는 경우는 여전히 잡힙니다 — 이건 둘 다
+   * "값이 없다" 일 때만 넘어갑니다. */
+  if ((a === undefined && b === null) || (a === null && b === undefined)) return null;
   if (typeof a === 'number' && typeof b === 'number') {
     if (Number.isNaN(a) && Number.isNaN(b)) return null;
     /* 부동소수 찌꺼기까지 실패로 치면 진짜 차이가 묻힙니다.
@@ -674,7 +881,27 @@ const MODULES = [
   { name: 'engine.checkinAdvice',     gen: makePlanCases },
   { name: 'modes.select',             gen: makePlanCases },
   { name: 'engine.planDrift',         gen: makePlanCases, cap: 40 },
-  { name: 'engine.buildPlan',         gen: makePlanCases, cap: 10 }
+  { name: 'engine.buildPlan',         gen: makePlanCases, cap: 10 },
+  { name: 'fooddb.search',            gen: makePlanCases },
+  { name: 'fooddb.scaled',            gen: makePlanCases },
+  { name: 'suggest.suggestSnack',     gen: makePlanCases, cap: 300 },
+  { name: 'suggest.suggestEatOut',    gen: makePlanCases, cap: 300 },
+  { name: 'suggest.suggestMeal',      gen: makePlanCases, cap: 200 },
+  { name: 'suggest.summaryText',      gen: makePlanCases, cap: 200 },
+  { name: 'store.dayKey',             gen: makePlanCases },
+  { name: 'store.weekStartOf',        gen: makePlanCases },
+  { name: 'store.dayTotals',          gen: makePlanCases },
+  { name: 'store.loggedDates',        gen: makePlanCases },
+  { name: 'store.recentFoods',        gen: makePlanCases },
+  { name: 'store.sortedScans',        gen: makePlanCases },
+  { name: 'store.lastMealLike',       gen: makePlanCases },
+  { name: 'store.yesterdayLogs',      gen: makePlanCases },
+  { name: 'store.scheduleDay',        gen: makePlanCases },
+  { name: 'store.weeklySnapshot',     gen: makePlanCases },
+  { name: 'sched.week',               gen: makePlanCases },
+  { name: 'sched.weekSummary',        gen: makePlanCases },
+  { name: 'sched.workoutStreak',      gen: makePlanCases },
+  { name: 'sched.foodStreak',         gen: makePlanCases }
 ];
 let failed = 0;
 

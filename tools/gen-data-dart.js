@@ -1,23 +1,8 @@
 /* data.js 를 읽어 Dart 리터럴로 찍습니다. 손으로 옮기면 반드시 한 글자 틀립니다. */
-const path = require('path');
-global.window = global;
-require(path.join(__dirname, '..', 'prototype', 'js', 'data.js'));
+const { lit, loadPrototype } = require('./dart-literal');
+loadPrototype('data');
 const D = global.MB_DATA;
 
-function lit(v, indent) {
-  const pad = ' '.repeat(indent), pad2 = ' '.repeat(indent + 2);
-  if (v === null || v === undefined) return 'null';
-  if (typeof v === 'number') return Number.isInteger(v) ? v + '.0' : String(v);
-  if (typeof v === 'boolean') return String(v);
-  if (typeof v === 'string') return "'" + v.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\$/g, '\\$') + "'";
-  if (Array.isArray(v)) {
-    if (!v.length) return '<Object?>[]';
-    return '[\n' + v.map(x => pad2 + lit(x, indent + 2)).join(',\n') + ',\n' + pad + ']';
-  }
-  const ks = Object.keys(v);
-  if (!ks.length) return '<String, Object?>{}';
-  return '{\n' + ks.map(k => pad2 + lit(k, 0) + ': ' + lit(v[k], indent + 2)).join(',\n') + ',\n' + pad + '}';
-}
 
 const out = [];
 out.push(`/* =============================================================================

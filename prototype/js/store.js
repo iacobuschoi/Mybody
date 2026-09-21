@@ -402,9 +402,24 @@
   function lastMealLike(meal, beforeDate) {
     var before = beforeDate || dayKey();
     var logs = (state.foodLogs || [])
-      .filter(function (x) { return x.meal === meal && x.date < before && (x.items || []).length; })
-      .sort(function (a, b) { return a.date < b.date ? 1 : -1; });
-    return logs[0] || null;
+      .filter(function (x) { return x.meal === meal && x.date < before && (x.items || []).length; });
+    /* 같은 날짜가 여러 개면 **나중에 적은 것**을 씁니다.
+     *
+     * 예전에는 `.sort(function (a, b) { return a.date < b.date ? 1 : -1; })`
+     * 였습니다. 이 비교 함수는 날짜가 같을 때도 −1 을 돌려줍니다 — a 와 b 를
+     * 바꿔 넣어도 계속 "a 가 먼저" 라고 답합니다. 그런 비교 함수를 받은
+     * sort 의 결과는 **명세에 없습니다.** 지금 V8 에서는 우연히 역순이
+     * 나오는데, 그건 보장이 아니라 그 엔진의 오늘 동작입니다.
+     *
+     * 앱을 Dart 로 옮기면서 같은 저장 파일에 두 앱이 다른 끼니를 복사해
+     * 주는 것을 보고 알았습니다. 원하는 동작("가장 최근에 적은 것")을
+     * 정렬에 맡기지 않고 그냥 적습니다 — 결과는 지금과 같고, 이제는
+     * 엔진이 바뀌어도 같습니다. */
+    var best = null;
+    for (var i = 0; i < logs.length; i++) {
+      if (!best || logs[i].date >= best.date) best = logs[i];
+    }
+    return best || null;
   }
   function copyMeal(sourceLog, toDate, meal) {
     if (!sourceLog) return null;

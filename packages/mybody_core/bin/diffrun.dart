@@ -7,7 +7,11 @@ import 'dart:io';
 import 'package:mybody_core/crosscheck.dart' as crosscheck;
 import 'package:mybody_core/engine.dart' as engine;
 import 'package:mybody_core/js_num.dart';
+import 'package:mybody_core/fooddb.dart' as fooddb;
 import 'package:mybody_core/modes.dart' as modes;
+import 'package:mybody_core/schedule.dart' as sched;
+import 'package:mybody_core/store.dart' as store;
+import 'package:mybody_core/suggest.dart' as suggest;
 
 /// JSON.stringify 는 NaN·Infinity 를 **null** 로 씁니다. Dart 의 jsonEncode 는
 /// 던집니다. 옮긴 코드에서 NaN 은 정상적으로 나옵니다(자바스크립트가 없는
@@ -26,6 +30,40 @@ Object? _clean(Object? v) {
 
 Map<String, Object?>? _m(Object? x) =>
     x == null ? null : (x as Map).cast<String, Object?>();
+
+/* store·schedule 은 상태 전체가 입력입니다. 시계를 사례가 정한 순간으로
+   세워 두고(원본 쪽도 같은 순간을 봅니다) 한 벌씩 새로 만듭니다. */
+Object? _storeCase(String module, Map<String, Object?> c) {
+  final fixed = DateTime.parse('${c['todayISO']}');
+  final st = store.Store(now: () => fixed);
+  st.replaceState((c['state'] as Map).cast<String, Object?>());
+  final sc = sched.Schedule(st);
+  final fn = module.substring(module.indexOf('.') + 1);
+  switch (module.substring(0, module.indexOf('.'))) {
+    case 'sched':
+      if (fn == 'week') return sc.week();
+      if (fn == 'weekSummary') return sc.weekSummary();
+      if (fn == 'workoutStreak') return sc.workoutStreak();
+      if (fn == 'foodStreak') return sc.foodStreak();
+      break;
+    case 'store':
+      if (fn == 'dayTotals') return st.dayTotals(c['date']);
+      if (fn == 'weekStartOf') return st.weekStartOf(c['date']);
+      if (fn == 'dayKey') return st.dayKey(c['date']);
+      if (fn == 'loggedDates') return st.loggedDates();
+      if (fn == 'recentFoods') return st.recentFoods(c.containsKey('limit') ? c['limit'] : null);
+      if (fn == 'sortedScans') return st.sortedScans();
+      if (fn == 'weeklySnapshot') {
+        st.weekSummaryOf = (ws) => sc.weekSummary(ws);
+        return st.weeklySnapshot();
+      }
+      if (fn == 'lastMealLike') return st.lastMealLike('점심', c['date']);
+      if (fn == 'yesterdayLogs') return st.yesterdayLogs(c['date']);
+      if (fn == 'scheduleDay') return st.scheduleDay(c['date']);
+      break;
+  }
+  throw StateError('모르는 모듈: $module');
+}
 
 void main(List<String> args) {
   if (args.length < 2) {
@@ -138,6 +176,40 @@ void main(List<String> args) {
         case 'engine.buildPlan':
           v = engine.buildPlan(
               _m(c['comparison'])!, c['level'], _m(c['scan']), _m(c['profile'])!);
+          break;
+        case 'store.dayKey':
+        case 'store.weekStartOf':
+        case 'store.dayTotals':
+        case 'store.loggedDates':
+        case 'store.recentFoods':
+        case 'store.sortedScans':
+        case 'store.lastMealLike':
+        case 'store.yesterdayLogs':
+        case 'store.scheduleDay':
+        case 'store.weeklySnapshot':
+        case 'sched.week':
+        case 'sched.weekSummary':
+        case 'sched.workoutStreak':
+        case 'sched.foodStreak':
+          v = _storeCase(module, c);
+          break;
+        case 'fooddb.search':
+          v = fooddb.search(c['q'], c.containsKey('limit') ? c['limit'] : null);
+          break;
+        case 'fooddb.scaled':
+          v = fooddb.scaled(fooddb.byName(c['name'])!, c['mult']);
+          break;
+        case 'suggest.suggestSnack':
+          v = suggest.suggestSnack(_m(c['opts'])!);
+          break;
+        case 'suggest.suggestEatOut':
+          v = suggest.suggestEatOut(_m(c['opts'])!);
+          break;
+        case 'suggest.suggestMeal':
+          v = suggest.suggestMeal(_m(c['opts'])!);
+          break;
+        case 'suggest.summaryText':
+          v = suggest.summaryText(suggest.suggestMeal(_m(c['opts'])!));
           break;
         case 'modes.select':
           v = modes.select(_m(c['input'])!);

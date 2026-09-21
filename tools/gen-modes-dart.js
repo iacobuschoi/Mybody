@@ -12,9 +12,8 @@
  *
  *   node tools/gen-modes-dart.js > packages/mybody_core/lib/modes_data.dart
  * ========================================================================== */
-const path = require('path');
-global.window = global;
-require(path.join(__dirname, '..', 'prototype', 'js', 'modes.js'));
+const { lit, loadPrototype } = require('./dart-literal');
+loadPrototype('modes');
 const M = global.MB_MODES;
 
 /* 거부 규칙에는 source 칸이 없습니다. 판정식 원문을 함수 본문에서 꺼냅니다 —
@@ -24,23 +23,6 @@ function sourceOf(fn) {
   return m ? m[1].trim() : null;
 }
 
-function lit(v, indent) {
-  const pad = ' '.repeat(indent), pad2 = ' '.repeat(indent + 2);
-  if (v === null || v === undefined) return 'null';
-  if (typeof v === 'number') return Number.isInteger(v) ? v + '.0' : String(v);
-  if (typeof v === 'boolean') return String(v);
-  if (typeof v === 'string') {
-    return "'" + v.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
-                  .replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\$/g, '\\$') + "'";
-  }
-  if (Array.isArray(v)) {
-    if (!v.length) return '<Object?>[]';
-    return '[\n' + v.map(x => pad2 + lit(x, indent + 2)).join(',\n') + ',\n' + pad + ']';
-  }
-  const ks = Object.keys(v).filter(k => typeof v[k] !== 'function');
-  if (!ks.length) return '<String, Object?>{}';
-  return '{\n' + ks.map(k => pad2 + lit(k, 0) + ': ' + lit(v[k], indent + 2)).join(',\n') + ',\n' + pad + '}';
-}
 
 /* 규칙의 `source` 는 판정식의 **원문이라고 주장하는 문자열**입니다.
    주장일 뿐이라 어긋날 수 있고, 어긋나면 옮긴 Dart 는 실제로 도는 것이
