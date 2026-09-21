@@ -46,15 +46,73 @@
   var state = blank();
   var listeners = [];
 
+  /* 읽지 못한 이유. 한 번 물어보면 지웁니다 — 화면이 같은 말을
+     새로고침마다 되풀이하지 않게. */
+  var loadProblem = null;
+
+  /**
+   * 저장된 상태를 읽습니다.
+   *
+   * **못 읽었을 때가 이 함수의 전부입니다.**
+   *
+   * 예전에는 손상·버전 불일치를 조용히 삼키고 빈 상태로 시작했습니다.
+   * 그러면 앱이 온보딩을 띄우고, 사용자가 무심코 한 걸음 넘어가는
+   * 순간 **첫 저장이 깨진 원본 바이트를 덮어씁니다.** 손으로 복구할
+   * 재료까지 그때 사라집니다.
+   *
+   * 측정 기록은 서버로 안 올라가는 **유일본**입니다. 그리고 기록이
+   * 있는 사람에게 "처음 오셨군요" 를 띄우는 것 자체가 거짓말입니다.
+   *
+   * 그래서 못 읽으면 원본을 옆으로 치워 둡니다. 자리가 없어서 그것마저
+   * 실패하면 그 사실도 기록합니다 — 못 지킨 것을 지켰다고 하지 않습니다.
+   */
   function load() {
+    var raw = null;
+    try { raw = localStorage.getItem(KEY); } catch (e) { raw = null; }
+    if (!raw) return state;
+
+    var parsed = null, why = null;
     try {
-      var raw = localStorage.getItem(KEY);
-      if (raw) {
-        var parsed = JSON.parse(raw);
-        if (parsed && parsed.version === VERSION) state = Object.assign(blank(), parsed);
+      parsed = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') why = '내용이 비어 있거나 모양이 다릅니다';
+      else if (parsed.version !== VERSION) {
+        why = '저장된 판(' + parsed.version + ')이 이 앱(' + VERSION + ')과 다릅니다';
       }
-    } catch (e) { /* 손상 시 초기 상태 */ }
+    } catch (e) {
+      why = '읽을 수 없는 형식입니다';
+    }
+
+    if (!why) { state = Object.assign(blank(), parsed); return state; }
+
+    /* 원본을 옆으로 치웁니다. 이름에 시각을 붙여, 여러 번 그래도
+       서로 덮어쓰지 않게 합니다.
+       다만 **같은 내용을 두 번 치우지는 않습니다.** load() 는 한 번
+       열 때도 두 번 불립니다(화면이 테마를 먼저 읽습니다). 그대로 두면
+       열 때마다 복사본이 쌓여서, 자리가 없어서 못 읽은 경우에는 그
+       자리를 더 갉아먹습니다. */
+    var kept = null;
+    try {
+      for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf(KEY + '.broken.') === 0 && localStorage.getItem(k) === raw) {
+          kept = k; break;
+        }
+      }
+      if (!kept) {
+        kept = KEY + '.broken.' + new Date().toISOString().replace(/[:.]/g, '-');
+        localStorage.setItem(kept, raw);
+      }
+    } catch (e) { kept = null; }
+
+    loadProblem = { why: why, kept: kept, bytes: raw.length };
     return state;
+  }
+
+  /** 못 읽은 적이 있으면 그 사실을 한 번 돌려줍니다. 읽고 나면 지웁니다. */
+  function takeLoadProblem() {
+    var p = loadProblem;
+    loadProblem = null;
+    return p;
   }
 
   var publishing = false;
@@ -100,6 +158,14 @@
 
   function save() {
     lastSaveOk = writeState();
+    /* 기기에 못 썼으면 친구에게도 올리지 않습니다.
+       올려 버리면 이 기기에서는 사라진 체크가 친구 화면에는 남습니다 —
+       새로고침 한 번에 둘이 어긋나고, 어느 쪽이 사실인지 알 수 없게
+       됩니다. 못 지킨 약속을 밖으로 내보내지 않습니다. */
+    if (!lastSaveOk) {
+      listeners.forEach(function (f) { try { f(state); } catch (e) {} });
+      return false;
+    }
     // 친구에게 나갈 값이 바뀌었을 수 있으니 여기서 올린다.
     //
     // 호출처마다 publishWeekly() 를 넣는 방법도 있지만, 이 기능이 망가져 있던 이유가
@@ -605,7 +671,13 @@
     var parsed = JSON.parse(text);
     if (!parsed || parsed.version !== VERSION) throw new Error('버전이 맞지 않는 데이터입니다');
     state = Object.assign(blank(), parsed);
-    save();
+    /* 저장이 실패하면 **던집니다.** 조용히 넘어가면 화면이 "데이터를
+       가져왔습니다" 라고 말하고, 그 말을 믿은 사람이 원본 백업 파일을
+       지웁니다. 가져오기는 그게 마지막 복사본인 경우가 많습니다. */
+    if (!save()) {
+      throw new Error('이 기기에 자리가 없어 저장하지 못했습니다 — ' +
+                      '원본 파일을 지우지 마세요. 설정에서 사진을 지우고 다시 해 보세요');
+    }
   }
 
   global.MB_STORE = {
@@ -621,6 +693,7 @@
     SCHED_TYPES: SCHED_TYPES, scheduleDay: scheduleDay,
     setSchedulePlan: setSchedulePlan, setScheduleDone: setScheduleDone,
     weekStartOf: weekStartOf, weeklySnapshot: weeklySnapshot, publishWeekly: publishWeekly,
-    exportJSON: exportJSON, importJSON: importJSON, blank: blank
+    exportJSON: exportJSON, importJSON: importJSON, blank: blank,
+    takeLoadProblem: takeLoadProblem
   };
 })(window);

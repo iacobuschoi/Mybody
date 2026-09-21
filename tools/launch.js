@@ -270,6 +270,23 @@ function startTunnel(tunnel, port, onUrl) {
                   : /https:\/\/[a-z0-9-]+\.trycloudflare\.com/i;
   const scan = buf => {
     out += String(buf);
+    /* **tailscale 이 하는 말은 그대로 보여 줍니다.**
+     *
+     * 예전에는 전부 모아 두고 프로세스가 죽을 때만 찍었습니다. 그런데
+     * Funnel 이 아직 안 켜진 테일넷에서는 tailscale 이 **죽지 않고**
+     * "여기서 켜세요: https://login.tailscale.com/f/funnel?node=…" 를
+     * 찍은 채로 기다립니다. 그 링크가 우리 버퍼 안에서 사라졌습니다 —
+     * 주인은 "Funnel 어떻게 켜?" 를 물어야 했고, 답은 화면에 이미
+     * 와 있었습니다.
+     *
+     * cloudflared 는 수다스러워서(연결 로그가 계속 나옵니다) 안 찍고,
+     * 죽을 때만 마지막 몇 줄을 보여 줍니다. tailscale 은 몇 줄뿐입니다. */
+    if (isTs) {
+      String(buf).split('\n').forEach(l => {
+        const t = l.trim();
+        if (t) line('  tailscale: ' + t);
+      });
+    }
     const m = RE.exec(String(buf));
     if (m && !found) { found = true; onUrl(m[0].replace(/\/$/, '')); }
   };
@@ -370,11 +387,27 @@ function verifyUrl(url, tunnel, tries) {
         if (said) { line(''); line('tailscale funnel status:');
                     said.split('\n').slice(0, 10).forEach(l => line('  ' + l)); }
         line('');
-        line('흔한 원인 둘입니다:');
-        line('  ① 테일넷에서 Funnel 이 아직 안 켜져 있습니다.');
-        line('     https://login.tailscale.com/admin/acls 에서 Funnel 을 켜세요.');
-        line('  ② HTTPS 인증서가 꺼져 있습니다 (MagicDNS · HTTPS).');
-        line('     https://login.tailscale.com/admin/dns 에서 둘 다 켜세요.');
+        if (/No serve config/i.test(said)) {
+          line('"No serve config" — funnel 이 아무것도 등록하지 못했습니다.');
+          line('거의 언제나 **테일넷에서 Funnel 이 안 켜져 있어서** 입니다.');
+          line('');
+        }
+        /* tailscale 이 켜는 링크를 줬으면 그게 제일 빠릅니다. */
+        const link = (out.match(/https:\/\/login\.tailscale\.com\/f\/funnel\S*/) || [])[0];
+        if (link) {
+          line('이 링크를 눌러 한 번 켜 주세요 (tailscale 이 준 링크입니다):');
+          line('  ' + link);
+          line('');
+        }
+        line('손으로 켜려면 두 군데를 봐야 합니다:');
+        line('  ① https://login.tailscale.com/admin/dns');
+        line('     MagicDNS 와 HTTPS Certificates 를 **둘 다** 켜세요.');
+        line('  ② https://login.tailscale.com/admin/acls');
+        line('     정책 파일에 이 세 줄을 넣으세요:');
+        line('       "nodeAttrs": [');
+        line('         { "target": ["autogroup:member"], "attr": ["funnel"] }');
+        line('       ]');
+        line('  그다음 이 창을 끄고 node tools/launch.js 를 다시 치세요.');
         line('');
         line('지금 당장 쓰려면:  node tools/launch.js --cloudflare');
         line('  (주소가 바뀌고 앱 설치는 안 되지만, 열리기는 합니다)');

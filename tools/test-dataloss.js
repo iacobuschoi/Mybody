@@ -510,6 +510,104 @@ const ok=(n,c,d)=>{if(c){pass++;console.log('  ✓',n);}else{fail++;console.log(
   });
   ok('완료 뒤에는 초안이 안 남는다', o8 === null);
 
+  console.log('\n[16-2] 저장된 기록을 못 읽으면, 그 원본을 덮어쓰지 않는다');
+  {
+    /* 측정 기록은 서버로 안 올라가는 **유일본**입니다.
+       예전에는 손상·버전 불일치를 조용히 삼키고 빈 상태로 시작했습니다.
+       그러면 앱이 온보딩을 띄우고, 한 걸음 넘어가는 순간 첫 저장이
+       깨진 원본 바이트를 덮어씁니다 — 손으로 복구할 재료까지 그때
+       사라집니다. 화면에는 아무것도 안 뜹니다. */
+    await pg.evaluate(() => {
+      localStorage.clear();
+      // 사람이 읽을 수 있는 숫자가 들어 있는, 깨진 저장값
+      localStorage.setItem('mybody.state.v1',
+        '{"version":1,"scans":[{"weightKg":86.7,"smmKg":37.9}],  ← 여기서 깨짐');
+    });
+    await pg.reload({ waitUntil: 'load' });
+    await pg.waitForTimeout(700);
+
+    const kept = await pg.evaluate(() =>
+      Object.keys(localStorage).filter(k => k.indexOf('mybody.state.v1.broken.') === 0));
+    ok('원본을 옆에 보관한다', kept.length === 1, kept);
+    if (kept.length) {
+      const body = await pg.evaluate(k => localStorage.getItem(k), kept[0]);
+      ok('보관한 것이 원본 그대로다', /86\.7/.test(body) && /37\.9/.test(body), String(body).slice(0, 80));
+    }
+    const shown = await pg.evaluate(() =>
+      !!document.querySelector('[data-uid="M53"]'));
+    ok('못 읽었다고 말한다', shown, shown);
+    const txt = await pg.evaluate(() => (document.body.innerText || ''));
+    ok('어디에 보관했는지 알려준다', /mybody\.state\.v1\.broken\./.test(txt), txt.slice(0, 400));
+
+    /* 그리고 이제부터 쓰기 시작해도 보관본은 그대로 있어야 합니다. */
+    await pg.evaluate(() => {
+      document.querySelectorAll('.modal,.scrim,.backdrop').forEach(e => e.remove());
+      window.MB_STORE.set({ onboarded: true });
+    });
+    await pg.waitForTimeout(300);
+    const still = await pg.evaluate(() =>
+      Object.keys(localStorage).filter(k => k.indexOf('mybody.state.v1.broken.') === 0));
+    ok('그 뒤에 저장해도 보관본이 안 지워진다', still.length === 1, still);
+
+    /* 같은 말을 새로고침마다 되풀이하지는 않습니다 — 한 번이면 됩니다. */
+    await pg.reload({ waitUntil: 'load' });
+    await pg.waitForTimeout(600);
+    const again = await pg.evaluate(() => !!document.querySelector('[data-uid="M53"]'));
+    ok('두 번째부터는 안 띄운다', !again, again);
+  }
+
+  console.log('\n[16-3] 저장이 실패하면 "했습니다" 라고 안 한다');
+  {
+    await pg.evaluate(() => { localStorage.clear(); });
+    await pg.reload({ waitUntil: 'load' });
+    await pg.waitForTimeout(500);
+    await pg.evaluate(() => { window.MB_STORE.seed(); });
+    await pg.waitForTimeout(200);
+
+    /* 저장이 실패하는 상태를 만듭니다 — setItem 이 던지게. */
+    await pg.evaluate(() => {
+      window.__realSet = localStorage.setItem.bind(localStorage);
+      localStorage.setItem = function (k, v) {
+        if (k === 'mybody.state.v1') { const e = new Error('quota'); e.name = 'QuotaExceededError'; throw e; }
+        return window.__realSet(k, v);
+      };
+    });
+
+    const r = await pg.evaluate(() => {
+      const S = window.MB_STORE;
+      const okSave = S.set({ onboarded: true });
+      return { saved: S.saved(), returned: okSave };
+    });
+    ok('저장이 실패하면 false 를 돌려준다', r.saved === false, r);
+
+    /* 친구에게 올리지도 않아야 합니다 — 이 기기에서는 사라진 체크가
+       친구 화면에는 남으면, 어느 쪽이 사실인지 알 수 없게 됩니다. */
+    const published = await pg.evaluate(() => {
+      const B = window.MB_BACKEND;
+      B.reset();
+      B.signIn({ provider: 'kakao' });
+      const n0 = (B.raw().snapshots || []).length;
+      window.MB_STORE.set({ onboarded: true });
+      return { n0: n0, n1: (B.raw().snapshots || []).length };
+    });
+    ok('저장 못 한 것을 친구에게 올리지 않는다',
+       published.n1 === published.n0, published);
+
+    /* 가져오기는 "복원됐다" 를 믿은 사람이 원본 파일을 지웁니다. */
+    const imp = await pg.evaluate(() => {
+      try {
+        window.MB_STORE.importJSON(JSON.stringify(
+          Object.assign(window.MB_STORE.blank(), { onboarded: true })));
+        return { threw: false };
+      } catch (e) { return { threw: true, msg: String(e.message || e) }; }
+    });
+    ok('가져오기가 실패하면 성공이라고 안 한다', imp.threw === true, imp);
+    ok('원본 파일을 지우지 말라고 말한다',
+       /원본 파일을 지우지 마세요/.test(imp.msg || ''), imp);
+
+    await pg.evaluate(() => { if (window.__realSet) localStorage.setItem = window.__realSet; });
+  }
+
   console.log('\n[17] JS 오류');
   ok('오류 0건', errs.length===0, errs);
 

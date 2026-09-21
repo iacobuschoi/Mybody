@@ -1528,6 +1528,50 @@
     });
   };
 
+  /* M53 저장된 기록을 못 읽었습니다.
+   *
+   * 측정 기록은 서버로 안 올라가는 **유일본**입니다. 못 읽었을 때
+   * 조용히 빈 상태로 시작하면, 앱이 온보딩을 띄우고 사용자가 한 걸음
+   * 넘어가는 순간 첫 저장이 깨진 원본을 덮어씁니다 — 손으로 복구할
+   * 재료까지 그때 사라집니다.
+   *
+   * 그래서 store 가 원본을 옆으로 치워 두고, 여기서 그 사실을 말합니다.
+   * 사람이 할 수 있는 일이 실제로 있습니다: 브라우저 개발자 도구로
+   * 그 칸을 열어 숫자를 옮겨 적는 것. 어렵지만 없는 것보다 낫습니다.
+   */
+  M.loadBroken = function (p) {
+    UI.openModal({
+      uid: 'M53', title: '저장된 기록을 읽지 못했습니다',
+      sub: p && p.kept ? '원본은 지우지 않고 옆에 보관해 뒀습니다' : null,
+      body: [
+        h('div.note.note--bad', {
+          text: '이 기기에 저장돼 있던 기록을 읽지 못했습니다 — ' +
+                ((p && p.why) || '이유를 알 수 없습니다') + '.' }),
+        p && p.kept
+          ? h('div', { style: { marginTop: '10px' } }, [
+              h('div.card__sub', { text: '원본을 여기 보관해 뒀습니다' }),
+              h('div', { style: { fontFamily: 'ui-monospace, monospace', fontSize: '12px',
+                                  wordBreak: 'break-all', marginTop: '4px' },
+                         text: p.kept }),
+              h('div.muted', { style: { marginTop: '6px' },
+                text: '브라우저 개발자 도구 → 저장소(localStorage)에서 이 이름을 열면 ' +
+                      '원래 내용이 그대로 있습니다. 숫자를 옮겨 적을 수 있습니다.' })
+            ])
+          : h('div.note.note--warn', { style: { marginTop: '10px' },
+              text: '자리가 없어서 원본을 보관하지도 못했습니다. ' +
+                    '이 기기의 저장 공간을 비운 뒤 앱을 다시 열어 보세요 — ' +
+                    '그 전에는 아무것도 저장하지 마세요.' }),
+        h('div.muted', { style: { marginTop: '10px' },
+          text: '지금부터 쓰기 시작하면 빈 상태로 시작합니다. 다른 기기에 ' +
+                '내보내기(JSON) 파일이 있으면 설정 → 가져오기로 되살릴 수 있습니다.' })
+      ],
+      actions: [
+        { label: '가져오기 열기', onClick: function () { global.MB_APP.go('P12'); } },
+        { label: '알겠습니다', kind: 'primary' }
+      ]
+    });
+  };
+
   /* M48 저장 실패 — 기기에 자리가 없습니다.
      여기서 제일 중요한 것은 사용자가 방금 입력한 숫자를 잃지 않는
      것입니다. 저장은 실패했지만 화면의 값은 아직 살아 있으니, 그

@@ -548,6 +548,11 @@
             uid: 'P02-B23#' + (W.indexOf(t) + 1), uidLabel: '오늘 ' + W.labelOf(t) + ' 체크',
             onClick: function () {
               S.setScheduleDone(today.key, t, true);
+              /* 저장이 실패했는데 "체크했습니다" 라고 하면, 새로고침
+                 했을 때 그 체크가 없습니다. 사람은 앱을 의심하기 전에
+                 자기 기억을 의심합니다. store 는 false 를 돌려주도록
+                 만들어 뒀는데 여기서 안 보고 있었습니다. */
+              if (S.saved && !S.saved()) { global.MB_MODALS.saveFailed({}); A.refresh(); return; }
               global.MB_UID.toast(W.labelOf(t) + ' 체크했습니다');
               A.refresh();
             }
@@ -598,6 +603,7 @@
         uid: 'P02-B32', uidLabel: '플랜대로 채우기',
         onClick: function () {
           targets.forEach(function (t) { S.setSchedulePlan(t.key, 'gym', true); });
+          if (S.saved && !S.saved()) { global.MB_MODALS.saveFailed({}); A.refresh(); return; }
           global.MB_UID.toast(targets.length + '일을 헬스로 채웠습니다');
           A.refresh();
         } }),

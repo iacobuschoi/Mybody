@@ -303,6 +303,17 @@
     render();
     if (hash) setTimeout(function () { global.MB_UID.gotoUid(hash); }, 120);
     if (st.onboarded && !st.disclaimerAccepted && global.MB_MODALS) global.MB_MODALS.disclaimer();
+
+    /* 저장된 기록을 못 읽었으면 **반드시 말합니다.**
+     *
+     * 조용히 빈 상태로 시작하면 앱이 온보딩을 띄우고, 한 걸음 넘어가는
+     * 순간 첫 저장이 깨진 원본을 덮어씁니다. 측정 기록은 서버로 안
+     * 올라가는 유일본이라 그게 마지막입니다.
+     * 고지 모달보다 뒤에 띄웁니다 — 이쪽이 더 급한 말이라 위에 와야 합니다. */
+    try {
+      var lp = S.takeLoadProblem && S.takeLoadProblem();
+      if (lp && global.MB_MODALS) global.MB_MODALS.loadBroken(lp);
+    } catch (e) {}
   }
 
   global.MB_APP = {
