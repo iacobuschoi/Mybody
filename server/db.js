@@ -82,6 +82,21 @@ function open(file) {
       created_at TEXT NOT NULL,
       fails INTEGER NOT NULL DEFAULT 0
     );
+    /* 판독(OCR) 을 오늘 몇 번 썼는가.
+     *
+     * 예전에는 이 숫자가 **메모리에만** 있었습니다. 그래서 서버를 껐다
+     * 켜면 그날 한도가 0 으로 돌아갔습니다. 개발 중에는 하루에도 여러 번
+     * 껐다 켜므로, 사실상 한도가 없는 것과 같았습니다.
+     *
+     * 이건 취향 문제가 아니라 **지갑 문제**입니다. 판독 한 장이 수십 원이고
+     * 가입이 열려 있으면 주소를 아는 사람이 계정을 만들어 태울 수 있습니다.
+     * 한도는 서버가 죽었다 살아나도 그대로여야 합니다. */
+    CREATE TABLE IF NOT EXISTS ocr_usage (
+      day TEXT NOT NULL,
+      who TEXT NOT NULL,
+      n INTEGER NOT NULL,
+      PRIMARY KEY (day, who)
+    );
     CREATE INDEX IF NOT EXISTS idx_push_user ON push_subs(user_id);
     CREATE INDEX IF NOT EXISTS idx_records_sync ON records(user_id, updated_at, kind, id);
     CREATE INDEX IF NOT EXISTS idx_snapshots_owner ON snapshots(owner_id, week_start DESC);
@@ -340,6 +355,12 @@ function makeApi(db) {
       'INSERT INTO shares (owner_id,viewer_id,fields,updated_at) VALUES (?,?,?,?) ' +
       'ON CONFLICT(owner_id,viewer_id) DO UPDATE SET fields=excluded.fields, updated_at=excluded.updated_at'),
     deleteShare: db.prepare('DELETE FROM shares WHERE owner_id=? AND viewer_id=?'),
+
+    bumpOcr: db.prepare(
+      'INSERT INTO ocr_usage (day, who, n) VALUES (?,?,1) ' +
+      'ON CONFLICT(day, who) DO UPDATE SET n = n + 1'),
+    getOcr: db.prepare('SELECT n FROM ocr_usage WHERE day=? AND who=?'),
+    pruneOcr: db.prepare('DELETE FROM ocr_usage WHERE day < ?'),
 
     upsertSnap: db.prepare(
       'INSERT INTO snapshots (owner_id,week_start,payload,computed_at) VALUES (?,?,?,?) ' +
@@ -811,6 +832,27 @@ function makeApi(db) {
       }));
     },
     dropPushSub(endpoint) { q.delPush.run(str(endpoint)); },
+
+    /**
+     * 판독을 한 번 썼다고 적고, 오늘 쓴 횟수를 돌려줍니다.
+     * 서버가 죽었다 살아나도 숫자가 안 없어집니다 — 그게 이 함수가
+     * 메모리 대신 DB 를 쓰는 유일한 이유입니다.
+     * @returns {{user:number, total:number}}
+     */
+    bumpOcr(userId, day) {
+      const d = str(day) || nowISO().slice(0, 10);
+      const me = str(userId) || '?';
+      q.bumpOcr.run(d, me);
+      q.bumpOcr.run(d, '*');
+      const a = q.getOcr.get(d, me);
+      const b = q.getOcr.get(d, '*');
+      /* 지난 날 기록은 쌓아 둘 이유가 없습니다. 이 숫자는 그날의
+         한도를 지키려고 있는 것이지 통계가 아닙니다 — 오래 들고 있으면
+         "누가 언제 몇 장 올렸나" 가 되고, 그건 우리가 안 남기기로 한
+         종류의 기록입니다. */
+      q.pruneOcr.run(d);
+      return { user: (a && a.n) || 0, total: (b && b.n) || 0 };
+    },
     notePushFail(endpoint) { q.bumpPushFail.run(str(endpoint)); },
 
     /** 이 사람이 운동했다는 소식을 받을 친구들 (일정 공유를 켠 사람만) */

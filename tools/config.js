@@ -40,6 +40,9 @@ const DEFAULTS = {
      경고가 이걸 보고 잔소리를 멈춥니다. */
   alwaysOn: false,
   anthropicKey: '',
+  /* 조직 전체 키를 쓸 때만 필요합니다. 워크스페이스 안에서 만든
+     키라면 비워 두세요 — 그쪽이 낫습니다(지출 한도를 걸 수 있습니다). */
+  anthropicWorkspace: '',
   origin: '',
   trustProxy: false,
   db: ''
@@ -83,6 +86,7 @@ function load() {
     cfg.alwaysOn = true; from.alwaysOn = '환경변수 ALWAYS_ON';
   }
   take('anthropicKey', 'ANTHROPIC_API_KEY');
+  take('anthropicWorkspace', 'ANTHROPIC_WORKSPACE_ID');
   take('origin', 'ORIGIN');
   take('db', 'DB');
   take('port', 'PORT', v => Number(v) || DEFAULTS.port);

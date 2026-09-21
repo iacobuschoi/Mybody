@@ -103,8 +103,8 @@ async function setup() {
    * 것이 제일 나쁩니다.
    *
    * 값을 준 항목만 바꾸고, 무엇이 바뀌었는지 찍고 끝냅니다. */
-  const GIVEN = ['owner', 'contact', 'no-owner', 'port', 'key', 'origin', 'static',
-                 'open-signup', 'close-signup', 'always-on'].filter(k => k in f);
+  const GIVEN = ['owner', 'contact', 'no-owner', 'port', 'key', 'workspace', 'origin',
+                 'static', 'open-signup', 'close-signup', 'always-on'].filter(k => k in f);
 
   /* `--key` 를 값 없이 주면 **가려서 물어봅니다.**
    *
@@ -157,6 +157,8 @@ async function setup() {
       alwaysOn: f['always-on'] ? true : cfg0.alwaysOn,
       port: f.port ? Number(f.port) || cfg0.port : cfg0.port,
       anthropicKey: f.key != null && f.key !== true ? String(f.key) : cfg0.anthropicKey,
+      anthropicWorkspace: f.workspace != null && f.workspace !== true
+        ? String(f.workspace) : cfg0.anthropicWorkspace,
       origin: f.origin != null && f.origin !== true ? String(f.origin) : cfg0.origin,
       static: f.static === 'prototype' ? 'prototype' : cfg0.static
     });
@@ -389,6 +391,7 @@ function envFor(cfg) {
   if (cfg.owner) e.OWNER = cfg.owner;
   if (cfg.ownerContact) e.OWNER_CONTACT = cfg.ownerContact;
   if (cfg.anthropicKey) e.ANTHROPIC_API_KEY = cfg.anthropicKey;
+  if (cfg.anthropicWorkspace) e.ANTHROPIC_WORKSPACE_ID = cfg.anthropicWorkspace;
   if (cfg.openSignup) e.OPEN_SIGNUP = '1';
   if (cfg.vapidPublic && cfg.vapidPrivate) {
     e.VAPID_PUBLIC = cfg.vapidPublic;

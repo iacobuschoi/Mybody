@@ -183,25 +183,43 @@ function rateLimited(ip) {
  * 청구서를 막습니다. */
 const OCR_PER_DAY_TOTAL = Number(process.env.OCR_PER_DAY_TOTAL || OCR_PER_DAY * 5);
 
+/* 하루 한도는 **DB 에** 셉니다.
+ *
+ * 예전에는 메모리(Map)였습니다. 그래서 서버를 껐다 켜면 그날 한도가
+ * 0 으로 돌아갔습니다. 개발 중에는 하루에도 여러 번 껐다 켜므로
+ * 사실상 한도가 없는 것과 같았고, 그 상태에서 가입까지 열려 있으면
+ * 주소를 아는 사람이 계정을 만들어 판독을 태울 수 있습니다.
+ * 판독 한 장은 모델에 따라 7~35원입니다 — 취향이 아니라 지갑 문제입니다.
+ *
+ * DB 가 어떤 이유로든 안 되면 메모리로 물러섭니다. 세는 게 아예 없는
+ * 것보다는 낫습니다 — 다만 그때는 껐다 켜면 리셋됩니다. */
 const ocrHits = new Map();
 function ocrLimited(userId) {
   const day = new Date().toISOString().slice(0, 10);
-  const key = userId + '|' + day;
-  const totalKey = '*|' + day;
-  const n = (ocrHits.get(key) || 0) + 1;
-  const total = (ocrHits.get(totalKey) || 0) + 1;
-  ocrHits.set(key, n);
-  ocrHits.set(totalKey, total);
-  if (ocrHits.size > 2000) {
-    for (const k of ocrHits.keys()) { if (!k.endsWith('|' + day)) ocrHits.delete(k); }
+  let n, total;
+  try {
+    const r = api.bumpOcr(userId, day);
+    n = r.user; total = r.total;
+  } catch (e) {
+    const key = userId + '|' + day;
+    const totalKey = '*|' + day;
+    n = (ocrHits.get(key) || 0) + 1;
+    total = (ocrHits.get(totalKey) || 0) + 1;
+    ocrHits.set(key, n);
+    ocrHits.set(totalKey, total);
+    if (ocrHits.size > 2000) {
+      for (const k of ocrHits.keys()) { if (!k.endsWith('|' + day)) ocrHits.delete(k); }
+    }
   }
   if (total > OCR_PER_DAY_TOTAL) return 'total';
   if (n > OCR_PER_DAY) return 'user';
   return null;
 }
 
+const OCR_WORKSPACE = (process.env.ANTHROPIC_WORKSPACE_ID || '').trim();
 async function runOcr(body) {
-  return callOcr(body, { apiKey: ANTHROPIC_KEY, model: OCR_MODEL });
+  return callOcr(body, { apiKey: ANTHROPIC_KEY, model: OCR_MODEL,
+                         workspace: OCR_WORKSPACE });
 }
 
 const loginFails = new Map();

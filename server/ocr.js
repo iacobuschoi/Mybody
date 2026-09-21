@@ -48,6 +48,27 @@ const API_VERSION = '2023-06-01';
  * 환율은 대략값입니다. 서버는 하루 횟수(OCR_PER_DAY)로 한 번 더 막습니다. */
 const DEFAULT_MODEL = process.env.OCR_MODEL || 'claude-opus-5';
 
+/* 워크스페이스에 묶이지 않은 키를 쓸 때 필요한 값.
+ *
+ * 앤트로픽 콘솔에서 **조직 전체** 키를 만들면 어느 워크스페이스에서
+ * 쓸지를 요청마다 말해 줘야 합니다. 안 보내면 400 입니다:
+ *   "This API key is not scoped to a workspace, so this request must
+ *    include the anthropic-workspace-id header..."
+ * 주인이 실제로 여기서 막혔습니다.
+ *
+ * 더 나은 길은 **워크스페이스 안에서 키를 만드는 것**입니다 — 그러면
+ * 이 값이 아예 필요 없고, 거기에만 월 지출 한도를 걸 수 있습니다
+ * (기본 워크스페이스에는 한도를 못 겁니다). 그래도 이미 만든 키를
+ * 쓰고 싶은 사람을 위해 열어 둡니다. */
+const WORKSPACE = (process.env.ANTHROPIC_WORKSPACE_ID || '').trim();
+
+function authHeaders(apiKey, workspace) {
+  const h = { 'x-api-key': apiKey, 'anthropic-version': API_VERSION };
+  const w = workspace === undefined ? WORKSPACE : (workspace || '');
+  if (w) h['anthropic-workspace-id'] = w;
+  return h;
+}
+
 /* 앤트로픽이 돌려주는 오류 종류를 사람 말로 옮깁니다.
  *
  * 예전에는 401 · 429 가 아니면 전부 "판독에 실패했습니다" 였습니다.
@@ -81,6 +102,13 @@ function explain(status, err) {
     case 'overloaded_error':
       return '판독 서비스가 지금 밀려 있습니다. 잠시 뒤에 다시 해 주세요';
     case 'invalid_request_error':
+      /* 이 한 종류 안에 "무엇을 해야 하는지" 가 전혀 다른 것들이 섞여
+         옵니다. 알아볼 수 있는 것은 알아보고 말해 줍니다. */
+      if (/not scoped to a workspace|anthropic-workspace-id/i.test(msg)) {
+        return '판독 키가 워크스페이스에 묶여 있지 않습니다 — ' +
+               '콘솔에서 워크스페이스를 하나 만들고 **그 안에서** 키를 새로 발급하세요 ' +
+               '(거기에만 월 지출 한도를 걸 수 있습니다)';
+      }
       return '판독 요청이 거절되었습니다 — 서버 화면의 [ocr] 줄을 보세요';
     case 'api_error':
       return '판독 서비스 쪽 오류입니다. 잠시 뒤에 다시 해 주세요';
@@ -105,7 +133,7 @@ async function checkKey(apiKey, model, opts) {
   try {
     const r = await doFetch(base + '/v1/models/' + encodeURIComponent(m), {
       signal: ctrl.signal,
-      headers: { 'x-api-key': apiKey, 'anthropic-version': API_VERSION }
+      headers: authHeaders(apiKey, opts.workspace)
     });
     clearTimeout(timer);
     if (r.ok) return { ok: true, reason: m + ' 를 쓸 수 있습니다' };
@@ -247,11 +275,8 @@ async function runOcr(body, opts) {
     r = await doFetch(opts.apiUrl || API_URL, {
       method: 'POST',
       signal: ctrl.signal,
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': API_VERSION
-      },
+      headers: Object.assign({ 'content-type': 'application/json' },
+                             authHeaders(apiKey, opts.workspace)),
       body: JSON.stringify({
         model: opts.model || DEFAULT_MODEL,
         max_tokens: 1500,

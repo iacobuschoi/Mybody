@@ -36,10 +36,12 @@ const ok = (n, c, d) => {
 /* --- 가짜 모델 API ------------------------------------------------------- */
 let nextReply = null;      // 다음 요청에 돌려줄 것
 let lastRequest = null;    // 우리가 무엇을 보냈는지 확인용
+let lastHeaders = null;    // 어떤 헤더로 보냈는지 확인용
 const fake = http.createServer((req, res) => {
   let body = '';
   req.on('data', c => { body += c; });
   req.on('end', () => {
+    lastHeaders = req.headers;
     try { lastRequest = JSON.parse(body); } catch { lastRequest = null; }
     const r = nextReply || { status: 200, body: toolReply({ notInBody: false }) };
     res.writeHead(r.status, { 'content-type': 'application/json' });
@@ -227,6 +229,18 @@ async function main() {
     ok('그 뒤에도 로그인이 살아 있다', after.status === 200, after.status);
   }
 
+  /* 조직 전체 키(워크스페이스에 안 묶인 키)로 부르면 400 이 옵니다.
+     주인이 실제로 여기서 막혔습니다 — 그때 "판독 요청이 거절되었습니다"
+     만 나오면 무엇을 해야 하는지 알 수가 없습니다. */
+  nextReply = { status: 400, body: { error: { type: 'invalid_request_error',
+    message: 'This API key is not scoped to a workspace, so this request must include ' +
+             'the anthropic-workspace-id header with the ID of the workspace to use.' } } };
+  const noWs = await call('POST', '/ocr', shot(), t);
+  ok('워크스페이스에 안 묶인 키면 그렇다고 말한다',
+     /워크스페이스에 묶여 있지 않습니다/.test(JSON.stringify(noWs.json)), noWs.json);
+  ok('무엇을 하면 되는지까지 말한다',
+     /워크스페이스를 하나 만들고/.test(JSON.stringify(noWs.json)), noWs.json);
+
   nextReply = { status: 403, body: { error: { type: 'permission_error', message: 'x' } } };
   const noPerm = await call('POST', '/ocr', shot(), t);
   ok('그 모델을 못 쓰면 그렇다고 말한다',
@@ -252,22 +266,89 @@ async function main() {
   /* 사진 한 장이 돈이 드는 요청이라, 버그로 같은 요청이 반복돼도
      청구서가 터지지 않게 막혀 있어야 합니다. */
   stop();
-  srv = boot({ ANTHROPIC_API_KEY: 'test-key', OCR_PER_DAY: '3',
+  /* 한도가 이제 **DB 에 남습니다.** 그래서 앞 절들이 쓴 횟수가 여기까지
+     따라옵니다 — 특히 서버 전체 한도(기본이 사람당 한도의 5배)는 앞에서
+     이미 다 차 있습니다. 한도 자체를 보는 절이니 자기 DB 를 씁니다. */
+  const DB8 = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mybody-ocr8-')), 'day.db');
+  srv = boot({ ANTHROPIC_API_KEY: 'test-key', OCR_PER_DAY: '3', DB: DB8,
                OCR_API_URL: `http://localhost:${FAKE_PORT}/v1/messages` });
   await waitUp(PORT);
-  const t3 = (await call('POST', '/auth/signin', { handle: 'owner', password: PW })).json.token;
+  /* **새 계정으로 셉니다.**
+     한도가 이제 DB 에 남으므로, 앞 절에서 판독을 쓴 'owner' 로 세면
+     이 절이 시작하기도 전에 한도를 넘어 있습니다. 한도가 껐다 켜도
+     살아남는다는 것이 바로 이 검사가 방금 확인한 것이고요. */
+  const dayUser = 'daycap' + Date.now().toString(36).slice(-5);
+  const t3 = (await call('POST', '/auth/signup',
+    { handle: dayUser, displayName: '한도', password: PW, pairSecret: PAIR,
+      healthConsent: '2026-09-20' })).json.token;
   nextReply = { status: 200, body: toolReply({ notInBody: false, weightKg: 86.7 }) };
   const codes = [];
   for (let i = 0; i < 5; i++) codes.push((await call('POST', '/ocr', shot(), t3)).status);
   ok('세 번까지는 통과', codes.slice(0, 3).every(c => c === 200), codes);
   ok('네 번째부터 429', codes.slice(3).every(c => c === 429), codes);
+
+  /* **껐다 켜도 한도가 그대로여야 합니다.**
+   *
+   * 예전에는 이 숫자가 메모리에만 있어서 서버를 다시 띄우면 0 으로
+   * 돌아갔습니다. 개발 중에는 하루에도 여러 번 껐다 켜므로 사실상
+   * 한도가 없는 것과 같았고, 가입까지 열려 있으면 주소를 아는 사람이
+   * 계정을 만들어 판독을 태울 수 있습니다. 판독 한 장은 수십 원입니다.
+   * 취향이 아니라 지갑 문제라 검사로 못 박습니다. */
   stop();
+  srv = boot({ ANTHROPIC_API_KEY: 'test-key', OCR_PER_DAY: '3', DB: DB8,
+               OCR_API_URL: `http://localhost:${FAKE_PORT}/v1/messages` });
+  await waitUp(PORT);
+  const t3b = (await call('POST', '/auth/signin', { handle: dayUser, password: PW })).json.token;
+  nextReply = { status: 200, body: toolReply({ notInBody: false, weightKg: 86.7 }) };
+  const afterRestart = (await call('POST', '/ocr', shot(), t3b)).status;
+  ok('서버를 껐다 켜도 한도가 살아 있다', afterRestart === 429, afterRestart);
+  stop();
+
+  console.log('\n[8-2] 워크스페이스 값을 주면 헤더로 나간다');
+  {
+    /* 조직 전체 키를 이미 만들어 둔 사람을 위한 길입니다. 값을 설정에
+       넣으면 요청 헤더에 실려야 하고, 안 넣으면 안 실려야 합니다 —
+       안 쓰는 헤더를 늘 붙이면 그것대로 거절당합니다. */
+    stop();
+    const DBw = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mybody-ocrw-')), 'ws.db');
+    srv = boot({ ANTHROPIC_API_KEY: 'test-key', DB: DBw,
+                 ANTHROPIC_WORKSPACE_ID: 'wrkspc_test_123',
+                 OCR_API_URL: `http://localhost:${FAKE_PORT}/v1/messages` });
+    await waitUp(PORT);
+    const tw = (await call('POST', '/auth/signup',
+      { handle: 'wsuser', password: PW, displayName: 'ws', pairSecret: PAIR,
+        healthConsent: '2026-09-20' })).json.token;
+    nextReply = { status: 200, body: toolReply({ notInBody: false, weightKg: 86.7 }) };
+    lastHeaders = null;
+    await call('POST', '/ocr', shot(), tw);
+    ok('워크스페이스 헤더가 실려 나간다',
+       !!lastHeaders && lastHeaders['anthropic-workspace-id'] === 'wrkspc_test_123',
+       lastHeaders && lastHeaders['anthropic-workspace-id']);
+
+    stop();
+    srv = boot({ ANTHROPIC_API_KEY: 'test-key', DB: DBw,
+                 OCR_API_URL: `http://localhost:${FAKE_PORT}/v1/messages` });
+    await waitUp(PORT);
+    const tw2 = (await call('POST', '/auth/signin',
+      { handle: 'wsuser', password: PW })).json.token;
+    lastHeaders = null;
+    await call('POST', '/ocr', shot(), tw2);
+    ok('안 주면 헤더를 안 붙인다',
+       !!lastHeaders && !('anthropic-workspace-id' in lastHeaders),
+       lastHeaders && Object.keys(lastHeaders).filter(k => /anthropic/.test(k)));
+  }
 
   console.log('\n[9] 서버 전체 한도 — 계정을 늘려도 못 넘는다');
   /* 사람당 한도만 두면 가입 코드를 아는 사람이 계정을 계속 만들어
      한도를 무한정 늘릴 수 있습니다. 청구서는 서버 주인에게 갑니다. */
+  /* stop() 이 없었습니다. 앞 절의 서버가 포트를 쥔 채 남아서, 여기서
+     띄운 서버는 조용히 죽고 요청은 **앞 절 서버**로 갔습니다 — 이 절이
+     세우려던 한도(OCR_PER_DAY_TOTAL=3)가 적용된 적이 없습니다.
+     통과하고 있었지만 아무것도 안 보고 있었습니다. */
+  stop();
+  const DB9 = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mybody-ocr9-')), 'total.db');
   srv = boot({ ANTHROPIC_API_KEY: 'test-key', OCR_PER_DAY: '2', OCR_PER_DAY_TOTAL: '3',
-               OCR_API_URL: `http://localhost:${FAKE_PORT}/v1/messages` });
+               DB: DB9, OCR_API_URL: `http://localhost:${FAKE_PORT}/v1/messages` });
   await waitUp(PORT);
   nextReply = { status: 200, body: toolReply({ notInBody: false, weightKg: 86.7 }) };
   const seen = [];

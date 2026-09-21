@@ -361,12 +361,14 @@ function probePort(p) {
 function checkOcrKey(key, model) {
   const code =
     'const o=require(' + JSON.stringify(path.join(ROOT, 'server', 'ocr.js')) + ');' +
-    'o.checkKey(process.env.K, process.env.M || null, {timeoutMs:7000})' +
+    'o.checkKey(process.env.K, process.env.M || null, {timeoutMs:7000, workspace: process.env.W || undefined})' +
     '.then(r=>{process.stdout.write(JSON.stringify(r));})' +
     '.catch(e=>{process.stdout.write(JSON.stringify({ok:false,reason:String(e&&e.message||e)}));});';
   const r = spawnSync(process.execPath, ['-e', code], {
     encoding: 'utf8', timeout: 12000,
-    env: Object.assign({}, process.env, { K: key, M: model || '', NODE_NO_WARNINGS: '1' })
+    env: Object.assign({}, process.env, { K: key, M: model || '',
+      W: (CFG.anthropicWorkspace || process.env.ANTHROPIC_WORKSPACE_ID || ''),
+      NODE_NO_WARNINGS: '1' })
   });
   let j = null;
   try { j = JSON.parse((r.stdout || '').trim()); } catch (e) { j = null; }
