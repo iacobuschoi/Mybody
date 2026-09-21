@@ -252,6 +252,56 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
+  console.log('\n[3-4] 안드로이드 앱 연결 파일(assetlinks.json)');
+  {
+    /* 구글플레이에 PWA 를 올리는 길(TWA)은 앱과 주소가 서로를 자기 것이라고
+       인정해야 성립합니다. 이 파일이 그 인정입니다. 없으면 앱에 주소창이
+       뜨고, 그러면 심사에서 "웹사이트를 감싼 앱" 으로 읽힙니다. */
+    const port = await freePort();
+    const srv = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')], {
+      env: Object.assign(baseEnv(), {
+        PORT: String(port), DB: path.join(HOME, 'al.db'), PAIR_SECRET: 'x',
+        STATIC: path.join(ROOT, 'release'),
+        TWA_PACKAGE: 'com.example.mybody',
+        /* 소문자와 꼬리 공백을 일부러 넣습니다 — 구글은 이런 걸 조용히
+           무시하고, 왜 안 되는지는 어디에도 안 적힙니다. */
+        TWA_FINGERPRINT: 'aa:bb:cc:dd:ee:ff  '
+      }), stdio: 'ignore'
+    });
+    await wait(1200);
+    const r = await fetch('http://127.0.0.1:' + port + '/.well-known/assetlinks.json')
+      .then(async x => ({ status: x.status, type: x.headers.get('content-type'), body: await x.text() }))
+      .catch(e => ({ err: e.message }));
+    ok('주소로 나온다', r.status === 200, r);
+    ok('JSON 으로 내보낸다', /application\/json/.test(r.type || ''), r.type);
+    let j = null; try { j = JSON.parse(r.body); } catch (e) {}
+    ok('구글이 읽는 모양이다',
+       Array.isArray(j) && j[0] && j[0].target && j[0].target.namespace === 'android_app', r.body);
+    ok('패키지 이름이 들어간다', j && j[0].target.package_name === 'com.example.mybody');
+    ok('지문을 대문자로 맞추고 공백을 턴다',
+       j && j[0].target.sha256_cert_fingerprints[0] === 'AA:BB:CC:DD:EE:FF',
+       j && j[0].target.sha256_cert_fingerprints);
+    srv.kill();
+    await wait(300);
+
+    /* 설정 안 했으면 **빈 파일을 내주면 안 됩니다.** 빈 파일은 "설정했는데
+       안 된다" 를 만들고, 그건 원인을 못 찾는 종류입니다. */
+    const port2 = await freePort();
+    const srv2 = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')], {
+      env: Object.assign(baseEnv(), {
+        PORT: String(port2), DB: path.join(HOME, 'al2.db'), PAIR_SECRET: 'x',
+        STATIC: path.join(ROOT, 'release')
+      }), stdio: 'ignore'
+    });
+    await wait(1200);
+    const r2 = await fetch('http://127.0.0.1:' + port2 + '/.well-known/assetlinks.json')
+      .then(async x => ({ status: x.status, body: await x.text() })).catch(e => ({ err: e.message }));
+    ok('설정 안 했으면 404 (빈 파일을 안 내준다)', r2.status === 404, r2);
+    ok('무엇을 설정해야 하는지 말한다', /TWA_PACKAGE/.test(r2.body || ''), r2.body);
+    srv2.kill();
+    await wait(300);
+  }
+
   console.log('\n[4] 포트가 차 있으면 사람이 읽을 수 있게 말한다');
   {
     const port = await freePort();

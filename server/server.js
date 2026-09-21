@@ -604,10 +604,54 @@ function insideRoot(file) {
   return f === STATIC_ROOT || f.startsWith(STATIC_ROOT + path.sep);
 }
 
+/* --- 안드로이드 앱과 이 주소가 한 쌍임을 증명하는 파일 -------------------
+ *
+ * 구글플레이에 PWA 를 올리는 길(TWA)은 앱이 이 주소를 자기 것이라고
+ * 주장하고, 이 주소가 그 앱을 자기 것이라고 맞장구쳐야 성립합니다.
+ * 그 맞장구가 /.well-known/assetlinks.json 입니다.
+ *
+ * 없으면 앱이 열릴 때 주소창이 그대로 뜹니다 — TWA 가 아니라 그냥
+ * 브라우저가 됩니다. 그리고 그건 심사에서 "웹사이트를 감싼 앱" 으로
+ * 읽힙니다.
+ *
+ * 값은 환경변수로 받습니다. 앱을 안 만들 거면 비워 두면 되고, 그 때는
+ * 이 주소가 404 를 줍니다 — 빈 파일을 내주면 "설정했는데 안 된다" 가
+ * 됩니다. 채우는 법은 docs/APPSTORE.md 에 있습니다.
+ * -------------------------------------------------------------------------- */
+const TWA_PACKAGE = (process.env.TWA_PACKAGE || '').trim();
+const TWA_FINGERPRINT = (process.env.TWA_FINGERPRINT || '').trim();
+
+function assetLinks() {
+  if (!TWA_PACKAGE || !TWA_FINGERPRINT) return null;
+  return JSON.stringify([{
+    relation: ['delegate_permission/common.handle_all_urls'],
+    target: {
+      namespace: 'android_app',
+      package_name: TWA_PACKAGE,
+      /* 지문은 콜론으로 끊긴 대문자 16진수 32덩이입니다. 소문자나 공백이
+         섞이면 구글이 조용히 무시하고, 앱은 주소창이 뜬 채로 나옵니다 —
+         왜 안 되는지 어디에도 안 적힙니다. 그래서 여기서 맞춰 둡니다. */
+      sha256_cert_fingerprints: TWA_FINGERPRINT.split(',')
+        .map(x => x.trim().toUpperCase().replace(/\s+/g, ''))
+        .filter(Boolean)
+    }
+  }]);
+}
+
 function serveStatic(req, res, url) {
   let rel;
   try { rel = decodeURIComponent(url.pathname); }
   catch (e) { return send(res, 400, 'bad path', { 'Content-Type': 'text/plain; charset=utf-8' }); }
+
+  if (rel === '/.well-known/assetlinks.json') {
+    const body = assetLinks();
+    if (!body) {
+      return send(res, 404, 'not configured (TWA_PACKAGE / TWA_FINGERPRINT)',
+                  { 'Content-Type': 'text/plain; charset=utf-8' });
+    }
+    return send(res, 200, body, { 'Content-Type': 'application/json' });
+  }
+
   if (rel === '/') rel = '/index.html';
   if (rel.indexOf('\0') >= 0) {
     return send(res, 400, 'bad path', { 'Content-Type': 'text/plain; charset=utf-8' });
