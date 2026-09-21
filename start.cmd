@@ -1,5 +1,6 @@
 @echo off
 rem 윈도우에서 더블클릭으로 띄우기.
+rem 설정도 알아서 만들고 터널까지 띄웁니다.
 rem 끌 때는 이 창에서 Ctrl+C, 또는 창을 닫으면 됩니다.
 cd /d "%~dp0"
 
@@ -13,7 +14,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-node tools\serve.js
+node tools\launch.js
 
 echo.
 echo 서버를 껐습니다. 아무 키나 누르면 이 창이 닫힙니다.

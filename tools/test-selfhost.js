@@ -729,6 +729,81 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
+  console.log('\n[8-5] 한 줄로 배포 (launch.js)');
+  {
+    /* "연구실 가서 한 번 실행하면 바로" 가 이 명령의 전부입니다.
+       그래서 **아무것도 없는 상태에서** 시작해 봅니다. */
+    const home2 = fs.mkdtempSync(path.join(os.tmpdir(), 'mybody-launch-'));
+    const env2 = Object.assign(baseEnv(), { HOME: home2, USERPROFILE: home2 });
+
+    /* 터널 도구가 없을 때 — 어떻게 까는지 말하고 멈춰야 합니다.
+       "터널이 없습니다" 만 하면 거기서 사람이 멈춥니다. */
+    const noTun = spawnSync(process.execPath, [path.join(ROOT, 'tools', 'launch.js')],
+      { cwd: ROOT, env: Object.assign({}, env2, { PATH: '/usr/bin:/bin' }),
+        encoding: 'utf8', timeout: 60000 });
+    const out1 = (noTun.stdout || '') + (noTun.stderr || '');
+    ok('설정이 없으면 알아서 만든다', /설정이 없어서 만듭니다/.test(out1), out1.slice(0, 200));
+    ok('가입 코드를 만들어 보여준다', /가입 코드를 새로 만들었습니다/.test(out1));
+    ok('알림 열쇠도 만든다', /알림 열쇠를 만듭니다/.test(out1));
+    const cfg2 = JSON.parse(fs.readFileSync(path.join(home2, '.mybody', 'config.json'), 'utf8'));
+    ok('열쇠가 실제로 저장된다', !!(cfg2.vapidPublic && cfg2.vapidPrivate));
+    ok('터널이 없으면 까는 법을 OS 에 맞게 말한다',
+       /brew install cloudflared|winget install|cloudflared-linux-amd64/.test(out1), out1.slice(-400));
+    ok('그래도 쓸 수 있는 길을 알려준다', /--no-tunnel/.test(out1));
+
+    /* 터널이 있을 때 — 주소를 뽑아 친구에게 보낼 것을 찍어야 합니다.
+       진짜 cloudflared 를 여기서 돌릴 수는 없으니 같은 모양으로 찍는
+       가짜를 만듭니다. 중요한 건 **주소가 stderr 로 온다** 는 것입니다 —
+       stdout 만 보면 영원히 안 옵니다. */
+    const fakebin = fs.mkdtempSync(path.join(os.tmpdir(), 'mybody-bin-'));
+    const fake = path.join(fakebin, 'cloudflared');
+    fs.writeFileSync(fake,
+      '#!/bin/sh\nsleep 1\n' +
+      '>&2 echo "INF |  https://test-tunnel-abc.trycloudflare.com  |"\n' +
+      'sleep 60\n');
+    fs.chmodSync(fake, 0o755);
+
+    const home3 = fs.mkdtempSync(path.join(os.tmpdir(), 'mybody-launch2-'));
+    const port3 = await freePort();
+    fs.mkdirSync(path.join(home3, '.mybody'), { recursive: true });
+    fs.writeFileSync(path.join(home3, '.mybody', 'config.json'), JSON.stringify({
+      port: port3, static: 'release', pairSecret: 'launch-test-secret',
+      owner: '', ownerContact: '', ownerOmitted: true,
+      vapidPublic: 'x', vapidPrivate: 'y', origin: '', trustProxy: false, db: ''
+    }), { mode: 0o600 });
+
+    const child = spawn(process.execPath, [path.join(ROOT, 'tools', 'launch.js')], {
+      cwd: ROOT,
+      env: Object.assign({}, baseEnv(), {
+        HOME: home3, USERPROFILE: home3,
+        PATH: fakebin + path.delimiter + (process.env.PATH || '')
+      }),
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let out2 = '';
+    child.stdout.on('data', d => { out2 += d; });
+    child.stderr.on('data', d => { out2 += d; });
+    await wait(9000);
+    /* launch.js 는 SIGTERM 을 받으면 서버와 터널을 같이 끕니다.
+       (pkill 로 이름을 긁어 죽이면 이 시험의 다른 절이 띄워 둔 서버까지
+        같이 죽습니다 — 한 번 그래서 시험 전체가 중간에 끊겼습니다.) */
+    child.kill('SIGTERM');
+    await wait(1500);
+
+    ok('터널 주소를 뽑아낸다 (stderr 에서)',
+       /https:\/\/test-tunnel-abc\.trycloudflare\.com/.test(out2), out2.slice(-500));
+    ok('친구에게 보낼 것을 한 덩어리로 찍는다', /친구에게 이 두 줄을 보내세요/.test(out2));
+    ok('가입 코드를 같이 찍는다', /launch-test-secret/.test(out2));
+    ok('주소가 바뀐다는 것을 경고한다', /다시 띄우면 바뀝니다/.test(out2));
+    const cfg3 = JSON.parse(fs.readFileSync(path.join(home3, '.mybody', 'config.json'), 'utf8'));
+    ok('주소를 설정에 적어 둔다 (터널 뒤 IP 판정에 필요)',
+       cfg3.origin === 'https://test-tunnel-abc.trycloudflare.com' && cfg3.trustProxy === true, cfg3);
+
+    fs.rmSync(home2, { recursive: true, force: true });
+    fs.rmSync(home3, { recursive: true, force: true });
+    fs.rmSync(fakebin, { recursive: true, force: true });
+  }
+
   console.log('\n[9] 자동 시작 · 더블클릭 실행');
   {
     /* 자동 시작은 평소 쓰는 PATH 도 HOME 도 안 물려받습니다. 손으로 적은
