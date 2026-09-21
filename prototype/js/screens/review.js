@@ -737,6 +737,26 @@
         global.MB_UID.toast('측정이 저장되었습니다');
 
         if (where === 'later') { A.go('P02'); return; }
+
+        /* 과거 기록을 채워 넣은 것이면 계획 흐름으로 끌고 가지 않습니다.
+         *
+         * 예전에는 저장만 하면 무조건 P06(강도 선택)으로 보냈고, 거기서
+         * 강도를 고르면 buildPlan 이 계획을 갈아엎었습니다. 그래서
+         * "예전 인바디를 **참고용으로** 넣었더니 플랜이 재계획됐다" 는
+         * 일이 실제로 일어났습니다.
+         *
+         * 지난 추이를 채우는 것은 계획을 바꾸겠다는 뜻이 아닙니다.
+         * 계획은 **가장 최근 측정**을 기준으로 세우는 것이고, 오늘보다
+         * 앞선 기록이 새로 생겼다고 해서 그 기준이 바뀌지 않습니다.
+         * 계획을 다시 만들고 싶으면 홈의 "플랜 다시 만들기" 가 있습니다. */
+        var backfill = prev && scan.measuredAt &&
+                       new Date(scan.measuredAt) < new Date(prev.measuredAt);
+        if (backfill) {
+          global.MB_UID.toast('지난 기록으로 저장했습니다 — 계획은 그대로입니다');
+          A.go('P10');
+          return;
+        }
+
         A.go(S.get().goal ? 'P06' : 'P05');
       }
 

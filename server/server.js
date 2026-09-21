@@ -104,7 +104,18 @@ const OPEN_SIGNUP = /^(1|true|yes)$/i.test((process.env.OPEN_SIGNUP || '').trim(
    입력)으로 조용히 남습니다 — 판독은 편의기능이지 바닥이 아닙니다. */
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY || '';
 const OCR_MODEL = process.env.OCR_MODEL || 'claude-sonnet-5';
-const OCR_PER_DAY = Number(process.env.OCR_PER_DAY || 40);
+/* 사람당 하루 판독 횟수.
+ *
+ * 40 이었습니다. 혼자 쓰던 때의 값이고, 그때는 "사실상 안 막는다" 가
+ * 의도였습니다. 지금은 사람이 100명 규모로 늘었고, 40 은 한 사람이
+ * 하루에 결과지 40장을 찍는다는 뜻입니다 — 그런 일은 없습니다.
+ * 반대로 한 사람이 실수나 고장으로 40장을 태우면 그날 그 사람만으로
+ * 600원이 나갑니다.
+ *
+ * 10 으로 내립니다. 결과지는 하루 한 장이고, 사진이 흐려서 다시
+ * 찍는 경우까지 넉넉히 봐도 10 이면 남습니다. 막히면 숫자를 직접
+ * 넣는 길이 그대로 있습니다 — 판독은 편의기능이지 바닥이 아닙니다. */
+const OCR_PER_DAY = Number(process.env.OCR_PER_DAY || 10);
 
 function pairOk(given) {
   const got = Buffer.from(str(given), 'utf8');
@@ -181,7 +192,21 @@ function rateLimited(ip) {
  * "친구는 악의가 없다" 를 전제로 하지만, 코드가 한 번 새면 청구서는
  * 서버 주인에게 갑니다. 사람당 한도는 실수를 막고, 전체 한도는
  * 청구서를 막습니다. */
-const OCR_PER_DAY_TOTAL = Number(process.env.OCR_PER_DAY_TOTAL || OCR_PER_DAY * 5);
+/* 서버 전체 하루 한도.
+ *
+ * 예전에는 사람당 한도 × 5 였습니다. 사람 수와 무관한 식이라,
+ * 사람당 한도를 내리면 전체 한도까지 같이 내려가 **사람이 늘수록
+ * 더 빨리 막히는** 이상한 동작이 됩니다 (10 × 5 = 50 이면 100명이
+ * 하루 50장밖에 못 읽습니다).
+ *
+ * 사람 수 기준으로 못 박습니다. 100명이 하루 평균 2~3장을 찍는다고
+ * 보면 실제 사용량은 하루 30장 안쪽입니다. 250 이면 8배 여유가 있고,
+ * 다 써도 하루 3,750원에서 멈춥니다.
+ *
+ * 이건 **고장과 남용을 막는 울타리**지 예산이 아닙니다. 진짜 예산은
+ * 앤트로픽 워크스페이스의 월 지출 한도로 거세요 — 여기가 뚫려도
+ * 거기서 멈춥니다 (tools/workspaces.js 가 만들어 줍니다). */
+const OCR_PER_DAY_TOTAL = Number(process.env.OCR_PER_DAY_TOTAL || 250);
 
 /* 하루 한도는 **DB 에** 셉니다.
  *

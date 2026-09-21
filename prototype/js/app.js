@@ -81,11 +81,16 @@
           UI.h('div.appbar__title', { id: 'appbar-title', text: 'Mybody' }),
           UI.h('div.appbar__sub', { id: 'appbar-sub' })
         ]),
+        /* '?' 버튼을 뺐습니다.
+         *
+         * 피드백: "상단 물음표 없애기 (개발자도구로 추정)". 맞는 짐작입니다 —
+         * 그건 **키보드 단축키** 도움말이었습니다. 폰에는 키보드가 없으니
+         * 눌러도 쓸 데가 없고, 앱바에 정체 모를 물음표가 하나 떠 있으면
+         * 사용자는 "내가 모르는 개발자용 무언가" 로 읽습니다.
+         * 같은 항목이 설정(P12-B10)에 그대로 있으므로 기능은 안 잃습니다. */
         UI.h('div.appbar__actions', [
           UI.h('button.btn.btn--ghost.btn--sm', { text: '⚙️', uid: 'P00-B03', uidLabel: '설정',
-            title: '설정', 'aria-label': '설정', onClick: function () { go('P12'); } }),
-          UI.h('button.btn.btn--ghost.btn--sm', { text: '?', uid: 'P00-B02', uidLabel: '단축키 도움말',
-            title: '단축키 (?)', onClick: function () { global.MB_UID.showHelp(); } })
+            title: '설정', 'aria-label': '설정', onClick: function () { go('P12'); } })
         ])
       ]),
       UI.h('main.main', { id: 'main' }),
@@ -135,12 +140,61 @@
   }
 
   /* --- 라우팅 ------------------------------------------------------------- */
+  /* 폰 뒤로가기 버튼.
+   *
+   * 피드백: "뒤로가기 버튼 비직관적, 폰 뒤로버튼으로 대체". 맞습니다.
+   * 안드로이드 사용자는 화면 안의 '‹' 를 안 봅니다 — 폰 버튼을 누릅니다.
+   * 그런데 이 앱에는 popstate 가 **한 줄도 없었습니다.** 그래서 다섯
+   * 단계를 들어갔든 홈에 있든, 폰 뒤로가기는 화면을 되돌리는 대신
+   * **앱을 통째로 닫았습니다.** 하던 것이 그대로 날아갑니다.
+   *
+   * 브라우저 기록을 앱의 화면 스택과 나란히 쌓습니다. 그러면 폰
+   * 뒤로가기가 popstate 로 들어옵니다. 화면 안 '‹' 도 같은 길로
+   * 보냅니다 — 두 길이 각자 스택을 건드리면 한 번 누른 것이 두 칸
+   * 물러납니다.
+   *
+   * 주의: 이 파일 안에서 `history` 는 아래의 화면 스택 배열입니다
+   * (window.history 를 가립니다). 브라우저 쪽은 global.history 로 씁니다.
+   */
+  var browserDepth = 0;
+
+  function pushBrowserState() {
+    try { browserDepth++; global.history.pushState({ mb: browserDepth }, ''); } catch (e) {}
+  }
+
+  /** 실제로 한 칸 물러나는 일 — 나가도 되는지는 부르는 쪽이 이미 봤습니다. */
+  function doBack() {
+    var prev = history.pop();
+    if (prev) { current = prev.id; params = prev.params; render(); }
+    else { current = 'P02'; params = {}; render(); }
+  }
+
+  /* popstate 는 **취소할 수 없습니다.** 저장 안 한 것이 있으면 이미
+     물러난 뒤이므로, 한 칸을 도로 채워 넣고 물어봅니다. 사용자가
+     버리기로 하면 그때 다시 물러납니다. */
+  function onPopState() {
+    if (browserDepth > 0) browserDepth--;
+    if (!history.length) return;        // 첫 화면 — 앱이 닫히게 둡니다
+    if (!mayLeave(function () {
+          leaveGuard = null;
+          try { global.history.back(); } catch (e) { doBack(); }
+        })) {
+      pushBrowserState();               // 방금 물러난 칸을 도로 채웁니다
+      return;
+    }
+    leaveGuard = null;
+    doBack();
+  }
+
   function go(id, p, opts) {
     if (!screens[id]) { console.warn('알 수 없는 화면:', id); return; }
     if (current === id) { leaveGuard = null; }
     else if (!mayLeave(function () { leaveGuard = null; go(id, p, opts); })) return;
     leaveGuard = null;
-    if (current && current !== id && !(opts && opts.replace)) history.push({ id: current, params: params });
+    if (current && current !== id && !(opts && opts.replace)) {
+      history.push({ id: current, params: params });
+      pushBrowserState();
+    }
     current = id;
     params = p || {};
     render();
@@ -148,11 +202,13 @@
   }
 
   function back() {
+    /* 브라우저 기록을 통해 돌아갑니다 — 폰 뒤로가기와 같은 길입니다. */
+    if (browserDepth > 0) {
+      try { global.history.back(); return; } catch (e) {}
+    }
     if (!mayLeave(function () { leaveGuard = null; back(); })) return;
     leaveGuard = null;
-    var prev = history.pop();
-    if (prev) { current = prev.id; params = prev.params; render(); }
-    else { current = 'P02'; params = {}; render(); }
+    doBack();
   }
 
   function render() {
@@ -300,6 +356,10 @@
       if (screens[info.container]) startAt = info.container;
     }
     current = startAt;
+    /* 기준점 하나를 깔아 둡니다. 이게 없으면 첫 pushState 전까지
+       popstate 가 우리 것인지 밖의 것인지 구분이 안 됩니다. */
+    try { global.history.replaceState({ mb: 0 }, ''); } catch (e) {}
+    global.addEventListener('popstate', onPopState);
     render();
     if (hash) setTimeout(function () { global.MB_UID.gotoUid(hash); }, 120);
     if (st.onboarded && !st.disclaimerAccepted && global.MB_MODALS) global.MB_MODALS.disclaimer();

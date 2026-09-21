@@ -322,6 +322,7 @@ function blankShare() {
 function makeApi(db) {
   const q = {
     userByHandle: db.prepare('SELECT * FROM users WHERE handle = ?'),
+    allUsers: db.prepare('SELECT handle, display_name, created_at FROM users ORDER BY created_at'),
     userById: db.prepare('SELECT * FROM users WHERE id = ?'),
     userByCode: db.prepare('SELECT * FROM users WHERE invite_code = ?'),
     insertUser: db.prepare(
@@ -540,6 +541,47 @@ function makeApi(db) {
       q.deleteSessionsOf.run(uid);
       const fresh = q.userById.get(uid);
       return Object.assign({ ok: true }, this._newSession(fresh));
+    },
+
+    /* 주인이 대신 풀어 주는 비밀번호 초기화.
+     *
+     * 이 서버는 메일을 안 보냅니다. 그래서 비밀번호를 잊은 사람이
+     * 돌아올 길은 가입할 때 한 번 보여준 **복구 코드**뿐인데, 그걸
+     * 안 적어 둔 사람에게는 길이 없습니다.
+     *
+     * 실제로 그래서 무슨 일이 났냐면 — 로그 한 판에서 로그인 실패 6회,
+     * 로그인 성공 1회, 가입 7회가 나왔습니다. 사람들이 로그인이 안 되니까
+     * **그냥 새 계정을 만들고 있었습니다.** 그러면 그 사람의 기록과
+     * 친구 연결이 통째로 끊깁니다.
+     *
+     * 서버가 주인 컴퓨터에 있으니 주인은 풀어 줄 수 있습니다.
+     * HTTP 로는 열지 않습니다 — 이건 tools/reset-password.js 에서만
+     * 부르는, 그 컴퓨터 앞에 앉은 사람의 권한입니다.
+     *
+     * 복구 코드도 같이 새로 냅니다. 여기까지 온 사람은 십중팔구 그걸
+     * 잃은 사람이라, 비밀번호만 주면 다음에 또 같은 자리로 옵니다. */
+    adminResetPassword(handle, next) {
+      const u = q.userByHandle.get(str(handle).toLowerCase());
+      if (!u) return { ok: false, reason: '그런 아이디가 없습니다' };
+      const bad = passwordProblem(next);
+      if (bad) return { ok: false, reason: bad };
+      const pw = hashPassword(next);
+      q.setPassword.run(pw.hash, pw.salt, pw.n, u.id);
+      /* 쓰던 기기의 세션을 전부 끊습니다. 비밀번호를 바꾸는 이유가
+         "못 들어간다" 일 수도, "남이 들어갔다" 일 수도 있습니다.
+         뒤쪽이면 세션을 남겨 두는 순간 초기화가 무의미합니다. */
+      q.deleteSessionsOf.run(u.id);
+      const code = makeRecoveryCode();
+      const rc = hashCode(code);
+      q.setRecovery.run(rc.hash, rc.salt, rc.n, null, u.id);
+      return { ok: true, handle: u.handle, displayName: u.display_name, recoveryCode: code };
+    },
+
+    /** 주인이 계정을 찾아볼 수 있게. 비밀은 하나도 안 싣습니다. */
+    adminListUsers() {
+      return q.allUsers.all().map(u => ({
+        handle: u.handle, displayName: u.display_name, createdAt: u.created_at
+      }));
     },
 
     /** 모든 기기에서 로그아웃 — 토큰이 샜을 때의 유일한 복구 수단입니다. */

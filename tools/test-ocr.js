@@ -143,7 +143,14 @@ async function main() {
 
   /* ===== 2. 키가 있는 서버 ============================================== */
   console.log('\n[2] 로그인 · 입력 검사');
-  srv = boot({ ANTHROPIC_API_KEY: 'test-key',
+  /* 한도를 **명시**합니다.
+     예전에는 안 적었습니다. 그래서 서버의 기본 한도를 사람 수에 맞춰
+     40 → 10 으로 내린 순간, 오류 종류를 하나씩 확인하는 아래 [6] 절이
+     11번째부터 전부 "오늘 판독 한도를 다 썼습니다" 로 바뀌었습니다.
+     시험이 확인하려던 것과 아무 상관 없는 이유로 빨개진 것입니다.
+     시험은 자기가 기대는 값을 스스로 세워야 합니다 — 기본값이 바뀌는
+     것은 제품의 자유이고, 그때마다 시험이 깨지면 기본값을 못 고칩니다. */
+  srv = boot({ ANTHROPIC_API_KEY: 'test-key', OCR_PER_DAY: '500', OCR_PER_DAY_TOTAL: '500',
                OCR_API_URL: `http://localhost:${FAKE_PORT}/v1/messages` });
   await waitUp(PORT);
   const u2 = await call('POST', '/auth/signin', { handle: 'owner', password: PW });
