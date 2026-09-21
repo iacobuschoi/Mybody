@@ -68,17 +68,34 @@
      * 남았습니다. 끈 사람 쪽에서는 사라진 줄 아는데요. */
     var known = {};
     (friends || []).forEach(function (f) { known[f.id] = true; });
-    var sharing = {};
+
+    /* "공유를 껐다" 와 "이번엔 못 받아왔다" 는 다릅니다.
+     *
+     * sync.pull() 은 스냅샷 요청이 실패하면 rows:[] 로 넘깁니다. 그걸
+     * 껐다고 읽으면, 잠깐 끊긴 것만으로 그 친구 소식이 통째로 지워지고
+     * 기준선까지 사라집니다 — 그 다음에 진짜로 운동해도 "처음 보는
+     * 값" 이라 조용히 넘어갑니다. 한 번 깜빡인 네트워크가 소식 기능을
+     * 꺼 버리는 셈입니다.
+     *
+     * 껐다고 단정하는 것은 **행은 왔는데 그 안에 일정 숫자가 없을 때**
+     * 뿐입니다. 그건 서버가 공유 설정으로 걸러 냈다는 뜻입니다. */
+    var stopped = {};
     (snaps || []).forEach(function (s) {
-      var r0 = (s.rows || [])[0];
-      if (r0 && r0.keptDays != null) sharing[s.id] = true;
+      var rows = s.rows || [];
+      if (rows.length && rows[0].keptDays == null) stopped[s.id] = true;
     });
-    db.items = db.items.filter(function (it) { return known[it.friendId] && sharing[it.friendId]; });
-    Object.keys(db.seen).forEach(function (id) { if (!known[id]) delete db.seen[id]; });
+    db.items = db.items.filter(function (it) {
+      return known[it.friendId] && !stopped[it.friendId];
+    });
+    Object.keys(db.seen).forEach(function (id) {
+      if (!known[id] || stopped[id]) delete db.seen[id];
+    });
 
     (snaps || []).forEach(function (s) {
       var row = (s.rows || [])[0];
-      if (!row || row.keptDays == null) { delete db.seen[s.id]; return; }   // 공유 안 하는 친구
+      /* 행이 아예 없으면 이번엔 모르는 것뿐입니다 — 기준선을 건드리지
+         않고 그냥 넘어갑니다. 껐을 때의 정리는 위에서 이미 했습니다. */
+      if (!row || row.keptDays == null) return;
       var prev = db.seen[s.id];
       var cur = { weekStart: row.weekStart, keptDays: row.keptDays,
                   plannedDays: row.plannedDays == null ? null : row.plannedDays };

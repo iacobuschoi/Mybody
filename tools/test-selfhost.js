@@ -45,11 +45,47 @@ function run(args, env, input) {
     { cwd: ROOT, env: env || baseEnv(), encoding: 'utf8', input: input, timeout: 120000 });
 }
 
+/* 빈 포트 고르기.
+ *
+ * 0 번으로 bind 해서 커널이 준 번호를 받고 닫는 고전적인 방법인데,
+ * **닫은 순간부터 서버가 다시 bind 할 때까지 사이가 비어 있습니다.**
+ * 그 사이에 다른 프로세스가 같은 번호를 집어가면 서버가 EADDRINUSE 로
+ * 죽고, 시험은 "서버를 못 띄웠다" 고 보고합니다 — 제품은 멀쩡한데요.
+ *
+ * 실제로 배포 전 점검에서 그렇게 터졌습니다. 20분짜리 인터랙션 전수가
+ * 막 끝나 포트가 어지럽던 때였고, 혼자 돌리면 93/93 인데 그때만 91/93
+ * 이었습니다. 원인을 모른 채 "가끔 그러네" 로 넘기면, 진짜 고장도
+ * 같은 말로 넘어가게 됩니다.
+ *
+ * 그래서 두 가지를 합니다.
+ *   (가) 최근에 내준 번호는 다시 안 내줍니다 (한 실행 안에서).
+ *   (나) 서버를 띄우는 쪽에서 EADDRINUSE 면 새 번호로 다시 시도합니다
+ *        (아래 tryPorts).
+ */
+const usedPorts = new Set();
 async function freePort() {
-  return new Promise(res => {
-    const s = net.createServer();
-    s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => res(p)); });
-  });
+  for (let i = 0; i < 40; i++) {
+    const p = await new Promise(res => {
+      const s = net.createServer();
+      s.listen(0, '127.0.0.1', () => { const n = s.address().port; s.close(() => res(n)); });
+    });
+    if (!usedPorts.has(p)) { usedPorts.add(p); return p; }
+  }
+  throw new Error('빈 포트를 못 찾았습니다');
+}
+
+/** 포트를 집어가는 경쟁에 한 번 더 기회를 줍니다. fn(port) 가 참 같은 값을
+ *  돌려주면 성공으로 봅니다. EADDRINUSE 로 실패하면 새 포트로 다시. */
+async function tryPorts(fn, attempts = 3) {
+  let last = null;
+  for (let i = 0; i < attempts; i++) {
+    const port = await freePort();
+    const r = await fn(port);
+    if (r && r.ok !== false) return r;
+    last = r;
+    if (!(r && r.addrInUse)) return r;      // 다른 이유로 실패한 것은 그대로 돌려줍니다
+  }
+  return last;
 }
 const wait = ms => new Promise(r => setTimeout(r, ms));
 

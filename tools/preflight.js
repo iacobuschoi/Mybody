@@ -302,7 +302,19 @@ for (const c of CHECKS) {
   });
   const secs = ((Date.now() - t0) / 1000).toFixed(0);
   const ok = r.status === 0;
-  const tail = ((r.stdout || '') + (r.stderr || '')).trim().split('\n').slice(-3).join('\n       ');
+  /* 실패했을 때 **무엇이** 실패했는지 보여 줍니다.
+   *
+   * 예전엔 출력의 마지막 세 줄만 잘라 왔습니다. 그런데 시험들은 마지막에
+   * "통과 91 / 실패 2" 같은 요약을 찍으므로, 잘라 온 세 줄이 대개 그
+   * 요약과 경고 문구였습니다 — 읽는 사람은 **둘 중 어느 것이 실패했는지
+   * 알 수가 없습니다.** 실제로 그래서 한 번 진단을 못 했습니다.
+   * 막는 검사가 "고치라" 고만 하고 어디를 고칠지 안 알려주면, 그
+   * 검사는 반쯤 없는 것입니다.
+   *
+   * 이제 ✗ 가 붙은 줄을 먼저 모으고, 하나도 없을 때만 꼬리를 씁니다. */
+  const outAll = ((r.stdout || '') + '\n' + (r.stderr || '')).trim().split('\n');
+  const failLines = outAll.filter(l => /(^|\s)✗/.test(l)).slice(0, 8);
+  const tail = (failLines.length ? failLines : outAll.slice(-3)).join('\n       ');
   results.push({ id: c.id, level: c.level, ok, detail: tail, why: c.why });
   process.stdout.write(`\r  ${ok ? '✓' : '✗'} ${c.id} (${secs}초)          \n`);
   if (!ok) {
