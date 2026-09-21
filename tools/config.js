@@ -43,6 +43,10 @@ const DEFAULTS = {
   /* 조직 전체 키를 쓸 때만 필요합니다. 워크스페이스 안에서 만든
      키라면 비워 두세요 — 그쪽이 낫습니다(지출 한도를 걸 수 있습니다). */
   anthropicWorkspace: '',
+  /* 어느 모델로 읽을 것인가. 비워 두면 server/ocr.js 의 기본값입니다.
+     tools/ocr-compare.js 로 자기 결과지에 재 보고 정하는 값입니다 —
+     제일 비싼 것이 항상 제일 잘 읽는 건 아니고, 값은 5배 차이납니다. */
+  anthropicModel: '',
   origin: '',
   trustProxy: false,
   db: ''
@@ -87,6 +91,7 @@ function load() {
   }
   take('anthropicKey', 'ANTHROPIC_API_KEY');
   take('anthropicWorkspace', 'ANTHROPIC_WORKSPACE_ID');
+  take('anthropicModel', 'OCR_MODEL');
   take('origin', 'ORIGIN');
   take('db', 'DB');
   take('port', 'PORT', v => Number(v) || DEFAULTS.port);
@@ -104,4 +109,9 @@ function save(cfg) {
 
 function exists() { return fs.existsSync(FILE()); }
 
-module.exports = { load, save, exists, DEFAULTS, FILE, LEGACY_PAIR };
+/** 환경변수를 섞지 않은, **파일에 실제로 적힌 것**. setup 이 씁니다 —
+ *  거기서는 "지금 셸에 뭐가 떠 있나" 가 아니라 "저장된 게 뭔가" 가
+ *  기준이어야 합니다. */
+function loadFile() { return readFileJson(); }
+
+module.exports = { load, loadFile, save, exists, DEFAULTS, FILE, LEGACY_PAIR };

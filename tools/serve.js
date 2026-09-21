@@ -66,6 +66,7 @@ if (process.argv.includes('--show')) {
      가릴 이유도 없습니다. 비밀이 아니라 그냥 번호입니다. */
   console.log('  워크스페이스     ' + (c.anthropicWorkspace ||
     '(없음 — 워크스페이스 안에서 만든 키라면 이게 맞습니다)'));
+  console.log('  판독 모델       ' + (c.anthropicModel || '(기본값)'));
   console.log('  공개 주소       ' + (c.origin || '(같은 출처만)'));
   console.log('  터널 뒤         ' + (c.trustProxy ? '예' : '아니오'));
   console.log('');
@@ -84,19 +85,70 @@ if (process.argv.includes('--setup')) {
 
 /** --owner="이름" 같은 깃발을 읽습니다. 대화식이 안 되는 자리(스크립트 ·
     검사 · 원격 셸)에서도 설정을 만들 수 있어야 합니다. */
+/* 값을 받는 깃발들. `--workspace wrkspc_x` 처럼 **등호 없이 띄어쓰기로**
+   줘도 받습니다.
+
+   예전에는 안 받았습니다. 그런데 안 받으면서 아무 말도 안 했습니다 —
+   값은 조용히 버려지고, 화면에는 "(비웠습니다)" 라고 찍혔습니다.
+   시킨 대로 안 하면서 다른 일을 했다고 말하는 것이 제일 나쁩니다. */
 function flags() {
+  /* 이 목록은 함수 안에 둡니다. 파일 위쪽에서 --setup 이 먼저 실행되기
+     때문에, 모듈 최상단의 const 로 두면 초기화 전에 읽혀 터집니다. */
+  const VALUE_FLAGS = ['owner', 'contact', 'port', 'key', 'workspace', 'model',
+                       'origin', 'static'];
   const out = {};
-  process.argv.slice(2).forEach(a => {
-    const m = /^--([a-zA-Z-]+)(?:=([\s\S]*))?$/.exec(a);
-    if (m) out[m[1]] = m[2] == null ? true : m[2];
-  });
+  const av = process.argv.slice(2);
+  for (let i = 0; i < av.length; i++) {
+    const m = /^--([a-zA-Z-]+)(?:=([\s\S]*))?$/.exec(av[i]);
+    if (!m) continue;
+    if (m[2] != null) { out[m[1]] = m[2]; continue; }
+    /* 값 없이 온 깃발. 다음 토큰이 깃발이 아니면 그게 값입니다.
+       단 --key 는 값 없이 주는 것이 **의도된 사용법**이라(가려서 물어봄)
+       다음 토큰까지 삼키더라도 그 뜻은 유지됩니다. */
+    const next = av[i + 1];
+    if (VALUE_FLAGS.indexOf(m[1]) >= 0 && next != null && !/^--/.test(next)) {
+      out[m[1]] = next; i++;
+    } else {
+      out[m[1]] = true;
+    }
+  }
   return out;
 }
 
 async function setup() {
-  const cur = readConfig();
+  /* 설정 키 ↔ 그 값을 줄 수 있는 깃발 이름 (같은 이유로 함수 안에) */
+  const FLAG_OF = { anthropicKey: 'key', anthropicWorkspace: 'workspace',
+                    anthropicModel: 'model', owner: 'owner', ownerContact: 'contact',
+                    origin: 'origin', port: 'port', static: 'static' };
   const f = flags();
-  const cfg0 = Object.assign({}, cur);
+
+  /* **셸에 떠 있는 환경변수를 설정 파일에 굳히지 않습니다.**
+   *
+   * readConfig() 는 환경변수를 섞어서 돌려줍니다 — 서버를 띄울 때는
+   * 그게 맞습니다(한 번만 다르게 띄우기). 그런데 --setup 은 파일에
+   * **쓰는** 자리입니다. 여기서 섞인 값을 그대로 쓰면, 예전에
+   * $env:OCR_MODEL 을 한 번 시험해 본 사람이 나중에 아무 --setup 이나
+   * 돌릴 때 저장돼 있던 값이 조용히 그 시험값으로 덮어써집니다.
+   *
+   * 그래서: 깃발로 준 것이 제일 세고, 그다음이 파일에 적힌 것이고,
+   * 환경변수는 **파일이 비어 있을 때만** 받아들입니다. 받아들일 때는
+   * 받아들였다고 말합니다. */
+  const merged = CONFIG.load();
+  const saved = CONFIG.loadFile();
+  const cur = merged.cfg;                 // "지금 있는 것" — 아래에서 읽습니다
+  const cfg0 = Object.assign({}, merged.cfg);
+  const adopted = [];
+  Object.keys(merged.from).forEach(k => {
+    if (String(merged.from[k]).indexOf('환경변수') !== 0) return;
+    if (FLAG_OF[k] && (FLAG_OF[k] in f)) return;              // 깃발이 이깁니다
+    if (saved[k] !== undefined && saved[k] !== '') cfg0[k] = saved[k];   // 파일을 지킵니다
+    else adopted.push(k + ' (' + merged.from[k] + ')');
+  });
+  if (adopted.length) {
+    console.log('');
+    console.log('  환경변수에서 가져온 값을 저장합니다: ' + adopted.join(', '));
+    console.log('  (파일에 이미 있던 값은 환경변수로 덮어쓰지 않습니다.)');
+  }
   if (!cfg0.pairSecret) cfg0.pairSecret = crypto.randomBytes(16).toString('hex');
 
   /* 깃발로 값을 준 사람에게는 묻지 않습니다.
@@ -108,7 +160,7 @@ async function setup() {
    * 것이 제일 나쁩니다.
    *
    * 값을 준 항목만 바꾸고, 무엇이 바뀌었는지 찍고 끝냅니다. */
-  const GIVEN = ['owner', 'contact', 'no-owner', 'port', 'key', 'workspace', 'origin',
+  const GIVEN = ['owner', 'contact', 'no-owner', 'port', 'key', 'workspace', 'model', 'origin',
                  'static', 'open-signup', 'close-signup', 'always-on'].filter(k => k in f);
 
   /* `--key` 를 값 없이 주면 **가려서 물어봅니다.**
@@ -164,6 +216,8 @@ async function setup() {
       anthropicKey: f.key != null && f.key !== true ? String(f.key) : cfg0.anthropicKey,
       anthropicWorkspace: f.workspace != null && f.workspace !== true
         ? String(f.workspace).trim() : cfg0.anthropicWorkspace,
+      anthropicModel: f.model != null && f.model !== true
+        ? String(f.model).trim() : cfg0.anthropicModel,
       origin: f.origin != null && f.origin !== true ? String(f.origin) : cfg0.origin,
       static: f.static === 'prototype' ? 'prototype' : cfg0.static
     });
@@ -180,6 +234,7 @@ async function setup() {
       GIVEN.forEach(k => {
         if (k === 'key') console.log('  자동 판독 키   ' + mask(cfg.anthropicKey));
         else if (k === 'workspace') console.log('  워크스페이스   ' + (cfg.anthropicWorkspace || '(비웠습니다)'));
+        else if (k === 'model') console.log('  판독 모델      ' + (cfg.anthropicModel || '(기본값으로 되돌렸습니다)'));
         else if (k === 'origin') console.log('  공개 주소      ' + (cfg.origin || '(없음)'));
         else if (k === 'static') console.log('  내보낼 폴더    ' + cfg.static);
         else if (k === 'always-on') console.log('  상시 접속      켜 둔다고 했습니다');
@@ -398,6 +453,7 @@ function envFor(cfg) {
   if (cfg.ownerContact) e.OWNER_CONTACT = cfg.ownerContact;
   if (cfg.anthropicKey) e.ANTHROPIC_API_KEY = cfg.anthropicKey;
   if (cfg.anthropicWorkspace) e.ANTHROPIC_WORKSPACE_ID = cfg.anthropicWorkspace;
+  if (cfg.anthropicModel) e.OCR_MODEL = cfg.anthropicModel;
   if (cfg.openSignup) e.OPEN_SIGNUP = '1';
   if (cfg.vapidPublic && cfg.vapidPrivate) {
     e.VAPID_PUBLIC = cfg.vapidPublic;

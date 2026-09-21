@@ -198,7 +198,10 @@ function add(level, ok, id, detail, todo) {
  * -------------------------------------------------------------------------- */
 {
   const key = (CFG.anthropicKey || '').trim();
-  const model = (process.env.OCR_MODEL || '').trim() || null;
+  /* 설정 파일의 모델도 봅니다. 예전에는 환경변수만 봐서, serve --setup
+     --model 로 바꿔 놓고도 doctor 는 엉뚱한(기본) 모델을 확인했습니다 —
+     "된다" 고 해 놓고 실제로는 다른 모델로 판독이 나갔습니다. */
+  const model = (process.env.OCR_MODEL || '').trim() || (CFG.anthropicModel || '').trim() || null;
   if (!key) {
     add('INFO', false, '자동 판독', '키가 없습니다',
       '없어도 앱은 그대로 돕니다 — 숫자를 직접 넣으면 됩니다.\n' +

@@ -89,6 +89,44 @@ function stop() { if (srv) { srv.kill(); srv = null; } }
 
 async function main() {
   /* ===== 1. 키가 없는 서버 ============================================== */
+  console.log('\n[0] 모델 비교 도구 — 사진 크기와 값 계산');
+  {
+    const C = require('./ocr-compare.js');
+
+    /* 크기를 헤더에서 직접 읽습니다. 앱은 긴 변 1600 으로 줄여 보내므로,
+       그보다 큰 사진으로 비교하면 값도 더 나오고 더 잘 읽힙니다 —
+       둘 다 실제보다 좋게 보입니다. 그래서 크기를 알아야 합니다. */
+    const png = Buffer.alloc(24);
+    png.writeUInt32BE(0x89504e47, 0); png.write('IHDR', 12);
+    png.writeUInt32BE(1131, 16); png.writeUInt32BE(1600, 20);
+    const d1 = C.dimensions(png);
+    ok('PNG 크기를 읽는다', d1 && d1.w === 1131 && d1.h === 1600, d1);
+
+    const jpg = Buffer.from([
+      0xFF, 0xD8,                                  // SOI
+      0xFF, 0xE0, 0x00, 0x04, 0x00, 0x00,          // APP0 (길이 4)
+      0xFF, 0xC0, 0x00, 0x11, 0x08,                // SOF0, 길이 17, 정밀도 8
+      0x06, 0x40,                                  // 높이 1600
+      0x04, 0x6B                                   // 너비 1131
+    ]);
+    const d2 = C.dimensions(jpg);
+    ok('JPEG 크기를 읽는다', d2 && d2.w === 1131 && d2.h === 1600, d2);
+    ok('JPEG 로 알아본다', C.mediaTypeOf('x.jpg', jpg) === 'image/jpeg');
+    ok('PNG 로 알아본다', C.mediaTypeOf('x.png', png) === 'image/png');
+    ok('모르는 것은 빈 값', C.mediaTypeOf('x.txt', Buffer.from('hello')) === '');
+
+    /* 값은 추정이 아니라 앤트로픽이 돌려준 토큰 수로 계산합니다.
+       공시가 기준(2026-09-21): Opus 5 $5/$25, Haiku 4.5 $1/$5 per MTok. */
+    const u = { in: 4000, out: 200 };
+    const opus = C.costOf('claude-opus-5', u);
+    const haiku = C.costOf('claude-haiku-4-5-20251001', u);
+    ok('Opus 값이 맞는다', Math.abs(opus - (4000 * 5 / 1e6 + 200 * 25 / 1e6)) < 1e-9, opus);
+    ok('Haiku 값이 맞는다', Math.abs(haiku - (4000 * 1 / 1e6 + 200 * 5 / 1e6)) < 1e-9, haiku);
+    ok('Haiku 가 Opus 보다 싸다', haiku < opus, [haiku, opus]);
+    ok('모르는 모델은 값을 지어내지 않는다', C.costOf('claude-made-up', u) === null);
+    ok('토큰 수를 모르면 값도 없다', C.costOf('claude-opus-5', null) === null);
+  }
+
   console.log('\n[1] 판독 키가 없는 서버 — 0층은 그대로 남아야 한다');
   srv = boot({});
   await waitUp(PORT);

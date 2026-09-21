@@ -157,6 +157,46 @@ function hostGet(port, p2, host) {
        !(run(['tools/serve.js', '--show']).stdout || '').includes(cfg.pairSecret));
   }
 
+  console.log('\n[2-1] 시킨 대로 안 했으면서 했다고 말하지 않는다');
+  {
+    /* run() 은 '-' 로 시작 안 하는 인자를 저장소 경로로 바꿔 버립니다.
+       띄어쓰기로 준 값은 그러면 안 되므로 여기서만 날것으로 부릅니다. */
+    const raw = (args, env) => spawnSync(process.execPath,
+      [path.join(ROOT, 'tools', 'serve.js')].concat(args),
+      { cwd: ROOT, env: env || baseEnv(), encoding: 'utf8', timeout: 60000 });
+    const readCfg = () =>
+      JSON.parse(fs.readFileSync(path.join(HOME, '.mybody', 'config.json'), 'utf8'));
+
+    /* 등호 없이 띄어쓰기로 줘도 받아야 합니다. 예전에는 값을 조용히
+       버리고 화면에는 "(비웠습니다)" 라고 찍었습니다 — 안 한 일을
+       했다고 말하는 쪽이 아무 말 안 하는 것보다 나쁩니다. */
+    raw(['--setup', '--workspace', 'wrkspc_01AAAAAAAAAAAAAAAAAAAA']);
+    ok('띄어쓰기로 준 값을 받는다',
+       readCfg().anthropicWorkspace === 'wrkspc_01AAAAAAAAAAAAAAAAAAAA', readCfg().anthropicWorkspace);
+
+    raw(['--setup', '--model', 'claude-haiku-4-5-20251001']);
+    ok('판독 모델도 저장된다',
+       readCfg().anthropicModel === 'claude-haiku-4-5-20251001', readCfg().anthropicModel);
+
+    /* 셸에 떠 있는 환경변수가 **저장된 값을 덮어쓰면 안 됩니다.**
+       한 번 시험해 본 값이 나중에 아무 --setup 에서나 굳어 버립니다. */
+    raw(['--setup', '--port=9101'],
+        Object.assign(baseEnv(), { ANTHROPIC_WORKSPACE_ID: 'wrkspc_01ZZZZZZZZZZZZZZZZZZZZ' }));
+    ok('환경변수가 저장된 값을 덮어쓰지 않는다',
+       readCfg().anthropicWorkspace === 'wrkspc_01AAAAAAAAAAAAAAAAAAAA', readCfg().anthropicWorkspace);
+    ok('그래도 깃발로 준 것은 바뀐다', readCfg().port === 9101, readCfg().port);
+
+    /* 깃발로 명시하면 환경변수보다 깃발이 이겨야 합니다. */
+    raw(['--setup', '--workspace=wrkspc_01BBBBBBBBBBBBBBBBBBBB'],
+        Object.assign(baseEnv(), { ANTHROPIC_WORKSPACE_ID: 'wrkspc_01ZZZZZZZZZZZZZZZZZZZZ' }));
+    ok('깃발이 환경변수를 이긴다',
+       readCfg().anthropicWorkspace === 'wrkspc_01BBBBBBBBBBBBBBBBBBBB', readCfg().anthropicWorkspace);
+
+    /* 뒷 절에 영향을 안 주게 되돌립니다. */
+    raw(['--setup', '--workspace=', '--model=', '--port=8080']);
+    ok('비우기도 된다', readCfg().anthropicWorkspace === '' && readCfg().anthropicModel === '', readCfg());
+  }
+
   console.log('\n[2-2] 이름을 안 걸기로 한 것과 깜빡한 것을 구분한다');
   {
     /* 배포 전 점검의 "방침 운영자" 는 **깜빡한 것**을 잡으려고 만든 규칙인데,
