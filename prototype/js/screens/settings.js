@@ -364,6 +364,7 @@
               rel: 'noopener', uid: 'P12-B15', uidLabel: '개인정보처리방침' })
           ]),
           h('hr.sep'),
+          installRow(),
           h('div.muted', { text: versionLine() }),
           h('div.muted', { text: '이 화면의 숫자는 참고용입니다. 진단이나 처방이 아닙니다.' }),
           /* http 로 열면(같은 와이파이에서 192.168.x.x 같은 주소) 브라우저가
@@ -433,6 +434,69 @@
       })),
       hint ? h('div.field__hint', { text: hint }) : null
     ]);
+  }
+
+  /* --- 폰에 앱처럼 깔기 ---------------------------------------------------
+   *
+   * 앱이 "안 된다" 고만 말하고 있었습니다 (P12-S02). 될 때 도와주지는
+   * 않았습니다 — 그런데 이게 지금 당장, 공짜로, 심사 없이 폰에 아이콘을
+   * 만드는 유일한 길입니다.
+   *
+   * 브라우저마다 방식이 다릅니다.
+   *   안드로이드/크롬 — beforeinstallprompt 를 잡아 뒀다가 버튼으로 띄웁니다.
+   *   아이폰/사파리   — 그런 이벤트가 없습니다. 손으로 하는 순서를 적어 줍니다.
+   *                     (그리고 **아이폰은 홈 화면에 추가해야 알림이 됩니다.**)
+   *   이미 깔림      — 아무것도 안 보여 줍니다. 깐 사람에게 깔라고 하면 안 됩니다.
+   * ---------------------------------------------------------------------- */
+  function installed() {
+    try {
+      return (global.matchMedia && global.matchMedia('(display-mode: standalone)').matches) ||
+             global.navigator.standalone === true;
+    } catch (e) { return false; }
+  }
+  function isIos() {
+    try {
+      var ua = global.navigator.userAgent || '';
+      /* 아이패드는 최근 iOS 에서 맥인 척합니다. 터치가 있는 맥은 없습니다. */
+      return /iPhone|iPad|iPod/.test(ua) ||
+             (/Macintosh/.test(ua) && global.navigator.maxTouchPoints > 1);
+    } catch (e) { return false; }
+  }
+
+  function installRow() {
+    if (installed()) {
+      return h('div.muted', { uid: 'P12-S03', uidLabel: '설치됨',
+        text: '홈 화면에서 실행 중입니다.' });
+    }
+    if (!UI.isSecure()) return null;      // 왜 안 되는지는 아래 P12-S02 가 말합니다
+
+    var prompt = global.MB_INSTALL && global.MB_INSTALL.prompt;
+    if (prompt) {
+      return h('div', { style: { marginTop: '10px' } }, [
+        h('button.btn.btn--sm.btn--block', { text: '폰에 앱처럼 깔기',
+          uid: 'P12-B16', uidLabel: '앱 설치',
+          onClick: function () {
+            prompt.prompt();
+            prompt.userChoice.then(function (r) {
+              if (r && r.outcome === 'accepted') global.MB_UID.toast('깔았습니다');
+              global.MB_INSTALL.prompt = null;
+              A.refresh();
+            }).catch(function () {});
+          } }),
+        h('div.field__hint', { text: '주소창 없이 앱처럼 열리고, 오프라인에서도 켜집니다.' })
+      ]);
+    }
+    if (isIos()) {
+      return h('div.note', { style: { marginTop: '10px' },
+        uid: 'P12-S04', uidLabel: '아이폰 설치 안내' }, [
+        h('b', { text: '폰에 앱처럼 깔기' }),
+        h('div', { style: { marginTop: '4px' },
+          text: '사파리 아래쪽 공유 버튼 → "홈 화면에 추가".' }),
+        h('div.muted', { style: { marginTop: '4px' },
+          text: '아이폰은 이렇게 깔아야 폰 알림도 받을 수 있습니다 (사파리 규칙).' })
+      ]);
+    }
+    return null;   // 설치를 지원하지 않는 브라우저 — 없는 버튼을 만들지 않습니다
   }
 
   function applyTheme(theme) {

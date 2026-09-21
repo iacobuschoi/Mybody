@@ -160,6 +160,52 @@ const DEV_UIDS = ['P01-B05', 'P02-B02', 'P03-B03', 'P03-B09', 'P18-B08',
      }));
   ok('theme-color', await page.evaluate(() => !!document.querySelector('meta[name="theme-color"]')));
 
+  console.log('\n[5-2] 폰에 앱처럼 깔기 — 될 때 도와주는가');
+  {
+    /* 앱이 "안 된다"(P12-S02)고만 말하고 될 때는 아무 말도 안 했습니다.
+       스토어를 안 거치고 폰에 아이콘을 만드는 유일한 길인데요. */
+    await page.evaluate(() => window.MB_APP.go('P12'));
+    await page.waitForTimeout(300);
+
+    /* 안드로이드/크롬: 브라우저가 "깔 수 있다" 고 한 번만 말합니다.
+       그 이벤트를 앱 시작에서 안 잡아 두면 영영 못 띄웁니다. */
+    const grabbed = await page.evaluate(() => !!window.MB_INSTALL);
+    ok('설치 가능 신호를 받아 둘 자리가 있다', grabbed);
+
+    const shown = await page.evaluate(async () => {
+      const e = new Event('beforeinstallprompt');
+      let prompted = false;
+      e.prompt = () => { prompted = true; return Promise.resolve(); };
+      e.userChoice = Promise.resolve({ outcome: 'dismissed' });
+      window.dispatchEvent(e);
+      window.MB_APP.refresh();
+      await new Promise(r => setTimeout(r, 200));
+      return {
+        btn: document.querySelectorAll('[data-uid="P12-B16"]').length,
+        kept: !!(window.MB_INSTALL && window.MB_INSTALL.prompt)
+      };
+    });
+    ok('신호가 오면 설치 버튼이 생긴다', shown.btn === 1, shown);
+    ok('신호를 들고 있는다 (지나가 버리지 않는다)', shown.kept === true, shown);
+
+    /* 이미 깐 사람에게 깔라고 하면 안 됩니다. */
+    const whenInstalled = await page.evaluate(async () => {
+      const real = window.matchMedia;
+      window.matchMedia = q => /standalone/.test(q) ? { matches: true } : real.call(window, q);
+      window.MB_APP.refresh();
+      await new Promise(r => setTimeout(r, 200));
+      const n = {
+        btn: document.querySelectorAll('[data-uid="P12-B16"]').length,
+        done: document.querySelectorAll('[data-uid="P12-S03"]').length
+      };
+      window.matchMedia = real;
+      window.MB_APP.refresh();
+      return n;
+    });
+    ok('이미 깔았으면 버튼을 안 보여준다', whenInstalled.btn === 0, whenInstalled);
+    ok('대신 실행 중이라고 말한다', whenInstalled.done === 1, whenInstalled);
+  }
+
   console.log('\n[6] 서비스워커 · 오프라인');
   /* navigator.serviceWorker.ready 는 등록이 없으면 거부되지 않고 그냥
      영원히 안 끝납니다. .catch() 를 붙여도 소용없어서 검증이 통째로

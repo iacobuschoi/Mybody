@@ -243,6 +243,20 @@
   function boot() {
     // 서버가 설정돼 있으면 붙습니다. 안 돼 있으면 로컬만으로 그대로 동작합니다.
     try { if (global.MB_SYNC) global.MB_SYNC.boot(); } catch (e) {}
+
+    /* 브라우저는 "깔 수 있다" 고 딱 한 번 말합니다 (beforeinstallprompt).
+       그 때 안 잡아 두면 영영 못 띄웁니다 — 설정 화면이 열릴 때는 이미
+       지나간 뒤입니다. 그래서 여기서 받아 두고 설정이 꺼내 씁니다. */
+    global.MB_INSTALL = global.MB_INSTALL || { prompt: null };
+    try {
+      global.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault();               // 브라우저 기본 배너 대신 우리 버튼으로
+        global.MB_INSTALL.prompt = e;
+      });
+      global.addEventListener('appinstalled', function () {
+        global.MB_INSTALL.prompt = null;
+      });
+    } catch (e) {}
     S.load();
     buildShell();
     global.MB_UID.init();
