@@ -94,8 +94,9 @@ async function setup() {
      사용자는 뭐가 저장됐는지 모른 채 남습니다. 깃발로 받고 끝냅니다. */
   if (!process.stdin.isTTY) {
     const cfg = Object.assign(cfg0, {
-      owner: f.owner != null && f.owner !== true ? String(f.owner) : cfg0.owner,
-      ownerContact: f.contact != null && f.contact !== true ? String(f.contact) : cfg0.ownerContact,
+      owner: f['no-owner'] ? '' : (f.owner != null && f.owner !== true ? String(f.owner) : cfg0.owner),
+      ownerContact: f['no-owner'] ? '' : (f.contact != null && f.contact !== true ? String(f.contact) : cfg0.ownerContact),
+      ownerOmitted: f['no-owner'] ? true : cfg0.ownerOmitted,
       port: f.port ? Number(f.port) || cfg0.port : cfg0.port,
       anthropicKey: f.key != null && f.key !== true ? String(f.key) : cfg0.anthropicKey,
       origin: f.origin != null && f.origin !== true ? String(f.origin) : cfg0.origin,
@@ -104,7 +105,8 @@ async function setup() {
     cfg.trustProxy = !!cfg.origin;
     writeConfig(cfg);
     console.log('설정을 저장했습니다: ' + FILE);
-    console.log('  운영자 ' + (cfg.owner || '(없음)') + ' · 연락처 ' + (cfg.ownerContact || '(없음)') +
+    console.log('  운영자 ' + (cfg.owner || (cfg.ownerOmitted ? '(안 적기로 함)' : '(없음)')) +
+                ' · 연락처 ' + (cfg.ownerContact || '(없음)') +
                 ' · 포트 ' + cfg.port);
     if (!cur.pairSecret) {
       console.log('');
@@ -113,6 +115,7 @@ async function setup() {
     }
     console.log('');
     console.log('  바꾸려면: node tools/serve.js --setup --owner="이름" --contact="연락처"');
+    console.log('            이름을 안 걸 거면: --no-owner');
     return;
   }
 
@@ -144,10 +147,22 @@ async function setup() {
   console.log('개인정보처리방침에 적을 이름과 연락처입니다.');
   console.log('이 앱은 몸에 대한 숫자를 다루니까, 받는 사람이 "누구에게 말하면 되는지"');
   console.log('를 알 수 있어야 합니다. 본명이 아니어도 됩니다.');
-  cfg.owner = await ask('  운영자 이름:', cfg.owner || 'Mybody 운영자');
-  console.log('  연락처는 메일이든 오픈채팅 링크든, 실제로 읽는 곳이면 됩니다.');
-  console.log('  비워 두면 방침에 "주소를 알려준 사람에게 직접 말하세요" 라고 나갑니다.');
-  cfg.ownerContact = await ask('  연락처:', cfg.ownerContact);
+  console.log('  아무것도 안 적고 갈 수도 있습니다. 그 때는 "없음" 이라고 쓰세요.');
+  const ownerIn = await ask('  운영자 이름:', cfg.owner || 'Mybody 운영자');
+  if (/^(없음|없다|안 ?적음|none|skip|-)$/i.test(ownerIn.trim())) {
+    /* 빈칸으로 두는 것과 안 적기로 정하는 것은 다른 일입니다.
+       빈칸은 깜빡한 것일 수 있어서 배포 전 점검이 막습니다. 여기서
+       고른 것은 결정이므로 기록에 남기고 통과시킵니다 — 대신
+       "알고 올리는 것" 목록에 줄이 남습니다. */
+    cfg.owner = ''; cfg.ownerContact = ''; cfg.ownerOmitted = true;
+    console.log('  → 안 적기로 했습니다. 방침에는 "이 주소를 알려준 사람에게');
+    console.log('     직접 말해 주세요" 로 나갑니다.');
+  } else {
+    cfg.owner = ownerIn; cfg.ownerOmitted = false;
+    console.log('  연락처는 메일이든 오픈채팅 링크든, 실제로 읽는 곳이면 됩니다.');
+    console.log('  비워 두면 방침에 "주소를 알려준 사람에게 직접 말하세요" 라고 나갑니다.');
+    cfg.ownerContact = await ask('  연락처:', cfg.ownerContact);
+  }
   console.log('');
 
   cfg.port = Number(await ask('  포트:', String(cfg.port))) || 8080;

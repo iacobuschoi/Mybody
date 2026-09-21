@@ -27,6 +27,9 @@ const DEFAULTS = {
   pairSecret: '',
   owner: '',
   ownerContact: '',
+  /* 이름을 안 걸기로 **정했다** 는 표시. 빈칸(깜빡함)과 구분하려고
+     따로 둡니다 — preflight 의 "방침 운영자" 가 이 둘을 다르게 봅니다. */
+  ownerOmitted: false,
   anthropicKey: '',
   origin: '',
   trustProxy: false,
@@ -61,6 +64,9 @@ function load() {
   take('pairSecret', 'PAIR_SECRET');
   take('owner', 'OWNER');
   take('ownerContact', 'OWNER_CONTACT');
+  if (/^(1|true|yes)$/i.test(String(process.env.OWNER_OMIT || ''))) {
+    cfg.ownerOmitted = true; from.ownerOmitted = '환경변수 OWNER_OMIT';
+  }
   take('anthropicKey', 'ANTHROPIC_API_KEY');
   take('origin', 'ORIGIN');
   take('db', 'DB');

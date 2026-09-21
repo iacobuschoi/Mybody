@@ -146,6 +146,40 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
        !(run(['tools/serve.js', '--show']).stdout || '').includes(cfg.pairSecret));
   }
 
+  console.log('\n[2-2] 이름을 안 걸기로 한 것과 깜빡한 것을 구분한다');
+  {
+    /* 배포 전 점검의 "방침 운영자" 는 **깜빡한 것**을 잡으려고 만든 규칙인데,
+       안 적기로 **정한 것**과 구분을 못 해서 그 사람의 배포를 통째로
+       막았습니다. 규칙이 사람의 결정을 덮어쓰면 그건 규칙이 아니라 벽입니다. */
+    /* --rules 로 규칙만 봅니다. 이걸 안 붙이면 시험 하나가 20분짜리
+       브라우저 검사 전체를 세 번 돌립니다 (한 번 그래서 멈췄습니다). */
+    const pf = (env) => run(['tools/preflight.js', '--rules'],
+      Object.assign(baseEnv(), env)).stdout || '';
+
+    /* 순서가 중요합니다 — 아래에서 --no-owner 를 돌리면 그 결정이 설정에
+       남아서, 그 뒤로는 빈칸이어도 "정한 것" 으로 읽힙니다. 그게 맞는
+       동작이므로 빈칸 검사를 먼저 합니다. */
+    ok('빈칸이면 막는다',
+       /✗ 방침 운영자/.test(pf({ OWNER: '', OWNER_CONTACT: '', OWNER_OMIT: '' })));
+
+    const r = run(['tools/serve.js', '--setup', '--no-owner']);
+    ok('--no-owner 로 끝난다', r.status === 0, (r.stderr || '').slice(0, 200));
+    const cfg = JSON.parse(fs.readFileSync(path.join(HOME, '.mybody', 'config.json'), 'utf8'));
+    ok('이름과 연락처가 비워진다', cfg.owner === '' && cfg.ownerContact === '', cfg);
+    ok('"안 적기로 했다" 가 기록에 남는다', cfg.ownerOmitted === true, cfg);
+    ok('화면에도 그렇게 말한다', /안 적기로 함/.test(r.stdout || ''), r.stdout);
+
+    ok('안 적기로 정했으면 안 막는다 (설정에 남은 것만으로도)',
+       /✓ 방침 운영자/.test(pf({ OWNER: '', OWNER_CONTACT: '', OWNER_OMIT: '' })));
+    ok('대신 "알고 올리는 것" 에 줄이 남는다',
+       /운영자 이름 없음/.test(pf({ OWNER: '', OWNER_CONTACT: '', OWNER_OMIT: '' })));
+    ok('환경변수로도 된다',
+       /✓ 방침 운영자/.test(pf({ OWNER: '', OWNER_CONTACT: '', OWNER_OMIT: '1' })));
+
+    // 뒤 검사들이 쓰도록 운영자를 되돌려 놓습니다
+    run(['tools/serve.js', '--setup', '--owner=검사 주인', '--contact=t@example.com']);
+  }
+
   console.log('\n[3] doctor — 준비가 되면 띄울 수 있다고 말한다');
   {
     const port = await freePort();

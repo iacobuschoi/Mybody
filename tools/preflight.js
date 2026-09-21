@@ -21,6 +21,9 @@ const path = require('path');
 
 const ROOT = path.join(__dirname, '..');
 const FAST = !!process.env.FAST;
+/* 규칙만 — 코드를 읽어 판정하는 것들만 보고 끝냅니다 (1초).
+   node tools/preflight.js --rules   또는   RULES_ONLY=1 */
+const RULES_ONLY = process.argv.includes('--rules') || !!process.env.RULES_ONLY;
 const NODE_PATH = process.env.NODE_PATH || '/opt/node22/lib/node_modules';
 
 const CHECKS = [
@@ -156,16 +159,40 @@ function staticChecks() {
 
   /* (4.5) 개인정보처리방침의 운영자 칸.
      늦게 알면 다시 빌드해야 하므로 여기서 먼저 말합니다. 실제 판정은
-     배포 빌드를 실제로 열어 보는 test-release 가 합니다. */
+     배포 빌드를 실제로 열어 보는 test-release 가 합니다.
+
+     이 규칙이 잡으려던 것은 **깜빡한 것** 입니다. 그런데 안 적기로
+     **정한 것**과 구분을 못 해서, 이름을 안 걸기로 한 사람은 배포를
+     통째로 막혔습니다. 규칙이 사람의 결정을 덮어쓰면 그건 규칙이
+     아니라 벽입니다.
+
+     그래서 "안 적는다" 를 명시적으로 고를 수 있게 하되, 그 선택은
+     기록에 남습니다 — OWNER_OMIT=1 이거나 설정에 ownerOmitted 가
+     켜져 있어야 하고, 그래도 "알고 올리는 것" 목록에 줄이 남습니다.
+     빈칸으로 두는 것과 안 적기로 하는 것은 다른 일입니다. */
   {
     const owner = (process.env.OWNER || '').trim();
     const contact = (process.env.OWNER_CONTACT || '').trim();
-    out.push({ id: '방침 운영자', level: 'BLOCK', ok: !!(owner && contact),
-      detail: (owner && contact)
-        ? owner + ' · ' + contact + ' 로 방침에 박힙니다'
-        : 'OWNER · OWNER_CONTACT 를 넣고 다시 돌리세요 — 개인정보처리방침에 ' +
-          '"누구에게 말하면 되는지" 가 비어 있으면 권리를 행사할 길이 없습니다 ' +
-          '(docs/DEPLOY.md 0번)' });
+    let omitted = /^(1|true|yes)$/i.test((process.env.OWNER_OMIT || '').trim());
+    if (!omitted) {
+      try { omitted = !!require('./config.js').load().cfg.ownerOmitted; } catch (e) {}
+    }
+    if (owner && contact) {
+      out.push({ id: '방침 운영자', level: 'BLOCK', ok: true,
+        detail: owner + ' · ' + contact + ' 로 방침에 박힙니다' });
+    } else if (omitted) {
+      out.push({ id: '방침 운영자', level: 'BLOCK', ok: true,
+        detail: '안 적기로 정했습니다 — 방침에는 "이 주소를 알려준 사람에게 ' +
+                '직접 말해 주세요" 로 나갑니다' });
+      out.push({ id: '운영자 이름 없음', level: 'WARN', ok: false,
+        detail: '처리방침에 이름도 연락처도 없습니다. 친구들은 주소를 직접 받았으니 ' +
+                '누구에게 말할지 알지만, 모르는 사람이 보면 물어볼 데가 없습니다' });
+    } else {
+      out.push({ id: '방침 운영자', level: 'BLOCK', ok: false,
+        detail: 'OWNER · OWNER_CONTACT 를 넣거나, 안 적기로 정했으면 OWNER_OMIT=1 ' +
+                '(또는 serve --setup 에서 선택) 로 그 결정을 남기세요 — 빈칸으로 ' +
+                '두면 깜빡한 것인지 정한 것인지 알 수 없습니다 (docs/DEPLOY.md 0번)' });
+    }
   }
 
   /* (4.7) 보유 기간이 세 군데에서 같은 숫자인가.
@@ -289,6 +316,16 @@ staticChecks().forEach(c => {
   console.log(`  ${mark} ${c.id}`);
   if (!c.ok) console.log(`       ${c.detail}`);
 });
+
+/* 규칙만 빠르게 보고 싶을 때가 있습니다 — 특히 운영자·보유기간처럼
+   코드를 읽어서 판정하는 것들은 1초면 끝나는데, 그걸 보려고 20분짜리
+   브라우저 검사를 다 기다릴 이유가 없습니다. 시험에서도 이 길을 씁니다. */
+if (RULES_ONLY) {
+  const bad = results.filter(r => r.level === 'BLOCK' && !r.ok);
+  console.log('\n' + (bad.length ? '✗ 규칙 ' + bad.length + '건이 막습니다' : '✓ 규칙 전부 통과')
+              + ' (검사는 건너뛰었습니다 — --rules)');
+  process.exit(bad.length ? 1 : 0);
+}
 
 console.log('\n검사');
 for (const c of CHECKS) {
