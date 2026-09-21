@@ -186,4 +186,32 @@ t('다시 켜면 일정이 돌아온다', W.workoutStreak(TODAY).days === 1,
   JSON.stringify(S.get().schedule));
 
 console.log('\n' + (fail ? '✗ ' + fail + '개 실패 / ' : '✓ 전부 통과 — ') + (pass + fail) + '개');
-process.exit(fail ? 1 : 0);
+if (fail) process.exit(1);
+
+/* --- 시간대 --------------------------------------------------------------
+ * 날짜 계산은 시간대가 UTC 나 한국일 때만 맞는 경우가 흔합니다. 실제로
+ * dayKey() 가 'YYYY-MM-DD' 를 UTC 자정으로 읽어서, UTC 뒤쪽 시간대에서는
+ * 저장 키가 하루씩 밀렸습니다 — 화면은 멀쩡한데 스트릭이 오늘 것을 영영
+ * 못 찾았습니다. 컨테이너가 UTC 라 시험은 전부 통과했습니다.
+ *
+ * 그래서 이 파일을 몇 개 시간대에서 다시 돌립니다. 개발 기기의 시간대가
+ * 무엇이든 같은 답이 나와야 합니다.
+ * ---------------------------------------------------------------------- */
+if (!process.env.MB_TZ_SWEEP) {
+  const cp = require('node:child_process');
+  const ZONES = ['UTC', 'Asia/Seoul', 'America/Los_Angeles',
+                 'America/Sao_Paulo', 'Pacific/Kiritimati', 'Asia/Kathmandu'];
+  console.log('\n[시간대] 같은 시험을 다른 시간대에서');
+  let bad = 0;
+  for (const tz of ZONES) {
+    const r = cp.spawnSync(process.execPath, [__filename], {
+      env: { ...process.env, TZ: tz, MB_TZ_SWEEP: '1' }, encoding: 'utf8'
+    });
+    const okTz = r.status === 0;
+    if (!okTz) bad++;
+    const line = (r.stdout || '').trim().split('\n').filter(Boolean).pop() || '';
+    console.log('  ' + (okTz ? '✓' : '✗') + ' ' + tz + (okTz ? '' : '   ' + line));
+  }
+  console.log('\n' + (bad ? '✗ 시간대 ' + bad + '개에서 실패' : '✓ 시간대 ' + ZONES.length + '개 전부 통과'));
+  process.exit(bad ? 1 : 0);
+}
