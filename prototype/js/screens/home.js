@@ -522,6 +522,14 @@
     });
     card.appendChild(strip);
 
+    /* 플랜이 이미 요일 배치를 들고 있으면 한 번에 깔아 줍니다.
+       목표를 정할 때 "주 4회, 상하체 4분할" 을 이미 골랐는데 그걸 또
+       손으로 옮겨 적게 하는 건 같은 질문을 두 번 하는 것입니다. */
+    var fill = fillFromPlan(sum);
+    if (fill) card.appendChild(fill);
+    var cnote = cardioNote(sum);
+    if (cnote) card.appendChild(cnote);
+
     /* 오늘 줄 — 카드 안에서 바로 체크 */
     var today = null;
     sum.days.forEach(function (d) { if (d.isToday) today = d; });
@@ -552,6 +560,64 @@
     /* 스트릭 — 행동에만 답니다. 몸무게에는 절대 달지 않습니다. */
     card.appendChild(streakRow());
     return card;
+  }
+
+  /**
+   * "플랜대로 채우기" — 엔진이 만든 주간 분할을 이번 주 칸에 깔아 줍니다.
+   *
+   * 두 가지를 지킵니다.
+   *   (가) 이미 정해 둔 날은 건드리지 않습니다. 엔진의 배치는 제안이고,
+   *        사람이 고른 것이 언제나 이깁니다.
+   *   (나) **지나간 날은 채우지 않습니다.** 금요일에 눌렀는데 월·수가
+   *        헬스로 채워지면, 안 간 날이 그 자리에서 "못 지킨 날" 이 됩니다.
+   *        하지도 않은 실패를 앱이 만들어 주는 셈입니다. 오늘부터 채웁니다.
+   *
+   * 유산소는 안 채웁니다. 엔진에는 요일 개념이 없고 주당 분(分)만 있습니다
+   * (cardioMinPerWeek). 없는 정보를 있는 척 배치하지 않습니다.
+   */
+  function fillFromPlan(sum) {
+    var st = S.get();
+    var w = st.plan && st.plan.workout;
+    if (!w || !w.sessions || w.sessions.length !== 7) return null;
+
+    var today = S.dayKey();
+    var targets = [];
+    sum.days.forEach(function (d, i) {
+      if (d.key < today) return;                 // 지나간 날은 건드리지 않습니다
+      if (d.plan.length) return;                 // 이미 정해 둔 날도
+      var sess = w.sessions[i];
+      if (!sess || sess.rest) return;
+      targets.push({ key: d.key, label: sess.label });
+    });
+    if (!targets.length) return null;
+
+    var box = h('div', { style: { marginTop: '10px' } }, [
+      h('button.btn.btn--sm.btn--block', {
+        text: '플랜대로 채우기 (' + w.splitName + ' · 남은 ' + targets.length + '일)',
+        uid: 'P02-B32', uidLabel: '플랜대로 채우기',
+        onClick: function () {
+          targets.forEach(function (t) { S.setSchedulePlan(t.key, 'gym', true); });
+          global.MB_UID.toast(targets.length + '일을 헬스로 채웠습니다');
+          A.refresh();
+        } }),
+      h('div.muted', { style: { marginTop: '5px' },
+        text: '오늘부터 채웁니다. 이미 정한 날은 그대로 둡니다.' })
+    ]);
+    return box;
+  }
+
+  /* 유산소 안내는 채우기 버튼과 따로 둡니다.
+     예전엔 버튼 밑에 붙어 있었는데, 누르는 순간 버튼이 사라지면서
+     설명도 같이 사라졌습니다 — 하필 "유산소는 왜 안 채워졌지?" 가
+     생기는 바로 그 순간에 답이 없어집니다. */
+  function cardioNote(sum) {
+    var w = (S.get().plan || {}).workout;
+    if (!w || !(w.cardioMinPerWeek > 0)) return null;
+    var hasCardio = sum.days.some(function (d) { return d.plan.indexOf('cardio') >= 0; });
+    if (hasCardio) return null;
+    return h('div.muted', { style: { marginTop: '8px' },
+      text: '유산소는 플랜에 주 ' + w.cardioMinPerWeek + '분만 있고 요일이 없습니다. ' +
+            '직접 고르셔야 합니다 (' + (w.cardioPlan || '') + ').' });
   }
 
   /* --- C09 스트릭 ------------------------------------------------------

@@ -190,6 +190,57 @@ const ok = (n, c, d) => {
     return has && said;
   })());
 
+  console.log('\n[6-3] 플랜대로 채우기');
+  await page.evaluate(() => { localStorage.clear(); });
+  await page.reload({ waitUntil: 'load' });
+  await page.waitForTimeout(400);
+  await hideDock();
+  await page.evaluate(() => {
+    const S = window.MB_STORE, E = window.MB_ENGINE;
+    S.seed();
+    /* 목표와 플랜을 실제로 만들어야 workout.sessions 가 생깁니다.
+       화면(P05)이 쓰는 길과 같은 길입니다 — compareLevels → buildPlan. */
+    const prof = S.get().profile, scan = S.latestScan();
+    const d = E.derive(scan, prof);
+    const goal = { weightKg: Math.round((d.weightKg - 4) * 10) / 10,
+                   smmKg: Math.round((d.smmKg + 1) * 10) / 10,
+                   bfmKg: Math.round((d.bfmKg - 5) * 10) / 10 };
+    S.setGoal(goal);
+    const cmp = E.compareLevels(scan, prof, goal, new Date().toISOString(), null, null);
+    S.setPlan(E.buildPlan(cmp, 'mid', scan, prof));
+    window.MB_APP.go('P02');
+  });
+  await page.waitForTimeout(450);
+  const hasFill = await page.locator(u('P02-B32')).count() === 1;
+  ok('플랜이 있으면 채우기 버튼이 뜬다', hasFill,
+     await page.evaluate(() => !!(window.MB_STORE.get().plan || {}).workout));
+  if (hasFill) {
+    /* 지나간 날은 채우면 안 됩니다 — 안 간 날이 그 자리에서 "못 지킨 날"
+       이 되고, 하지도 않은 실패를 앱이 만들어 줍니다. */
+    const pastBefore = await page.evaluate(() => {
+      const w = window.MB_SCHED.week();
+      return w.days.filter(d => d.isPast).map(d => d.plan.length);
+    });
+    await page.locator(u('P02-B32')).click();
+    await page.waitForTimeout(400);
+    const after = await page.evaluate(() => {
+      const w = window.MB_SCHED.week();
+      return { past: w.days.filter(d => d.isPast).map(d => d.plan.length),
+               ahead: w.days.filter(d => !d.isPast).reduce((n, d) => n + d.plan.length, 0),
+               missed: w.days.filter(d => d.missed).length };
+    });
+    ok('지나간 날은 그대로다', JSON.stringify(after.past) === JSON.stringify(pastBefore),
+       { pastBefore, after });
+    ok('못 지킨 날을 새로 만들지 않는다', after.missed === 0, after);
+    ok('오늘부터의 날이 채워진다', after.ahead >= 1, after);
+    ok('유산소는 안 채운다 (플랜에 요일이 없다)', await page.evaluate(() => {
+      const w = window.MB_SCHED.week();
+      return w.days.every(d => d.plan.indexOf('cardio') < 0);
+    }));
+    ok('왜 유산소는 비는지 적어 둔다',
+       (await page.locator(u('P02-C08')).innerText()).includes('유산소는 플랜에'));
+  }
+
   console.log('\n[7] 인바디가 없어도 일정은 쓸 수 있다');
   await page.evaluate(() => { localStorage.clear(); });
   await page.reload({ waitUntil: 'load' });
