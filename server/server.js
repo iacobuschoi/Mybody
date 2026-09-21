@@ -42,6 +42,47 @@ const { open, makeApi, str } = require('./db.js');
 const { runOcr: callOcr } = require('./ocr.js');
 const PUSH = require('./push.js');
 
+/* --- 저장해 둔 설정을 읽어 옵니다 ------------------------------------------
+ *
+ * 이게 없어서 조용히 깨지는 길이 있었습니다.
+ *
+ * 설정(판독 키 · 워크스페이스 · 가입 코드 …)은 ~/.mybody/config.json 에
+ * 저장되는데, 그걸 환경변수로 바꿔 주는 곳이 tools/serve.js 하나뿐이었습니다.
+ * 그런데 이 파일의 맨 위 주석도, server/README.md 도, docs/DEPLOY.md 도,
+ * 배포 전 점검도 전부 `node server/server.js` 를 치라고 안내합니다.
+ * **그 길로 띄우면 키도 워크스페이스도 통째로 사라집니다** — 서버는
+ * 멀쩡히 뜨고, 판독만 503 이나 400 으로 죽습니다. 화면에는 "이 서버에는
+ * 판독 키가 설정되지 않았습니다" 가 나오는데, 주인은 방금 키를 넣었으니
+ * 그 말을 믿을 수가 없습니다.
+ *
+ * 순서는 그대로 둡니다: **환경변수가 먼저**입니다. 한 번만 다르게
+ * 띄우고 싶을 때 쓰는 길이라 설정 파일이 그걸 덮으면 안 됩니다.
+ * 여기서는 환경변수에 **없는 것만** 채웁니다.
+ *
+ * tools/ 가 없어도(server/ 만 떼어 옮긴 경우) 그냥 넘어갑니다.
+ * -------------------------------------------------------------------------- */
+(function loadSavedConfig() {
+  let cfg;
+  try { cfg = require('../tools/config.js').load().cfg; } catch (e) { return; }
+  const put = (envName, v) => {
+    if (v === undefined || v === null || v === '') return;
+    if ((process.env[envName] || '').trim()) return;   // 환경변수가 이깁니다
+    process.env[envName] = String(v);
+  };
+  put('PAIR_SECRET', cfg.pairSecret);
+  put('ANTHROPIC_API_KEY', cfg.anthropicKey);
+  put('ANTHROPIC_WORKSPACE_ID', cfg.anthropicWorkspace);
+  put('OCR_MODEL', cfg.anthropicModel);
+  put('VAPID_PUBLIC', cfg.vapidPublic);
+  put('VAPID_PRIVATE', cfg.vapidPrivate);
+  put('OWNER', cfg.owner);
+  put('OWNER_CONTACT', cfg.ownerContact);
+  put('ORIGIN', cfg.origin);
+  put('DB', cfg.db);
+  if (cfg.openSignup && !(process.env.OPEN_SIGNUP || '').trim()) process.env.OPEN_SIGNUP = '1';
+  if (cfg.trustProxy && !(process.env.TRUST_PROXY || '').trim()) process.env.TRUST_PROXY = '1';
+})();
+
 const PORT = Number(process.env.PORT || 8080);
 const DB_FILE = process.env.DB || path.join(__dirname, 'mybody.db');
 const STATIC_DIR = process.env.STATIC
@@ -219,26 +260,46 @@ const OCR_PER_DAY_TOTAL = Number(process.env.OCR_PER_DAY_TOTAL || 250);
  * DB 가 어떤 이유로든 안 되면 메모리로 물러섭니다. 세는 게 아예 없는
  * 것보다는 낫습니다 — 다만 그때는 껐다 켜면 리셋됩니다. */
 const ocrHits = new Map();
+function ocrDay() { return new Date().toISOString().slice(0, 10); }
+
+/** 지금 한도에 걸리는가 — **세기만 합니다.** 올리지 않습니다. */
 function ocrLimited(userId) {
-  const day = new Date().toISOString().slice(0, 10);
+  const day = ocrDay();
   let n, total;
   try {
-    const r = api.bumpOcr(userId, day);
+    const r = api.peekOcr(userId, day);
     n = r.user; total = r.total;
   } catch (e) {
-    const key = userId + '|' + day;
-    const totalKey = '*|' + day;
-    n = (ocrHits.get(key) || 0) + 1;
-    total = (ocrHits.get(totalKey) || 0) + 1;
-    ocrHits.set(key, n);
-    ocrHits.set(totalKey, total);
-    if (ocrHits.size > 2000) {
-      for (const k of ocrHits.keys()) { if (!k.endsWith('|' + day)) ocrHits.delete(k); }
-    }
+    n = ocrHits.get(userId + '|' + day) || 0;
+    total = ocrHits.get('*|' + day) || 0;
   }
-  if (total > OCR_PER_DAY_TOTAL) return 'total';
-  if (n > OCR_PER_DAY) return 'user';
+  if (total >= OCR_PER_DAY_TOTAL) return 'total';
+  if (n >= OCR_PER_DAY) return 'user';
   return null;
+}
+
+/* 한 장을 **실제로 읽어 냈을 때만** 셉니다.
+ *
+ * 예전에는 한도 확인과 세기가 한 함수였습니다. 그래서 키가 거부되거나
+ * 워크스페이스가 안 잡힌 날, 될 때까지 눌러 본 횟수가 그대로 한도를
+ * 깎았습니다 — 열 번이면 그날이 끝납니다. 그리고 그 다음부터 화면은
+ * 진짜 원인 대신 "오늘 판독 한도를 다 썼습니다" 를 말합니다.
+ * 고치는 사람이 원인을 찾는 동안 원인이 가려지는 것입니다.
+ *
+ * 거절된 요청은 토큰을 안 써서 돈도 안 나갑니다. 셀 이유가 없습니다.
+ *
+ * 동시에 여러 장이 들어오면 몇 장 넘칠 수 있습니다 — 확인과 세기
+ * 사이가 벌어지기 때문입니다. 이 규모(사람 100명)에서 그 몇 장보다
+ * 위의 문제가 훨씬 비쌉니다. */
+function ocrCount(userId) {
+  const day = ocrDay();
+  try { api.bumpOcr(userId, day); return; } catch (e) {}
+  const key = userId + '|' + day, totalKey = '*|' + day;
+  ocrHits.set(key, (ocrHits.get(key) || 0) + 1);
+  ocrHits.set(totalKey, (ocrHits.get(totalKey) || 0) + 1);
+  if (ocrHits.size > 2000) {
+    for (const k of ocrHits.keys()) { if (!k.endsWith('|' + day)) ocrHits.delete(k); }
+  }
 }
 
 const OCR_WORKSPACE = (process.env.ANTHROPIC_WORKSPACE_ID || '').trim();
@@ -730,6 +791,8 @@ async function handleApi(req, res, url) {
     }
     const b = await readBody(req, 8_000_000);
     const out = await runOcr(b);
+    /* 읽어 낸 것만 셉니다. 실패는 한도를 안 깎습니다. */
+    if (out.status === 200) ocrCount(me);
     return send(res, out.status, out.body);
   }
 

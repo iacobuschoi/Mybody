@@ -7,6 +7,8 @@
  *   node tools/test-social.js
  * ========================================================================== */
 'use strict';
+/* 검사하는 사람의 ~/.mybody 설정이 결과를 바꾸지 않게 떼어 놓습니다. */
+require('./testenv.js');
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');

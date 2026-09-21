@@ -26,6 +26,8 @@
  * 돌아서 의미가 없어집니다.
  * ========================================================================== */
 'use strict';
+/* 검사하는 사람의 ~/.mybody 설정이 결과를 바꾸지 않게 떼어 놓습니다. */
+require('./testenv.js');
 const { chromium } = require('playwright');
 const { spawn } = require('child_process');
 const http = require('http');

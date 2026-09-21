@@ -157,6 +157,73 @@ function hostGet(port, p2, host) {
        !(run(['tools/serve.js', '--show']).stdout || '').includes(cfg.pairSecret));
   }
 
+  console.log('\n[2-0] server.js 를 직접 띄워도 저장해 둔 설정을 읽는다');
+  {
+    /* 이 파일의 맨 위 주석도, README 도, DEPLOY 도, 배포 전 점검도 전부
+       `node server/server.js` 를 치라고 안내합니다. 그런데 서버는
+       환경변수만 읽고 있었습니다 — 그 길로 띄우면 판독 키도 워크스페이스도
+       통째로 사라지고, 서버는 멀쩡히 뜨는데 판독만 죽습니다.
+       화면에는 "판독 키가 설정되지 않았습니다" 가 나오는데 주인은 방금
+       키를 넣었으니 그 말을 믿을 수가 없습니다. */
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mybody-cfg-'));
+    fs.mkdirSync(path.join(home, '.mybody'));
+    fs.writeFileSync(path.join(home, '.mybody', 'config.json'), JSON.stringify({
+      pairSecret: 'from-config-secret',
+      anthropicKey: 'sk-from-config',
+      anthropicWorkspace: 'wrkspc_01FROMCONFIG00000000',
+      anthropicModel: 'claude-haiku-4-5-20251001'
+    }));
+    const db = path.join(home, 'x.db');
+    const port = 8560 + Math.floor(Math.random() * 60);
+    const child = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')], {
+      cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'],
+      env: Object.assign({}, process.env, {
+        HOME: home, USERPROFILE: home, PORT: String(port), DB: db,
+        STATIC: path.join(ROOT, 'prototype'), NODE_NO_WARNINGS: '1',
+        /* 환경변수는 **비웁니다.** 설정 파일만으로 떠야 합니다. */
+        PAIR_SECRET: '', ANTHROPIC_API_KEY: '', ANTHROPIC_WORKSPACE_ID: '', OCR_MODEL: ''
+      })
+    });
+    let out = '';
+    child.stdout.on('data', c => { out += c; });
+    child.stderr.on('data', c => { out += c; });
+
+    let up = false;
+    for (let i = 0; i < 60; i++) {
+      try { if ((await fetch(`http://localhost:${port}/api/health`)).ok) { up = true; break; } } catch (e) {}
+      await wait(200);
+    }
+    /* 가입 코드가 없으면 서버가 아예 안 뜹니다. 떴다는 것 자체가
+       설정 파일을 읽었다는 뜻입니다. */
+    ok('설정 파일의 가입 코드로 뜬다', up, out.slice(0, 300));
+
+    if (up) {
+      /* 판독 키도 왔는지 봅니다. 키가 없으면 503, 있으면 그 너머로 갑니다.
+         진짜 앤트로픽을 부르지 않게 가짜 주소를 물려 둡니다. */
+      const signup = await fetch(`http://localhost:${port}/api/auth/signup`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ handle: 'cfguser', password: 'test-password-1',
+          displayName: '설정', pairSecret: 'from-config-secret',
+          healthConsent: require(path.join(ROOT, 'server', 'db.js')).HEALTH_CONSENT_VERSION })
+      }).then(r => r.json()).catch(() => null);
+      ok('그 가입 코드가 실제로 통한다', !!(signup && signup.ok), signup);
+
+      if (signup && signup.token) {
+        const r = await fetch(`http://localhost:${port}/api/ocr`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + signup.token },
+          body: JSON.stringify({ mediaType: 'image/jpeg', data: 'x'.repeat(200) })
+        });
+        /* 503 = "판독 키가 설정되지 않았습니다" = 설정 파일을 못 읽은 것.
+           여기서는 입력 검사에 걸려 400 이 나야 맞습니다 — 키는 있고
+           사진이 가짜니까요. */
+        ok('판독 키도 설정 파일에서 온다 (503 이 아니다)', r.status !== 503, r.status);
+      }
+    }
+    try { child.kill(); } catch (e) {}
+    try { fs.rmSync(home, { recursive: true, force: true }); } catch (e) {}
+  }
+
   console.log('\n[2-1] 시킨 대로 안 했으면서 했다고 말하지 않는다');
   {
     /* run() 은 '-' 로 시작 안 하는 인자를 저장소 경로로 바꿔 버립니다.
@@ -240,7 +307,14 @@ function hostGet(port, p2, host) {
 
     // (가) 둘 다 비어 있으면 안 뜹니다
     {
-      const env = Object.assign(baseEnv(), { PORT: '0' });
+      /* **빈 HOME 을 줍니다.**
+         서버가 이제 ~/.mybody/config.json 도 읽습니다(그게 맞습니다 —
+         안 읽어서 `node server/server.js` 로 띄운 사람의 키가 사라졌습니다).
+         그래서 "아무것도 설정 안 한 사람" 을 흉내 내려면 환경변수만
+         비워서는 안 되고 설정 파일도 없어야 합니다. 앞 절들이 이 검사의
+         HOME 에 가입 코드를 저장해 두기 때문에, 여기만 딴 집을 씁니다. */
+      const bare = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-bare-'));
+      const env = Object.assign(baseEnv(), { PORT: '0', HOME: bare, USERPROFILE: bare });
       delete env.PAIR_SECRET; delete env.OPEN_SIGNUP;
       const r = spawnSync(process.execPath, [path.join(ROOT, 'server', 'server.js')],
         { cwd: ROOT, env: env, encoding: 'utf8', timeout: 15000 });

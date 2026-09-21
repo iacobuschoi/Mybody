@@ -11,7 +11,9 @@ publish_to: none
 version: 0.1.0
 
 environment:
-  sdk: ^3.13.0
+  # Flutter 가 들고 오는 Dart 에 맞춥니다. 여기만 높게 잡아 두면
+  # 앱에서 이 꾸러미를 못 씁니다 — 따로 두는 의미가 없어집니다.
+  sdk: ^3.11.0
 
 dev_dependencies:
   test: ^1.25.0

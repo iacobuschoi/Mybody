@@ -888,6 +888,19 @@ function makeApi(db) {
      * 메모리 대신 DB 를 쓰는 유일한 이유입니다.
      * @returns {{user:number, total:number}}
      */
+    /* 올리지 않고 **보기만** 합니다.
+       한도 확인과 횟수 올리기가 한 함수에 붙어 있으면, 실패한 요청까지
+       한도를 깎습니다. 키가 망가진 날 열 번 눌러 보면 그날 한도가 끝나고,
+       화면 문구가 진짜 원인에서 "오늘 판독 한도를 다 썼습니다" 로 바뀌어
+       원인이 덮입니다 — 고치는 사람이 제일 헷갈릴 때 그렇게 됩니다. */
+    peekOcr(userId, day) {
+      const d = str(day) || nowISO().slice(0, 10);
+      const me = str(userId) || '?';
+      const a = q.getOcr.get(d, me);
+      const b = q.getOcr.get(d, '*');
+      return { user: (a && a.n) || 0, total: (b && b.n) || 0 };
+    },
+
     bumpOcr(userId, day) {
       const d = str(day) || nowISO().slice(0, 10);
       const me = str(userId) || '?';

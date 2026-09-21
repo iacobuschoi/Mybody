@@ -22,6 +22,8 @@
  * 출발해 서버를 거쳐 숫자로 돌아오는 길이 이어져 있는가입니다.
  * ========================================================================== */
 'use strict';
+/* 검사하는 사람의 ~/.mybody 설정이 결과를 바꾸지 않게 떼어 놓습니다. */
+require('./testenv.js');
 const { spawn } = require('node:child_process');
 const http = require('node:http');
 const fs = require('node:fs');

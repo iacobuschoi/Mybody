@@ -1,0 +1,40 @@
+name: mybody
+description: "인바디 결과지를 읽어 목표까지의 계획을 세우고, 오차보다 작은 변화를 성과로 세지 않습니다."
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.11.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  # 도메인 로직은 순수 Dart 로 따로 둡니다 — Flutter 를 안 깔아도
+  # `dart test` 로 돌릴 수 있어야 검증이 빨라집니다.
+  http: ^1.6.0
+  mybody_core:
+    path: ../packages/mybody_core
+  shared_preferences: ^2.5.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
+  fonts:
+    # 한글을 앱에 넣어 둡니다.
+    #
+    # 안 넣으면 CanvasKit 이 글꼴을 구글 CDN 에서 받으려 하고, 막힌 곳에서는
+    # **글자가 통째로 회색 네모로 나옵니다.** 실제로 첫 시험 빌드에서 그걸
+    # 봤습니다 — 나중에 발견하면 "왜 한글이 네모지" 가 됩니다.
+    #
+    # 용량이 한 벌에 6MB 입니다. 앱(APK)에는 문제가 안 되지만 웹으로 쓸 때는
+    # 무겁습니다. 실제로 쓰는 글자만 남기는 작업(subsetting)이 남아 있습니다.
+    - family: NotoSansKR
+      fonts:
+        - asset: assets/fonts/NotoSansKR-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/NotoSansKR-Bold.ttf
+          weight: 700

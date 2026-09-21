@@ -17,6 +17,8 @@
  * 그 검사는 없느니만 못합니다.
  * ========================================================================== */
 'use strict';
+/* 검사하는 사람의 ~/.mybody 설정이 결과를 바꾸지 않게 떼어 놓습니다. */
+require('./testenv.js');
 const { spawn } = require('child_process');
 const fs = require('fs'); const os = require('os'); const path = require('path');
 const base = fs.mkdtempSync(path.join(os.tmpdir(),'trav-'));

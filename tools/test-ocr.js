@@ -14,6 +14,8 @@
  *      것과 구분이 안 됩니다)
  * ========================================================================== */
 'use strict';
+/* 검사하는 사람의 ~/.mybody 설정이 결과를 바꾸지 않게 떼어 놓습니다. */
+require('./testenv.js');
 const { spawn } = require('node:child_process');
 const http = require('node:http');
 const fs = require('node:fs');
@@ -428,6 +430,40 @@ async function main() {
   const afterRestart = (await call('POST', '/ocr', shot(), t3b)).status;
   ok('서버를 껐다 켜도 한도가 살아 있다', afterRestart === 429, afterRestart);
   stop();
+
+  console.log('\n[8-3] 실패한 판독은 한도를 안 깎는다');
+  {
+    /* 이것 때문에 진단이 한 바퀴 더 돌 뻔했습니다.
+       예전에는 한도 확인과 횟수 올리기가 한 함수였습니다. 그래서 키가
+       거부되거나 워크스페이스가 안 잡힌 날, 될 때까지 눌러 본 횟수가
+       그대로 한도를 깎았습니다. 열 번이면 그날이 끝나고, 그 다음부터
+       화면은 **진짜 원인 대신** "오늘 판독 한도를 다 썼습니다" 를
+       말합니다 — 고치는 사람이 원인을 찾는 동안 원인이 가려집니다.
+       거절된 요청은 토큰을 안 써서 돈도 안 나갑니다. 셀 이유가 없습니다. */
+    const DBf = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mybody-ocrf-')), 'f.db');
+    stop();
+    srv = boot({ ANTHROPIC_API_KEY: 'test-key', OCR_PER_DAY: '2', OCR_PER_DAY_TOTAL: '50',
+                 DB: DBf, OCR_API_URL: `http://localhost:${FAKE_PORT}/v1/messages` });
+    await waitUp(PORT);
+    const u = 'failcap' + Date.now().toString(36).slice(-5);
+    const tk = (await call('POST', '/auth/signup',
+      { handle: u, displayName: '실패', password: PW, pairSecret: PAIR,
+        healthConsent: '2026-09-20' })).json.token;
+
+    // 키가 거부되는 상황을 다섯 번 겪습니다 (사람이 될 때까지 눌러 보는 모습)
+    nextReply = { status: 401, body: { error: { type: 'authentication_error', message: 'invalid x-api-key' } } };
+    const failed = [];
+    for (let i = 0; i < 5; i++) failed.push((await call('POST', '/ocr', shot(), tk)).status);
+    ok('다섯 번 다 실패한다', failed.every(c => c !== 200), failed);
+    ok('그 실패가 429 로 바뀌지 않는다', !failed.includes(429), failed);
+
+    // 이제 키를 고쳤습니다. 한도 2가 그대로 남아 있어야 합니다.
+    nextReply = { status: 200, body: toolReply({ notInBody: false, weightKg: 71.2 }) };
+    const after = [];
+    for (let i = 0; i < 3; i++) after.push((await call('POST', '/ocr', shot(), tk)).status);
+    ok('고친 뒤 두 번은 된다', after.slice(0, 2).every(c => c === 200), after);
+    ok('세 번째는 한도에 걸린다', after[2] === 429, after);
+  }
 
   console.log('\n[8-2] 워크스페이스 값을 주면 헤더로 나간다');
   {
