@@ -501,43 +501,105 @@
      *
      * 예전에는 여기서 null 을 돌려줬습니다 — "없는 버튼을 만들지 않는다"
      * 는 맞는 원칙인데, 그 결과가 **아무것도 없는 화면**이었습니다.
-     * 주인이 자기 컴퓨터에서 앱을 띄워 놓고 "앱 받기가 어디 있음?" 하고
-     * 물었습니다. 설정 화면 맨 아래에 있다고 적어 뒀는데, 그 자리에
-     * 아무것도 없었던 겁니다.
+     * 주인이 폰으로 앱을 열어 놓고 "앱 받는 버튼 암만 봐도 없음" 이라고
+     * 했습니다. 설정 맨 아래에 있다고 적어 뒀는데 그 자리가 비어 있었습니다.
      *
      * 없는 버튼을 만들지 않는 것과, 왜 없는지 말하지 않는 것은 다릅니다.
-     * 크롬은 beforeinstallprompt 를 **자기 판단으로 늦게** 줍니다(방문
-     * 횟수·체류 시간 휴리스틱). 그 동안에도 주소창의 설치 아이콘으로는
-     * 깔 수 있습니다. 파이어폭스는 아예 안 줍니다.
-     *
-     * 그래서 버튼 대신 **그 브라우저에서 실제로 되는 길**을 적습니다. */
+     * 못 깔 이유가 여럿이고 **할 일이 각각 다릅니다** — 그래서 뭉뚱그리지
+     * 않고 실제로 확인해서 그 중 어느 것인지 말합니다. */
     var ua = '';
     try { ua = global.navigator.userAgent || ''; } catch (e) {}
     var isFirefox = /Firefox\//.test(ua);
     var isDesktop = !/Android|iPhone|iPad|iPod|Mobile/i.test(ua);
 
-    return h('div.note', { style: { marginTop: '10px' },
+    var how = isFirefox
+      ? '파이어폭스는 앱 설치를 지원하지 않습니다. 크롬 · 엣지 · 사파리로 이 주소를 열면 깔 수 있습니다.'
+      : isDesktop
+        ? '주소창 오른쪽의 설치 아이콘(⊕ 또는 모니터 모양)을 누르거나, 브라우저 메뉴 → "Mybody 설치".'
+        : '브라우저 메뉴(⋮) → "앱 설치" 또는 "홈 화면에 추가".';
+
+    var note = h('div.note', { style: { marginTop: '10px' },
       uid: 'P12-S05', uidLabel: '설치 방법 안내' }, [
       h('b', { text: '앱처럼 깔기' }),
-      h('div', { style: { marginTop: '4px' },
-        text: isFirefox
-          ? '파이어폭스는 앱 설치를 지원하지 않습니다. 크롬 · 엣지 · 사파리로 이 주소를 ' +
-            '열면 깔 수 있습니다.'
-          : isDesktop
-            ? '주소창 오른쪽의 설치 아이콘(⊕ 또는 모니터 모양)을 누르거나, ' +
-              '브라우저 메뉴 → "Mybody 설치".'
-            : '브라우저 메뉴(⋮) → "앱 설치" 또는 "홈 화면에 추가".' }),
-      h('div.muted', { style: { marginTop: '6px' },
-        text: '여기 버튼이 안 보이는 것은 고장이 아닙니다 — 크롬은 몇 번 써 본 뒤에야 ' +
-              '설치 버튼을 내줍니다. 그 전에도 위 방법으로는 깔립니다.' }),
-      /* 개발 빌드로 띄우면 매니페스트와 서비스워커가 아예 없어서 어떤
-         브라우저도 설치를 안 내줍니다. 그건 진짜 고장이라 따로 말합니다. */
-      (global.MB_BUILD && global.MB_BUILD.release === false)
-        ? h('div.note--warn', { style: { marginTop: '6px' },
-            text: '지금 열린 것은 개발 빌드입니다 — 설치에 필요한 파일이 안 들어 있습니다. ' +
-                  '서버를 배포 빌드(release)로 띄워야 깔 수 있습니다.' })
-        : null
+      h('div', { style: { marginTop: '4px' }, text: how })
     ]);
+
+    /* 개발 빌드로 띄우면 매니페스트도 서비스워커도 아예 없습니다.
+       어떤 브라우저도 설치를 안 내줍니다 — 이건 진짜 고장입니다. */
+    if (global.MB_BUILD && global.MB_BUILD.release === false) {
+      note.appendChild(h('div.note--warn', { style: { marginTop: '6px' },
+        text: '지금 열린 것은 개발 빌드입니다 — 설치에 필요한 파일이 안 들어 있습니다. ' +
+              '서버를 배포 빌드(release)로 띄워야 깔 수 있습니다.' }));
+      return note;
+    }
+
+    /* 임시 터널 주소(trycloudflare)는 **크롬이 설치를 막습니다.**
+     *
+     * 도메인이 아무나 즉석에서 받아 쓰는 공용이라 평판이 나쁘고,
+     * 이 앱에는 비밀번호 칸이 있습니다 — 구글 Safe Browsing 의 두 신호가
+     * 다 켜집니다. 주소창에 빨간 표시가 뜨고, 그 상태에서는 크롬이
+     * 설치 버튼을 아예 안 내줍니다. 브라우저가 "덜 써 봐서" 가 아니라
+     * **이 주소이기 때문에** 안 되는 것이라, 기다려도 안 바뀝니다.
+     * 여기서 말 안 하면 사람이 메뉴를 몇 번이고 다시 뒤집니다. */
+    var host = '';
+    try { host = global.location.hostname || ''; } catch (e) {}
+    if (/\.trycloudflare\.com$/i.test(host)) {
+      note.appendChild(h('div.note--warn', { style: { marginTop: '6px' },
+        text: '지금 주소는 임시 터널(trycloudflare.com)입니다. 이 도메인은 아무나 즉석에서 ' +
+              '받아 쓰는 공용이라 크롬이 위험 사이트로 표시하고, 그 상태에서는 ' +
+              '**앱 설치를 아예 안 내줍니다** — 기다려도 안 나옵니다. ' +
+              '주소창에 빨간 표시가 있으면 그 이유입니다.' }));
+      note.appendChild(h('div.muted', { style: { marginTop: '6px' },
+        text: '앱은 그대로 쓸 수 있습니다. 깔려면 서버에 내 도메인을 붙여야 합니다 — ' +
+              '그러면 주소도 더는 안 바뀝니다.' }));
+      return note;
+    }
+
+    note.appendChild(h('div.muted', { style: { marginTop: '6px' },
+      text: '여기 버튼이 안 보이는 것은 대개 고장이 아닙니다 — 크롬은 몇 번 써 본 뒤에야 ' +
+            '설치 버튼을 내줍니다. 그 전에도 위 방법으로는 깔립니다.' }));
+
+    /* 그래도 안 되면 무엇이 빠졌는지 직접 확인해 줍니다.
+       비동기라 자리를 먼저 만들고 나중에 채웁니다 — 화면은 동기로 그립니다. */
+    var diag = h('div.muted', { style: { marginTop: '6px', fontSize: '12px' },
+      text: '설치 조건을 확인하는 중…' });
+    note.appendChild(diag);
+    checkInstallable(function (r) {
+      if (!diag.isConnected) return;
+      var bad = [];
+      if (!r.secure) bad.push('https 가 아닙니다');
+      if (!r.sw) bad.push('서비스워커가 등록되지 않았습니다');
+      if (!r.manifest) bad.push('매니페스트를 못 읽었습니다');
+      diag.textContent = bad.length
+        ? '확인: ' + bad.join(' · ') + '. 이게 없으면 어떤 브라우저도 설치를 안 내줍니다.'
+        : '확인: https · 서비스워커 · 매니페스트 모두 정상입니다. ' +
+          '설치 조건은 갖춰졌으니 위 방법으로 깔면 됩니다.';
+    });
+    return note;
+  }
+
+  /** 설치에 필요한 세 가지가 실제로 갖춰졌는가. 화면이 짐작하지 않게. */
+  function checkInstallable(cb) {
+    var r = { secure: false, sw: false, manifest: false };
+    try { r.secure = global.isSecureContext !== false; } catch (e) {}
+    var steps = [];
+    try {
+      if (global.navigator && global.navigator.serviceWorker) {
+        steps.push(global.navigator.serviceWorker.getRegistration()
+          .then(function (reg) { r.sw = !!reg; })
+          .catch(function () {}));
+      }
+    } catch (e) {}
+    try {
+      var link = document.querySelector('link[rel="manifest"]');
+      if (link && global.fetch) {
+        steps.push(global.fetch(link.href).then(function (res) {
+          if (!res.ok) return null;
+          return res.json().then(function (j) { r.manifest = !!(j && j.icons && j.icons.length); });
+        }).catch(function () {}));
+      }
+    } catch (e) {}
+    Promise.all(steps).then(function () { cb(r); }).catch(function () { cb(r); });
   }
 
   function applyTheme(theme) {

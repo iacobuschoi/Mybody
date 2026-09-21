@@ -94,10 +94,22 @@ async function setup() {
   const cfg0 = Object.assign({}, cur);
   if (!cfg0.pairSecret) cfg0.pairSecret = crypto.randomBytes(16).toString('hex');
 
+  /* 깃발로 값을 준 사람에게는 묻지 않습니다.
+   *
+   * 예전에는 터미널이면 무조건 질문 흐름으로 갔습니다. 그래서
+   * `node tools/serve.js --setup --key="sk-..."` 를 치면 깃발이 조용히
+   * 무시되고 운영자 이름부터 다시 물었습니다 — doctor 와 문서가 바로
+   * 그 명령을 알려 주고 있는데요. 시킨 대로 안 하면서 아무 말도 안 하는
+   * 것이 제일 나쁩니다.
+   *
+   * 값을 준 항목만 바꾸고, 무엇이 바뀌었는지 찍고 끝냅니다. */
+  const GIVEN = ['owner', 'contact', 'no-owner', 'port', 'key', 'origin', 'static',
+                 'open-signup', 'close-signup', 'always-on'].filter(k => k in f);
+
   /* 터미널이 아니면(파이프·스크립트) 물어볼 수가 없습니다. 예전에는
      여기서 질문을 던지다 stdin 이 끝나 버려 설정 파일도 없이 죽었습니다 —
      사용자는 뭐가 저장됐는지 모른 채 남습니다. 깃발로 받고 끝냅니다. */
-  if (!process.stdin.isTTY) {
+  if (!process.stdin.isTTY || GIVEN.length) {
     const cfg = Object.assign(cfg0, {
       owner: f['no-owner'] ? '' : (f.owner != null && f.owner !== true ? String(f.owner) : cfg0.owner),
       ownerContact: f['no-owner'] ? '' : (f.contact != null && f.contact !== true ? String(f.contact) : cfg0.ownerContact),
@@ -115,6 +127,24 @@ async function setup() {
     console.log('  운영자 ' + (cfg.owner || (cfg.ownerOmitted ? '(안 적기로 함)' : '(없음)')) +
                 ' · 연락처 ' + (cfg.ownerContact || '(없음)') +
                 ' · 포트 ' + cfg.port);
+    /* 깃발로 고친 것을 하나씩 확인해 줍니다. "저장했습니다" 만 찍으면
+       오타 난 깃발이 조용히 무시된 것과 구분이 안 됩니다.
+       키는 가려서 찍습니다 — 터미널 기록에 남습니다. */
+    if (GIVEN.length) {
+      GIVEN.forEach(k => {
+        if (k === 'key') console.log('  자동 판독 키   ' + mask(cfg.anthropicKey));
+        else if (k === 'origin') console.log('  공개 주소      ' + (cfg.origin || '(없음)'));
+        else if (k === 'static') console.log('  내보낼 폴더    ' + cfg.static);
+        else if (k === 'always-on') console.log('  상시 접속      켜 둔다고 했습니다');
+        else if (k === 'open-signup' || k === 'close-signup') {
+          console.log('  가입           ' + (cfg.openSignup ? '누구나 (코드 없음)' : '코드 필요'));
+        }
+      });
+      if (cfg.anthropicKey && GIVEN.indexOf('key') >= 0) {
+        console.log('');
+        console.log('  서버가 이미 떠 있으면 껐다 켜야 새 키를 씁니다.');
+      }
+    }
     if (cfg.openSignup) {
       console.log('');
       console.log('  가입   누구나 (가입 코드 없음)  ← 주소를 아는 사람은 다 만듭니다');
