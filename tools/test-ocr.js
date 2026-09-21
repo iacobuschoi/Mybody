@@ -197,6 +197,26 @@ async function main() {
   ok('모델 이름이 틀리면 그렇다고 말한다',
      /모델 이름/.test(JSON.stringify(noModel.json)), noModel.json);
 
+  /* 판독 키가 거부됐을 때 **우리가 401 을 돌려주면 안 됩니다.**
+   *
+   * 앱의 api() 는 401 을 보면 "내 로그인 토큰이 죽었다" 로 읽고 조용히
+   * 로그아웃합니다. 그런데 여기 401 은 **서버의 판독 키** 이야기지
+   * 사용자 토큰 이야기가 아닙니다. 그대로 흘려보내면, 결과지 사진을
+   * 한 장 올렸다가 로그아웃되고 친구 목록이 사라집니다 — 원인과
+   * 증상이 아무 상관 없어 보여서 영영 못 찾습니다.
+   * 주인의 키가 실제로 거부된 상태였으므로, 이 길은 지나간 길입니다. */
+  nextReply = { status: 401, body: { error: { type: 'authentication_error',
+    message: 'invalid x-api-key' } } };
+  const keyBad = await call('POST', '/ocr', shot(), t);
+  ok('판독 키가 거부돼도 401 을 그대로 흘리지 않는다', keyBad.status !== 401, keyBad.status);
+  ok('키가 거부됐다고 말한다',
+     /키가 거부되었습니다/.test(JSON.stringify(keyBad.json)), keyBad.json);
+  {
+    /* 그리고 실제로 로그아웃되지 않는지 — 같은 토큰이 계속 통해야 합니다. */
+    const after = await call('GET', '/me', null, t);
+    ok('그 뒤에도 로그인이 살아 있다', after.status === 200, after.status);
+  }
+
   nextReply = { status: 403, body: { error: { type: 'permission_error', message: 'x' } } };
   const noPerm = await call('POST', '/ocr', shot(), t);
   ok('그 모델을 못 쓰면 그렇다고 말한다',
