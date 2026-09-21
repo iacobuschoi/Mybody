@@ -16,6 +16,7 @@ import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../api.dart';
 import '../scope.dart';
+import 'account.dart';
 import '../ui/widgets.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -91,6 +92,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 onPressed: () => _setServer(context),
                 child: Text(api.baseUrl.isEmpty ? '주소 넣기' : '주소 바꾸기'),
               ),
+              if (api.baseUrl.isNotEmpty && !api.signedIn)
+                FilledButton(
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => SignInScreen(
+                            api: api,
+                            onDone: () {
+                              Navigator.of(context).pop();
+                              setState(() {});
+                            },
+                            onServerChange: Scope.serverSetterOf(context),
+                          ))),
+                  child: const Text('로그인'),
+                ),
               if (api.signedIn)
                 OutlinedButton(
                   onPressed: () async {

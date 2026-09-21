@@ -17,6 +17,7 @@ import 'package:mybody/src/screens/food.dart';
 import 'package:mybody/src/screens/goal.dart';
 import 'package:mybody/src/screens/history.dart';
 import 'package:mybody/src/screens/home.dart';
+import 'package:mybody/src/screens/onboarding.dart';
 import 'package:mybody/src/screens/plan.dart';
 import 'package:mybody/src/screens/progress.dart';
 import 'package:mybody/src/screens/review.dart';
@@ -225,6 +226,45 @@ void main() {
         reason: 'Scope 가 MaterialApp 아래에 있으면 여기서 회색 네모가 됩니다');
     expect(t.takeException(), isNull);
     expect(find.text('측정 기록'), findsWidgets);
+  });
+
+  /* **프로필 없이 홈으로 못 들어갑니다.**
+     들어가면 코어가 씨앗 프로필(주인의 몸: 187cm · 22세 · 남성)로
+     계산합니다 — 키 155cm 인 사람에게 187cm 기준 식단이 나가고,
+     틀렸다는 표시는 어디에도 없습니다. */
+  testWidgets('막 깐 앱은 온보딩을 먼저 세운다', (t) async {
+    SharedPreferences.setMockInitialValues({});
+    final app = await AppState.boot();
+    await t.pumpWidget(host(app, const Shell()));
+    await t.pump();
+    expect(find.byType(OnboardingScreen), findsOneWidget);
+    expect(find.text('홈'), findsNothing, reason: '프로필 없이 홈이 보이면 안 됩니다');
+  });
+
+  testWidgets('온보딩을 마치면 프로필이 남고 홈이 열린다', (t) async {
+    SharedPreferences.setMockInitialValues({});
+    final app = await AppState.boot();
+    await t.pumpWidget(host(app, const Shell()));
+    await t.pump();
+
+    await t.enterText(find.widgetWithText(TextField, '키'), '155');
+    await t.enterText(find.widgetWithText(TextField, '나이'), '34');
+    await t.pump();
+    await t.tap(find.text('다음'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('다음'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('읽었고 이해했습니다'));
+    await t.pump();
+    await t.tap(find.text('시작하기'));
+    await t.pumpAndSettle();
+
+    expect(app.onboarded, isTrue);
+    expect(app.profile?['heightCm'], 155.0);
+    expect(app.profile?['age'], 34.0);
+    expect(find.byType(OnboardingScreen), findsNothing);
+    /* 씨앗 프로필(주인 키 187)이 새어 들어오지 않았는지 못 박습니다. */
+    expect(app.profile?['heightCm'], isNot(187));
   });
 
   testWidgets('셸 — 탭 다섯 개가 다 선다', (t) async {

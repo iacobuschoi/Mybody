@@ -58,7 +58,7 @@ class _SocialScreenState extends State<SocialScreen> {
   @override
   Widget build(BuildContext context) {
     final api = Scope.apiOf(context);
-    if (!api.signedIn) return const NeedsSignIn(what: '친구');
+    if (!api.signedIn) return NeedsSignIn(what: '친구', go: widget.go);
     if (_busy && _friends == null) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -88,6 +88,11 @@ class _SocialScreenState extends State<SocialScreen> {
               OutlinedButton(
                 onPressed: () => _addFriend(context),
                 child: const Text('친구 추가'),
+              ),
+              IconButton(
+                tooltip: '내 계정',
+                icon: const Icon(Icons.manage_accounts_outlined),
+                onPressed: () => widget.go('account'),
               ),
             ]),
           ),

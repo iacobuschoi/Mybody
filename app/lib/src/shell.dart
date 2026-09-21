@@ -22,6 +22,8 @@ import 'screens/social.dart';
 import 'screens/upload.dart';
 import 'screens/goal.dart';
 import 'screens/history.dart';
+import 'screens/account.dart';
+import 'screens/onboarding.dart';
 import 'screens/scandetail.dart';
 
 class Shell extends StatefulWidget {
@@ -64,11 +66,38 @@ class _ShellState extends State<Shell> {
             .push(MaterialPageRoute(builder: (_) => ScanDetailScreen(scanId: arg)));
       case 'settings':
         Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
+      case 'signin':
+        Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => SignInScreen(
+                  api: Scope.apiOf(context),
+                  onDone: () {
+                    Navigator.of(context).pop();
+                    setState(() {});
+                  },
+                  onServerChange: Scope.serverSetterOf(context),
+                )));
+      case 'server':
+        Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => ServerScreen(onSet: (u) async {
+                  await Scope.serverSetterOf(context)(u);
+                  if (mounted) Navigator.of(context).pop();
+                })));
+      case 'account':
+        Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => AccountScreen(
+                  api: Scope.apiOf(context),
+                  onServerChange: Scope.serverSetterOf(context),
+                )));
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    /* **프로필이 없으면 먼저 받습니다.**
+       없으면 코어가 씨앗 프로필(주인의 몸: 187cm · 22세)로 계산합니다.
+       숫자는 그럴듯하게 나오고, 틀렸다는 표시는 어디에도 없습니다. */
+    if (!Scope.of(context).onboarded) return const OnboardingScreen();
+
     final body = switch (_tab) {
       0 => HomeScreen(go: _go),
       1 => FoodScreen(go: _go),
@@ -114,8 +143,9 @@ class _ShellState extends State<Shell> {
 
 /// 화면들이 같이 쓰는 "로그인이 필요합니다" 안내.
 class NeedsSignIn extends StatelessWidget {
-  const NeedsSignIn({super.key, required this.what});
+  const NeedsSignIn({super.key, required this.what, this.go});
   final String what;
+  final void Function(String route, [Object? arg])? go;
 
   @override
   Widget build(BuildContext context) {
@@ -136,6 +166,13 @@ class NeedsSignIn extends StatelessWidget {
             style: Theme.of(context).textTheme.bodySmall
                 ?.copyWith(color: Theme.of(context).hintColor, height: 1.5),
           ),
+          if (go != null) ...[
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: () => go!(api.baseUrl.isEmpty ? 'server' : 'signin'),
+              child: Text(api.baseUrl.isEmpty ? '서버 주소 넣기' : '로그인'),
+            ),
+          ],
         ]),
       ),
     );

@@ -13,8 +13,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:mybody/main.dart';
 import 'package:mybody/src/api.dart';
+import 'package:mybody/src/screens/account.dart';
 import 'package:mybody/src/theme.dart';
 
 /// 서버 대신 대답하는 가짜. 진짜 서버를 안 띄우고도 화면의 처신을 봅니다.
