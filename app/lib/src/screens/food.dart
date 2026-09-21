@@ -88,7 +88,10 @@ class _FoodScreenState extends State<FoodScreen> {
           title: '${nudge['text']}',
           text: ' ${nudge['detail']}',
         ),
-      if (logs.isEmpty)
+      /* 기록이 없을 때 "아직 없습니다" 를 두 번 말하지 않습니다 —
+         위의 한 줄(dietNudge)이 이미 그 말을 하고, 할 일까지 알려 줍니다.
+         목표가 없어서 그 한 줄이 없을 때만 빈 화면을 띄웁니다. */
+      if (logs.isEmpty && nudge == null)
         const EmptyState(title: '아직 적은 게 없습니다', detail: '한 끼만 적어도 주 평균이 살아납니다.')
       else
         for (final l in logs) _LogCard(log: l, onRemove: () {
@@ -177,6 +180,8 @@ class _DayStrip extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Column(children: [
+                  Text(_dowOf(k),
+                      style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
                   Text(k.substring(8), style: t.textTheme.bodySmall?.copyWith(
                       fontWeight: k == date ? FontWeight.w800 : FontWeight.w400)),
                   const SizedBox(height: 3),
@@ -196,6 +201,12 @@ class _DayStrip extends StatelessWidget {
       ]),
     );
   }
+}
+
+/// 'YYYY-MM-DD' → '월'. 못 읽으면 빈 칸 — 없는 요일을 지어내지 않습니다.
+String _dowOf(String key) {
+  final d = DateTime.tryParse('${key}T00:00:00');
+  return d == null ? '' : core.kDow[(d.weekday - 1) % 7];
 }
 
 class _Bar extends StatelessWidget {

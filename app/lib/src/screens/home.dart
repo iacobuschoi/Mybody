@@ -495,6 +495,16 @@ class _StreakRow extends StatelessWidget {
 
     final w = app.schedule.workoutStreak();
     final f = app.schedule.foodStreak();
+
+    /* **아직 시작도 안 한 사람에게 "0일 연속" 을 보여주지 않습니다.**
+       사실이긴 한데 첫 화면에서 0 을 두 개 보는 것은 격려가 아니라 채점입니다.
+       셀 것이 생기면 그때 나타납니다 — 계획한 날이 하나라도 있거나,
+       식단을 한 번이라도 적었을 때. */
+    final counted = core.jsTruthy(w['everPlanned']) ||
+        core.jsToNumber(f['last7']) > 0 ||
+        core.jsToNumber(f['days']) > 0;
+    if (!counted) return const SizedBox.shrink();
+
     final stale = core.jsTruthy(w['stale']);
 
     return Padding(
