@@ -543,6 +543,48 @@ async function main() {
   const EXPECTED = /status of (400|401|429)|ERR_INTERNET_DISCONNECTED/;
   const allErrs = [...new Set([...A.errs, ...B.errs])];
   const real = allErrs.filter(e => !EXPECTED.test(e));
+  /* --------------------------------------------------------------------
+   * [8-2] "계정을 삭제했습니다" 가 서버에도 닿는가
+   *
+   * 예전엔 이 버튼이 로컬 거울만 비웠습니다. MB_SYNC.deleteAccount() 는
+   * 만들어져 있는데 부르는 곳이 한 군데도 없었습니다 — 서버에는 계정도
+   * 친구 관계도 주간 기록도 그대로였고, 친구 화면에서는 아무 일도 안
+   * 일어났습니다. 지웠다고 믿은 사람만 사라진 셈입니다.
+   * ------------------------------------------------------------------ */
+  console.log('\n[8-2] 계정 삭제가 서버에도 닿는가');
+  {
+    const D = await device(browser, '지훈폰');
+    await ev(D, s => window.MB_SYNC.configure(s), BASE);
+    await D.page.waitForTimeout(200);
+    const made = await ev(D, () => window.MB_SYNC.signUp({
+      handle: 'jihun', password: 'jihun-pass-1', displayName: '지훈',
+      pairSecret: 'e2e-pair-secret', healthConsent: window.MB_SYNC.HEALTH_CONSENT_VERSION
+    }).then(r => ({ ok: true, code: r.user.inviteCode })).catch(e => ({ ok: false, why: e.message })));
+    ok('지훈 계정이 만들어졌다', made.ok === true, made);
+
+    await ev(D, () => window.MB_MODALS.closeAll && window.MB_MODALS.closeAll());
+    await ev(D, () => window.MB_UI.closeAllModals());
+    await ev(D, () => window.MB_MODALS.deleteAccount(function () {}));
+    await D.page.waitForTimeout(250);
+    await D.page.locator('[data-uid="M32"] input.input').fill('삭제');
+    await D.page.locator('[data-uid="M32-B02"]').click();
+    await D.page.waitForTimeout(1200);
+
+    ok('이 기기에서 로그아웃된다',
+       await ev(D, () => !window.MB_BACKEND.currentUser()));
+    /* 진짜로 서버에서 사라졌는지는 그 초대 코드로 친구 요청을 걸어 봅니다. */
+    /* 서버에 직접 물어봅니다. 브라우저를 거쳐 확인하려 했더니 그 기기가
+       마침 로그아웃 상태라 무엇을 물어도 "로그인이 필요합니다" 가 나왔고,
+       계정이 남아 있어도 시험이 통과했습니다 — 아무것도 안 재는 시험이
+       통과하는 것이 제일 나쁩니다. 로그인이 되면 계정이 살아 있는 겁니다. */
+    const signin = await fetch(BASE + '/api/auth/signin', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ handle: 'jihun', password: 'jihun-pass-1' })
+    }).then(r => r.json()).catch(e => ({ ok: false, reason: String(e) }));
+    ok('서버에서도 정말 사라졌다 (로그인이 안 된다)', signin.ok !== true, signin);
+    await D.ctx.close();
+  }
+
   console.log('\n[9] JS 오류');
   ok('예상 못 한 오류 0건', real.length === 0, real.slice(0, 4));
   console.log('    (예상된 오류 ' + (allErrs.length - real.length) + '건은 제외 — 일부러 실패시킨 요청들)');

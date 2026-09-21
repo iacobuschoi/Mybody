@@ -969,26 +969,60 @@
 
   /* M32 계정 삭제 */
   M.deleteAccount = function (onDone) {
-    var input;
+    var input, msg, busy = false;
     UI.openModal({
       uid: 'M32', title: '계정을 삭제할까요?',
       body: [
-        h('div.note.note--bad', { text: '친구 관계와 공유한 내용이 모두 지워집니다. 되돌릴 수 없습니다.' }),
+        h('div.note.note--bad', { text: '서버에서 계정 · 친구 관계 · 공유 설정 · 주간 기록 · ' +
+          '프로필 사진이 모두 지워집니다. 되돌릴 수 없습니다.' }),
         h('p', { text: '확인을 위해 "삭제" 라고 입력해 주세요.' }),
         input = h('input.input', { placeholder: '삭제' }),
+        msg = h('div.field__err', { style: { display: 'none' } }),
         h('div.muted', { style: { marginTop: '8px' },
-          text: '이 기기에 저장된 측정 기록은 지워지지 않습니다.' })
+          text: '이 기기에 저장된 측정 기록은 지워지지 않습니다. ' +
+                '받아 둔 친구 목록 · 프로필 사진 · 친구 소식은 같이 지웁니다.' })
       ],
       actions: [
         { label: '취소', kind: 'ghost' },
-        { label: '삭제', kind: 'danger', onClick: function () {
+        { label: '삭제', kind: 'danger', onClick: function (close) {
             if ((input.value || '').trim() !== '삭제') {
               global.MB_UID.toast('"삭제" 라고 정확히 입력해 주세요');
               return true;
             }
-            global.MB_BACKEND.deleteAccount();
-            global.MB_UID.toast('계정을 삭제했습니다');
-            if (onDone) onDone();
+            if (busy) return true;
+            busy = true;
+            msg.style.display = 'none';
+
+            /* 서버에 먼저 말합니다.
+             *
+             * 예전엔 이 버튼이 로컬 거울만 비우고 "계정을 삭제했습니다"
+             * 라고 했습니다. MB_SYNC.deleteAccount() 는 만들어져 있는데
+             * 부르는 곳이 한 군데도 없었습니다 — 서버에는 계정도, 친구
+             * 관계도, 주간 기록도, 프로필 사진도 그대로 남아 있었고,
+             * 친구 화면에서는 아무 일도 안 일어났습니다. 지웠다고 믿은
+             * 사람만 사라진 셈입니다.
+             *
+             * 그래서 실패하면 로컬도 안 건드립니다. 서버에 남아 있는데
+             * 이 기기에서만 지우면, 지운 줄 아는 사람이 계속 친구
+             * 화면에 떠 있게 됩니다 — 제일 나쁜 결과입니다. */
+            var SY = global.MB_SYNC;
+            var onServer = SY && SY.status().signedIn;
+            var step = onServer ? SY.deleteAccount() : Promise.resolve({ ok: true });
+
+            step.then(function () {
+              global.MB_BACKEND.deleteAccount();
+              if (global.MB_NEWS) { try { global.MB_NEWS.reset(); } catch (e) {} }
+              global.MB_UID.toast('계정을 삭제했습니다');
+              close();
+              if (onDone) onDone();
+            }).catch(function (e) {
+              busy = false;
+              msg.textContent = '서버에서 지우지 못했습니다 — ' +
+                (e && e.message || '연결 실패') + '. 계정은 그대로 있습니다. ' +
+                '인터넷이 되는 곳에서 다시 시도해 주세요.';
+              msg.style.display = '';
+            });
+            return true;   // 결과가 올 때까지 열어 둡니다
           } }
       ]
     });

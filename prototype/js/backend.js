@@ -156,6 +156,11 @@
       db.snapshots = db.snapshots.filter(function (s) { return s.ownerId !== me; });
       delete db.users[me];
       db.session = null;
+      /* 계정이 없어지면 이 거울은 통째로 의미가 없습니다. 그런데 여기엔
+         친구의 이름 · 프로필 사진 · 그 사람들이 나에게 보여 주던 숫자가
+         들어 있습니다 — 내 것이 아니라 **남의** 것입니다. 계정을 지운
+         기기에 남의 얼굴이 남아 있을 이유가 없습니다. */
+      db = blankDb();
       save();
     }
 
