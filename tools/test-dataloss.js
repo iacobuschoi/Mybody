@@ -325,14 +325,30 @@ const ok=(n,c,d)=>{if(c){pass++;console.log('  ✓',n);}else{fail++;console.log(
        여기서 보려는 것은 "빈 스냅샷을 만드느냐" 이지 전송이 아닙니다. */
     window.MB_BACKEND.signIn({ provider: 'local', handle: 'loss:test', displayName: '검증' });
     const withScans = window.MB_STORE.publishWeekly();
-    // 측정만 지웁니다 — 재설치 직후 로그인한 상태와 같습니다
-    window.MB_STORE.set({ scans: [] });
-    const empty = window.MB_STORE.publishWeekly();
-    return { withScans: withScans && withScans.ok, empty: empty && empty.ok,
-             reason: empty && empty.reason };
+    /* 다시 깐 직후 로그인한 상태: 측정도 없고 온보딩도 안 끝났습니다.
+       일정은 하나 넣어 둡니다 — 안 그러면 "올릴 것이 아예 없어서"
+       막히는 것이라 설치 직후 판정을 지나가지 못합니다. */
+    window.MB_STORE.setSchedulePlan(window.MB_STORE.dayKey(), 'gym', true);
+    window.MB_STORE.set({ scans: [], onboarded: false });
+    const fresh = window.MB_STORE.publishWeekly();
+    // 정말 아무것도 없을 때 (온보딩은 끝냈지만 올릴 것이 하나도 없음)
+    window.MB_STORE.set({ onboarded: true, checkins: [], schedule: {} });
+    const nothing = window.MB_STORE.publishWeekly();
+    /* 인바디가 없어도 운동 일정만으로는 올라가야 합니다 — 그 사람의
+       친구 화면이 영원히 비면 안 됩니다. */
+    window.MB_STORE.setSchedulePlan(window.MB_STORE.dayKey(), 'gym', true);
+    const schedOnly = window.MB_STORE.publishWeekly();
+    return { withScans: withScans && withScans.ok,
+             fresh: fresh && fresh.ok, freshWhy: fresh && fresh.reason,
+             nothing: nothing && nothing.ok, nothingWhy: nothing && nothing.reason,
+             schedOnly: schedOnly && schedOnly.ok };
   });
   ok('측정이 있으면 올린다', o4.withScans === true, o4);
-  ok('측정이 0건이면 아무것도 안 올린다', o4.empty === false && /측정 없음/.test(o4.reason || ''), o4);
+  ok('다시 깐 직후에는 아무것도 안 올린다',
+     o4.fresh === false && /설치 직후/.test(o4.freshWhy || ''), o4);
+  ok('올릴 것이 하나도 없으면 안 올린다',
+     o4.nothing === false && /올릴 것 없음/.test(o4.nothingWhy || ''), o4);
+  ok('인바디가 없어도 운동 일정만으로는 올린다', o4.schedOnly === true, o4);
 
   /* --------------------------------------------------------------------
    * [15] 측정일이 마지막 기록보다 앞서면 짚어 준다

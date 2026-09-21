@@ -39,8 +39,22 @@ async function waitUp(ms = 8000) {
 }
 
 /** 한 "기기" = 브라우저 컨텍스트 하나. localStorage 가 서로 완전히 분리됩니다. */
+/* 이 주의 수요일 10시. 시계를 여기 못박습니다.
+ *
+ * 안 그러면 요일에 따라 시험이 달라집니다 — 실제로 월요일이 되자
+ * "지난 날에 체크하기" 가 통째로 안 돌았습니다. 이번 주 안에서만
+ * 움직이므로 주 경계(weekStartOf)는 그대로이고, 서버 시계와의 차이도
+ * 며칠 안입니다. */
+function wednesdayOfThisWeek() {
+  const d = new Date();
+  d.setHours(10, 0, 0, 0);
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7) + 2);
+  return d;
+}
+
 async function device(browser, label) {
   const ctx = await browser.newContext({ viewport: { width: 420, height: 900 } });
+  await ctx.clock.setFixedTime(wednesdayOfThisWeek());
   const page = await ctx.newPage();
   const errs = [];
   page.on('pageerror', e => errs.push(label + ': ' + e.message));
@@ -255,6 +269,8 @@ async function main() {
     /* 나린이 이번 주 하루를 더 지킵니다 (앞 절에서 계획 4 · 지킴 1). */
     await ev(B, () => {
       const S = window.MB_STORE, W = window.MB_SCHED;
+      /* 시계가 수요일에 박혀 있으므로 월요일은 언제나 "지난 날" 입니다. */
+      S.setScheduleDone(W.shiftKey(S.weekStartOf(), 0), 'gym', true);
       S.setScheduleDone(W.shiftKey(S.weekStartOf(), 2), 'gym', true);
     });
     await ev(B, () => window.MB_SYNC.flush());
