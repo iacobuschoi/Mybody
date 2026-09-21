@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:mybody_core/crosscheck.dart' as crosscheck;
 import 'package:mybody_core/engine.dart' as engine;
 import 'package:mybody_core/js_num.dart';
+import 'package:mybody_core/modes.dart' as modes;
 
 /// JSON.stringify 는 NaN·Infinity 를 **null** 로 씁니다. Dart 의 jsonEncode 는
 /// 던집니다. 옮긴 코드에서 NaN 은 정상적으로 나옵니다(자바스크립트가 없는
@@ -126,6 +127,20 @@ void main(List<String> args) {
         case 'engine.checkinAdvice':
           v = engine.checkinAdvice(
               _m(c['plan']), _m(c['expected'])!, _m(c['actual'])!, _m(c['adherence']));
+          break;
+        case 'engine.planDrift':
+          /* 원본 engine.js 는 `global.MB_MODES` 가 있으면 byId 를 씁니다.
+             옮긴 쪽은 그 연결을 함수로 꽂습니다 (앱에서도 시작할 때 꽂습니다). */
+          engine.modeLookup = modes.byId;
+          v = engine.planDrift(_m(c['plan']),
+              (c['scans'] as List?)?.map((x) => _m(x)!).toList(), _m(c['profile'])!);
+          break;
+        case 'engine.buildPlan':
+          v = engine.buildPlan(
+              _m(c['comparison'])!, c['level'], _m(c['scan']), _m(c['profile'])!);
+          break;
+        case 'modes.select':
+          v = modes.select(_m(c['input'])!);
           break;
         case 'engine.scanCurve':
           v = engine.scanCurve(_m(c['cur'])!, _m(c['goal'])!, _m(c['profile'])!,

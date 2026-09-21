@@ -55,6 +55,12 @@ double _f(Map<String, Object?> m, String k) => jsNum(m, k);
 /// JS 의 `x != null` (undefined 와 null 둘 다 거짓). 숫자가 아닌 것도 값으로는 셉니다.
 bool _has(Object? x) => x != null;
 
+/// `new Date(iso + 'T00:00:00')` 의 밀리초. 못 읽으면 NaN (Invalid Date).
+double _localMidnightMs(String iso) {
+  final d = DateTime.tryParse('${iso}T00:00:00');
+  return d == null ? double.nan : d.millisecondsSinceEpoch.toDouble();
+}
+
 /// JS 의 느슨한 비교 `a > b` — 한쪽이 없으면 false.
 bool _gt(Object? a, num b) => a is num && a > b;
 bool _gte(Object? a, num b) => a is num && a >= b;
@@ -1716,3 +1722,188 @@ Map<String, Object?> checkinAdvice(Map<String, Object?>? plan, Map<String, Objec
 
 /// JS 의 `a < b` — 한쪽이 없으면 false.
 bool _lt(Object? a, num b) => a is num && a < b;
+
+/* --- 11. 계획 대비 지금 어디쯤인가 ------------------------------------------ */
+
+/* modes 를 직접 import 하면 engine ↔ modes 가 서로를 부르게 됩니다
+   (modes.select 는 engine 의 근성장 모델을 씁니다). 원본에서도 engine.js 는
+   `global.MB_MODES` 가 **있으면** 쓰고 없으면 넘어갑니다. 그 느슨한 연결을
+   함수 하나로 옮깁니다 — 앱 시작할 때 modes.byId 를 꽂아 줍니다. */
+Map<String, Object?>? Function(Object? id)? modeLookup;
+
+/// 계획 대비 지금 어디쯤인가.
+///
+/// "계획보다 2주 빠릅니다" 처럼 **사람이 바로 이해하는 단위**로 돌려줍니다.
+/// kg 차이만 말하면 그게 빠른 건지 느린 건지 판단을 사용자에게 떠넘기게 됩니다.
+Map<String, Object?>? planDrift(Map<String, Object?>? plan,
+    List<Map<String, Object?>>? scans, Map<String, Object?> profile) {
+  if (plan == null || scans == null || scans.isEmpty) return null;
+  final latest = scans[scans.length - 1];
+  final cur = derive(latest, profile);
+  /* `new Date(plan.startDate + 'T00:00:00')` — 문자열을 그냥 이어 붙입니다.
+     날짜가 없으면 "undefinedT00:00:00" 이 되고 Invalid Date 가 되어 아래에서
+     NaN 이 번집니다. 그러면 traj[NaN] 을 읽다가 던집니다. 여기서 null 을
+     돌려주면 **원본이 던지는 자리에서 조용히 넘어가게** 됩니다 — 다른 동작입니다. */
+  final startStr = '${plan['startDate']}';
+  final measured = '${latest['measuredAt']}';
+  final nowStr = measured.substring(0, math.min(10, measured.length));  // JS 의 slice(0,10)
+  final startMs = _localMidnightMs(startStr);
+  final nowMs = _localMidnightMs(nowStr);
+  var weeksElapsed = (nowMs - startMs) / (86400000 * 7);
+  if (weeksElapsed < 0) weeksElapsed = 0;
+
+  final traj = plan['trajectory'] == null
+      ? <Map<String, Object?>>[]
+      : (plan['trajectory'] as List).cast<Map<String, Object?>>();
+  if (traj.length < 2) return null;
+
+  Map<String, double> at(double week) {
+    final w = math.max(0.0, math.min(traj.length - 1.0, week));
+    /* week 이 NaN 이면 여기서 터집니다 — 자바스크립트도 traj[NaN] 을 읽다가
+       같은 자리에서 터집니다. 조용히 넘어가면 안 되는 상태입니다. */
+    final lo = w.floor();
+    final hi = math.min(traj.length - 1, lo + 1);
+    final f = w - lo;
+    double mix(String k) => _f(traj[lo], k) + (_f(traj[hi], k) - _f(traj[lo], k)) * f;
+    return {'weightKg': mix('weightKg'), 'smmKg': mix('smmKg'), 'bfmKg': mix('bfmKg')};
+  }
+
+  final expected = at(weeksElapsed);
+  final nf = _noise;
+  final nWeight = _f(nf, 'weight'), nSmm = _f(nf, 'smm'), nBfm = _f(nf, 'bfm');
+  final gapBfm = _f(cur, 'bfmKg') - expected['bfmKg']!;     // 음수 = 계획보다 지방이 적다
+  final gapWeight = _f(cur, 'weightKg') - expected['weightKg']!;
+  final gapSmm = _f(cur, 'smmKg') - expected['smmKg']!;
+
+  /* 어느 축으로 진행을 재는가.
+     예전에는 무조건 체지방 축이라, 증량 계획에서 지방만 +2kg 늘어도
+     "계획보다 22주 빠릅니다" 가 나왔습니다. 이유는 원본 주석에 있습니다. */
+  double spanOf(String k) {
+    var lo = _f(traj[0], k), hi = _f(traj[0], k);
+    for (final t in traj) {
+      lo = math.min(lo, _f(t, k));
+      hi = math.max(hi, _f(t, k));
+    }
+    return hi - lo;
+  }
+
+  final fatSpan = spanOf('bfmKg'), smmSpan = spanOf('smmKg');
+  final fatMoves = fatSpan >= nBfm, smmMoves = smmSpan >= nSmm;
+
+  String? axis;
+  if (fatMoves && smmMoves) {
+    axis = (fatSpan / nBfm >= smmSpan / nSmm) ? 'bfm' : 'smm';
+  } else if (fatMoves) {
+    axis = 'bfm';
+  } else if (smmMoves) {
+    axis = 'smm';
+  }
+
+  double? weeksAhead;
+  int? matchWeek;
+  if (axis != null) {
+    final key = axis == 'bfm' ? 'bfmKg' : 'smmKg';
+    final goingDown = _f(traj[traj.length - 1], key) < _f(traj[0], key);
+    final val = axis == 'bfm' ? _f(cur, 'bfmKg') : _f(cur, 'smmKg');
+    for (var i = 0; i < traj.length; i++) {
+      final hit = goingDown ? (_f(traj[i], key) <= val) : (_f(traj[i], key) >= val);
+      if (hit) {
+        matchWeek = i;
+        break;
+      }
+    }
+    matchWeek ??= goingDown ? 0 : traj.length - 1;
+    weeksAhead = matchWeek - weeksElapsed;
+  }
+
+  final gapAxis = axis == 'smm' ? -gapSmm : gapBfm;   // 두 축 모두 "양수 = 뒤처짐"
+  final noiseAxis = axis == 'smm' ? nSmm : nBfm;
+
+  String status, headline;
+  final absAhead = weeksAhead == null ? 0.0 : weeksAhead.abs();
+  if (axis == null) {
+    /* 유지 계획입니다. 궤적이 노이즈 안에서만 움직이므로 "몇 주 빠르다" 는
+       경과 시간의 함수로 퇴화하고, 지방이 많을수록 점수가 높아집니다.
+       주차 숫자를 아예 내지 않습니다. */
+    status = gapWeight.abs() < nWeight ? 'onTrack' : 'off';
+    headline = status == 'onTrack' ? '유지 범위 안입니다.' : '유지 범위를 벗어났습니다.';
+  } else if (gapAxis.abs() < noiseAxis) {
+    status = 'onTrack';
+    headline = '계획대로 가고 있습니다.';
+  } else if (weeksAhead! > 0) {
+    status = 'ahead';
+    headline = jsRound(absAhead) == 0
+        ? '계획보다 조금 빠릅니다.'
+        : '계획보다 ${_s(jsRound(absAhead))}주 빠릅니다.';
+  } else if (jsRound(absAhead) == 0) {
+    /* 반올림하면 0 인데 "0주 느립니다" 라고 말하고 있었습니다. */
+    status = 'behind';
+    headline = '계획보다 조금 느립니다.';
+  } else {
+    status = absAhead >= 4 ? 'off' : 'behind';
+    headline = '계획보다 ${_s(jsRound(absAhead))}주 느립니다.';
+  }
+
+  /* 근손실은 어느 축을 쓰든 **따로** 말합니다. 축이 지방이면 근육이 빠져도
+     "계획대로" 가 나오는데, 그건 이 앱이 절대 하면 안 되는 말입니다.
+     다만 "기대한 만큼 안 늘었다" 와 "실제로 줄었다" 는 다릅니다 —
+     전자는 흔한 편차이고 후자만 경고입니다. */
+  String? muscleWarning;
+  final smmFell = _f(cur, 'smmKg') - _f(traj[0], 'smmKg');
+  if (smmFell < -nSmm) {
+    muscleWarning = '시작보다 근육이 ${_s(r2(smmFell).abs())}kg 줄었습니다.';
+    if (status == 'onTrack' || status == 'ahead') status = 'behind';
+  } else if (gapSmm < -nSmm) {
+    muscleWarning = '근육이 계획보다 ${_s(r2(gapSmm).abs())}kg 적습니다.';
+  }
+
+  // 지금 속도가 아니라 지금 몸 상태에서 남은 거리를 다시 계산한 날짜
+  Object? projectedDate;
+  Object? dayDelta;
+  try {
+    final goal = _mapOrNull(plan['goal']);
+    if (goal != null) {
+      final modeDef = (jsTruthy(goal['modeId']) && modeLookup != null)
+          ? modeLookup!(goal['modeId'])
+          : null;
+      /* 원본은 Date 객체를 그대로 넘깁니다 — 여기까지 왔다면 읽힌 날짜입니다
+         (못 읽었으면 위의 at() 에서 이미 터졌습니다). */
+      final nowDate = DateTime.fromMillisecondsSinceEpoch(nowMs.toInt());
+      final cmp = compareLevels(latest, profile, goal, toISODate(nowDate), null, modeDef);
+      for (final x0 in (cmp['results'] as List)) {
+        final x = (x0 as Map).cast<String, Object?>();
+        if (x['level'] == plan['level']) {
+          if (jsTruthy(x['targetDate'])) {
+            projectedDate = x['targetDate'];
+            dayDelta = daysUntil(plan['targetDate'], projectedDate);   // 양수 = 당겨짐
+          }
+          break;
+        }
+      }
+    }
+  } catch (_) { /* 재계산 실패는 치명적이지 않습니다 */ }
+
+  /* onTrack 인 동안에는 계획 변경을 권하지 않습니다 — 예전엔 "계획대로 가고
+     있습니다" 와 계획 변경 권유가 같이 나왔습니다. */
+  final recommend = status != 'onTrack' &&
+      (status == 'off' ||
+          (status == 'behind' && absAhead >= 3) ||
+          (dayDelta != null && jsToNumber(dayDelta).abs() >= 21));
+
+  return {
+    'weeksElapsed': jsRound(weeksElapsed * 10) / 10,
+    'expected': {
+      'weightKg': r1(expected['weightKg']!),
+      'smmKg': r2(expected['smmKg']!),
+      'bfmKg': r2(expected['bfmKg']!),
+    },
+    'actual': {'weightKg': cur['weightKg'], 'smmKg': cur['smmKg'], 'bfmKg': cur['bfmKg']},
+    'gapWeightKg': r1(gapWeight), 'gapSmmKg': r2(gapSmm), 'gapBfmKg': r2(gapBfm),
+    'weeksAhead': weeksAhead == null ? null : jsRound(weeksAhead * 10) / 10,
+    'axis': axis, 'muscleWarning': muscleWarning,
+    'status': status, 'headline': headline,
+    'projectedDate': projectedDate, 'dayDelta': dayDelta,
+    'recommendChange': recommend,
+    'noise': nf,
+  };
+}

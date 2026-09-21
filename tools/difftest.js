@@ -216,6 +216,81 @@ function planGoal(rnd, cur) {
   return g;
 }
 
+/* --- 모드 선택용 사례 -------------------------------------------------------
+ *
+ * modes.select 는 **계획을 만들어도 되는지**를 먼저 정합니다. 그래서
+ * 여기서는 그럴듯한 사람보다 **경계에 선 사람**이 중요합니다: 열여덟 살,
+ * 체지방률 15% 언저리, 마감 4주, 항등식이 1.5kg 어긋난 목표.
+ *
+ * 값이 **없는 것**과 **null 인 것**도 반드시 갈라서 넣습니다. 자바스크립트는
+ * `undefined < 19` 를 거짓으로, `null < 19` 를 참으로 봅니다 — 미성년 보호
+ * 게이트가 이 차이 하나로 뒤집힙니다.
+ * -------------------------------------------------------------------------- */
+function modeCase(rnd) {
+  const male = rnd() > 0.45;
+  const w = 45 + rnd() * 55;
+  const pbf = 5 + rnd() * 35;
+  const bfm = w * pbf / 100;
+  const ffm = w - bfm;
+  const h = 150 + rnd() * 40;
+  const r1 = x => Math.round(x * 10) / 10;
+
+  const i = {
+    sex: rnd() > 0.06 ? (male ? 'male' : 'female') : (rnd() > 0.5 ? 'other' : undefined),
+    age: Math.round(14 + rnd() * 55),            // 미성년 게이트(19)를 자주 밟습니다
+    heightCm: Math.round(h),
+    curWeightKg: r1(w), curBfmKg: r1(bfm), curSmmKg: r1(ffm * (0.5 + rnd() * 0.12)),
+    curPbfPct: r1(pbf), curBmi: r1(w / ((h / 100) * (h / 100))),
+    dWeightKg: r1((rnd() - 0.55) * 14),
+    dBfmKg: r1((rnd() - 0.6) * 10),
+    dSmmKg: r1((rnd() - 0.35) * 4)
+  };
+  /* 항등식(체중 = 지방 + 제지방)을 절반은 맞춰 줍니다. 안 맞추면 거부 규칙 6이
+     거의 전부를 먼저 잡아서 그 뒤의 규칙 22개를 한 번도 안 밟습니다. */
+  if (rnd() > 0.35) {
+    const k = i.curSmmKg / (i.curWeightKg - i.curBfmKg);
+    i.dWeightKg = r1(i.dBfmKg + i.dSmmKg / k);
+  }
+  const tas = ['novice', 'intermediate', 'advanced', 'elite'];
+  const ta = rnd();
+  if (ta > 0.18) i.trainingAge = tas[(rnd() * tas.length) | 0];
+  else if (ta > 0.1) i.trainingAge = 'oops';     // 화이트리스트 밖 → taExp false
+  if (rnd() > 0.8) i.hadPriorPeak = true;
+  if (rnd() > 0.5) i.tdeeKcal = Math.round(1600 + rnd() * 1600);
+
+  /* 마감: 숫자 · **명시적 null** · 아예 없음 — 셋이 전부 다르게 동작합니다. */
+  const dl = rnd();
+  if (dl > 0.6) i.deadlineWeeks = Math.round(2 + rnd() * 30);
+  else if (dl > 0.3) i.deadlineWeeks = null;
+
+  /* 직전 국면도 마찬가지 (select 가 undefined 만 null 로 바꿔 줍니다). */
+  const ph = rnd();
+  if (ph > 0.75) i.currentPhase = 'bulk';
+  else if (ph > 0.6) i.currentPhase = ['cut', 'maintain'][(rnd() * 2) | 0];
+  else if (ph > 0.45) i.currentPhase = null;
+
+  /* recentTrend 가 **아예 없으면** 거부 규칙이 예외를 던지고, 원본은 그걸
+     '걸림'으로 칩니다. 그 경로도 반드시 밟아야 합니다. */
+  const tr = rnd();
+  if (tr > 0.55) {
+    i.recentTrend = { weeksSpan: Math.round(1 + rnd() * 20),
+                      dWeightKg: r1((rnd() - 0.7) * 10),
+                      dSmmKg: r1((rnd() - 0.5) * 3),
+                      dBfmKg: r1((rnd() - 0.6) * 6),
+                      gapDays: Math.round(7 + rnd() * 120) };
+  } else if (tr > 0.3) {
+    i.recentTrend = null;
+  }
+
+  /* 필수 칸 하나를 비우거나 null 로 만듭니다 — 거부 규칙 1 의 두 경로입니다. */
+  if (rnd() > 0.85) {
+    const f = ['curWeightKg', 'curSmmKg', 'curBfmKg', 'heightCm', 'age',
+               'dWeightKg', 'dSmmKg', 'dBfmKg'][(rnd() * 8) | 0];
+    if (rnd() > 0.5) delete i[f]; else i[f] = null;
+  }
+  return i;
+}
+
 /* 인바디 결과지의 **부위별 근육/지방** 칸. 앱에 들어오는 길은 아직 없지만
    워크아웃 처방이 이걸 읽고 종목을 바꾸므로, 있을 때와 없을 때를 둘 다 넣습니다. */
 function withSegmental(scan, rnd) {
@@ -273,6 +348,10 @@ function makePlanCases(n, seed, module) {
   const rnd = rng(seed);
   const E = loadJs('engine');
   const out = [];
+  if (module.indexOf('modes.') === 0) {
+    while (out.length < n) out.push({ input: modeCase(rnd) });
+    return out;
+  }
   while (out.length < n) {
     const base = plausible(rnd);
     const scan = Object.assign({}, base.scan);
@@ -342,6 +421,42 @@ function makePlanCases(n, seed, module) {
       }
       out.push({ sim: sim, cur: cur, profile: profile,
                  scan: withSegmental(scan, rnd), goalInfo: rnd() > 0.1 ? goalInfo : null });
+      continue;
+    }
+
+    if (module === 'engine.planDrift') {
+      /* 계획을 만들고 → 몇 주 지난 뒤의 측정을 넣습니다. 계획대로 간 경우,
+         앞선 경우, 뒤처진 경우, 근육만 빠진 경우를 골고루 밟아야 합니다. */
+      const modes = realModeDefs();
+      const modeDef = rnd() > 0.5 ? modes[(rnd() * modes.length) | 0] : null;
+      const cmp = E.compareLevels(scan, profile, goal, '2026-03-15', null, modeDef);
+      if (!cmp.results.length) continue;
+      const lvl = ['high', 'mid', 'low'][(rnd() * 3) | 0];
+      const plan = E.buildPlan(cmp, lvl, scan, profile);
+      if (!plan) continue;
+      if (modeDef) plan.goal.modeId = modeDef.id;
+      const wks = Math.round(rnd() * 40);
+      const at = plan.trajectory[Math.min(plan.trajectory.length - 1, wks)];
+      /* 실제 측정은 계획과 어긋납니다 — 그 어긋남이 이 함수의 전부입니다. */
+      const later = Object.assign({}, scan, {
+        weightKg: Math.round((at.weightKg + (rnd() - 0.5) * 6) * 10) / 10,
+        bfmKg: Math.round((at.bfmKg + (rnd() - 0.5) * 5) * 10) / 10,
+        smmKg: Math.round((at.smmKg + (rnd() - 0.55) * 3) * 10) / 10,
+        measuredAt: new Date(Date.UTC(2026, 2, 15) + wks * 7 * 86400000).toISOString()
+      });
+      delete later.pbfPct; delete later.ffmKg;
+      out.push({ plan: plan, scans: [later], profile: profile });
+      continue;
+    }
+
+    if (module === 'engine.buildPlan') {
+      const modes = realModeDefs();
+      const modeDef = rnd() > 0.5 ? modes[(rnd() * modes.length) | 0] : null;
+      const cmp = E.compareLevels(scan, profile, goal, '2026-03-15',
+                                  rnd() > 0.5 ? Math.round(4 + rnd() * 40) : null, modeDef);
+      out.push({ comparison: cmp,
+                 level: rnd() > 0.1 ? ['high', 'mid', 'low'][(rnd() * 3) | 0] : 'nope',
+                 scan: withSegmental(scan, rnd), profile: profile });
       continue;
     }
 
@@ -425,6 +540,18 @@ function jsCaller(module) {
     const m = loadJs('crosscheck');
     return c => m.run(c.scan, c.profile, c.prev);
   }
+  if (module.indexOf('modes.') === 0) {
+    const M = loadJs('modes');
+    loadJs('engine');           // select 가 근성장 모델을 엔진에서 가져옵니다
+    if (module === 'modes.select') {
+      /* select 는 입력 객체를 복사해서 파생값을 얹고 `i.input = i` 로 자기를
+         가리키게 합니다 — 그대로 JSON 으로 찍으면 순환 참조로 터집니다.
+         돌려주는 값에는 그 고리가 없지만, 혹시 몰라 얕게 확인합니다. */
+      return c => M.select(c.input);
+    }
+    if (module === 'modes.forDisplay') return c => M.forDisplay(c.input && c.input.text);
+    throw new Error('모르는 모듈: ' + module);
+  }
   const m = loadJs('engine');
   switch (module) {
     case 'engine.validateScan':   return c => m.validateScan(c.scan, c.prev);
@@ -453,6 +580,8 @@ function jsCaller(module) {
     case 'engine.dietAdherence':  return c => m.dietAdherence(c.days, c.target);
     case 'engine.dietNudge':      return c => withFrozenClock(c.nowISO, () => m.dietNudge(c.today, c.target));
     case 'engine.checkinAdvice':  return c => m.checkinAdvice(c.plan, c.expected, c.actual, c.adherence);
+    case 'engine.planDrift':      return c => m.planDrift(c.plan, c.scans, c.profile);
+    case 'engine.buildPlan':      return c => m.buildPlan(c.comparison, c.level, c.scan, c.profile);
     default: throw new Error('모르는 모듈: ' + module);
   }
 }
@@ -542,7 +671,10 @@ const MODULES = [
   { name: 'engine.milestonesFrom',    gen: makePlanCases, cap: 200 },
   { name: 'engine.dietAdherence',     gen: makePlanCases },
   { name: 'engine.dietNudge',         gen: makePlanCases },
-  { name: 'engine.checkinAdvice',     gen: makePlanCases }
+  { name: 'engine.checkinAdvice',     gen: makePlanCases },
+  { name: 'modes.select',             gen: makePlanCases },
+  { name: 'engine.planDrift',         gen: makePlanCases, cap: 40 },
+  { name: 'engine.buildPlan',         gen: makePlanCases, cap: 10 }
 ];
 let failed = 0;
 
