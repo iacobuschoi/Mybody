@@ -344,9 +344,15 @@ const DEV_UIDS = ['P01-B05', 'P02-B02', 'P03-B03', 'P03-B09', 'P18-B08',
        사람" 이라는 경로가요. 그래서 "비어 있는가" 가 아니라 "물어볼 데가
        있는가" 를 봅니다. (빈칸으로 두고 잊은 경우는 배포 전 점검의
        "방침 운영자" 가 막습니다.) */
-    const omitted = /^(1|true|yes)$/i.test(String(process.env.OWNER_OMIT || '')) ||
-                    (() => { try { return !!require('./config.js').load().cfg.ownerOmitted; }
-                             catch (e) { return false; } })();
+    /* 의도를 **만들어진 것에서** 읽습니다.
+       예전에는 process.env 와 ~/.mybody/config.json 을 봤습니다. 그런데
+       이 검사는 이미 만들어진 release/ 를 보는 것이라, 지금 셸의 환경이나
+       검사하는 사람의 집 설정은 그 빌드가 무엇으로 만들어졌는지에 대해
+       아무 말도 해 주지 않습니다. 실제로 제 집 설정의 ownerOmitted:true
+       때문에, 이름을 넣어 만든 빌드를 놓고 "이름 없이 나갔을 때" 의
+       문장을 찾다가 빨개졌습니다.
+       빌드가 이름을 안 건 경우에만 저 문장이 들어갑니다 — 그게 답입니다. */
+    const omitted = /이 주소를 알려준 사람/.test(txt);
     if (omitted) {
       ok('이름 없이 나가도 물어볼 데는 적혀 있다',
          /이 주소를 알려준 사람/.test(txt), txt.slice(0, 200));
