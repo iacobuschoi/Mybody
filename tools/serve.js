@@ -165,6 +165,34 @@ async function setup() {
     rl.question(q + (def ? ' [' + def + ']' : '') + ' ', a => res((a || '').trim() || def || ''));
   });
 
+  /* 비밀을 받을 때는 화면에 안 찍습니다.
+   *
+   * 예전엔 그냥 ask() 로 받았습니다. 그래서 붙여넣은 API 키가 터미널에
+   * 그대로 찍혔고, 스크롤백과 PowerShell 기록에 남았습니다. 주인이
+   * 실제로 그 화면을 통째로 복사해 보냈습니다 — 키가 새는 경로로
+   * 이보다 쉬운 게 없습니다.
+   *
+   * 노드 readline 에는 가리기 옵션이 없어서, 출력이 지나가는 자리를
+   * 잠깐 막습니다. 되돌리는 것을 finally 에 두어야 합니다 — 안 그러면
+   * 중간에 던졌을 때 그 뒤 입력이 전부 안 보이게 됩니다. */
+  const askSecret = (q) => new Promise(res => {
+    const out = rl.output;
+    let muted = false;
+    const orig = out.write.bind(out);
+    out.write = function (chunk) {
+      if (muted) { orig('*'); return true; }
+      return orig(chunk);
+    };
+    orig(q + ' ');
+    muted = true;
+    rl.question('', a => {
+      muted = false;
+      out.write = orig;
+      orig('\n');
+      res((a || '').trim());
+    });
+  });
+
   console.log('');
   console.log('Mybody 서버 설정 — 한 번만 하면 됩니다.');
   console.log('그냥 엔터를 치면 대괄호 안의 값을 씁니다.');
@@ -218,16 +246,41 @@ async function setup() {
   /* 이미 넣어 둔 키를 기본값으로 화면에 찍으면, 설정을 다시 돌릴 때마다
      터미널 기록에 키가 남습니다. 남이 어깨 너머로 보기도 하고요.
      가려서 보여주고, 그냥 엔터면 있던 값을 그대로 둡니다. */
-  const keyShown = cfg.anthropicKey
-    ? cfg.anthropicKey.slice(0, 7) + '…(그대로 두려면 엔터)' : '';
-  const keyIn = await ask('  ANTHROPIC_API_KEY:', keyShown);
-  cfg.anthropicKey = (keyIn === keyShown) ? cfg.anthropicKey : keyIn;
+  console.log(cfg.anthropicKey
+    ? '  지금 키: ' + mask(cfg.anthropicKey) + '  (그대로 두려면 그냥 엔터, 지우려면 "없음")'
+    : '  (없으면 그냥 엔터)');
+  /* 입력은 화면에 안 찍힙니다 — 붙여넣어도 * 만 보입니다. */
+  const keyIn = await askSecret('  ANTHROPIC_API_KEY:');
+  if (!keyIn) { /* 엔터 — 있던 값 그대로 */ }
+  else if (/^(없음|없다|지움|none|delete|-)$/i.test(keyIn)) {
+    cfg.anthropicKey = '';
+    console.log('  → 키를 지웠습니다. 자동 판독은 꺼집니다.');
+  } else {
+    cfg.anthropicKey = keyIn;
+    console.log('  → 키를 넣었습니다 (' + mask(cfg.anthropicKey) + ').');
+  }
   console.log('');
 
   console.log('밖에서(터널로) 열 거면 그 주소를 적어 주세요. 집 안에서만 쓸 거면 비워 두세요.');
   console.log('  예: https://mybody.내도메인.com');
-  cfg.origin = await ask('  공개 주소:', cfg.origin);
+  console.log('  **내가 가진 주소만** 적으세요. 남의 도메인을 적으면 브라우저가 요청을');
+  console.log('  막고, 폰 알림이 그 주소를 연락처라고 주장하게 됩니다.');
+  console.log('  지우려면 "없음". 그냥 엔터는 있던 값을 그대로 둡니다.');
+  const originIn = await ask('  공개 주소:', cfg.origin);
+  /* 한 번 넣으면 **지울 방법이 없었습니다** — 빈 입력은 있던 값을 그대로
+     두니까요. 잘못 넣은 사람이 되돌릴 길이 없는 설정은 설정이 아닙니다. */
+  cfg.origin = /^(없음|없다|지움|none|delete|-)$/i.test(originIn.trim()) ? '' : originIn;
   cfg.trustProxy = !!cfg.origin;
+  if (cfg.origin) {
+    try {
+      const u = new URL(cfg.origin);
+      if (u.protocol !== 'https:') {
+        console.log('  ! https 가 아닙니다 — 폰 알림과 앱 설치가 안 됩니다.');
+      }
+    } catch (e) {
+      console.log('  ! 주소 형식이 아닙니다 (https://... 로 적어야 합니다).');
+    }
+  }
   console.log('');
 
   rl.close();

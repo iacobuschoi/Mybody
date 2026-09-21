@@ -49,6 +49,36 @@ const STATIC_DIR = process.env.STATIC
   : path.join(__dirname, '..', 'prototype');
 const ORIGIN = process.env.ORIGIN || '*';
 
+/* ORIGIN 이 **실제로 들어오는 주소와 다르면** 조용히 어긋난 상태입니다.
+ *
+ * 설정의 "공개 주소" 칸에 자기 것이 아닌 도메인을 적는 일이 실제로
+ * 있었습니다(예: https://mybody.com). 그러면
+ *   · Access-Control-Allow-Origin 이 엉뚱한 값이 되고,
+ *   · 폰 알림이 푸시 서비스에 그 주소를 "연락할 곳" 이라고 주장합니다.
+ * 같은 출처 요청은 CORS 검사를 안 받으니 앱은 멀쩡해 보입니다 —
+ * 그래서 아무도 안 알아챕니다. 첫 요청에서 한 번 크게 말합니다. */
+let originWarned = false;
+function warnOriginMismatch(req) {
+  if (originWarned || ORIGIN === '*') return;
+  let want = '';
+  try { want = new URL(ORIGIN).host; } catch (e) { want = ''; }
+  const got = str(req.headers['x-forwarded-host'] || req.headers.host || '').split(',')[0].trim();
+  if (!want || !got) return;
+  // localhost 로 들어오는 것은 주인이 직접 여는 것이라 어긋난 게 아닙니다.
+  if (/^(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/i.test(got)) return;
+  if (got.toLowerCase() === want.toLowerCase()) return;
+  originWarned = true;
+  console.log('');
+  console.log('  ⚠ 설정의 공개 주소와 실제로 들어온 주소가 다릅니다.');
+  console.log('      설정   ' + ORIGIN);
+  console.log('      실제   ' + got);
+  console.log('    내 주소가 아닌 것을 적어 두면 폰 알림이 그 주소를 연락처라고');
+  console.log('    주장하고, 브라우저에 엉뚱한 CORS 값이 나갑니다.');
+  console.log('    고치기:  node tools/serve.js --setup --origin="https://실제주소"');
+  console.log('    지우기:  node tools/serve.js --setup --origin=""');
+  console.log('');
+}
+
 /* 페어링 비밀 — 이 서버에 기기를 등록할 때 쓰는 한 개의 값.
  *
  * 이게 없을 때 /api/auth/signin 은 handle 만으로 세션을 발급했습니다.
@@ -731,6 +761,7 @@ const server = http.createServer(async (req, res) => {
      그걸 세면 앱을 한 번 여는 것만으로 분당 제한의 10%를 씁니다 —
      터널 뒤에서 모두가 한 버킷일 때는 앱이 아예 안 열렸습니다.
      비싼 것은 /api 이고, 정적 파일은 서비스워커가 캐시합니다. */
+  warnOriginMismatch(req);
   const isApi = req.url.startsWith('/api/') || req.url.split('?')[0] === '/health';
   if (isApi && rateLimited(ip)) return send(res, 429, { ok: false, reason: '요청이 너무 많습니다' });
   if (req.method === 'OPTIONS') return send(res, 204, '');

@@ -89,6 +89,17 @@ async function tryPorts(fn, attempts = 3) {
 }
 const wait = ms => new Promise(r => setTimeout(r, ms));
 
+/** Host 헤더를 내가 정해서 보내는 GET. 노드 fetch 로는 못 합니다. */
+function hostGet(port, p2, host) {
+  return new Promise(res => {
+    const req = require('node:http').request(
+      { host: '127.0.0.1', port, path: p2, method: 'GET', headers: { host } },
+      r => { r.resume(); r.on('end', res); });
+    req.on('error', res);
+    req.end();
+  });
+}
+
 (async () => {
   console.log('\n[1] doctor — 준비가 안 됐으면 못 띄운다고 말한다');
   {
@@ -254,6 +265,69 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     }
     srv.kill();
     await wait(300);
+  }
+
+  console.log('\n[2-4] 잘못 넣은 공개 주소를 되돌릴 수 있고, 서버가 알려준다');
+  {
+    /* 주인이 설정의 "공개 주소" 칸에 자기 것이 아닌 도메인을 적었습니다
+       (https://mybody.com). 같은 출처 요청은 CORS 검사를 안 받으니 앱은
+       멀쩡해 보이는데, 폰 알림은 푸시 서비스에 그 주소를 "연락할 곳"
+       이라고 주장하게 됩니다. 아무도 안 알아챕니다.
+
+       그리고 한 번 넣으면 **지울 방법이 없었습니다** — 대화식 설정에서
+       빈 입력은 있던 값을 그대로 두니까요. 되돌릴 길이 없는 설정은
+       설정이 아닙니다. */
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-origin-'));
+    const env = Object.assign(baseEnv(), { HOME: home, USERPROFILE: home });
+    const rd = () => JSON.parse(fs.readFileSync(path.join(home, '.mybody', 'config.json'), 'utf8'));
+
+    run(['tools/serve.js', '--setup', '--no-owner', '--origin=https://wrong.example'], env);
+    ok('공개 주소가 들어간다', rd().origin === 'https://wrong.example', rd().origin);
+    ok('터널 뒤로 같이 켜진다', rd().trustProxy === true, rd());
+
+    run(['tools/serve.js', '--setup', '--origin='], env);
+    ok('빈 값으로 지울 수 있다', rd().origin === '', JSON.stringify(rd().origin));
+    ok('지우면 터널 뒤도 꺼진다', rd().trustProxy === false, rd());
+
+    /* 서버가 어긋남을 실제로 말하는가 */
+    const port = await freePort();
+    const srv = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')],
+      { cwd: ROOT, env: Object.assign(baseEnv(), {
+          PORT: String(port), PAIR_SECRET: 'x', ORIGIN: 'https://not-mine.example',
+          DB: path.join(home, 'o.db'), STATIC: path.join(ROOT, 'release') }) });
+    let out = '';
+    srv.stdout.on('data', d => { out += d; });
+    srv.stderr.on('data', d => { out += d; });
+    let up = false;
+    for (let i = 0; i < 60; i++) {
+      try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) { up = true; break; } } catch (e) {}
+      await wait(200);
+    }
+    if (!up) ok('어긋남 검사용 서버가 뜬다', false, out.slice(-200));
+    else {
+      /* localhost 로 들어온 것은 주인이 직접 여는 것이라 어긋난 게 아닙니다. */
+      await wait(300);
+      ok('localhost 로 들어온 것은 경고하지 않는다',
+         !/공개 주소와 실제로 들어온 주소가 다릅니다/.test(out), out.slice(-300));
+
+      /* 노드의 fetch(undici)는 Host 헤더를 못 바꿉니다 — 금지된 헤더라
+         조용히 무시합니다. 날것으로 보내야 이 경로가 실제로 지나갑니다. */
+      await hostGet(port, '/health', 'somewhere-else.trycloudflare.com');
+      await wait(400);
+      ok('다른 주소로 들어오면 말해 준다',
+         /공개 주소와 실제로 들어온 주소가 다릅니다/.test(out), out.slice(-500));
+      ok('실제 주소를 같이 찍는다', /somewhere-else\.trycloudflare\.com/.test(out), out.slice(-500));
+      ok('고치는 법까지 알려준다', /--origin=/.test(out), out.slice(-500));
+
+      const before = (out.match(/공개 주소와 실제로 들어온 주소가 다릅니다/g) || []).length;
+      await hostGet(port, '/health', 'somewhere-else.trycloudflare.com');
+      await wait(400);
+      const after = (out.match(/공개 주소와 실제로 들어온 주소가 다릅니다/g) || []).length;
+      ok('같은 말을 매 요청마다 반복하지 않는다', after === before, { before, after });
+    }
+    srv.kill();
+    await wait(300);
+    fs.rmSync(home, { recursive: true, force: true });
   }
 
   console.log('\n[3] doctor — 준비가 되면 띄울 수 있다고 말한다');
