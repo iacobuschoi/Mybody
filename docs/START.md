@@ -176,8 +176,21 @@ curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up
 ```
 
 로그인한 뒤 `node tools/launch.js` 를 치면 알아서 그쪽으로 엽니다.
-처음 한 번은 Funnel 을 테일넷에서 켜 달라고 할 수 있는데, 그 링크를
-화면에 그대로 찍어 줍니다.
+
+**처음 한 번은 Funnel 을 켜 줘야 합니다.** 안 켜져 있으면 주소는 나오는데
+안 열리고, `tailscale funnel status` 가 `No serve config` 라고 합니다.
+화면에 tailscale 이 하는 말이 그대로 나오므로 거기 링크가 있으면 그걸
+누르는 게 제일 빠릅니다. 없으면 두 군데를 누르면 됩니다:
+
+1. <https://login.tailscale.com/admin/acls> → **Funnel** 칸을 펼치고
+   **"Add Funnel to policy"** 클릭. 저장까지 알아서 됩니다
+   (정책 파일을 손으로 고칠 필요 없습니다).
+2. <https://login.tailscale.com/admin/dns> → **MagicDNS** 와
+   **HTTPS Certificates** 를 둘 다 켜기. 인증서가 꺼져 있으면 Funnel 이
+   주소를 못 만듭니다.
+
+그다음 다시 `node tools/launch.js`. 첫 실행은 인증서를 받느라
+30초~1분 걸립니다 — 화면이 기다리면서 그렇다고 적어 줍니다.
 
 일부러 Cloudflare 로 가려면 `node tools/launch.js --cloudflare`.
 둘 다 없으면 **어떻게 까는지 운영체제에 맞게** 알려주고 멈춥니다.
