@@ -186,14 +186,39 @@ function add(level, ok, id, detail, todo) {
         '       이걸 안 하고 띄우면 개발 빌드가 나갑니다 — 화면에 번호 배지가 전부 뜹니다.');
 }
 
-/* --- 7. 자동 판독 (선택) -------------------------------------------------- */
+/* --- 7. 자동 판독 (선택) --------------------------------------------------
+ *
+ * "키가 있습니다" 만 보고 넘어가면, 키가 살아 있는지 · 잔액이 있는지 ·
+ * 그 모델을 쓸 수 있는지 · 이 컴퓨터에서 api.anthropic.com 에 닿는지를
+ * 아무도 안 봅니다. 그 넷 중 하나만 틀려도 결과는 같습니다 — 폰에서
+ * 판독을 누른 뒤에야 502 를 만납니다. 주인이 실제로 그렇게 만났습니다.
+ *
+ * 그래서 여기서 **실제로 물어봅니다.** 모델 조회는 토큰을 안 쓰므로
+ * 돈이 안 들고, 막혀 있으면 몇 초 안에 그렇다고 말합니다.
+ * -------------------------------------------------------------------------- */
 {
   const key = (CFG.anthropicKey || '').trim();
-  add('INFO', !!key, '자동 판독',
-    key ? '키가 있습니다 (' + key.slice(0, 7) + '…)' : '키가 없습니다',
-    key ? null
-      : '없어도 앱은 그대로 돕니다 — 숫자를 직접 넣으면 됩니다.\n' +
-        '       사진에서 자동으로 읽게 하려면 ANTHROPIC_API_KEY 를 넣고 띄우세요.');
+  const model = (process.env.OCR_MODEL || '').trim() || null;
+  if (!key) {
+    add('INFO', false, '자동 판독', '키가 없습니다',
+      '없어도 앱은 그대로 돕니다 — 숫자를 직접 넣으면 됩니다.\n' +
+      '       사진에서 자동으로 읽게 하려면:\n' +
+      '         node tools/serve.js --setup --key="sk-ant-..."\n' +
+      '       키는 https://console.anthropic.com/settings/keys 에서 받습니다.');
+  } else {
+    const probe = checkOcrKey(key, model);
+    if (probe.ok) {
+      add('INFO', true, '자동 판독', probe.why);
+    } else {
+      /* 키를 넣어 둔 사람에게 이건 "선택" 이 아닙니다 — 쓰려고 넣었는데
+         안 되는 상태입니다. 그래서 WARN 으로 올립니다. */
+      add('WARN', false, '자동 판독', probe.why,
+        '키는 있는데 판독이 안 됩니다. 위 문장이 무엇을 해야 하는지 말해 줍니다.\n' +
+        '       키를 바꾸려면:  node tools/serve.js --setup --key="sk-ant-..."\n' +
+        '       더 싼 모델로:   OCR_MODEL=claude-sonnet-5 node tools/serve.js\n' +
+        '       그냥 둬도 앱은 돕니다 — 숫자를 직접 넣으면 됩니다.');
+    }
+  }
 }
 
 /* --- 7-2. 폰 알림 (선택) --------------------------------------------------
@@ -326,6 +351,26 @@ function probePort(p) {
   if (out === 'FREE') return { ok: true };
   if (out.startsWith('BUSY:')) return { ok: false, why: out.slice(5) };
   return { ok: false, why: '확인하지 못했습니다' };
+}
+
+/** 판독 키가 실제로 살아 있는가. doctor 는 동기라서 자식에게 물어봅니다. */
+function checkOcrKey(key, model) {
+  const code =
+    'const o=require(' + JSON.stringify(path.join(ROOT, 'server', 'ocr.js')) + ');' +
+    'o.checkKey(process.env.K, process.env.M || null, {timeoutMs:7000})' +
+    '.then(r=>{process.stdout.write(JSON.stringify(r));})' +
+    '.catch(e=>{process.stdout.write(JSON.stringify({ok:false,reason:String(e&&e.message||e)}));});';
+  const r = spawnSync(process.execPath, ['-e', code], {
+    encoding: 'utf8', timeout: 12000,
+    env: Object.assign({}, process.env, { K: key, M: model || '', NODE_NO_WARNINGS: '1' })
+  });
+  let j = null;
+  try { j = JSON.parse((r.stdout || '').trim()); } catch (e) { j = null; }
+  if (!j) {
+    return { ok: false, why: '키가 살아 있는지 확인하지 못했습니다 (네트워크가 막혀 있을 수 있습니다)' };
+  }
+  return { ok: !!j.ok,
+           why: (j.ok ? '키가 살아 있습니다 · ' : '') + (j.reason || '') };
 }
 
 function which(cmd) {

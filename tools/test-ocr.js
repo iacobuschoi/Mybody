@@ -180,6 +180,32 @@ async function main() {
   const prose = await call('POST', '/ocr', shot(), t);
   ok('도구를 안 쓴 응답은 502', prose.status === 502, prose);
 
+  /* 502 를 전부 "판독에 실패했습니다" 로 뭉개면 **주인이 할 일을 알 수
+     없습니다.** 잔액이 없는 것 · 그 모델 권한이 없는 것 · 모델 이름이
+     틀린 것이 같은 문장으로 나왔고, 셋의 할 일은 전부 다릅니다.
+     주인이 실제로 502 를 받고 무엇을 해야 하는지 물었습니다. */
+  nextReply = { status: 400, body: { error: { type: 'invalid_request_error',
+    message: 'Your credit balance is too low to access the Anthropic API.' } } };
+  const broke2 = await call('POST', '/ocr', shot(), t);
+  ok('잔액이 없으면 그렇다고 말한다',
+     /잔액이 없습니다/.test(JSON.stringify(broke2.json)), broke2.json);
+  ok('충전할 곳까지 알려준다',
+     /console\.anthropic\.com/.test(JSON.stringify(broke2.json)), broke2.json);
+
+  nextReply = { status: 404, body: { error: { type: 'not_found_error', message: 'model: nope' } } };
+  const noModel = await call('POST', '/ocr', shot(), t);
+  ok('모델 이름이 틀리면 그렇다고 말한다',
+     /모델 이름/.test(JSON.stringify(noModel.json)), noModel.json);
+
+  nextReply = { status: 403, body: { error: { type: 'permission_error', message: 'x' } } };
+  const noPerm = await call('POST', '/ocr', shot(), t);
+  ok('그 모델을 못 쓰면 그렇다고 말한다',
+     /쓸 수 없습니다/.test(JSON.stringify(noPerm.json)), noPerm.json);
+  ok('그래도 내부 사정은 안 싣는다',
+     !/api\.anthropic|test-key|not_found_error|permission_error/.test(
+       JSON.stringify([broke2.json, noModel.json, noPerm.json])),
+     [broke2.json, noModel.json, noPerm.json]);
+
   console.log('\n[7] 큰 사진 — 끊지 말고 413 을 돌려준다');
   /* 예전 readBody 는 한도를 넘으면 req.destroy() 를 불렀습니다. 그러면
      브라우저에 뜨는 것은 413 이 아니라 "Failed to fetch" 이고, 그건

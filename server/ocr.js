@@ -32,6 +32,90 @@
 const API_URL = process.env.OCR_API_URL || 'https://api.anthropic.com/v1/messages';
 const API_VERSION = '2023-06-01';
 
+/* 어떤 모델로 읽을 것인가.
+ *
+ * 기본은 제일 잘 읽는 것입니다 — 결과지 한 장이 몇 달치 기록의 출발점이라
+ * 여기서 잘못 읽으면 그 뒤가 전부 어긋납니다. 대신 값이 비쌉니다.
+ * 계정에 그 모델 권한이 없거나 더 싼 것으로 충분하면 바꿀 수 있게 둡니다:
+ *
+ *   OCR_MODEL=claude-sonnet-5 node tools/serve.js
+ *
+ * 한 장(1135×1600 결과지)에 드는 값은 대략 이렇습니다 — 입력 3천 토큰 ·
+ * 출력 3백 토큰 기준, 2026년 9월 공시가:
+ *   claude-opus-5    $5/$25 per M  →  약 $0.024  (35원쯤)
+ *   claude-sonnet-5  $2/$10 per M  →  약 $0.010  (14원쯤)
+ *   claude-haiku-4-5 $1/$5  per M  →  약 $0.005  (7원쯤)
+ * 환율은 대략값입니다. 서버는 하루 횟수(OCR_PER_DAY)로 한 번 더 막습니다. */
+const DEFAULT_MODEL = process.env.OCR_MODEL || 'claude-opus-5';
+
+/* 앤트로픽이 돌려주는 오류 종류를 사람 말로 옮깁니다.
+ *
+ * 예전에는 401 · 429 가 아니면 전부 "판독에 실패했습니다" 였습니다.
+ * 그 말로는 **주인이 할 일을 알 수 없습니다** — 잔액이 없는 것과,
+ * 그 모델 권한이 없는 것과, 사진이 큰 것이 같은 문장으로 나왔습니다.
+ * 실제로 주인이 502 를 받고 무엇을 해야 할지 물었습니다.
+ *
+ * 키나 내부 주소가 새면 안 되므로 앤트로픽의 원문을 그대로 싣지는
+ * 않습니다. 종류(type)만 보고 우리가 쓴 문장을 돌려줍니다. 잔액 문제는
+ * 종류가 invalid_request_error 하나로 뭉뚱그려져 오기 때문에, 그때만
+ * 원문에서 정해진 표식을 찾아봅니다. */
+function explain(status, err) {
+  const type = (err && err.type) || '';
+  const msg = String((err && err.message) || '');
+  if (/credit balance is too low|insufficient credit/i.test(msg)) {
+    return '판독 계정에 잔액이 없습니다 — console.anthropic.com 의 Billing 에서 충전해야 합니다';
+  }
+  switch (type) {
+    case 'authentication_error':
+      return '이 서버의 판독 키가 거부되었습니다 — 키가 지워졌거나 틀렸습니다';
+    case 'permission_error':
+      return '이 키로는 그 판독 모델을 쓸 수 없습니다 (OCR_MODEL 로 바꿀 수 있습니다)';
+    case 'not_found_error':
+      return '판독 모델 이름을 못 찾았습니다 — 서버의 OCR_MODEL 값을 확인하세요';
+    case 'rate_limit_error':
+      return '판독 서비스가 바쁩니다. 잠시 뒤에 다시 해 주세요';
+    case 'overloaded_error':
+      return '판독 서비스가 지금 밀려 있습니다. 잠시 뒤에 다시 해 주세요';
+    case 'invalid_request_error':
+      return '판독 요청이 거절되었습니다 — 서버 화면의 [ocr] 줄을 보세요';
+    case 'api_error':
+      return '판독 서비스 쪽 오류입니다. 잠시 뒤에 다시 해 주세요';
+    default:
+      return '판독에 실패했습니다 (' + (status || '?') + ') — 서버 화면의 [ocr] 줄을 보세요';
+  }
+}
+
+/**
+ * 키가 살아 있고 그 모델을 쓸 수 있는가. 판독을 돌리기 전에 확인합니다.
+ * 모델 조회는 토큰을 안 씁니다 — 돈이 안 듭니다.
+ * @returns {Promise<{ok:boolean, reason:string}>}
+ */
+async function checkKey(apiKey, model, opts) {
+  opts = opts || {};
+  if (!apiKey) return { ok: false, reason: '키가 없습니다' };
+  const m = model || DEFAULT_MODEL;
+  const base = (opts.apiUrl || API_URL).replace(/\/v1\/messages\/?$/, '');
+  const doFetch = opts.fetchImpl || globalThis.fetch;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs || 6000);
+  try {
+    const r = await doFetch(base + '/v1/models/' + encodeURIComponent(m), {
+      signal: ctrl.signal,
+      headers: { 'x-api-key': apiKey, 'anthropic-version': API_VERSION }
+    });
+    clearTimeout(timer);
+    if (r.ok) return { ok: true, reason: m + ' 를 쓸 수 있습니다' };
+    let j = null;
+    try { j = await r.json(); } catch { j = null; }
+    return { ok: false, reason: explain(r.status, j && j.error) };
+  } catch (e) {
+    clearTimeout(timer);
+    return { ok: false, reason: e && e.name === 'AbortError'
+      ? '판독 서비스에 닿는 데 시간이 걸립니다 (네트워크가 막혀 있을 수 있습니다)'
+      : '판독 서비스에 닿지 못했습니다 — 이 컴퓨터에서 api.anthropic.com 이 막혀 있는지 보세요' };
+  }
+}
+
 /* 읽어 올 칸들. hard 범위는 crosscheck.js 와 같은 값입니다 — 사람의
    몸에서 나올 수 없는 값은 여기서 이미 버립니다. 애매한 값은 버리지
    않습니다. 그건 검산과 사람의 몫입니다. */
@@ -157,7 +241,7 @@ async function runOcr(body, opts) {
         'anthropic-version': API_VERSION
       },
       body: JSON.stringify({
-        model: opts.model || 'claude-opus-5',
+        model: opts.model || DEFAULT_MODEL,
         max_tokens: 1500,
         system: SYSTEM,
         tools: [TOOL],
@@ -184,11 +268,13 @@ async function runOcr(body, opts) {
   let j = null;
   try { j = await r.json(); } catch { j = null; }
   if (!r.ok) {
-    console.error('[ocr] 상태', r.status, j && j.error && j.error.type);
-    const reason = r.status === 429 ? '판독 서비스가 바쁩니다. 잠시 뒤에 다시 해 주세요'
-                 : r.status === 401 ? '이 서버의 판독 키가 거부되었습니다'
-                 : '판독에 실패했습니다';
-    return { status: r.status === 429 ? 429 : 502, body: { ok: false, reason } };
+    /* 원문은 여기(서버 화면)에만 둡니다. 주인만 보는 자리이고,
+       무엇을 해야 하는지가 대개 이 한 줄에 다 있습니다. */
+    console.error('[ocr] 상태', r.status,
+                  (j && j.error && j.error.type) || '',
+                  (j && j.error && j.error.message) || '');
+    return { status: r.status === 429 ? 429 : 502,
+             body: { ok: false, reason: explain(r.status, j && j.error) } };
   }
 
   const block = (j && Array.isArray(j.content) ? j.content : [])
@@ -210,4 +296,4 @@ async function runOcr(body, opts) {
   } };
 }
 
-module.exports = { runOcr, clean, FIELDS, SYSTEM, TOOL };
+module.exports = { runOcr, clean, FIELDS, SYSTEM, TOOL, checkKey, explain, DEFAULT_MODEL };
