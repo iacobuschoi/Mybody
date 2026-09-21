@@ -57,7 +57,8 @@ const CHECKS = [
     why: '앱은 저장했다고 말하는데 실제로는 없어지는 것들 — 눌러보는 검사로는 안 잡힙니다' },
   { id: '화면 스모크', level: 'BLOCK', slow: true, cmd: ['node', 'tools/smoke.js'],
     why: '화면이 안 뜨면 나머지는 의미가 없습니다' },
-  { id: '인터랙션 전수', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-interactions.js'],
+  { id: '인터랙션 전수', level: 'BLOCK', slow: true, minutes: 45,
+    cmd: ['node', 'tools/test-interactions.js'],
     why: '누르면 터지는 버튼 · 막다른 길' },
   { id: '2인 실사용', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-e2e.js'],
     why: '두 사람이 실제 서버로 주고받는 경로' },
@@ -73,6 +74,9 @@ const CHECKS = [
     why: '이 서버가 코드를 쓰는지 화면이 모르면, 친구는 받은 적 없는 코드를 넣으라는 빈칸 앞에서 멈춥니다' },
   { id: '판독 화면', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-ocr-ui.js'],
     why: '서버가 잘 읽어도 화면에 판독 버튼이 안 보이면 없는 기능입니다' },
+  { id: '옮긴 로직', level: 'BLOCK', slow: true, minutes: 30,
+    cmd: ['node', 'tools/difftest.js', '--n=3000'],
+    why: 'Flutter 로 옮긴 도메인 로직이 원본과 같은 답을 내는가 — 갈리면 두 앱이 같은 결과지를 놓고 다른 말을 합니다 (Dart 가 없으면 건너뜁니다)' },
   { id: '워크스페이스 찾기', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-workspaces.js'],
     why: '판독이 막힌 사람이 마지막으로 쥐는 도구입니다 — 여기서도 "안 됩니다" 만 나오면 갈 데가 없습니다' },
   { id: '배포 빌드', level: 'BLOCK', slow: true, cmd: ['node', 'tools/build-release.js'],
@@ -442,13 +446,21 @@ for (const c of CHECKS) {
   if (FAST && c.slow) { console.log(`  · ${c.id} — 건너뜀`); continue; }
   process.stdout.write(`  … ${c.id}`);
   const t0 = Date.now();
+  /* 검사마다 걸리는 시간이 다릅니다. 20분을 모두에게 똑같이 물리다가,
+     화면 전수 검사(7가지 상태 × 21화면)가 자라면서 그 벽에 닿았습니다.
+     그리고 **시간 초과가 실패와 똑같이 찍혔습니다** — 화면에는 ✗ 만
+     뜨고, 그 아래에는 검사가 죽기 직전까지 찍던 중간 출력이 붙어서,
+     읽는 사람은 제품이 고장 난 줄 압니다. 실제로 한 번 그렇게 읽었습니다.
+     따로 적어 두고, 시간 초과는 시간 초과라고 말합니다. */
+  const limit = (c.minutes || 20) * 60 * 1000;
   const r = spawnSync(c.cmd[0], c.cmd.slice(1), {
     cwd: ROOT, encoding: 'utf8',
     env: Object.assign({}, process.env, { NODE_PATH }),
-    timeout: 20 * 60 * 1000
+    timeout: limit
   });
   const secs = ((Date.now() - t0) / 1000).toFixed(0);
-  const ok = r.status === 0;
+  const timedOut = r.error && r.error.code === 'ETIMEDOUT';
+  const ok = !timedOut && r.status === 0;
   /* 실패했을 때 **무엇이** 실패했는지 보여 줍니다.
    *
    * 예전엔 출력의 마지막 세 줄만 잘라 왔습니다. 그런데 시험들은 마지막에
@@ -461,7 +473,10 @@ for (const c of CHECKS) {
    * 이제 ✗ 가 붙은 줄을 먼저 모으고, 하나도 없을 때만 꼬리를 씁니다. */
   const outAll = ((r.stdout || '') + '\n' + (r.stderr || '')).trim().split('\n');
   const failLines = outAll.filter(l => /(^|\s)✗/.test(l)).slice(0, 8);
-  const tail = (failLines.length ? failLines : outAll.slice(-3)).join('\n       ');
+  const tail = timedOut
+    ? (c.minutes || 20) + '분 안에 안 끝났습니다 — 검사가 느려진 것이지 앱이 고장 난 것이 ' +
+      '아닐 수 있습니다. 직접 돌려서 확인하세요:  ' + c.cmd.join(' ')
+    : (failLines.length ? failLines : outAll.slice(-3)).join('\n       ');
   results.push({ id: c.id, level: c.level, ok, detail: tail, why: c.why });
   process.stdout.write(`\r  ${ok ? '✓' : '✗'} ${c.id} (${secs}초)          \n`);
   if (!ok) {

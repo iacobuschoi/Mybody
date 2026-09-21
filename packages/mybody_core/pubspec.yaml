@@ -1,0 +1,17 @@
+name: mybody_core
+description: >-
+  Mybody 의 도메인 로직 — 결과지 검산(crosscheck)과 계획 엔진(engine).
+  순수 Dart 입니다. Flutter 를 의존하지 않습니다.
+
+  왜 따로 두는가: 이 두 파일은 앱에서 유일하게 "틀리면 사람이 잘못된
+  숫자를 믿게 되는" 부분입니다. UI 와 섞어 두면 화면을 고치다 규칙이
+  같이 흔들립니다. 그리고 Flutter 를 안 깔아도 `dart test` 로 돌릴 수
+  있어야 검증이 빨라집니다.
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.13.0
+
+dev_dependencies:
+  test: ^1.25.0
