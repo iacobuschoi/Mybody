@@ -74,11 +74,27 @@ function add(level, ok, id, detail, todo) {
     }
   }
 
+  /* "LTS 를 받아 깔으세요" 만으로는 사람이 멈춥니다 — 어디서 무엇을
+     어떻게 받는지가 OS 마다 다르고, 특히 윈도우는 깐 뒤에 **새 터미널을
+     열어야** PATH 가 바뀝니다. 그걸 모르면 깔고도 같은 화면을 봅니다. */
+  const INSTALL =
+    process.platform === 'win32'
+      ? '         winget install OpenJS.NodeJS.LTS\n' +
+        '       (winget 이 없으면 https://nodejs.org 에서 LTS · Windows Installer (.msi) · x64)\n' +
+        '       깐 뒤 **PowerShell 창을 닫고 새로 여세요.** 그래야 PATH 가 바뀝니다.\n' +
+        '       그래도 옛 버전이면:  where.exe node   ← 여러 개 깔려 있는지 보세요'
+      : process.platform === 'darwin'
+        ? '         brew install node    (또는 https://nodejs.org 에서 LTS · macOS Installer)\n' +
+          '       깐 뒤 터미널을 새로 여세요. 그래도 옛 버전이면:  which -a node'
+        : '         https://nodejs.org 의 LTS, 또는 배포판 패키지(nodesource·fnm·nvm)\n' +
+          '       깐 뒤 셸을 새로 여세요. 그래도 옛 버전이면:  which -a node';
+
   add('BLOCK', ok, '노드 버전', 'v' + v + (ok ? ' — 데이터베이스까지 잘 됩니다' : ' — ' + why),
     ok ? null
-       : '이 노드로는 못 띄웁니다. nodejs.org 에서 LTS 를 받아 다시 깔고,\n' +
-         '       새 터미널을 열어 node --version 이 바뀌었는지 보세요.\n' +
-         '       (이 서버는 노드에 내장된 SQLite 를 씁니다. 오래된 노드에는 없습니다.)');
+       : '이 노드로는 못 띄웁니다. 이 서버는 노드에 내장된 SQLite 를 쓰는데,\n' +
+         '       그건 **노드 22.13 이상**에 있습니다 (LTS 를 받으면 충분합니다).\n' +
+         INSTALL + '\n' +
+         '       그 다음  node --version  이 바뀌었는지 보고 다시 치세요.');
 }
 
 /* --- 2. 포트가 비어 있는가 ----------------------------------------------- */
