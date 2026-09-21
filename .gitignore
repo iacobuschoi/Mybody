@@ -24,3 +24,8 @@ release/
 *.db.before-*
 *.sqlite
 *.sqlite3
+
+# 글꼴에 글자를 붙여 넣던 도구가 남기던 중간 파일.
+# 한 벌에 2.8MB 라 저장소에 5.6MB 가 조용히 들어가 있었습니다.
+app/assets/fonts/*.base.ttf
+app/assets/fonts/*.donor.ttf
