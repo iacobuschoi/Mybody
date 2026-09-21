@@ -58,6 +58,17 @@ const ORIGIN = process.env.ORIGIN || '*';
  * 127.0.0.1 바인딩으로 막지 않는 이유: 주인이 "서버는 내 컴퓨터로 사용해"라고
  * 했고, 같은 와이파이의 폰이 못 들어오면 결국 되돌리게 됩니다. */
 const PAIR_SECRET = process.env.PAIR_SECRET || '';
+/* 가입 코드를 **없애기로 정한** 경우.
+ *
+ * 켜면 주소를 아는 사람은 누구나 계정을 만들 수 있습니다. 남의 몸
+ * 숫자를 보는 것은 아니지만(친구 맺기는 초대 코드가 따로 필요합니다),
+ * 모르는 사람 계정이 쌓입니다. 그리고 터널 주소는 무작위처럼 보여도
+ * 실제로 스캔당합니다.
+ *
+ * 그래서 **빈 값으로 두는 것과 끄기로 정하는 것을 구분합니다.**
+ * 빈 값은 깜빡한 것일 수 있어서 서버가 아예 안 뜹니다. 끄는 것은
+ * OPEN_SIGNUP=1 로 명시해야 하고, 뜰 때마다 화면에 그 사실이 찍힙니다. */
+const OPEN_SIGNUP = /^(1|true|yes)$/i.test((process.env.OPEN_SIGNUP || '').trim());
 
 /* 2층 판독. 키가 없으면 /api/ocr 은 503 을 돌려주고, 앱은 0층(직접
    입력)으로 조용히 남습니다 — 판독은 편의기능이지 바닥이 아닙니다. */
@@ -391,7 +402,13 @@ async function handleApi(req, res, url) {
   const p = url.pathname.replace(/^\/api/, '') || '/';
   const method = req.method;
 
-  if (p === '/health') return send(res, 200, { ok: true, now: new Date().toISOString() });
+  /* 가입에 코드가 필요한지 여기서 알려줍니다.
+     숨길 이유가 없습니다 — 필요한지 아닌지는 한 번 시도해 보면 바로
+     드러나고, 화면이 모르면 안 필요한 칸을 계속 보여 주게 됩니다. */
+  if (p === '/health') {
+    return send(res, 200, { ok: true, now: new Date().toISOString(),
+                            openSignup: OPEN_SIGNUP });
+  }
 
   /* 계정 만들기 — 페어링 비밀이 필요합니다.
      이 서버는 주인 것이지 공개 가입 서비스가 아닙니다. 비밀을 아는 사람만
@@ -404,7 +421,7 @@ async function handleApi(req, res, url) {
 
   if (p === '/auth/signup' && method === 'POST') {
     const b = await readBody(req);
-    if (!pairOk(b.pairSecret)) {
+    if (!OPEN_SIGNUP && !pairOk(b.pairSecret)) {
       return send(res, 401, { ok: false, reason: '이 서버의 가입 코드가 필요합니다' });
     }
     const r = api.signUp(b);
@@ -717,13 +734,17 @@ const server = http.createServer(async (req, res) => {
 });
 
 if (require.main === module) {
-  if (!PAIR_SECRET) {
+  if (!PAIR_SECRET && !OPEN_SIGNUP) {
     console.error('PAIR_SECRET 없이는 시작하지 않습니다.');
     console.error('');
-    console.error('  아무나 로그인할 수 있는 서버가 되기 때문입니다.');
-    console.error('  아래처럼 값을 하나 정해서 넘기고, 같은 값을 내 기기에만 알려주세요:');
+    console.error('  아무나 계정을 만들 수 있는 서버가 되기 때문입니다.');
+    console.error('  아래처럼 값을 하나 정해서 넘기고, 같은 값을 친구에게만 알려주세요:');
     console.error('');
     console.error('    PAIR_SECRET=$(openssl rand -hex 16) node server/server.js');
+    console.error('');
+    console.error('  일부러 아무나 가입할 수 있게 열어 둘 거면 그렇게 말해 주세요:');
+    console.error('');
+    console.error('    OPEN_SIGNUP=1 node server/server.js');
     console.error('');
     process.exit(1);
   }
@@ -790,6 +811,11 @@ if (require.main === module) {
       console.log('  폰에서 http://' + a + ':' + PORT + '   (같은 와이파이)');
     });
     console.log('  DB     ' + DB_FILE);
+    /* 열어 둔 상태는 띄울 때마다 눈에 띄어야 합니다. 설정 파일 안에만
+       있으면 몇 주 뒤엔 자기가 열어 뒀다는 것도 잊습니다. */
+    if (OPEN_SIGNUP) {
+      console.log('  가입   누구나 (가입 코드 없음)  ← 주소를 아는 사람은 다 만들 수 있습니다');
+    }
     const staticOk = fs.existsSync(path.join(STATIC_DIR, 'index.html'));
     console.log('  정적   ' + STATIC_DIR +
                 (!staticOk ? '   ← 여기에 앱이 없습니다' :

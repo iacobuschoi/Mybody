@@ -761,11 +761,21 @@
         body.appendChild(field('표시 이름 (선택)', name = h('input.input', {
           uid: 'M29-F04', uidLabel: '표시 이름', maxlength: '20',
           placeholder: '친구에게 보이는 이름' })));
-        body.appendChild(field('가입 코드', pair = h('input.input', {
-          uid: 'M29-F05', uidLabel: '가입 코드',
-          placeholder: '서버 주인에게 받은 코드' })));
-        body.appendChild(h('div.muted', { style: { marginTop: '6px' },
-          text: '이 서버는 공개 가입 서비스가 아닙니다. 주인이 알려준 코드가 있어야 계정을 만들 수 있습니다.' }));
+        /* 가입 코드를 안 쓰는 서버면 그 칸을 아예 안 그립니다.
+           빈칸으로 남겨 두면 "뭘 넣어야 하지" 에서 사람이 멈춥니다.
+           아직 안 물어봤으면(null) 보여 줍니다 — 있는 칸을 빼먹는 쪽이
+           없는 칸을 보여 주는 쪽보다 나쁩니다. */
+        var openSignup = (global.MB_SYNC && global.MB_SYNC.status().openSignup) === true;
+        if (!openSignup) {
+          body.appendChild(field('가입 코드', pair = h('input.input', {
+            uid: 'M29-F05', uidLabel: '가입 코드',
+            placeholder: '서버 주인에게 받은 코드' })));
+          body.appendChild(h('div.muted', { style: { marginTop: '6px' },
+            text: '이 서버는 공개 가입 서비스가 아닙니다. 주인이 알려준 코드가 있어야 계정을 만들 수 있습니다.' }));
+        } else {
+          body.appendChild(h('div.muted', { style: { marginTop: '6px' },
+            text: '이 서버는 누구나 계정을 만들 수 있습니다. 친구에게 보여 줄 항목은 계정을 만든 뒤 하나씩 켭니다.' }));
+        }
 
         /* 건강정보 업로드 동의 — 계정 만들기와 따로 받습니다.
          *
@@ -863,7 +873,7 @@
             var work = mode === 'up'
               ? S.signUp({ handle: h1, password: p1,
                            displayName: (name.value || '').trim() || h1,
-                           pairSecret: (pair.value || '').trim(),
+                           pairSecret: pair ? (pair.value || '').trim() : '',
                            healthConsent: consent })
               : (mode === 'lost'
                   ? S.recover({ handle: h1, code: rcode.value, password: p1 })

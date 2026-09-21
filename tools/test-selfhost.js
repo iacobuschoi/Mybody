@@ -180,6 +180,82 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     run(['tools/serve.js', '--setup', '--owner=검사 주인', '--contact=t@example.com']);
   }
 
+  console.log('\n[2-3] 가입 코드를 없애기로 정한 것과 빈칸을 구분한다');
+  {
+    /* 주인이 "가입코드 없애" 라고 했습니다. 그렇다고 빈 PAIR_SECRET 을
+       그냥 통과시키면, 설정을 깜빡한 사람의 서버까지 조용히 열립니다.
+       둘은 다릅니다 — 빈칸은 깜빡한 것일 수 있고, OPEN_SIGNUP=1 은 정한
+       것입니다. 여기서 그 둘을 다 띄워 봅니다. */
+
+    // (가) 둘 다 비어 있으면 안 뜹니다
+    {
+      const env = Object.assign(baseEnv(), { PORT: '0' });
+      delete env.PAIR_SECRET; delete env.OPEN_SIGNUP;
+      const r = spawnSync(process.execPath, [path.join(ROOT, 'server', 'server.js')],
+        { cwd: ROOT, env: env, encoding: 'utf8', timeout: 15000 });
+      ok('둘 다 비어 있으면 서버가 안 뜬다', r.status !== 0, r.status);
+      ok('열고 싶으면 어떻게 하는지까지 말해 준다',
+         /OPEN_SIGNUP=1/.test(r.stderr || ''), (r.stderr || '').slice(0, 400));
+    }
+
+    // (나) 정했으면 뜨고, 코드 없이 가입이 됩니다
+    const port = await freePort();
+    const env = Object.assign(baseEnv(), {
+      PORT: String(port), OPEN_SIGNUP: '1', AUTH_MAX: '100000',
+      DB: path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mb-open-')), 'open.db'),
+      STATIC: path.join(ROOT, 'release')
+    });
+    delete env.PAIR_SECRET;
+    const srv = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')],
+      { cwd: ROOT, env: env });
+    let out = '';
+    srv.stdout.on('data', d => { out += d; });
+    srv.stderr.on('data', d => { out += d; });
+    let up = false;
+    for (let i = 0; i < 60; i++) {
+      try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) { up = true; break; } } catch (e) {}
+      await wait(200);
+    }
+    ok('정해서 열었으면 코드 없이도 뜬다', up, out.slice(-300));
+    if (up) {
+      ok('띄울 때 화면에 열렸다고 찍는다', /가입   누구나/.test(out), out.slice(0, 600));
+
+      const h = await fetch(`http://127.0.0.1:${port}/health`).then(r => r.json());
+      ok('/health 가 열렸다고 말해 준다 (화면이 칸을 숨길 수 있게)',
+         h.openSignup === true, h);
+
+      /* 동의 판수는 서버와 앱이 같은 값을 써야 합니다 — 여기서는
+         서버 쪽 값을 직접 읽어 씁니다. 판수가 올라가도 이 검사가
+         엉뚱한 이유로 빨갛게 찍히지 않게요. */
+      const CONSENT = (fs.readFileSync(path.join(ROOT, 'server', 'db.js'), 'utf8')
+        .match(/HEALTH_CONSENT_VERSION = '([^']+)'/) || [])[1];
+      const mk = (id) => fetch(`http://127.0.0.1:${port}/api/auth/signup`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ handle: id, password: 'test-pass-1234',
+                               displayName: id, healthConsent: CONSENT })
+      }).then(r => r.json().then(j => ({ status: r.status, j })));
+
+      const a = await mk('openuser1');
+      ok('코드 없이 계정이 만들어진다', a.status === 200 && a.j.ok === true, a);
+      ok('복구 코드는 그대로 나온다', !!(a.j && a.j.recoveryCode), a.j && Object.keys(a.j));
+
+      /* 열려 있어도 **친구는 그냥 안 됩니다.** 열었을 때 진짜로
+         위험한 것은 "모르는 사람이 내 숫자를 본다" 인데, 그건 초대
+         코드가 막고 있습니다. 그 방패가 살아 있는지를 여기서 봅니다. */
+      const tok = a.j && a.j.token;
+      if (tok) {
+        const bad = await fetch(`http://127.0.0.1:${port}/api/friends/request`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: 'Bearer ' + tok },
+          body: JSON.stringify({ inviteCode: 'ZZZZZZZZ' })
+        }).then(r => r.json());
+        ok('그래도 초대 코드 없이는 친구가 안 된다', bad.ok === false, bad);
+      }
+    }
+    srv.kill();
+    await wait(300);
+  }
+
   console.log('\n[3] doctor — 준비가 되면 띄울 수 있다고 말한다');
   {
     const port = await freePort();
@@ -743,10 +819,30 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
         encoding: 'utf8', timeout: 60000 });
     const out1 = (noTun.stdout || '') + (noTun.stderr || '');
     ok('설정이 없으면 알아서 만든다', /설정이 없어서 만듭니다/.test(out1), out1.slice(0, 200));
-    ok('가입 코드를 만들어 보여준다', /가입 코드를 새로 만들었습니다/.test(out1));
     ok('알림 열쇠도 만든다', /알림 열쇠를 만듭니다/.test(out1));
     const cfg2 = JSON.parse(fs.readFileSync(path.join(home2, '.mybody', 'config.json'), 'utf8'));
     ok('열쇠가 실제로 저장된다', !!(cfg2.vapidPublic && cfg2.vapidPrivate));
+
+    /* 주인이 "가입코드 없애" 라고 했습니다. 그 결정은 설정 파일에만
+       있으면 새 컴퓨터에서 사라집니다 — 설정 파일은 git 에 안 들어가니까요.
+       그래서 launch.js 가 들고 있어야 합니다. */
+    ok('가입을 열어 둔 상태로 설정을 만든다', cfg2.openSignup === true, cfg2);
+    ok('컴퓨터를 계속 켜 둔다는 것도 적어 둔다', cfg2.alwaysOn === true, cfg2);
+    ok('열었어도 코드는 만들어 둔다 (다시 닫을 수 있게)',
+       (cfg2.pairSecret || '').length >= 32, cfg2.pairSecret && cfg2.pairSecret.length);
+    ok('열린 상태를 화면에도 말한다', /가입   누구나|가입 코드 없음/.test(out1), out1.slice(0, 600));
+    ok('열었을 때는 코드를 화면에 안 찍는다',
+       !out1.includes(cfg2.pairSecret), out1.slice(0, 400));
+
+    /* 다시 닫는 길이 실제로 있는가 — 이미 설정이 있는 컴퓨터에서. */
+    const closed = spawnSync(process.execPath,
+      [path.join(ROOT, 'tools', 'launch.js'), '--pair-code'],
+      { cwd: ROOT, env: Object.assign({}, env2, { PATH: '/usr/bin:/bin' }),
+        encoding: 'utf8', timeout: 60000 });
+    const outC = (closed.stdout || '') + (closed.stderr || '');
+    ok('--pair-code 로 다시 닫을 수 있다', /가입을 닫았습니다/.test(outC), outC.slice(0, 300));
+    const cfgC = JSON.parse(fs.readFileSync(path.join(home2, '.mybody', 'config.json'), 'utf8'));
+    ok('닫힌 것이 설정에 남는다', cfgC.openSignup === false, cfgC);
     ok('터널이 없으면 까는 법을 OS 에 맞게 말한다',
        /brew install cloudflared|winget install|cloudflared-linux-amd64/.test(out1), out1.slice(-400));
     ok('그래도 쓸 수 있는 길을 알려준다', /--no-tunnel/.test(out1));
@@ -792,8 +888,10 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
 
     ok('터널 주소를 뽑아낸다 (stderr 에서)',
        /https:\/\/test-tunnel-abc\.trycloudflare\.com/.test(out2), out2.slice(-500));
-    ok('친구에게 보낼 것을 한 덩어리로 찍는다', /친구에게 이 두 줄을 보내세요/.test(out2));
-    ok('가입 코드를 같이 찍는다', /launch-test-secret/.test(out2));
+    ok('친구에게 보낼 것을 한 덩어리로 찍는다', /친구에게 이 줄을 보내세요/.test(out2), out2.slice(-600));
+    ok('주소만 찍는다 (가입 코드는 안 씁니다)', !/launch-test-secret/.test(out2), out2.slice(-600));
+    ok('열어 둔 것을 찍을 때마다 말한다',
+       /가입 코드를 꺼 둔 상태입니다/.test(out2), out2.slice(-600));
     ok('주소가 바뀐다는 것을 경고한다', /다시 띄우면 바뀝니다/.test(out2));
     const cfg3 = JSON.parse(fs.readFileSync(path.join(home3, '.mybody', 'config.json'), 'utf8'));
     ok('주소를 설정에 적어 둔다 (터널 뒤 IP 판정에 필요)',

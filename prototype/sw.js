@@ -42,8 +42,14 @@ self.addEventListener('fetch', e => {
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
-  // 서버 이야기는 캐시하지 않습니다 — 오래된 답이 새 답인 척하면 안 됩니다.
-  if (url.pathname.startsWith('/api')) return;
+  /* 서버 이야기는 캐시하지 않습니다 — 오래된 답이 새 답인 척하면 안 됩니다.
+     /health 를 빼놓지 않았던 동안 이 줄이 거짓말을 만들고 있었습니다:
+     앱은 "서버가 살아 있나" 를 /health 로 물어보는데, 그것이 /api 가
+     아니라 캐시된 뒤로는 서버를 꺼도 영원히 "닿습니다" 가 나왔습니다.
+     그러면 "컴퓨터가 꺼져 있는 것 같습니다" 가 배포본에서 한 번도 안 뜹니다
+     — 서비스워커는 배포본에만 등록되므로 prototype 에서는 안 보였습니다.
+     Cache Storage 는 no-store 를 무시하므로 요청 쪽 옵션으로는 못 막습니다. */
+  if (url.pathname.startsWith('/api') || url.pathname === '/health') return;
   // 다른 출처(글꼴 등)는 브라우저 기본 처리에 맡깁니다.
   if (url.origin !== self.location.origin) return;
 

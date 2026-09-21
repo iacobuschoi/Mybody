@@ -67,11 +67,17 @@
                 → 주소는 그대로 둬야 합니다. 바꾸면 기록이 안 보이게
                   됩니다(브라우저가 주소마다 따로 저장하니까). */
   var serverKind = null;   // 'ours' | 'other' | 'down' | null(아직 모름)
+  /* 이 서버가 가입에 코드를 요구하는가. null 이면 아직 안 물어봤습니다 —
+     "안 요구한다" 와 "모른다" 를 섞으면 화면이 없는 칸을 감추거나
+     있는 칸을 빼먹습니다. */
+  var openSignup = null;
 
   function probe() {
     var base = cfg.baseUrl || defaultBase();
     if (!base) { reachable = false; serverKind = 'other'; emit(); return Promise.resolve(false); }
-    return fetch(base + '/health')
+    /* no-store: 브라우저 HTTP 캐시가 "살아 있다" 를 재활용하지 않게.
+       (서비스워커 캐시는 이것으로 못 막아서 sw.js 에서 따로 뺍니다.) */
+    return fetch(base + '/health', { cache: 'no-store' })
       .then(function (r) {
         if (!r.ok) return null;
         return r.json().catch(function () { return null; });
@@ -82,6 +88,7 @@
         var ours = !!(j && j.ok);
         reachable = ours;
         serverKind = ours ? 'ours' : 'other';
+        openSignup = ours ? !!j.openSignup : null;
         emit();
         return ours;
       })
@@ -105,6 +112,7 @@
       configured: !!cfg.baseUrl,
       reachable: reachable,
       serverKind: serverKind,
+      openSignup: openSignup,
       ownServer: servedByConfigured(),
       signedIn: !!cfg.token,
       baseUrl: cfg.baseUrl || null,
@@ -126,7 +134,11 @@
 
   function configure(baseUrl) {
     cfg.baseUrl = baseUrl ? String(baseUrl).replace(/\/+$/, '') : null;
-    reachable = null; serverKind = null;   // 주소가 바뀌었으니 다시 물어봐야 합니다
+    /* 주소가 바뀌었으니 다시 물어봐야 합니다.
+       openSignup 까지 같이 비웁니다 — 열린 서버를 본 뒤 코드가 필요한
+       서버로 옮기면, 옛 답이 남아 가입 코드 칸이 사라집니다 — 친구는
+       코드를 넣을 데가 없어 가입을 못 합니다. */
+    reachable = null; serverKind = null; openSignup = null;
     saveCfg(cfg); emit();
     probe();
     return status();

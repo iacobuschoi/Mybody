@@ -52,7 +52,12 @@ if (process.argv.includes('--show')) {
   console.log('');
   console.log('  포트           ' + c.port);
   console.log('  내보낼 폴더     ' + c.static + (c.static === 'prototype' ? '   ← 개발 빌드' : ''));
-  console.log('  가입 코드       ' + mask(c.pairSecret));
+  console.log('  가입           ' + (c.openSignup
+    ? '누구나 (코드 없음)   ← 주소를 아는 사람은 다 만듭니다'
+    : '코드 필요'));
+  console.log('  가입 코드       ' + mask(c.pairSecret) +
+              (c.openSignup ? '   (지금은 안 씁니다)' : ''));
+  console.log('  상시 접속       ' + (c.alwaysOn ? '컴퓨터를 계속 켜 둔다고 했습니다' : '(정한 것 없음)'));
   console.log('  운영자         ' + (c.owner || '(없음)'));
   console.log('  연락처         ' + (c.ownerContact || '(없음)'));
   console.log('  자동 판독 키    ' + mask(c.anthropicKey));
@@ -97,6 +102,8 @@ async function setup() {
       owner: f['no-owner'] ? '' : (f.owner != null && f.owner !== true ? String(f.owner) : cfg0.owner),
       ownerContact: f['no-owner'] ? '' : (f.contact != null && f.contact !== true ? String(f.contact) : cfg0.ownerContact),
       ownerOmitted: f['no-owner'] ? true : cfg0.ownerOmitted,
+      openSignup: f['open-signup'] ? true : (f['close-signup'] ? false : cfg0.openSignup),
+      alwaysOn: f['always-on'] ? true : cfg0.alwaysOn,
       port: f.port ? Number(f.port) || cfg0.port : cfg0.port,
       anthropicKey: f.key != null && f.key !== true ? String(f.key) : cfg0.anthropicKey,
       origin: f.origin != null && f.origin !== true ? String(f.origin) : cfg0.origin,
@@ -108,7 +115,11 @@ async function setup() {
     console.log('  운영자 ' + (cfg.owner || (cfg.ownerOmitted ? '(안 적기로 함)' : '(없음)')) +
                 ' · 연락처 ' + (cfg.ownerContact || '(없음)') +
                 ' · 포트 ' + cfg.port);
-    if (!cur.pairSecret) {
+    if (cfg.openSignup) {
+      console.log('');
+      console.log('  가입   누구나 (가입 코드 없음)  ← 주소를 아는 사람은 다 만듭니다');
+      console.log('  닫으려면: node tools/serve.js --setup --close-signup');
+    } else if (!cur.pairSecret) {
       console.log('');
       console.log('  가입 코드를 새로 만들었습니다 — 이 값을 아는 사람만 계정을 만들 수 있습니다:');
       console.log('    ' + cfg.pairSecret);
@@ -131,7 +142,11 @@ async function setup() {
 
   const cfg = cfg0;
 
-  if (!cur.pairSecret) {
+  if (cfg.openSignup) {
+    console.log('가입을 열어 둔 상태입니다 — 주소를 아는 사람은 누구나 계정을 만듭니다.');
+    console.log('닫으려면:  node tools/serve.js --setup --close-signup');
+    console.log('');
+  } else if (!cur.pairSecret) {
     console.log('가입 코드를 새로 만들었습니다:');
     console.log('');
     console.log('    ' + cfg.pairSecret);
@@ -252,6 +267,7 @@ function envFor(cfg) {
   if (cfg.owner) e.OWNER = cfg.owner;
   if (cfg.ownerContact) e.OWNER_CONTACT = cfg.ownerContact;
   if (cfg.anthropicKey) e.ANTHROPIC_API_KEY = cfg.anthropicKey;
+  if (cfg.openSignup) e.OPEN_SIGNUP = '1';
   if (cfg.vapidPublic && cfg.vapidPrivate) {
     e.VAPID_PUBLIC = cfg.vapidPublic;
     e.VAPID_PRIVATE = cfg.vapidPrivate;

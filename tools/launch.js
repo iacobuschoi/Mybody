@@ -5,7 +5,7 @@
  *
  * 하는 일 (없는 것만 알아서 만듭니다)
  *   1. 이 컴퓨터가 띄울 수 있는지 봅니다
- *   2. 설정이 없으면 만듭니다 (가입 코드 자동 생성, 이름은 안 겁니다)
+ *   2. 설정이 없으면 만듭니다 (이름은 안 겁니다)
  *   3. 알림 열쇠가 없으면 만듭니다
  *   4. 배포 빌드가 낡았으면 다시 만듭니다
  *   5. 서버를 띄웁니다
@@ -16,6 +16,18 @@
  *   serve.js 는 "서버를 띄운다" 하나만 합니다. 그건 그대로 두는 편이
  *   낫습니다 — 고칠 때 무엇을 건드리는지가 분명하니까요. 여기는 그
  *   위에서 순서를 잡는 자리입니다.
+ *
+ * 가입
+ *   기본은 **코드 없이 가입** 입니다. 주인이 그렇게 정했습니다 — 친구에게
+ *   주소 한 줄만 보내면 됩니다. 대신 **주소를 아는 사람은 누구나 계정을
+ *   만들 수 있습니다.** 내 몸 숫자를 보는 것은 아니지만(친구 맺기는
+ *   초대 코드가 따로 필요합니다), 모르는 사람 계정이 쌓일 수 있습니다.
+ *   닫고 싶으면:  node tools/launch.js --pair-code
+ *
+ * 상시 접속
+ *   주인이 컴퓨터를 계속 켜 두기로 했습니다. 그래서 배포 전 점검의
+ *   "컴퓨터가 꺼지면 친구도 못 봅니다" 잔소리를 끕니다. 껐다 켰다 할
+ *   거면:  node tools/launch.js --not-always-on
  *
  * 임시 터널 주의
  *   도메인 없이 쓰면 주소가 **띄울 때마다 바뀝니다.** 브라우저는 기록을
@@ -80,12 +92,37 @@ function installHint() {
 function prepare() {
   let { cfg } = CONFIG.load();
 
+  /* 주인이 정한 두 가지를 여기서 설정에 박습니다.
+     설정 파일은 이 컴퓨터에만 있고 git 에 안 들어갑니다. 그래서
+     "어떻게 띄울지" 는 설정이 아니라 **이 스크립트** 가 알아야
+     합니다 — 안 그러면 새 컴퓨터에서 처음 띄울 때 조용히 예전
+     기본값으로 돌아갑니다. */
+  const wantOpen = !has('pair-code');
+  const wantAlwaysOn = !has('not-always-on');
+
   if (!cfg.pairSecret) {
     line('설정이 없어서 만듭니다 (한 번만 합니다)');
-    const r = run('serve.js', ['--setup', '--no-owner']);
+    const setupArgs = ['--setup', '--no-owner',
+                       wantOpen ? '--open-signup' : '--close-signup'];
+    if (wantAlwaysOn) setupArgs.push('--always-on');
+    const r = run('serve.js', setupArgs);
     process.stdout.write(r.stdout || '');
     if (r.status !== 0) { process.stderr.write(r.stderr || ''); process.exit(1); }
     cfg = CONFIG.load().cfg;
+  } else if (!!cfg.openSignup !== wantOpen || !!cfg.alwaysOn !== wantAlwaysOn) {
+    /* 이미 설정이 있는 컴퓨터에서 마음을 바꿔 다시 띄울 때.
+       설정을 처음 만들 때만 반영하면, 이미 설정이 있는 컴퓨터에서는
+       --pair-code 를 붙여도 아무것도 안 바뀝니다. 켜는 쪽만 반영하면
+       되돌리는 깃발이 조용히 먹통이 되므로 양쪽 다 따라갑니다. */
+    const was = !!cfg.openSignup;
+    cfg.openSignup = wantOpen;
+    cfg.alwaysOn = wantAlwaysOn;
+    try { CONFIG.save(cfg); } catch (e) {}
+    cfg = CONFIG.load().cfg;
+    if (was !== wantOpen) {
+      line(wantOpen ? '가입을 열었습니다 (코드 없이 가입)'
+                    : '가입을 닫았습니다 (코드가 필요합니다)');
+    }
   }
 
   if (!cfg.vapidPublic || !cfg.vapidPrivate) {
@@ -170,7 +207,15 @@ function main() {
       } catch (e) {}
 
       line('');
-      box([
+      box(cfg.openSignup ? [
+        '친구에게 이 줄을 보내세요',
+        '',
+        '  주소  ' + url,
+        '',
+        '가입 코드는 없습니다 — 주소만 있으면 계정을 만듭니다.',
+        '폰에서 열고 "앱처럼 깔기" 를 누르면 아이콘이 생깁니다.',
+        '아이폰은 공유 → 홈 화면에 추가.'
+      ] : [
         '친구에게 이 두 줄을 보내세요',
         '',
         '  주소      ' + url,
@@ -180,6 +225,15 @@ function main() {
         '아이폰은 공유 → 홈 화면에 추가.'
       ]);
       line('');
+      /* 열어 둔 것은 주소를 찍을 때마다 같이 찍습니다.
+         설정 파일 안에만 있으면 몇 주 뒤엔 열어 둔 줄도 잊습니다. */
+      if (cfg.openSignup) {
+        line('⚠ 가입 코드를 꺼 둔 상태입니다 — 이 주소를 아는 사람은 누구나');
+        line('  계정을 만들 수 있습니다. 내 숫자를 보는 것은 아니지만');
+        line('  (친구 맺기는 초대 코드가 따로 필요합니다) 모르는 계정이 쌓일 수 있습니다.');
+        line('  닫으려면 이 창을 끄고:  node tools/launch.js --pair-code');
+        line('');
+      }
       line('⚠ 이 주소는 **끌 때까지만** 살아 있고, 다시 띄우면 바뀝니다.');
       line('  주소가 바뀌면 친구들 폰에서 그동안의 기록이 안 보이게 됩니다');
       line('  (브라우저가 주소별로 따로 저장합니다).');

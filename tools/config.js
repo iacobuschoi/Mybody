@@ -33,6 +33,12 @@ const DEFAULTS = {
   /* 폰 알림(웹푸시) 열쇠. 없으면 알림 기능 전체가 꺼진 채로 돕니다. */
   vapidPublic: '',
   vapidPrivate: '',
+  /* 가입 코드를 없애기로 **정했다** 는 표시. 빈 값(깜빡함)과 구분합니다 —
+     빈 값이면 서버가 아예 안 뜨고, 이건 켜야 열립니다. */
+  openSignup: false,
+  /* 컴퓨터를 계속 켜 두기로 정했다는 표시. 배포 전 점검의 "상시 접속"
+     경고가 이걸 보고 잔소리를 멈춥니다. */
+  alwaysOn: false,
   anthropicKey: '',
   origin: '',
   trustProxy: false,
@@ -69,6 +75,12 @@ function load() {
   take('ownerContact', 'OWNER_CONTACT');
   if (/^(1|true|yes)$/i.test(String(process.env.OWNER_OMIT || ''))) {
     cfg.ownerOmitted = true; from.ownerOmitted = '환경변수 OWNER_OMIT';
+  }
+  if (/^(1|true|yes)$/i.test(String(process.env.OPEN_SIGNUP || ''))) {
+    cfg.openSignup = true; from.openSignup = '환경변수 OPEN_SIGNUP';
+  }
+  if (/^(1|true|yes)$/i.test(String(process.env.ALWAYS_ON || ''))) {
+    cfg.alwaysOn = true; from.alwaysOn = '환경변수 ALWAYS_ON';
   }
   take('anthropicKey', 'ANTHROPIC_API_KEY');
   take('origin', 'ORIGIN');

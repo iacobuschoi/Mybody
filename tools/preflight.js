@@ -65,6 +65,8 @@ const CHECKS = [
     why: '앱이 멀쩡해도 서버를 못 띄우면 아무도 못 씁니다' },
   { id: '주간 일정 화면', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-weekplan-ui.js'],
     why: '매일 누르는 칸입니다 — 한 번 안 눌리면 그 날 기록이 통째로 비어 버립니다' },
+  { id: '가입 화면', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-signup-ui.js'],
+    why: '이 서버가 코드를 쓰는지 화면이 모르면, 친구는 받은 적 없는 코드를 넣으라는 빈칸 앞에서 멈춥니다' },
   { id: '판독 화면', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-ocr-ui.js'],
     why: '서버가 잘 읽어도 화면에 판독 버튼이 안 보이면 없는 기능입니다' },
   { id: '배포 빌드', level: 'BLOCK', slow: true, cmd: ['node', 'tools/build-release.js'],
@@ -140,8 +142,15 @@ function staticChecks() {
   //     정규식으로 "그렇게 적혀 있나" 를 보는 것은 확인이 아닙니다 —
   //     실제로 띄워 보고 죽는지 봅니다. (처음엔 정규식으로 했다가,
   //     멀쩡한 코드를 거짓으로 빨갛게 찍었습니다.)
+  //
+  //     OPEN_SIGNUP 은 환경에서 지우고 띄웁니다. 안 지우면 가입을 열어 둔
+  //     사람의 컴퓨터에서는 이 규칙이 저절로 통과해서, 나중에 문지기가
+  //     진짜로 부서져도 아무도 못 알아챕니다. 이 규칙이 보는 것은
+  //     "둘 다 비었을 때 거절하는가" 하나입니다 — 열어 둔 것 자체는
+  //     아래 '가입 열림' 이 따로 말합니다.
   const env = Object.assign({}, process.env);
   delete env.PAIR_SECRET;
+  delete env.OPEN_SIGNUP;
   env.PORT = '8799';
   env.DB = path.join(require('os').tmpdir(), 'preflight-probe.db');
   const probe = spawnSync(process.execPath, [path.join(ROOT, 'server', 'server.js')],
@@ -149,8 +158,8 @@ function staticChecks() {
   out.push({ id: '가입 코드 강제', level: 'BLOCK',
     ok: probe.status !== 0,
     detail: probe.status === 0
-      ? 'PAIR_SECRET 없이도 서버가 떴습니다 — 아무나 계정을 만들 수 있습니다'
-      : 'PAIR_SECRET 없이는 서버가 시작하지 않습니다' });
+      ? 'PAIR_SECRET 도 OPEN_SIGNUP 도 없는데 서버가 떴습니다 — 아무나 계정을 만들 수 있습니다'
+      : '둘 다 비어 있으면 서버가 시작하지 않습니다 (열려면 OPEN_SIGNUP=1 로 분명히 말해야 합니다)' });
 
   // (4) 커밋 안 된 변경 — 지금 올리는 것이 무엇인지 알 수 없게 됩니다
   let dirty = '';
@@ -291,8 +300,34 @@ function staticChecks() {
         ? '복구 코드로 돌아올 수 있습니다. 코드까지 잃으면 서버 주인이 DB 를 손봐야 합니다'
         : '없습니다. 잊으면 서버 주인이 DB 에서 지우고 다시 만들어야 합니다' });
   }
-  out.push({ id: '상시 접속', level: 'WARN', ok: false,
-    detail: '컴퓨터가 꺼지면 친구도 못 봅니다' });
+  /* "컴퓨터가 꺼지면 친구도 못 봅니다" 는 맞는 말이지만, 계속 켜 두기로
+     정한 사람에게는 매번 같은 잔소리입니다. 정했으면 그렇게 적어 둡니다. */
+  {
+    let alwaysOn = /^(1|true|yes)$/i.test((process.env.ALWAYS_ON || '').trim());
+    if (!alwaysOn) {
+      try { alwaysOn = !!require('./config.js').load().cfg.alwaysOn; } catch (e) {}
+    }
+    if (!alwaysOn) {
+      out.push({ id: '상시 접속', level: 'WARN', ok: false,
+        detail: '컴퓨터가 꺼지면 친구도 못 봅니다 ' +
+                '(계속 켜 둘 거면 serve --setup --always-on)' });
+    }
+  }
+
+  /* 가입을 열어 뒀으면 그 사실이 매번 보여야 합니다. 설정 파일 안에만
+     있으면 몇 주 뒤엔 자기가 열어 뒀다는 것도 잊습니다. */
+  {
+    let open = /^(1|true|yes)$/i.test((process.env.OPEN_SIGNUP || '').trim());
+    if (!open) {
+      try { open = !!require('./config.js').load().cfg.openSignup; } catch (e) {}
+    }
+    if (open) {
+      out.push({ id: '가입 열림', level: 'WARN', ok: false,
+        detail: '가입 코드를 껐습니다 — 주소를 아는 사람은 누구나 계정을 만듭니다. ' +
+                '터널 주소는 무작위처럼 보여도 스캔당합니다. ' +
+                '다시 닫으려면 serve --setup --close-signup' });
+    }
+  }
   out.push({ id: '사진 백업', level: 'WARN', ok: false,
     detail: '사진은 기기에만 있습니다. 폰을 잃으면 사진도 잃습니다 (숫자는 서버에 남습니다)' });
 
