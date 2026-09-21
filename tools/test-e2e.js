@@ -314,8 +314,13 @@ async function main() {
     await B.page.waitForTimeout(800);
     await ev(A, () => window.MB_SYNC.pull());
     await A.page.waitForTimeout(600);
-    ok('체크를 물려도 소식이 안 생긴다',
-       await ev(A, () => window.MB_NEWS.list(99).length) === before);
+    /* 새 소식이 안 생기는 것에 더해, 근거가 사라진 줄은 거둬들여집니다 —
+       친구가 잘못 눌렀다고 되돌렸는데 "운동했습니다" 가 남아 있으면
+       그 줄은 남의 행동에 대한 거짓말이 됩니다. */
+    const after = await ev(A, () => window.MB_NEWS.list(99));
+    ok('체크를 물리면 소식이 늘지 않는다', after.length <= before, { before, after: after.length });
+    ok('근거가 사라진 줄은 거둬들여진다',
+       after.every(n => n.keptDays <= 0), after.map(n => n.keptDays));
     ok('안 한 것으로는 점도 안 켜진다',
        await ev(A, () => window.MB_NEWS.unread()) === 0);
   }

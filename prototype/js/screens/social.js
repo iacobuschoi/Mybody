@@ -603,9 +603,15 @@
         /* 일정 줄. 공유가 꺼진 친구에게는 줄 자체가 없습니다 —
            "비공개" 같은 회색 표시를 두면 "이 사람은 숨기고 있다" 로
            읽힙니다. 안 켠 것과 숨기는 것은 다릅니다. */
-        var schedLine = (latest && latest.plannedDays != null)
-          ? '이번 주 계획 ' + latest.plannedDays + '일 · 지킴 ' + (latest.keptDays || 0) + '일'
-          : null;
+        var schedLine = null;
+        if (latest && latest.plannedDays != null) {
+          schedLine = '이번 주 계획 ' + latest.plannedDays + '일 · 지킴 ' + (latest.keptDays || 0) + '일';
+          /* 체크 없는 날을 여기까지 올립니다. 사용자가 요청한 "확인" 이
+             친구를 한 명씩 열어 봐야만 되면, 확인하려는 사람은 결국
+             매일 다섯 화면을 돌게 됩니다 — 그게 더 감시에 가깝습니다.
+             숫자는 이미 와 있고, 한 조각 더 적는 것뿐입니다. */
+          if (latest.missedDays) schedLine += ' · 체크 없는 날 ' + latest.missedDays + '일';
+        }
 
         // 3줄 — 보내는 것. 개수 배지("내가 공유 2개")는 없앴습니다 —
         // 숫자 2 는 그 자체로 아무 뜻이 없고, 2줄과 형태가 달라 방향이 안 읽혔습니다.

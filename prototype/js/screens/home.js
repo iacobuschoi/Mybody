@@ -557,8 +557,9 @@
     }
     card.appendChild(row);
 
-    /* 스트릭 — 행동에만 답니다. 몸무게에는 절대 달지 않습니다. */
-    card.appendChild(streakRow());
+    /* 스트릭 — 행동에만 답니다. 몸무게에는 절대 달지 않습니다.
+       설정에서 숨길 수 있습니다 (연속 숫자가 부담인 사람을 위해). */
+    if (!(S.get().settings || {}).hideStreaks) card.appendChild(streakRow());
     return card;
   }
 
@@ -636,7 +637,7 @@
       opts = opts || {};
       var val, sub, warm = st.days > 0 && !opts.stale;
 
-      if (!st.days) { val = '—'; sub = cold; }
+      if (!st.days) { val = '—'; sub = opts.extra || cold; }
       else if (opts.stale) {
         /* 오래된 기록을 현재형으로 말하지 않습니다.
            "3일 연속" 이라고 써 놓고 마지막이 40일 전이면 그건 거짓말입니다.
@@ -653,7 +654,7 @@
         val = st.days + '일 연속';
         sub = name + (st.openToday ? ' · 오늘 남음' : '');
       }
-      if (opts.extra) sub += ' · ' + opts.extra;
+      if (opts.extra && st.days) sub += ' · ' + opts.extra;
 
       return h('div.streak' + (warm ? '.is-on' : ''), [
         h('div.streak__ico', { text: icon }),
@@ -669,7 +670,10 @@
          잘리고, 잘린 설명은 없는 설명입니다. "다시 시작하세요" 는 카드
          본문이 이미 말하고 있으므로 여기서는 날짜만 적습니다. */
       { stale: w.stale,
-        staleSub: w.lastKept ? UI.dateShort(w.lastKept) + '까지' : '' }));
+        staleSub: w.lastKept ? UI.dateShort(w.lastKept) + '까지' : '',
+        /* 끊겨도 안 줄어드는 숫자를 나란히 둡니다. 연속만 보여 주면
+           끊기는 날 그동안 한 일이 통째로 사라진 것처럼 보입니다. */
+        extra: w.last28 ? '4주 중 ' + w.last28 + '일' : null }));
     /* 식단은 "최근 7일 중 N일" 을 같이 적습니다. 어제 하루 빼먹어
        연속이 0인 날에도 7일 중 5일이면 잘 하고 있는 겁니다.
        연속이 0인데 7일 창에 기록이 있으면 그 사람에게 필요한 말은

@@ -116,7 +116,7 @@
     }).sort().reverse();
 
     var out = { days: 0, openToday: false, lastKept: null, missedAt: null,
-                everPlanned: days.length > 0, staleDays: null, stale: false };
+                everPlanned: days.length > 0, staleDays: null, stale: false, last28: 0 };
     /* 쉬는 날은 안 끊지만, 몇 주씩 비어 있는 것은 쉬는 날이 아닙니다.
      *
      * 계획한 날만 세기 때문에, 8월에 사흘 지키고 9월에 이틀 지킨 사람은
@@ -156,6 +156,17 @@
      *
      * 경계는 14일입니다. 이번 주도 지난주도 아니면 지난 기록으로 봅니다.
      * 이 앱의 리듬이 주 단위라 설명할 수 있는 숫자여야 했습니다. */
+    /* 최근 28일 중 며칠 지켰는가.
+     *
+     * 연속 숫자만 보여 주면 끊기는 날 그동안 한 일이 통째로 사라진
+     * 것처럼 보입니다 — 사람이 앱을 닫는 지점이 정확히 거기입니다.
+     * 이 숫자는 끊겨도 안 줄어듭니다. 4주로 잡은 것은 한 달치 리듬이
+     * 보이는 가장 짧은 창이어서입니다. */
+    for (var d2 = 0; d2 < 28; d2++) {
+      var kk = shiftKey(today, -d2), ee = sch[kk];
+      if (ee && isKept({ plan: ee.plan || [], done: ee.done || {} })) out.last28++;
+    }
+
     if (out.lastKept) {
       var a = new Date(out.lastKept + 'T00:00:00');
       var b = new Date(today + 'T00:00:00');

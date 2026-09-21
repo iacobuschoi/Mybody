@@ -243,6 +243,24 @@ const ok = (n, c, d) => {
        (await page.locator(u('P02-C08')).innerText()).includes('유산소는 플랜에'));
   }
 
+  console.log('\n[6-4] 스트릭을 숨길 수 있다');
+  ok('기본은 보임', await page.locator(u('P02-C09')).count() === 1);
+  await page.evaluate(() => {
+    const S = window.MB_STORE;
+    S.set({ settings: Object.assign({}, S.get().settings, { hideStreaks: true }) });
+    window.MB_APP.refresh();
+  });
+  await page.waitForTimeout(300);
+  ok('숨기면 사라진다', await page.locator(u('P02-C09')).count() === 0);
+  ok('일곱 칸은 그대로 남는다', await page.locator(u('P02-L01')).count() === 1);
+  await page.evaluate(() => {
+    const S = window.MB_STORE;
+    S.set({ settings: Object.assign({}, S.get().settings, { hideStreaks: false }) });
+    window.MB_APP.refresh();
+  });
+  await page.waitForTimeout(300);
+  ok('다시 켜면 돌아온다', await page.locator(u('P02-C09')).count() === 1);
+
   console.log('\n[7] 인바디가 없어도 일정은 쓸 수 있다');
   await page.evaluate(() => { localStorage.clear(); });
   await page.reload({ waitUntil: 'load' });

@@ -47,7 +47,27 @@ t('줄어들어도 소식 없음', N.apply(snap('f1', 2), FR, '2026-09-20T13:00:
 t('0 이 되어도 소식 없음', N.apply(snap('f1', 0), FR, '2026-09-20T14:00:00Z') === 0);
 t('계획만 늘어도 소식 없음',
   N.apply(snap('f1', 0, 7), FR, '2026-09-20T15:00:00Z') === 0);
-t('여전히 소식은 한 건뿐', N.list().length === 1, N.list());
+/* 줄어드는 동안 새 소식은 한 건도 안 생겼습니다(위 네 줄이 전부 0).
+   그리고 근거가 사라진 "4일째" 줄은 거둬들여져 있어야 합니다 —
+   자세한 것은 [3-2]. 여기서 볼 것은 "늘어난 것이 없다" 입니다. */
+t('남은 줄이 지금 값보다 큰 숫자를 주장하지 않는다',
+  N.list().every(function (x) { return x.keptDays <= 0; }), N.list());
+
+console.log('\n[3-2] 친구가 체크를 되돌리면 그 소식은 거둬들인다');
+reset();
+N.apply(snap('f1', 1), FR, '2026-09-20T10:00:00Z');
+N.apply(snap('f1', 2), FR, '2026-09-20T11:00:00Z');
+N.apply(snap('f1', 3), FR, '2026-09-20T12:00:00Z');
+t('소식 두 건', N.list().length === 2, N.list().map(x => x.keptDays));
+N.apply(snap('f1', 2), FR, '2026-09-20T13:00:00Z');
+t('3일째 주장은 사라진다', N.list().every(x => x.keptDays <= 2), N.list().map(x => x.keptDays));
+t('아직 참인 2일째는 남는다', N.list().length === 1 && N.list()[0].keptDays === 2, N.list());
+t('거둬들인 것이 되살아나지 않는다', (function () {
+  N.apply(snap('f1', 2), FR, '2026-09-20T14:00:00Z');
+  return N.list().length === 1;
+})(), N.list());
+t('다시 올라가면 새 소식이 된다',
+  N.apply(snap('f1', 3), FR, '2026-09-20T15:00:00Z') === 1);
 
 console.log('\n[4] 주가 바뀌어 0 으로 돌아간 것은 소식이 아니다');
 reset();
