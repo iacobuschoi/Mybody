@@ -510,6 +510,27 @@
       put(f.outgoing, 'outgoing');
       put(f.blocked, 'blocked');
 
+      /* **서버가 더는 모르는 사람은 이 기기에서도 지웁니다.**
+       *
+       * 친구 관계 · 공유 · 스냅샷은 pull 마다 통째로 다시 만드는데,
+       * 사용자 거울(db.users)만 더하기만 했습니다. 그래서 상대가 계정을
+       * 지워도 그 사람의 **표시 이름과 얼굴 사진(base64 JPEG)** 이 내 폰
+       * localStorage 에 영원히 남았습니다.
+       *
+       * 이 파일은 반대 방향에 대해서는 이미 같은 말을 적어 뒀습니다 —
+       * "계정을 지운 기기에 남의 얼굴이 남아 있을 이유가 없습니다".
+       * 그 규칙이 이쪽 방향에만 없었습니다. 남이 지운 계정의 얼굴이
+       * 내 기기에 남아 있을 이유도 없습니다.
+       *
+       * 나 자신은 남깁니다(meId). 그리고 로그아웃이 아니라 pull 성공일
+       * 때만 도므로, 서버에 못 닿아서 목록이 빈 경우와 섞이지 않습니다. */
+      var known = { };
+      known[meId] = true;
+      db.friendships.forEach(function (fr) { known[fr.bId] = true; });
+      Object.keys(db.users).forEach(function (uid) {
+        if (!known[uid]) delete db.users[uid];
+      });
+
       // 서버가 걸러서 준 친구 스냅샷. 내 것은 publishWeekly 가 따로 올립니다.
       db.snapshots = (db.snapshots || []).filter(function (x) { return x.ownerId === meId; });
       (snap.snapshots || []).forEach(function (s2) {

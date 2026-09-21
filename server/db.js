@@ -362,6 +362,7 @@ function makeApi(db) {
       'ON CONFLICT(day, who) DO UPDATE SET n = n + 1'),
     getOcr: db.prepare('SELECT n FROM ocr_usage WHERE day=? AND who=?'),
     pruneOcr: db.prepare('DELETE FROM ocr_usage WHERE day < ?'),
+    deleteOcrOf: db.prepare('DELETE FROM ocr_usage WHERE who=?'),
 
     upsertSnap: db.prepare(
       'INSERT INTO snapshots (owner_id,week_start,payload,computed_at) VALUES (?,?,?,?) ' +
@@ -623,7 +624,17 @@ function makeApi(db) {
       if (avatar !== undefined) q.updateAvatar.run(checkAvatar(avatar), uid);
       return pub(q.userById.get(uid));
     },
-    deleteMe(uid) { q.deleteUser.run(uid); },      // 연쇄 삭제로 친구·공유·스냅샷·기록 전부 사라짐
+    /* 연쇄 삭제로 친구·공유·스냅샷·기록은 전부 사라집니다.
+       **판독 횟수는 안 사라집니다.** ocr_usage 만 users 를 참조하지 않아서
+       외래키가 없고, 그날 치 행은 다음 날 청소 전까지 남습니다 —
+       `{ day: '2026-09-21', who: 'user_e73fe…', n: 1 }`.
+       한 줄이고 그날 안에 지워질 것이긴 한데, 바로 그것이 이 파일이
+       "안 남기기로 했다" 고 적어 둔 종류의 기록입니다(bumpOcr 주석).
+       탈퇴는 "이제 없다" 여야 하고, 그 말에 예외를 두지 않습니다. */
+    deleteMe(uid) {
+      q.deleteOcrOf.run(uid);
+      q.deleteUser.run(uid);
+    },
 
     areFriends(a, b) {
       const [x, y] = pair(a, b);

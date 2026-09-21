@@ -86,6 +86,10 @@ const CHECKS = [
   { id: '옮기는 앱 화면', level: 'BLOCK', slow: true, minutes: 20,
     cmd: ['node', 'tools/test-flutter.js'],
     why: 'Flutter 로 옮기는 화면들 — 폰 없이 잡히는 것은 여기서 잡습니다 (Flutter 가 없으면 건너뜁니다)' },
+  { id: '지운 것이 지워지는가', level: 'BLOCK', slow: false,
+    cmd: ['node', 'tools/test-forget.js'],
+    why: '탈퇴하면 서버에 판독 횟수가 안 남는가. 상대가 탈퇴하면 내 기기에서도 ' +
+         '그 사람의 이름과 얼굴 사진이 사라지는가. 못 지킨 약속은 안 한 약속보다 나쁩니다' },
   { id: '앱 글꼴', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-fontcover.js'],
     why: '앱이 그리는 글자가 앱 글꼴 안에 다 있는가. 없으면 폰에서 네모가 되거나 ' +
          '구글에서 받아 옵니다 — 망이 막힌 곳과 안 막힌 곳 둘 다 문제입니다' },
