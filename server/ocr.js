@@ -80,19 +80,66 @@ function authHeaders(apiKey, workspace) {
  * 않습니다. 종류(type)만 보고 우리가 쓴 문장을 돌려줍니다. 잔액 문제는
  * 종류가 invalid_request_error 하나로 뭉뚱그려져 오기 때문에, 그때만
  * 원문에서 정해진 표식을 찾아봅니다. */
+/* 워크스페이스 때문에 나는 오류는 **세 갈래**이고, 할 일이 전부 다릅니다.
+   한 문장으로 뭉치면 주인이 엉뚱한 데를 고칩니다. 실제로 그럴 뻔했습니다 —
+   워크스페이스 번호를 잘못 넣으면 404 가 오는데, 그건 여기 손대기 전까지
+   "판독 모델 이름을 못 찾았습니다 — OCR_MODEL 값을 확인하세요" 로 나갔습니다.
+   모델은 멀쩡한데 모델을 보라고 한 셈입니다.
+
+   앤트로픽 문서(platform.claude.com/docs/en/manage-claude/authentication,
+   "Select a workspace")가 세 경우를 이렇게 적어 둡니다:
+     · 헤더를 안 보냄        → 400 invalid_request_error
+     · 값의 형식이 틀림      → 400 "anthropic-workspace-id header must be
+                                a valid workspace ID."
+     · 없거나 권한이 없음    → 404 not_found_error "Workspace `<id>` not found."
+   문구는 바뀔 수 있으므로 넓게 봅니다. */
+function workspaceTrouble(status, msg) {
+  if (/must be a valid workspace id/i.test(msg)) {
+    return '서버에 넣어 둔 워크스페이스 번호의 형식이 틀렸습니다 — ' +
+           'wrkspc_ 로 시작하는 값이어야 합니다. node tools/workspaces.js 로 ' +
+           '쓸 수 있는 번호를 확인하세요';
+  }
+  if (status === 404 && /workspace/i.test(msg)) {
+    return '그 워크스페이스를 찾지 못했습니다 — 없거나, 이 키로는 들어갈 수 ' +
+           '없습니다. node tools/workspaces.js 로 쓸 수 있는 목록을 보세요';
+  }
+  if (/not scoped to a workspace|anthropic-workspace-id/i.test(msg)) {
+    return '판독 키가 워크스페이스에 묶여 있지 않습니다 — ' +
+           'node tools/workspaces.js 로 워크스페이스 번호를 넣거나, ' +
+           '콘솔 Settings > API keys 에서 워크스페이스를 지정해 키를 새로 만드세요';
+  }
+  return null;
+}
+
 function explain(status, err) {
   const type = (err && err.type) || '';
   const msg = String((err && err.message) || '');
+
+  /* 워크스페이스를 **먼저** 봅니다. 아래 잔액 검사가 넓은 그물이라,
+     워크스페이스 한도 문구가 거기 먼저 걸리면 엉뚱한 안내가 나갑니다. */
+  const ws = workspaceTrouble(status, msg);
+  if (ws) return ws;
+
   /* 잔액 문제는 종류가 invalid_request_error 하나로 뭉뚱그려져 오므로
      문장에서 찾습니다. 앤트로픽이 문구를 바꿔도 걸리게 넓게 봅니다 —
      이 한 줄이 "무엇을 해야 하는지" 를 아는 유일한 단서입니다. */
-  if (/credit|balance|billing|quota|funds|payment/i.test(msg)) {
+  if (/credit|balance|billing|quota|funds|payment|spend limit/i.test(msg)) {
+    /* 조직에 돈이 없는 것과, 워크스페이스에 걸어 둔 월 한도에 닿은 것은
+       할 일이 다릅니다. 앞은 결제, 뒤는 그 워크스페이스의 Spend limits 탭. */
+    if (/workspace|spend limit/i.test(msg)) {
+      return '워크스페이스의 월 지출 한도에 닿았습니다 — 콘솔의 ' +
+             'Settings > Workspaces 에서 그 워크스페이스의 Spend limits 를 보세요';
+    }
     return '판독 계정에 돈이 없거나 결제에 문제가 있습니다 — ' +
-           'console.anthropic.com/settings/billing 에서 확인하세요';
+           '콘솔(platform.claude.com)에서 결제 상태를 확인하세요';
   }
   switch (type) {
     case 'authentication_error':
-      return '이 서버의 판독 키가 거부되었습니다 — 키가 지워졌거나 틀렸습니다';
+      /* 키에는 이제 유효기간이 있습니다 (만들 때 3시간·1일·7일·30일·Never
+         중에서 고릅니다). 지난 키는 401 로 돌아오고, 다시 살릴 수 없습니다 —
+         "지워졌거나 틀렸습니다" 만 말하면 멀쩡히 넣어 둔 키를 의심하게 됩니다. */
+      return '이 서버의 판독 키가 거부되었습니다 — 지워졌거나, 틀렸거나, ' +
+             '유효기간이 지났습니다';
     case 'permission_error':
       return '이 키로는 그 판독 모델을 쓸 수 없습니다 (OCR_MODEL 로 바꿀 수 있습니다)';
     case 'not_found_error':
@@ -103,12 +150,7 @@ function explain(status, err) {
       return '판독 서비스가 지금 밀려 있습니다. 잠시 뒤에 다시 해 주세요';
     case 'invalid_request_error':
       /* 이 한 종류 안에 "무엇을 해야 하는지" 가 전혀 다른 것들이 섞여
-         옵니다. 알아볼 수 있는 것은 알아보고 말해 줍니다. */
-      if (/not scoped to a workspace|anthropic-workspace-id/i.test(msg)) {
-        return '판독 키가 워크스페이스에 묶여 있지 않습니다 — ' +
-               '콘솔에서 워크스페이스를 하나 만들고 **그 안에서** 키를 새로 발급하세요 ' +
-               '(거기에만 월 지출 한도를 걸 수 있습니다)';
-      }
+         옵니다. 알아볼 수 있는 것은 위에서 이미 알아봤습니다. */
       return '판독 요청이 거절되었습니다 — 서버 화면의 [ocr] 줄을 보세요';
     case 'api_error':
       return '판독 서비스 쪽 오류입니다. 잠시 뒤에 다시 해 주세요';
@@ -116,6 +158,7 @@ function explain(status, err) {
       return '판독에 실패했습니다 (' + (status || '?') + ') — 서버 화면의 [ocr] 줄을 보세요';
   }
 }
+
 
 /**
  * 키가 살아 있고 그 모델을 쓸 수 있는가. 판독을 돌리기 전에 확인합니다.

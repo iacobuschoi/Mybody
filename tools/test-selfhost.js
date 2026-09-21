@@ -605,7 +605,17 @@ function hostGet(port, p2, host) {
           const read = async base => {
             const ctx = await b.newContext({ viewport: { width: 390, height: 844 } });
             const pg = await ctx.newPage();
+            /* 배포 빌드는 앱 화면보다 **설치 안내(P22)** 를 먼저 띄웁니다.
+               링크를 받은 친구가 실제로 제일 먼저 보는 것이 그 화면입니다.
+               여기서 보려는 것은 그다음 — "브라우저에서 바로 쓰기" 를 누른
+               친구가 http 주소에서 무엇을 겪는가 — 이므로, 그 선택을 먼저
+               해 둡니다. 안 그러면 앱 셸이 아직 없는 상태에서 화면을 뒤지다
+               엉뚱한 곳에서 터집니다 (실제로 그렇게 터졌습니다). */
             await pg.goto(base + '/', { waitUntil: 'load' });
+            await pg.evaluate(() => {
+              try { localStorage.setItem('mybody.usebrowser.v1', 'yes'); } catch (e) {}
+            });
+            await pg.reload({ waitUntil: 'load' });
             await wait(1500);
             const r = await pg.evaluate(async () => {
               window.MB_APP.go('P12');

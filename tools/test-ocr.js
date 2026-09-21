@@ -191,8 +191,13 @@ async function main() {
   const broke2 = await call('POST', '/ocr', shot(), t);
   ok('잔액 문제면 그렇다고 말한다',
      /돈이 없거나 결제/.test(JSON.stringify(broke2.json)), broke2.json);
+  /* 어느 주소를 대는지까지 봅니다. "돈 문제입니다" 만 말하고 어디로
+     가라는 말이 없으면 주인은 검색부터 해야 합니다.
+     주소는 **도메인까지만** 댑니다 — 콘솔의 결제 페이지 경로는 문서에서
+     확인하지 못했고, 확인 못 한 경로를 적어 두면 틀렸을 때 그게 더
+     오래 걸립니다. 키·워크스페이스 경로는 문서에 있어서 따로 댑니다. */
   ok('확인할 곳까지 알려준다',
-     /console\.anthropic\.com\/settings\/billing/.test(JSON.stringify(broke2.json)), broke2.json);
+     /platform\.claude\.com/.test(JSON.stringify(broke2.json)), broke2.json);
   {
     /* 앤트로픽이 문구를 바꿔도 걸려야 합니다. "credit balance is too low"
        한 문장에만 맞춰 두면 그 문장이 바뀌는 날 다시 "판독에 실패했습니다"
@@ -239,7 +244,52 @@ async function main() {
   ok('워크스페이스에 안 묶인 키면 그렇다고 말한다',
      /워크스페이스에 묶여 있지 않습니다/.test(JSON.stringify(noWs.json)), noWs.json);
   ok('무엇을 하면 되는지까지 말한다',
-     /워크스페이스를 하나 만들고/.test(JSON.stringify(noWs.json)), noWs.json);
+     /workspaces\.js/.test(JSON.stringify(noWs.json)), noWs.json);
+
+  /* 워크스페이스 오류는 **세 갈래**이고 할 일이 전부 다릅니다.
+     하나로 뭉쳐 놓으면 번호를 잘못 넣은 사람이 키를 새로 만들러 갑니다.
+
+     특히 404 는 위험했습니다 — 예전 코드는 not_found_error 를 전부
+     "판독 모델 이름을 못 찾았습니다 — OCR_MODEL 값을 확인하세요" 로
+     보냈습니다. 워크스페이스 번호에 오타가 났을 뿐인데 멀쩡한 모델
+     이름을 들여다보게 만드는 안내입니다. */
+  nextReply = { status: 400, body: { error: { type: 'invalid_request_error',
+    message: 'anthropic-workspace-id header must be a valid workspace ID.' } } };
+  const badWs = await call('POST', '/ocr', shot(), t);
+  ok('워크스페이스 값의 형식이 틀리면 형식을 말한다',
+     /형식이 틀렸습니다/.test(JSON.stringify(badWs.json)), badWs.json);
+  ok('형식 오류를 "키를 새로 만들라" 로 보내지 않는다',
+     !/키를 새로|묶여 있지 않습니다/.test(JSON.stringify(badWs.json)), badWs.json);
+
+  nextReply = { status: 404, body: { error: { type: 'not_found_error',
+    message: 'Workspace `wrkspc_01ZZZ` not found.' } } };
+  const goneWs = await call('POST', '/ocr', shot(), t);
+  ok('없는 워크스페이스면 워크스페이스를 가리킨다',
+     /워크스페이스를 찾지 못했습니다/.test(JSON.stringify(goneWs.json)), goneWs.json);
+  ok('없는 워크스페이스를 OCR_MODEL 탓으로 돌리지 않는다',
+     !/OCR_MODEL/.test(JSON.stringify(goneWs.json)), goneWs.json);
+
+  /* 반대로 **진짜** 모델 404 는 여전히 모델을 가리켜야 합니다.
+     위 갈래를 넓게 잡다가 이쪽을 삼키면 고친 게 아니라 옮긴 것입니다. */
+  nextReply = { status: 404, body: { error: { type: 'not_found_error',
+    message: 'model: claude-does-not-exist' } } };
+  const noModel2 = await call('POST', '/ocr', shot(), t);
+  ok('진짜 모델 404 는 아직 모델을 가리킨다',
+     /OCR_MODEL/.test(JSON.stringify(noModel2.json)), noModel2.json);
+
+  /* 워크스페이스 월 한도와 조직 잔액은 갈 곳이 다릅니다.
+     한도는 그 워크스페이스의 Spend limits, 잔액은 결제. */
+  nextReply = { status: 400, body: { error: { type: 'invalid_request_error',
+    message: 'This workspace has reached its monthly spend limit.' } } };
+  const capped = await call('POST', '/ocr', shot(), t);
+  ok('워크스페이스 지출 한도면 한도를 가리킨다',
+     /지출 한도에 닿았습니다/.test(JSON.stringify(capped.json)), capped.json);
+
+  nextReply = { status: 400, body: { error: { type: 'invalid_request_error',
+    message: 'Your credit balance is too low to access the API.' } } };
+  const broke3 = await call('POST', '/ocr', shot(), t);
+  ok('조직 잔액이면 결제를 가리킨다',
+     /돈이 없거나/.test(JSON.stringify(broke3.json)), broke3.json);
 
   nextReply = { status: 403, body: { error: { type: 'permission_error', message: 'x' } } };
   const noPerm = await call('POST', '/ocr', shot(), t);

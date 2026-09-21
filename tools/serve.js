@@ -61,6 +61,11 @@ if (process.argv.includes('--show')) {
   console.log('  운영자         ' + (c.owner || '(없음)'));
   console.log('  연락처         ' + (c.ownerContact || '(없음)'));
   console.log('  자동 판독 키    ' + mask(c.anthropicKey));
+  /* 워크스페이스는 안 보여 주고 있었습니다. 그런데 판독이 안 될 때
+     제일 먼저 보고 싶은 값이 이겁니다 — 넣었는지, 오타가 났는지.
+     가릴 이유도 없습니다. 비밀이 아니라 그냥 번호입니다. */
+  console.log('  워크스페이스     ' + (c.anthropicWorkspace ||
+    '(없음 — 워크스페이스 안에서 만든 키라면 이게 맞습니다)'));
   console.log('  공개 주소       ' + (c.origin || '(같은 출처만)'));
   console.log('  터널 뒤         ' + (c.trustProxy ? '예' : '아니오'));
   console.log('');
@@ -174,6 +179,7 @@ async function setup() {
     if (GIVEN.length) {
       GIVEN.forEach(k => {
         if (k === 'key') console.log('  자동 판독 키   ' + mask(cfg.anthropicKey));
+        else if (k === 'workspace') console.log('  워크스페이스   ' + (cfg.anthropicWorkspace || '(비웠습니다)'));
         else if (k === 'origin') console.log('  공개 주소      ' + (cfg.origin || '(없음)'));
         else if (k === 'static') console.log('  내보낼 폴더    ' + cfg.static);
         else if (k === 'always-on') console.log('  상시 접속      켜 둔다고 했습니다');

@@ -73,6 +73,8 @@ const CHECKS = [
     why: '이 서버가 코드를 쓰는지 화면이 모르면, 친구는 받은 적 없는 코드를 넣으라는 빈칸 앞에서 멈춥니다' },
   { id: '판독 화면', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-ocr-ui.js'],
     why: '서버가 잘 읽어도 화면에 판독 버튼이 안 보이면 없는 기능입니다' },
+  { id: '워크스페이스 찾기', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-workspaces.js'],
+    why: '판독이 막힌 사람이 마지막으로 쥐는 도구입니다 — 여기서도 "안 됩니다" 만 나오면 갈 데가 없습니다' },
   { id: '배포 빌드', level: 'BLOCK', slow: true, cmd: ['node', 'tools/build-release.js'],
     why: '빌드가 안 되면 올릴 것이 없습니다' },
   { id: '배포 빌드 검증', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-release.js'],

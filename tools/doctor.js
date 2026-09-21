@@ -205,20 +205,33 @@ function add(level, ok, id, detail, todo) {
       '       사진에서 자동으로 읽게 하려면:\n' +
       '         node tools/serve.js --setup --key\n' +
       '       (값을 안 붙이면 가려서 물어봅니다 — 셸 기록에 안 남습니다)\n' +
-      '       키는 https://console.anthropic.com/settings/keys 에서 받습니다.');
+      '       키는 https://platform.claude.com/settings/keys 에서 받습니다.');
   } else {
     const probe = checkOcrKey(key, model);
     if (probe.ok) {
-      add('INFO', true, '자동 판독', probe.why);
+      add('INFO', true, '자동 판독', probe.why +
+        (CFG.anthropicWorkspace ? '  (워크스페이스 ' + CFG.anthropicWorkspace + ')' : ''));
     } else {
       /* 키를 넣어 둔 사람에게 이건 "선택" 이 아닙니다 — 쓰려고 넣었는데
          안 되는 상태입니다. 그래서 WARN 으로 올립니다. */
       /* 앤트로픽이 한 말을 그대로 보여 줍니다. 여기는 주인만 보는
          자리이고, 무엇을 해야 하는지가 대개 그 한 줄에 다 있습니다. */
+      /* 워크스페이스 문제는 **할 일이 다릅니다.** 키를 새로 만들 일이
+         아니라 번호를 넣을 일입니다. 아래의 일반 안내("키를 바꾸려면")
+         를 먼저 보여 주면, 주인은 멀쩡한 키를 또 새로 만들러 갑니다 —
+         실제로 한 번 그렇게 됐습니다. 그래서 이 경우만 앞으로 뺍니다. */
+      const wsTrouble = /workspace/i.test(String(probe.raw || '') + String(probe.why || ''));
       add('WARN', false, '자동 판독', probe.why,
         (probe.raw ? '앤트로픽이 한 말: ' + probe.raw + '\n' : '') +
         (probe.model ? '       물어본 모델: ' + probe.model + '\n' : '') +
-        '       키를 바꾸려면:  node tools/serve.js --setup --key   (가려서 물어봅니다)\n' +
+        (CFG.anthropicWorkspace
+          ? '       지금 넣어 둔 워크스페이스: ' + CFG.anthropicWorkspace + '\n' : '') +
+        (wsTrouble
+          ? '       → 이건 키 문제가 아니라 워크스페이스 문제입니다. 키는 그대로 두세요:\n' +
+            '         node tools/workspaces.js          쓸 수 있는 목록을 봅니다\n' +
+            '         node tools/workspaces.js --set    골라서 넣습니다\n' +
+            '         node tools/workspaces.js --create=mybody   없으면 하나 만듭니다\n'
+          : '       키를 바꾸려면:  node tools/serve.js --setup --key   (가려서 물어봅니다)\n') +
         '       더 싼 모델로:   OCR_MODEL=claude-sonnet-5 node tools/serve.js\n' +
         '       그냥 둬도 앱은 돕니다 — 숫자를 직접 넣으면 됩니다.');
     }
