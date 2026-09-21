@@ -1502,6 +1502,11 @@
     macrosFor: macrosFor, workoutFor: workoutFor, dietFor: dietFor, resolveTraining: resolveTraining,
     baseSmmRatePerWeek: baseSmmRatePerWeek,
     stepWeek: stepWeek,            // 검증 하네스(tools/validate.js)용 노출 — 로직 변경 없음
+    /* 차이 검사(tools/difftest.js)용 노출 — 로직 변경 없음.
+       옮긴 Dart 와 같은 답을 내는지 이 함수들을 직접 불러서 비교합니다.
+       compareLevels 만으로는 어느 층에서 갈렸는지 알 수가 없습니다. */
+    simulateSimultaneous: simulateSimultaneous, simulateSplit: simulateSplit,
+    bestAt: bestAt, scanCurve: scanCurve, snapshot: snapshot,
     addWeeks: addWeeks, toISODate: toISODate, daysUntil: daysUntil, r1: r1
   };
 })(window);

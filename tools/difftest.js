@@ -102,7 +102,7 @@ const BREAKERS = [
   (s, rnd) => { const k = FIELDS[(rnd() * FIELDS.length) | 0]; s[k] = 0.0001; }
 ];
 
-function makeCases(n, seed) {
+function makeScanCases(n, seed) {
   const rnd = rng(seed);
   const out = [];
   /* 손으로 고른 경계값들 — 무작위가 잘 안 만드는 것들입니다. */
@@ -158,6 +158,121 @@ function makeCases(n, seed) {
   return out.slice(0, n);
 }
 
+/* --- 계획 엔진용 사례 -------------------------------------------------------
+ *
+ * 검산(crosscheck)은 결과지 한 장이면 되지만, 계획 엔진은 **사람**이
+ * 필요합니다 — 훈련연령, 나이, 주당 운동일수, 목표. 그래서 사례 모양이
+ * 다릅니다.
+ *
+ * 한 가지 규칙을 지킵니다: **앞 단계의 출력은 미리 계산해서 사례 파일에
+ * 적어 둡니다.** stepWeek 을 시험하는데 params 를 양쪽이 각자 만들면,
+ * 갈렸을 때 stepWeek 이 틀린 건지 paramsAt 이 틀린 건지 알 수가 없습니다.
+ * 층마다 따로 세워서 따로 무너뜨립니다.
+ * -------------------------------------------------------------------------- */
+
+function planProfile(rnd, base) {
+  const p = {};
+  if (rnd() > 0.1) p.heightCm = base.heightCm;
+  if (rnd() > 0.15) p.sex = rnd() > 0.5 ? 'male' : 'female';
+  if (rnd() > 0.2) p.age = Math.round(15 + rnd() * 55);          // 미성년·고령 둘 다
+  const tas = ['novice', 'intermediate', 'advanced', 'elite'];
+  const ta = rnd();
+  if (ta > 0.2) p.trainingAge = tas[(rnd() * tas.length) | 0];
+  else if (ta > 0.1) p.trainingAge = 'nonsense';                 // 모르는 값 → intermediate
+  const ls = ['sedentary', 'light', 'moderate', 'active', 'veryActive'];
+  if (rnd() > 0.15) p.activityLevel = ls[(rnd() * ls.length) | 0];
+  else if (rnd() > 0.5) p.activityLevel = 'nonsense';
+  if (rnd() > 0.25) p.daysPerWeek = Math.round(rnd() * 7);        // 0 도 나옵니다
+  /* 저항운동 게이트는 **없음 / null / 숫자**를 다르게 다룹니다.
+     Dart Map 에서는 앞의 둘이 같아 보이므로 여기서 반드시 셋 다 만듭니다. */
+  const roll = rnd();
+  if (roll > 0.66) p.resistanceDaysPerWeek = Math.round(rnd() * 7);
+  else if (roll > 0.33) p.resistanceDaysPerWeek = null;
+  if (rnd() > 0.85) p.hadPriorPeak = true;
+  if (rnd() > 0.8) p.sessionMinutes = Math.round(30 + rnd() * 60);
+  return p;
+}
+
+/** 몸만들기 모드의 제약. modes.js 가 주는 모양입니다. */
+function planCon(rnd) {
+  if (rnd() > 0.6) return null;
+  const con = {};
+  if (rnd() > 0.2) { con.aMin = rnd() * 0.5; con.aMax = con.aMin + rnd() * 0.5; }
+  if (rnd() > 0.7) { con.aMax = con.aMin; }                       // 폭 0 → span 1 로 떨어져야
+  if (rnd() > 0.3) { con.proteinPerFfmMin = 1.6 + rnd(); con.proteinPerFfmMax = con.proteinPerFfmMin + rnd(); }
+  if (rnd() > 0.6) con.strategy = ['auto', 'simultaneous', 'split'][(rnd() * 3) | 0];
+  return con;
+}
+
+function planGoal(rnd, cur) {
+  const r1 = x => Math.round(x * 10) / 10;
+  const g = {
+    weightKg: r1(cur.weightKg + (rnd() - 0.5) * 20),
+    bfmKg: r1(Math.max(0.5, cur.bfmKg + (rnd() - 0.65) * 12)),
+    smmKg: r1(Math.max(1, cur.smmKg + (rnd() - 0.3) * 8))
+  };
+  if (rnd() > 0.93) delete g.bfmKg;        // 도달 불가 → 208주 끝까지 돌아야 합니다
+  if (rnd() > 0.95) g.smmKg = null;
+  return g;
+}
+
+/**
+ * 계획 엔진 사례. module 에 따라 필요한 칸을 채웁니다.
+ * cur · goalInfo · params 는 **JS 로 미리 계산해서** 넣습니다.
+ */
+function makePlanCases(n, seed, module) {
+  const rnd = rng(seed);
+  const E = loadJs('engine');
+  const out = [];
+  while (out.length < n) {
+    const base = plausible(rnd);
+    const scan = Object.assign({}, base.scan);
+    if (rnd() > 0.85) BREAKERS[(rnd() * BREAKERS.length) | 0](scan, rnd);
+    const profile = planProfile(rnd, base);
+    const cur = E.derive(scan, profile);
+    const goal = planGoal(rnd, cur);
+    const con = planCon(rnd);
+    const a = rnd();
+    const c = { cur: cur, goal: goal, profile: profile, con: con, a: a };
+
+    if (module === 'engine.classifyGoal') { out.push({ cur: cur, goal: goal }); continue; }
+    if (module === 'engine.paramsAt') {
+      out.push({ a: rnd() > 0.9 ? [null, 'abc', -1, 2, 0, 1][(rnd() * 6) | 0] : a,
+                 mode: rnd() > 0.5 ? 'cut' : (rnd() > 0.2 ? 'bulk' : 'nonsense'),
+                 con: con });
+      continue;
+    }
+
+    const goalInfo = E.classifyGoal(cur, goal);
+    if (module === 'engine.resolveTraining') {
+      const params = E.paramsAt(a, rnd() > 0.5 ? 'cut' : 'bulk', con);
+      out.push({ profile: profile, params: params, goalInfo: rnd() > 0.1 ? goalInfo : null });
+      continue;
+    }
+    if (module === 'engine.baseSmmRatePerWeek') {
+      out.push({ weightKg: cur.weightKg, profile: profile, smmToFfm: cur.smmToFfm,
+                 ffmKg: rnd() > 0.15 ? cur.ffmKg : null,
+                 weekIndex: rnd() > 0.5 ? Math.round(rnd() * 200) : (rnd() > 0.5 ? null : undefined) });
+      continue;
+    }
+    if (module === 'engine.stepWeek') {
+      const phase = ['cut', 'bulk', 'maintain'][(rnd() * 3) | 0];
+      const params = E.paramsAt(a, phase === 'bulk' ? 'bulk' : 'cut', con);
+      const st = { smmKg: cur.smmKg, bfmKg: cur.bfmKg };
+      if (rnd() > 0.92) st.smmKg = null;
+      if (rnd() > 0.94) delete st.bfmKg;
+      const wi = rnd();
+      out.push({ st: st, phase: phase, params: params, profile: profile,
+                 k: rnd() > 0.1 ? cur.smmToFfm : (rnd() > 0.5 ? 0 : null),
+                 weekIndex: wi > 0.6 ? Math.round(rnd() * 200) : (wi > 0.3 ? 0 : null) });
+      continue;
+    }
+    out.push(c);  /* bestAt · scanCurve · simulate* 는 통째로 씁니다 */
+    void goalInfo;
+  }
+  return out.slice(0, n);
+}
+
 /* --- JS 쪽 실행 ----------------------------------------------------------
  *
  * engine.js 는 브라우저용이라 `window` 를 기대합니다. 노드에는 없으므로
@@ -177,15 +292,27 @@ function jsCaller(module) {
     const m = loadJs('crosscheck');
     return c => m.run(c.scan, c.profile, c.prev);
   }
-  if (module === 'engine.validateScan') {
-    const m = loadJs('engine');
-    return c => m.validateScan(c.scan, c.prev);
+  const m = loadJs('engine');
+  switch (module) {
+    case 'engine.validateScan':   return c => m.validateScan(c.scan, c.prev);
+    case 'engine.derive':         return c => m.derive(c.scan, c.profile);
+    case 'engine.classifyGoal':   return c => m.classifyGoal(c.cur, c.goal);
+    case 'engine.paramsAt':       return c => m.paramsAt(c.a, c.mode, c.con);
+    case 'engine.resolveTraining':return c => m.resolveTraining(c.profile, c.params, c.goalInfo);
+    case 'engine.baseSmmRatePerWeek':
+      return c => m.baseSmmRatePerWeek(c.weightKg, c.profile, c.smmToFfm, c.ffmKg, c.weekIndex);
+    case 'engine.stepWeek':
+      return c => m.stepWeek(c.st, c.phase, c.params, c.profile, c.k, c.weekIndex);
+    case 'engine.simulateSimultaneous':
+      return c => m.simulateSimultaneous(c.cur, c.goal, c.profile, c.a, m.classifyGoal(c.cur, c.goal), c.con);
+    case 'engine.simulateSplit':
+      return c => m.simulateSplit(c.cur, c.goal, c.profile, c.a, m.classifyGoal(c.cur, c.goal), c.con);
+    case 'engine.bestAt':
+      return c => m.bestAt(c.cur, c.goal, c.profile, c.a, m.classifyGoal(c.cur, c.goal), c.con);
+    case 'engine.scanCurve':
+      return c => m.scanCurve(c.cur, c.goal, c.profile, m.classifyGoal(c.cur, c.goal), c.con);
+    default: throw new Error('모르는 모듈: ' + module);
   }
-  if (module === 'engine.derive') {
-    const m = loadJs('engine');
-    return c => m.derive(c.scan, c.profile);
-  }
-  throw new Error('모르는 모듈: ' + module);
 }
 
 function runJs(module, cases) {
@@ -249,14 +376,33 @@ if (!fs.existsSync(DART)) {
   process.exit(0);
 }
 
-const MODULES = ['crosscheck', 'engine.validateScan', 'engine.derive'];
+/* 모듈마다 사례 모양과 **감당할 수 있는 개수**가 다릅니다.
+   scanCurve 한 건은 208주짜리 시뮬레이션을 51번 돌립니다 — 3000건을
+   넣으면 며칠이 걸리고 출력이 수 GB 가 됩니다. 적게 넣되 한 건이
+   훨씬 깊습니다. cap 은 "이 모듈은 이보다 많이 넣지 않는다" 입니다. */
+const MODULES = [
+  { name: 'crosscheck',               gen: makeScanCases },
+  { name: 'engine.validateScan',      gen: makeScanCases },
+  { name: 'engine.derive',            gen: makeScanCases },
+  { name: 'engine.classifyGoal',      gen: makePlanCases },
+  { name: 'engine.paramsAt',          gen: makePlanCases },
+  { name: 'engine.resolveTraining',   gen: makePlanCases },
+  { name: 'engine.baseSmmRatePerWeek',gen: makePlanCases },
+  { name: 'engine.stepWeek',          gen: makePlanCases },
+  { name: 'engine.simulateSimultaneous', gen: makePlanCases, cap: 300 },
+  { name: 'engine.simulateSplit',     gen: makePlanCases, cap: 300 },
+  { name: 'engine.bestAt',            gen: makePlanCases, cap: 300 },
+  { name: 'engine.scanCurve',         gen: makePlanCases, cap: 12 }
+];
 let failed = 0;
 
-for (const m of MODULES) {
+for (const spec of MODULES) {
+  const m = spec.name;
   if (ONLY && ONLY !== m) continue;
-  process.stdout.write('\n' + m + ' — 사례 ' + N + '개 (씨앗 ' + SEED + ')\n');
+  const n = Math.min(N, spec.cap || N);
+  process.stdout.write('\n' + m + ' — 사례 ' + n + '개 (씨앗 ' + SEED + ')\n');
 
-  const made = makeCases(N, SEED);
+  const made = spec.gen(n, SEED, m);
   const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mybody-diff-')), 'cases.json');
   fs.writeFileSync(tmp, JSON.stringify(made));
 
@@ -294,7 +440,7 @@ for (const m of MODULES) {
   }
 
   if (!bad.length) {
-    console.log('  ✓ ' + N + '개 전부 같은 답을 냅니다');
+    console.log('  ✓ ' + n + '개 전부 같은 답을 냅니다');
   } else {
     failed++;
     console.log('  ✗ ' + bad.length + '개 이상 갈립니다. 처음 것들:');

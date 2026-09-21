@@ -6,6 +6,7 @@ import 'dart:io';
 
 import 'package:mybody_core/crosscheck.dart' as crosscheck;
 import 'package:mybody_core/engine.dart' as engine;
+import 'package:mybody_core/js_num.dart';
 
 /// JSON.stringify 는 NaN·Infinity 를 **null** 로 씁니다. Dart 의 jsonEncode 는
 /// 던집니다. 옮긴 코드에서 NaN 은 정상적으로 나옵니다(자바스크립트가 없는
@@ -47,6 +48,49 @@ void main(List<String> args) {
           break;
         case 'engine.derive':
           v = engine.derive(_m(c['scan'])!, _m(c['profile'])!);
+          break;
+        case 'engine.classifyGoal':
+          v = engine.classifyGoal(_m(c['cur'])!, _m(c['goal'])!);
+          break;
+        case 'engine.paramsAt':
+          v = engine.paramsAt(c['a'], c['mode'], _m(c['con']));
+          break;
+        case 'engine.resolveTraining':
+          v = engine.resolveTraining(
+              _m(c['profile'])!, _m(c['params'])!, _m(c['goalInfo']));
+          break;
+        case 'engine.baseSmmRatePerWeek':
+          /* ffmKg 는 JS 에서 `ffmKg != null` 로 갈립니다 — null 이면
+             체중의 80% 를 앵커로 쓰고 FFMI 천장도 적용하지 않습니다.
+             그래서 여기서도 null 을 살려서 넘깁니다. */
+          v = engine.baseSmmRatePerWeek(
+              jsToNumber(c['weightKg']), _m(c['profile'])!,
+              jsToNumber(c['smmToFfm']),
+              c['ffmKg'] == null ? null : jsToNumber(c['ffmKg']),
+              c.containsKey('weekIndex') ? c['weekIndex'] : null);
+          break;
+        case 'engine.stepWeek':
+          v = engine.stepWeek(_m(c['st'])!, '${c['phase']}', _m(c['params'])!,
+              _m(c['profile'])!, jsToNumber(c['k']), c['weekIndex']);
+          break;
+        case 'engine.simulateSimultaneous':
+          v = engine.simulateSimultaneous(_m(c['cur'])!, _m(c['goal'])!,
+              _m(c['profile'])!, c['a'],
+              engine.classifyGoal(_m(c['cur'])!, _m(c['goal'])!), _m(c['con']));
+          break;
+        case 'engine.simulateSplit':
+          v = engine.simulateSplit(_m(c['cur'])!, _m(c['goal'])!,
+              _m(c['profile'])!, c['a'],
+              engine.classifyGoal(_m(c['cur'])!, _m(c['goal'])!), _m(c['con']));
+          break;
+        case 'engine.bestAt':
+          v = engine.bestAt(_m(c['cur'])!, _m(c['goal'])!, _m(c['profile'])!,
+              c['a'], engine.classifyGoal(_m(c['cur'])!, _m(c['goal'])!),
+              _m(c['con']));
+          break;
+        case 'engine.scanCurve':
+          v = engine.scanCurve(_m(c['cur'])!, _m(c['goal'])!, _m(c['profile'])!,
+              engine.classifyGoal(_m(c['cur'])!, _m(c['goal'])!), _m(c['con']));
           break;
         default:
           stderr.writeln('모르는 모듈: $module');
