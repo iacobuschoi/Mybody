@@ -62,8 +62,12 @@ const DEFAULT_MODEL = process.env.OCR_MODEL || 'claude-opus-5';
 function explain(status, err) {
   const type = (err && err.type) || '';
   const msg = String((err && err.message) || '');
-  if (/credit balance is too low|insufficient credit/i.test(msg)) {
-    return '판독 계정에 잔액이 없습니다 — console.anthropic.com 의 Billing 에서 충전해야 합니다';
+  /* 잔액 문제는 종류가 invalid_request_error 하나로 뭉뚱그려져 오므로
+     문장에서 찾습니다. 앤트로픽이 문구를 바꿔도 걸리게 넓게 봅니다 —
+     이 한 줄이 "무엇을 해야 하는지" 를 아는 유일한 단서입니다. */
+  if (/credit|balance|billing|quota|funds|payment/i.test(msg)) {
+    return '판독 계정에 돈이 없거나 결제에 문제가 있습니다 — ' +
+           'console.anthropic.com/settings/billing 에서 확인하세요';
   }
   switch (type) {
     case 'authentication_error':
@@ -107,7 +111,15 @@ async function checkKey(apiKey, model, opts) {
     if (r.ok) return { ok: true, reason: m + ' 를 쓸 수 있습니다' };
     let j = null;
     try { j = await r.json(); } catch { j = null; }
-    return { ok: false, reason: explain(r.status, j && j.error) };
+    const e = (j && j.error) || {};
+    /* **원문도 같이 돌려줍니다.**
+       explain() 은 앱 화면에 나가는 말이라 조심스럽게 씁니다 — 모르는
+       종류면 "서버 화면의 [ocr] 줄을 보세요" 로 넘깁니다. 그런데 doctor
+       는 서버가 아니라서 그 줄이 없습니다. 주인만 보는 자리이므로
+       여기서는 앤트로픽이 한 말을 그대로 붙여 줍니다. 안 그러면 답을
+       알고 있으면서 안 알려 주는 꼴입니다. */
+    return { ok: false, reason: explain(r.status, e), model: m,
+             raw: [r.status, e.type || '', e.message || ''].filter(Boolean).join(' · ') };
   } catch (e) {
     clearTimeout(timer);
     return { ok: false, reason: e && e.name === 'AbortError'

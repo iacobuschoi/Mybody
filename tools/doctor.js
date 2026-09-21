@@ -203,7 +203,8 @@ function add(level, ok, id, detail, todo) {
     add('INFO', false, '자동 판독', '키가 없습니다',
       '없어도 앱은 그대로 돕니다 — 숫자를 직접 넣으면 됩니다.\n' +
       '       사진에서 자동으로 읽게 하려면:\n' +
-      '         node tools/serve.js --setup --key="sk-ant-..."\n' +
+      '         node tools/serve.js --setup --key\n' +
+      '       (값을 안 붙이면 가려서 물어봅니다 — 셸 기록에 안 남습니다)\n' +
       '       키는 https://console.anthropic.com/settings/keys 에서 받습니다.');
   } else {
     const probe = checkOcrKey(key, model);
@@ -212,9 +213,12 @@ function add(level, ok, id, detail, todo) {
     } else {
       /* 키를 넣어 둔 사람에게 이건 "선택" 이 아닙니다 — 쓰려고 넣었는데
          안 되는 상태입니다. 그래서 WARN 으로 올립니다. */
+      /* 앤트로픽이 한 말을 그대로 보여 줍니다. 여기는 주인만 보는
+         자리이고, 무엇을 해야 하는지가 대개 그 한 줄에 다 있습니다. */
       add('WARN', false, '자동 판독', probe.why,
-        '키는 있는데 판독이 안 됩니다. 위 문장이 무엇을 해야 하는지 말해 줍니다.\n' +
-        '       키를 바꾸려면:  node tools/serve.js --setup --key="sk-ant-..."\n' +
+        (probe.raw ? '앤트로픽이 한 말: ' + probe.raw + '\n' : '') +
+        (probe.model ? '       물어본 모델: ' + probe.model + '\n' : '') +
+        '       키를 바꾸려면:  node tools/serve.js --setup --key   (가려서 물어봅니다)\n' +
         '       더 싼 모델로:   OCR_MODEL=claude-sonnet-5 node tools/serve.js\n' +
         '       그냥 둬도 앱은 돕니다 — 숫자를 직접 넣으면 됩니다.');
     }
@@ -370,7 +374,8 @@ function checkOcrKey(key, model) {
     return { ok: false, why: '키가 살아 있는지 확인하지 못했습니다 (네트워크가 막혀 있을 수 있습니다)' };
   }
   return { ok: !!j.ok,
-           why: (j.ok ? '키가 살아 있습니다 · ' : '') + (j.reason || '') };
+           why: (j.ok ? '키가 살아 있습니다 · ' : '') + (j.reason || ''),
+           raw: j.raw || '', model: j.model || '' };
 }
 
 function which(cmd) {

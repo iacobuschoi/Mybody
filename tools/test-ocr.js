@@ -187,10 +187,20 @@ async function main() {
   nextReply = { status: 400, body: { error: { type: 'invalid_request_error',
     message: 'Your credit balance is too low to access the Anthropic API.' } } };
   const broke2 = await call('POST', '/ocr', shot(), t);
-  ok('잔액이 없으면 그렇다고 말한다',
-     /잔액이 없습니다/.test(JSON.stringify(broke2.json)), broke2.json);
-  ok('충전할 곳까지 알려준다',
-     /console\.anthropic\.com/.test(JSON.stringify(broke2.json)), broke2.json);
+  ok('잔액 문제면 그렇다고 말한다',
+     /돈이 없거나 결제/.test(JSON.stringify(broke2.json)), broke2.json);
+  ok('확인할 곳까지 알려준다',
+     /console\.anthropic\.com\/settings\/billing/.test(JSON.stringify(broke2.json)), broke2.json);
+  {
+    /* 앤트로픽이 문구를 바꿔도 걸려야 합니다. "credit balance is too low"
+       한 문장에만 맞춰 두면 그 문장이 바뀌는 날 다시 "판독에 실패했습니다"
+       로 돌아갑니다. */
+    nextReply = { status: 400, body: { error: { type: 'invalid_request_error',
+      message: 'This organization has insufficient funds. Add a payment method.' } } };
+    const other = await call('POST', '/ocr', shot(), t);
+    ok('문구가 달라도 잔액 문제로 알아본다',
+       /돈이 없거나 결제/.test(JSON.stringify(other.json)), other.json);
+  }
 
   nextReply = { status: 404, body: { error: { type: 'not_found_error', message: 'model: nope' } } };
   const noModel = await call('POST', '/ocr', shot(), t);

@@ -106,6 +106,45 @@ async function setup() {
   const GIVEN = ['owner', 'contact', 'no-owner', 'port', 'key', 'origin', 'static',
                  'open-signup', 'close-signup', 'always-on'].filter(k => k in f);
 
+  /* `--key` 를 값 없이 주면 **가려서 물어봅니다.**
+   *
+   * --key="sk-ant-..." 는 한 줄로 끝나서 편한데, 그 값이 셸 기록에
+   * 그대로 남습니다 (윈도우는 ConsoleHost_history.txt). 주인은 방금
+   * 키가 새서 한 번 갈아 끼운 참입니다 — 같은 자리에 또 흘리면 안 됩니다.
+   *
+   * 그렇다고 질문 흐름 전체를 지나가게 하면 운영자 · 포트 · 공개 주소를
+   * 다 다시 물어야 합니다. 키 하나만 바꾸러 온 사람에게 그건 벽입니다.
+   * 그래서 키만 묻고 끝냅니다. */
+  if (process.stdin.isTTY && f.key === true) {
+    const rl0 = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const askHidden = (q) => new Promise(res => {
+      const out = rl0.output;
+      let muted = false;
+      const orig = out.write.bind(out);
+      out.write = function (chunk) { if (muted) { orig('*'); return true; } return orig(chunk); };
+      orig(q + ' ');
+      muted = true;
+      rl0.question('', a2 => { muted = false; out.write = orig; orig('\n'); res((a2 || '').trim()); });
+    });
+    console.log('');
+    console.log('자동 판독 키를 넣습니다. 붙여넣어도 화면에는 * 만 보입니다.');
+    console.log('  지금 키: ' + mask(cfg0.anthropicKey));
+    console.log('  (지우려면 "없음", 그대로 두려면 그냥 엔터)');
+    const v = await askHidden('  ANTHROPIC_API_KEY:');
+    rl0.close();
+    if (!v) { console.log('  그대로 뒀습니다.'); return; }
+    const cfg = Object.assign({}, cfg0);
+    cfg.anthropicKey = /^(없음|없다|지움|none|delete|-)$/i.test(v) ? '' : v;
+    writeConfig(cfg);
+    console.log('  → ' + (cfg.anthropicKey ? '키를 넣었습니다 (' + mask(cfg.anthropicKey) + ').'
+                                            : '키를 지웠습니다.'));
+    console.log('');
+    console.log('  확인:   node tools/doctor.js      ← 키가 진짜 되는지 물어봅니다');
+    console.log('  띄우기: node tools/launch.js');
+    console.log('');
+    return;
+  }
+
   /* 터미널이 아니면(파이프·스크립트) 물어볼 수가 없습니다. 예전에는
      여기서 질문을 던지다 stdin 이 끝나 버려 설정 파일도 없이 죽었습니다 —
      사용자는 뭐가 저장됐는지 모른 채 남습니다. 깃발로 받고 끝냅니다. */
