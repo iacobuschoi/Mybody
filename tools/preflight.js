@@ -188,6 +188,63 @@ function staticChecks() {
         : 'server/db.js 에서 SNAPSHOT_WEEKS 를 못 찾았습니다' });
   }
 
+  /* (4.8) 기본으로 나가는 항목이 몇 개이고, 화면이 그 숫자대로 말하는가.
+   *
+   * 이게 실제로 두 번 틀렸습니다. blankShare() 에 항목을 하나 더 켜 놓고
+   * 화면 문구는 "이번 주에 기록을 했는지 여부 하나뿐입니다" 로 남겨 뒀습니다.
+   * 친구 탭 네 군데와 개인정보처리방침이 전부 같은 거짓말을 하고 있었습니다.
+   *
+   * 공유 화면이 실제보다 적게 말하는 것은 이 앱에서 제일 나쁜 버그입니다 —
+   * 그 문장을 읽고 "그 정도면 괜찮지" 하고 친구를 맺기 때문입니다.
+   * 그래서 사람이 기억하기를 바라지 않고 여기서 셉니다.
+   */
+  {
+    const srvSrc = read('server/db.js');
+    const cliSrc = read('prototype/js/backend.js');
+    function defaultsOf(src, re) {
+      const m = src.match(re);
+      if (!m) return null;
+      const on = [];
+      const body = m[0];
+      body.replace(/(\w+)\s*:\s*true/g, (_, k) => { on.push(k); return _; });
+      return on.sort();
+    }
+    const srvOn = defaultsOf(srvSrc, /function blankShare\(\)[\s\S]*?return \{[\s\S]*?\};/);
+    const cliOn = defaultsOf(cliSrc, /function blankShare\(\)[\s\S]*?return \{[\s\S]*?\};/);
+    const same = srvOn && cliOn && srvOn.join() === cliOn.join();
+    out.push({ id: '기본 공유 서버·앱 일치', level: 'BLOCK', ok: !!same,
+      detail: same
+        ? '기본으로 켜지는 항목 ' + srvOn.length + '개가 양쪽에서 같습니다 (' + srvOn.join(' · ') + ')'
+        : '서버는 [' + (srvOn || ['못 읽음']).join(' · ') + '] 인데 앱은 [' +
+          (cliOn || ['못 읽음']).join(' · ') + '] 입니다 — ' +
+          '오프라인에서 켜 둔 것이 로그인하는 순간 바뀝니다' });
+
+    /* 화면이 "하나뿐" 이라고 말하는데 실제로는 둘 이상인 경우를 잡습니다.
+       숫자를 세지 않고 문구를 봅니다 — 어차피 사람이 읽는 건 문구입니다. */
+    if (srvOn && srvOn.length !== 1) {
+      const ONLY_ONE = [
+        '여부 하나입니다', '여부만 기본으로', '기록 하나입니다', '하나만 켜져',
+        '여부 하나뿐입니다', '하나뿐입니다'
+      ];
+      const files = ['prototype/js/screens/social.js', 'prototype/js/modals.js',
+                     'prototype/privacy.html'];
+      const hits = [];
+      files.forEach(f => {
+        const src = read(f);
+        src.split('\n').forEach((line, i) => {
+          if (/^\s*(\/\/|\*|\/\*)/.test(line)) return;          // 주석은 기록입니다
+          // 한 줄에 두 표현이 같이 걸려도 한 번만 적습니다
+          if (ONLY_ONE.some(w => line.includes(w))) hits.push(f + ':' + (i + 1));
+        });
+      });
+      out.push({ id: '기본 공유 문구', level: 'BLOCK', ok: hits.length === 0,
+        detail: hits.length
+          ? '기본으로 켜지는 항목이 ' + srvOn.length + '개인데 "하나뿐" 이라고 적힌 곳: ' +
+            hits.join(', ')
+          : '기본 ' + srvOn.length + '개를 "하나뿐" 이라고 말하는 곳이 없습니다' });
+    }
+  }
+
   // (5) 알고 올리는 것들
   /* 복구 코드가 실제로 붙어 있는지 눈으로 확인합니다. 문구만 고치고
      기능을 안 붙인 채 배포하면, 사용자는 "코드로 돌아올 수 있다" 고
