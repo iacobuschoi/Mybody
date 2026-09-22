@@ -76,6 +76,21 @@ android {
                             else signingConfigs.getByName("debug")
         }
     }
+
+    /* x86_64 에서 켜자마자 죽었습니다 (노트북 10번 보고).
+     *
+     * 앱은 arm 두 가지로만 빌드하는데(apk.yml 의 --target-platform), 플러그인
+     * 하나가 lib/x86_64/ 에 파일 둘을 넣어 둡니다. x86_64 기기(에뮬레이터 ·
+     * 인텔 크롬북)의 설치기는 그 둘만 보고 x86_64 를 고르고, 정작 Flutter
+     * 엔진(libflutter.so)은 없어서 UnsatisfiedLinkError 로 죽습니다.
+     * 그 조각을 빼면 설치기가 arm64 를 골라 번역으로 돕니다 — 노트북이
+     * `adb install --abi arm64-v8a` 로 확인한 그 길입니다. 실제 폰(arm64)은
+     * 영향 없습니다. x86_64 를 통째로 넣는 쪽은 앱이 10MB 넘게 커집니다. */
+    packaging {
+        jniLibs {
+            excludes += listOf("lib/x86_64/**", "lib/x86/**")
+        }
+    }
 }
 
 flutter {
