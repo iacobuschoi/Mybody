@@ -124,4 +124,42 @@ void main() {
     expect(find.text('공유 안 함'), findsNWidgets(2));
     expect(find.text('이 친구가 식단을 공유하지 않습니다.'), findsOneWidget);
   });
+
+  /* 서버에 못 닿았다고 친구 목록을 비우면, 비행기 모드에서 친구 상세에
+     못 들어가고 "나중에 보냅니다" 도 못 씁니다 — 에뮬레이터에서 잡힌 것. */
+  testWidgets('친구 목록 — 서버에 못 닿으면 마지막으로 본 목록을 보여 준다', (t) async {
+    SharedPreferences.setMockInitialValues({});
+    final app = await AppState.boot();
+    http.Response friendsOk(http.Request req) {
+      final p = req.url.path;
+      if (p.endsWith('/friends')) {
+        return http.Response.bytes(utf8.encode(jsonEncode({'ok': true, 'friends': {
+          'accepted': [{'id': 'f1', 'displayName': '나린'}], 'incoming': [], 'outgoing': [],
+        }})), 200, headers: {'content-type': 'application/json; charset=utf-8'});
+      }
+      if (p.endsWith('/me')) {
+        return http.Response('{"ok":true,"user":{"id":"me","handle":"me","inviteCode":"ABCD"}}', 200);
+      }
+      return http.Response('{"ok":false}', 404);
+    }
+    final good = Api(baseUrl: 'https://x.test', client: MockClient((r) async => friendsOk(r)));
+    await good.setToken('tok');
+    await t.pumpWidget(Scope(state: app, api: good, onServerChange: (_) async {},
+        child: MaterialApp(theme: mbLight(), home: Scaffold(body: SocialScreen(go: (_, [__]) {})))));
+    await t.pumpAndSettle();
+    expect(find.text('나린'), findsOneWidget);
+
+    /* 이제 망이 끊깁니다. 같은 저장소, 새 화면. */
+    final dead = Api(baseUrl: 'https://x.test',
+        client: MockClient((_) async => throw Exception('no network')));
+    await dead.setToken('tok');
+    /* 다른 key — 같은 자리의 같은 위젯이면 State 가 재사용돼 옛 목록이 남는데,
+       그건 캐시가 아니라 우연입니다. 새 화면이 캐시에서 읽어야 합니다. */
+    await t.pumpWidget(Scope(state: app, api: dead, onServerChange: (_) async {},
+        child: MaterialApp(theme: mbLight(),
+            home: Scaffold(body: SocialScreen(key: const ValueKey('offline'), go: (_, [__]) {})))));
+    await t.pumpAndSettle();
+    expect(find.text('나린'), findsOneWidget, reason: '마지막으로 본 목록이 남아야 합니다');
+    expect(find.textContaining('마지막으로 본 목록', findRichText: true), findsOneWidget);
+  });
 }

@@ -17,6 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/api.dart';
 import 'src/news_store.dart';
+import 'src/publish.dart';
 import 'src/sync_queue.dart';
 import 'src/app_state.dart';
 import 'src/scope.dart';
@@ -120,6 +121,7 @@ class _MyBodyAppState extends State<MyBodyApp> {
     await api.loadToken();
     _queue = await _makeQueue(api);
     final app = await AppState.boot();
+    wirePublishing(app, api, _queue);
     if (!mounted) return;
     setState(() {
       _api = api;
@@ -156,6 +158,8 @@ class _MyBodyAppState extends State<MyBodyApp> {
     /* 주소가 바뀌면 큐도 새로 만듭니다 — 보낼 곳이 바뀌었으니까요.
        담겨 있던 일은 저장소에 남아 있어서 그대로 이어집니다. */
     final q = await _makeQueue(api);
+    final app = _app;
+    if (app != null) wirePublishing(app, api, q);
     if (!mounted) return;
     setState(() { _api = api; _queue = q; });
   }

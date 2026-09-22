@@ -11,8 +11,11 @@
  * 친구가 이번 주에 운동을 안 했다는 것은 알림이 되지 않습니다.
  * 이 구분이 이 앱이 두는 압박의 상한선입니다.
  * ========================================================================== */
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../api.dart';
@@ -31,10 +34,31 @@ class SocialScreen extends StatefulWidget {
 }
 
 class _SocialScreenState extends State<SocialScreen> {
+  static const _cacheKey = 'mybody.friends.cache.v1';
   Map<String, dynamic>? _friends;
   Map<String, dynamic>? _me;
   String? _error;
   bool _busy = false;
+  /// 서버에 못 닿아서 마지막으로 본 목록을 보여 주는 중인가.
+  bool _fromCache = false;
+
+  Future<void> _remember(Map<String, dynamic> friends) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(_cacheKey, jsonEncode(friends));
+    } catch (_) {}
+  }
+
+  Future<Map<String, dynamic>?> _recall() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final s = sp.getString(_cacheKey);
+      if (s == null) return null;
+      return (jsonDecode(s) as Map).cast<String, dynamic>();
+    } catch (_) {
+      return null;
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -49,12 +73,26 @@ class _SocialScreenState extends State<SocialScreen> {
     final me = await api.me();
     final f = await api.friends();
     if (!mounted) return;
+    var friends = f.ok ? (f.body['friends'] as Map?)?.cast<String, dynamic>() : null;
+    var fromCache = false;
+    if (friends != null) {
+      await _remember(friends);
+    } else {
+      /* 서버에 못 닿았다고 목록을 비우지 않습니다. 비행기 모드에서 친구
+         상세에 들어가 스위치를 바꾸고 "나중에 보냅니다" 가 되려면 목록이
+         있어야 합니다. 마지막으로 본 목록을 그대로 둡니다 — 스냅샷은 그때
+         것이라 오래됐을 수 있고, 그건 위에 적어 둡니다. */
+      friends = await _recall();
+      fromCache = friends != null;
+    }
+    if (!mounted) return;
     await _refreshNews(api, f);
     if (!mounted) return;
     setState(() {
       _busy = false;
       _me = me.ok ? (me.body['user'] as Map?)?.cast<String, dynamic>() : null;
-      _friends = f.ok ? (f.body['friends'] as Map?)?.cast<String, dynamic>() : null;
+      _friends = friends;
+      _fromCache = fromCache;
       _error = f.ok ? null : f.reason;
     });
   }
@@ -98,7 +136,12 @@ class _SocialScreenState extends State<SocialScreen> {
     return RefreshIndicator(
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.all(16), children: [
-        if (_error != null) Note(tone: Tone.warn, text: _error!),
+        if (_error != null)
+          Note(
+              tone: Tone.warn,
+              text: _fromCache
+                  ? '$_error — 마지막으로 본 목록입니다. 여기서 바꾼 것은 망이 돌아오면 보냅니다.'
+                  : _error!),
 
         /* 소식으로 가는 문. 안 읽은 게 있으면 숫자를 답니다.
            **좋은 소식만** 여기 쌓입니다 — 안 한 것은 안 올라옵니다. */
