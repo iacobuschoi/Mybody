@@ -41,20 +41,21 @@ API 34 google_apis x86_64. 설치 경로는 E: 에 여유가 크니 E:\android-s
 - `flutter doctor` 에서 Android toolchain 이 초록이 되게.
 - AVD 하나 만들고(Pixel 계열) 띄워서 `flutter devices` 에 보이게.
 
-## 2b. 먼저 시험을 돌려 주세요 (에뮬레이터 없이 됩니다)
+## 2b. 시험 — 풀렸습니다 (보고 안 해도 됩니다)
 
-Flutter 만 깔리면 바로:
+「셸 — 탭 다섯 개가 다 선다」가 멈추던 원인을 클라우드에서 찾아 고쳤습니다:
+시험 환경엔 플랫폼 플러그인이 없어서, 앱이 켜질 때 사진 폴더 위치를 묻는
+`await` 가 영영 안 돌아온 것. 경합이 아니었습니다. 이제 앱은 그걸 기다리지
+않고 뜹니다. 깨끗한 환경에서 73개 전부 통과(7초)했습니다.
+
+`git pull` 뒤에 한 번만 확인:
 
 ```
 cd app && flutter pub get && flutter test
 ```
 
-**「셸 — 탭 다섯 개가 다 선다」** 라는 시험이 끝나는지(통과/실패/멈춤)를
-꼭 적어 주세요. 클라우드에서는 flutter test 여러 개를 동시에 돌리다가
-그 시험이 "did not complete" 로 끝났는데, 경합 때문인지 새 코드 때문인지
-못 갈랐습니다. 깨끗한 컴퓨터에서 한 번 돌리면 갈립니다.
-멈추면 `flutter test test/screens_smoke_test.dart -r expanded` 의 마지막
-40줄을 보고에 붙여 주세요.
+"All tests passed" 가 아니면 그 출력의 마지막 40줄만 보고에 붙여 주세요.
+통과하면 바로 3번으로.
 
 ## 3. 앱 돌려 보기
 

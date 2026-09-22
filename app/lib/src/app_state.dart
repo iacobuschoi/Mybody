@@ -12,6 +12,8 @@
  * 두 앱 사이를 오갈 수 있습니다. 칸을 쪼개서 넣으면 빨라 보이지만
  * 백업 호환이 깨집니다 — 그건 사용자의 유일본을 다루는 문제입니다.
  * ========================================================================== */
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:mybody_core/mybody_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -61,7 +63,7 @@ class PrefsStorage implements StateStorage {
 
 /// 앱 한 벌의 상태. 화면들은 이걸 듣습니다.
 class AppState extends ChangeNotifier {
-  AppState._(this.store, this.photos, this.news) : schedule = Schedule(store) {
+  AppState._(this.store, this.news) : schedule = Schedule(store) {
     store.onChange((_) => notifyListeners());
     /* 엔진이 modes 를 느슨하게 부르는 고리를 여기서 꽂습니다 —
        원본이 `global.MB_MODES` 가 있으면 쓰던 자리입니다. */
@@ -78,24 +80,39 @@ class AppState extends ChangeNotifier {
     final storage = sp == null ? MemoryStorage() : PrefsStorage(sp);
     final store = Store(storage: storage);
 
-    /* 사진은 파일에 둡니다. 여기서 실패해도 앱은 돕니다 — 사진만 못
-       붙이게 되고, 숫자 세 개로 쓰는 0층은 그대로입니다. */
-    FilePhotos? photos;
-    try {
-      photos = await FilePhotos.open();
-      store.photos = photos;
-    } catch (_) {}
-
     /* 친구 소식. 저장소가 없으면 소식만 조용히 꺼집니다. */
     final news = sp == null ? null : News(PrefsNews(sp));
     store.newsReset = () => news?.reset();
 
     store.load();
-    return AppState._(store, photos, news);
+    final app = AppState._(store, news);
+
+    /* 사진 보관소는 **기다리지 않습니다.**
+     *
+     * 폴더 위치는 플랫폼 플러그인이 알려 주는데, 그게 대답을 안 하면 그
+     * await 는 영영 안 끝납니다. 실제로 그랬습니다 — 화면 시험(플러그인이
+     * 없는 환경)이 첫 번째 화면도 못 세우고 그 자리에서 멈췄습니다.
+     * `timeout` 도 소용없습니다. 시험은 시계를 멈춰 놓고 돌기 때문입니다.
+     *
+     * 사진 하나 못 붙이는 것 때문에 앱이 켜지는 화면에 서 있으면 안 되니,
+     * 먼저 돌고 열리면 그때 끼웁니다. 폰에서는 첫 화면이 그려지기 전에
+     * 끝나는 일입니다. 못 열면 사진 없이 갑니다 — 숫자 세 개로 쓰는 0층은
+     * 그대로입니다. */
+    unawaited(app._openPhotos());
+    return app;
   }
 
-  /// 결과지 사진 보관소. 못 열었으면 null 입니다.
-  final FilePhotos? photos;
+  Future<void> _openPhotos() async {
+    try {
+      final p = await FilePhotos.open();
+      photos = p;
+      store.photos = p;
+      notifyListeners();
+    } catch (_) {}
+  }
+
+  /// 결과지 사진 보관소. 아직 안 열렸거나 못 열었으면 null 입니다.
+  FilePhotos? photos;
 
   /// 친구 소식. 저장소가 없으면 null 입니다.
   final News? news;

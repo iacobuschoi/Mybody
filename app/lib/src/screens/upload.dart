@@ -60,7 +60,11 @@ class _UploadScreenState extends State<UploadScreen> {
     );
     if (picked == null || !mounted) return;
     final photos = Scope.of(context).photos;
-    if (photos == null) return;
+    if (photos == null) {
+      // 보관소는 앱이 뜬 뒤에 따로 열립니다 — 아주 드물게 아직일 수 있습니다.
+      toast(context, '사진을 둘 곳을 아직 못 열었습니다. 한 번 더 눌러 보세요.');
+      return;
+    }
     final ext = picked.path.split('.').last.toLowerCase();
     final id = await photos.save(await picked.readAsBytes(),
         ext: (ext == 'png' || ext == 'webp') ? ext : 'jpg');

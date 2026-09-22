@@ -23,14 +23,10 @@ class FilePhotos implements core.PhotoHost {
   final Map<String, String> _index;
 
   static Future<FilePhotos> open() async {
-    /* **기다리다 앱이 안 뜨면 안 됩니다.**
-     *
-     * 폴더 위치는 플랫폼 플러그인이 알려 줍니다. 그게 대답을 안 하면
-     * (시험 환경, 혹은 플러그인이 깨진 기기) 이 await 는 영영 안 끝나고,
-     * 앱은 켜지는 화면에 멈춥니다 — 사진 하나 못 붙이는 것 때문에요.
-     * 몇 초 안에 답이 없으면 사진 없이 갑니다. 0층은 그대로 됩니다. */
-    final base = await getApplicationDocumentsDirectory()
-        .timeout(const Duration(seconds: 3));
+    /* 폴더 위치는 플랫폼 플러그인이 알려 줍니다. 그게 대답을 안 하면
+     * (시험 환경, 혹은 플러그인이 깨진 기기) 이 await 는 영영 안 끝납니다 —
+     * 그래서 앱은 이걸 **기다리지 않고** 뜹니다 (`AppState.boot`). */
+    final base = await getApplicationDocumentsDirectory();
     final dir = Directory('${base.path}/inbody-photos');
     if (!dir.existsSync()) dir.createSync(recursive: true);
     final index = <String, String>{};
