@@ -21,6 +21,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../scope.dart';
+import '../sheet_history.dart';
 import '../ui/fmt.dart';
 import '../ui/widgets.dart';
 import 'review.dart';
@@ -81,6 +82,9 @@ class _UploadScreenState extends State<UploadScreen> {
   Map<String, dynamic>? _serverExtra;
   /// 결과지에 인쇄된 시각(있을 때만). 날짜 칸은 날짜만 받으니 따로 듭니다.
   String? _serverAt;
+  /// 맨 아래 「신체변화」 그래프의 지난 측정들(서버가 다듬은 그대로).
+  /// 검수 화면으로 넘길 때 내 기록과 대조해서 없는 날만 고릅니다.
+  List<dynamic>? _serverHistory;
 
   Future<void> _pick(ImageSource src) async {
     final picked = await ImagePicker().pickImage(
@@ -107,6 +111,7 @@ class _UploadScreenState extends State<UploadScreen> {
       _ocrNote = null;
       _serverExtra = null;
       _serverAt = null;
+      _serverHistory = null;
     });
   }
 
@@ -160,11 +165,20 @@ class _UploadScreenState extends State<UploadScreen> {
       _serverAt = RegExp(r'\d{2}:\d{2}').hasMatch(at) ? at : null;
     }
     _serverExtra = fields;
+    /* 맨 아래 「신체변화」 그래프의 지난 측정들. 내 기록에 없는 날만 세어
+       말합니다 — 다 있는 결과지면 말할 것이 없습니다. */
+    final hist = r.body['history'];
+    _serverHistory = hist is List ? hist : null;
+    final fresh = sheetHistory(_serverHistory,
+        currentAt: measuredAtIso(), scans: Scope.of(context).store.sortedScans()).length;
     setState(() {
       _reading = false;
-      _ocrNote = filled == _quick.length
+      final base = filled == _quick.length
           ? '읽었습니다 — **맞는지 보고** 넘어가 주세요.'
           : '$filled칸만 읽었습니다. 나머지는 손으로 넣어 주세요.';
+      _ocrNote = fresh > 0
+          ? '$base 아래 그래프의 지난 측정 $fresh개도 읽었습니다 — 다음 화면에서 같이 저장할 수 있습니다.'
+          : base;
     });
   }
 
@@ -214,8 +228,13 @@ class _UploadScreenState extends State<UploadScreen> {
     if (w != null && pbf != null) {
       scan['bfmKg'] = bfmFrom(w, pbf, printed: _serverExtra?['bfmKg']);
     }
+    /* 그래프의 지난 측정 중 내 기록에 없는 날. 이번 측정 날짜를 손으로
+       고쳤을 수 있으니 여기서, 확정된 시각으로 고릅니다. */
+    final history = sheetHistory(_serverHistory,
+        currentAt: scan['measuredAt'], scans: Scope.of(context).store.sortedScans());
     Navigator.of(context).pushReplacement(MaterialPageRoute(
-        builder: (_) => ReviewScreen(draft: mergeOcrExtras(scan, _serverExtra))));
+        builder: (_) => ReviewScreen(
+            draft: mergeOcrExtras(scan, _serverExtra), history: history)));
   }
 
   @override

@@ -187,6 +187,42 @@ async function main() {
   ok('도구를 강제한다 (산문 응답이 올 자리가 없다)',
      lastRequest && lastRequest.tool_choice && lastRequest.tool_choice.type === 'tool');
 
+  console.log('\n[3a] 맨 아래 신체변화 그래프 — 지난 측정이 같이 온다');
+  ok('스키마가 history 배열을 받는다',
+     lastRequest && lastRequest.tools[0].input_schema.properties.history &&
+     lastRequest.tools[0].input_schema.properties.history.type === 'array');
+  ok('그래프 없는 결과지는 빈 배열', Array.isArray(good.json.history) && good.json.history.length === 0,
+     good.json.history);
+  nextReply = { status: 200, body: toolReply({
+    notInBody: false, measuredAt: '2026-09-19T11:09:00',
+    weightKg: 86.7, smmKg: 37.9, bfmKg: 20.0, pbfPct: 23.1,
+    history: [
+      { measuredAt: '26.06.30. 07:36', weightKg: 89.0, smmKg: 36.2, pbfPct: 28.4 },   // 인쇄된 대로
+      { measuredAt: '2026-08-31T08:35', weightKg: 86.9, smmKg: 37.4, pbfPct: 24.2 },
+      { measuredAt: '2026-09-19T11:09', weightKg: 86.7, smmKg: 37.9, pbfPct: 23.1 },  // 이번 측정
+      { measuredAt: '2099-01-01', weightKg: 80 },                                     // 미래
+      { measuredAt: '2026-08-31T08:35', weightKg: 86.9, smmKg: 37.4, pbfPct: 24.2 },  // 중복
+      { measuredAt: '2026-01-01', weightKg: 867, smmKg: 'x' },                       // 값이 다 이상함
+      { weightKg: 85 },                                                               // 날짜 없음
+      'junk', null
+    ]
+  }) };
+  const hist = await call('POST', '/ocr', shot(), t);
+  const h = hist.json.history || [];
+  ok('말이 되는 열만 남는다 (3개)', h.length === 3, h);
+  ok('오래된 순으로 정렬된다',
+     h.length === 3 && h[0].measuredAt < h[1].measuredAt && h[1].measuredAt < h[2].measuredAt);
+  const d0 = h[0] ? new Date(h[0].measuredAt) : null;
+  ok('결과지 표기(26.06.30. 07:36)를 2026-06-30 07:36 으로 읽는다',
+     d0 && d0.getFullYear() === 2026 && d0.getMonth() === 5 && d0.getDate() === 30 &&
+     d0.getHours() === 7 && d0.getMinutes() === 36, h[0]);
+  ok('세 값이 실린다', h[0] && h[0].weightKg === 89 && h[0].smmKg === 36.2 && h[0].pbfPct === 28.4);
+  ok('이번 측정 열도 그대로 온다 (앱이 뺀다)',
+     h[2] && /^2026-09-1[89]T/.test(h[2].measuredAt) && h[2].weightKg === 86.7, h[2]);
+  ok('본 칸은 그대로다', hist.json.fields.weightKg === 86.7 && hist.json.read >= 4);
+  ok('요청에 안내 문장이 붙는다',
+     /history/.test(lastRequest.messages[0].content[1].text));
+
   console.log('\n[4] 모델이 헛소리를 할 때 — 앱까지 들고 가지 않는다');
   nextReply = { status: 200, body: toolReply({
     notInBody: false,

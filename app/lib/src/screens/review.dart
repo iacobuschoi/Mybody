@@ -17,6 +17,8 @@ import 'package:flutter/material.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../scope.dart';
+import '../sheet_history.dart';
+import '../ui/fmt.dart';
 
 import '../ui/widgets.dart';
 
@@ -68,8 +70,11 @@ List<String> get reviewFieldKeys =>
     [for (final f in [..._core, ..._derived, ..._composition]) f.key];
 
 class ReviewScreen extends StatefulWidget {
-  const ReviewScreen({super.key, required this.draft});
+  const ReviewScreen({super.key, required this.draft, this.history = const []});
   final Map<String, Object?> draft;
+  /// 결과지 아래 「신체변화」 그래프에서 읽은 지난 측정 중 내 기록에 없는 것.
+  /// 기본으로 전부 체크돼 있고, 저장할 때 같이 들어갑니다.
+  final List<SheetHistoryItem> history;
 
   @override
   State<ReviewScreen> createState() => _ReviewScreenState();
@@ -78,6 +83,8 @@ class ReviewScreen extends StatefulWidget {
 class _ReviewScreenState extends State<ReviewScreen> {
   late final Map<String, TextEditingController> _ctrl;
   bool _showMore = false;
+  /// 같이 저장할 지난 측정(measuredAt). 처음엔 전부.
+  late final Set<String> _histOn = {for (final h in widget.history) h.measuredAt};
 
   List<_F> get _all => [..._core, ..._derived, ..._composition];
 
@@ -206,7 +213,45 @@ class _ReviewScreenState extends State<ReviewScreen> {
             ],
           ]),
         ),
+        if (widget.history.isNotEmpty) _historyCard(context),
         FilledButton(onPressed: () => _save(app, profile), child: const Text('저장하기')),
+      ]),
+    );
+  }
+
+  /* 결과지 한 장에 지난 측정이 몇 개씩 같이 인쇄돼 있습니다(맨 아래
+     「신체변화」 그래프). 처음 쓰는 사람의 추이가 여기서 서너 점으로
+     시작합니다. 내 기록에 없는 날만 골라 왔고, 기본은 전부 저장입니다 —
+     빼고 싶은 날만 체크를 풉니다. */
+  Widget _historyCard(BuildContext context) {
+    final t = Theme.of(context);
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SectionTitle('지난 측정 ${widget.history.length}개도 같이'),
+        Text(
+          '결과지 아래 「신체변화」 그래프에서 읽었습니다 — 내 기록에 없는 날만. '
+          '체크한 것은 같이 저장됩니다.',
+          style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5),
+        ),
+        const SizedBox(height: 4),
+        for (final h in widget.history)
+          CheckboxListTile(
+            key: ValueKey('hist-${h.measuredAt}'),
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            value: _histOn.contains(h.measuredAt),
+            onChanged: (v) => setState(() {
+              if (v == true) {
+                _histOn.add(h.measuredAt);
+              } else {
+                _histOn.remove(h.measuredAt);
+              }
+            }),
+            title: Text(dateK(h.measuredAt)),
+            subtitle: Text(
+                '체중 ${n1(h.weightKg)}kg · 골격근 ${n1(h.smmKg)}kg · 체지방률 ${n1(h.pbfPct)}%'),
+          ),
       ]),
     );
   }
@@ -240,6 +285,17 @@ class _ReviewScreenState extends State<ReviewScreen> {
       return;
     }
 
+    /* 그래프에서 읽은 지난 측정. 이번 측정보다 앞선 날들이라 "최신" 은
+       안 바뀌고, 아래 backfill 판단도 이번 측정 기준 그대로입니다. */
+    var added = 0;
+    final hRaw = profile['heightCm'];
+    final hCm = hRaw is num && hRaw > 0 ? hRaw.toDouble() : null;
+    for (final h in widget.history) {
+      if (!_histOn.contains(h.measuredAt)) continue;
+      app.store.addScan(h.toScan(heightCm: hCm));
+      added++;
+    }
+
     /* **지난 기록을 채운 것이면 계획을 건드리지 않습니다.**
        추이를 채우려고 옛날 결과지를 넣었는데 계획이 통째로 바뀌면,
        사용자는 자기가 뭘 망가뜨렸는지 모릅니다. */
@@ -248,6 +304,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
         '${s['measuredAt']}'.compareTo('${prevLatest['measuredAt']}') < 0;
 
     Navigator.of(context).pop();
-    toast(context, backfill ? '지난 기록으로 저장했습니다 — 계획은 그대로입니다' : '저장했습니다');
+    toast(context,
+        (backfill ? '지난 기록으로 저장했습니다 — 계획은 그대로입니다' : '저장했습니다') +
+            (added > 0 ? ' · 지난 측정 $added개 추가' : ''));
   }
 }

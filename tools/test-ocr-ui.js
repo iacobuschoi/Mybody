@@ -59,7 +59,9 @@ let sawRequest = null;
      'ok'        평소대로 읽어 줍니다
      'slow'      3초 뒤에 대답합니다 (취소를 눌러 볼 틈)
      'notInBody' 인바디 결과지가 아니라고 합니다
-     'busy'      429 — 서버가 "판독 서비스가 바쁩니다" 로 옮겨 줍니다 */
+     'busy'      429 — 서버가 "판독 서비스가 바쁩니다" 로 옮겨 줍니다
+     'history'   맨 아래 신체변화 그래프의 지난 측정 세 열까지 읽어 줍니다
+                 (마지막 열은 이번 측정과 같은 날 — 앱이 빼야 합니다) */
 let fakeMode = 'ok';
 let fakeReplies = 0;
 const fake = http.createServer((req, res) => {
@@ -75,7 +77,13 @@ const fake = http.createServer((req, res) => {
       }
       const input = fakeMode === 'notInBody'
         ? { notInBody: true }
-        : SHEET;
+        : fakeMode === 'history'
+          ? Object.assign({}, SHEET, { history: [
+              { measuredAt: '26.05.05. 07:36', weightKg: 89.0, smmKg: 36.2, pbfPct: 28.4 },
+              { measuredAt: '2026-07-07T08:35', weightKg: 86.9, smmKg: 37.4, pbfPct: 24.2 },
+              { measuredAt: '2026-09-19T11:09', weightKg: 86.7, smmKg: 37.9, pbfPct: 23.1 }
+            ] })
+          : SHEET;
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({
         content: [{ type: 'tool_use', name: 'record_sheet', input: input }],
@@ -335,6 +343,66 @@ async function main() {
       [...document.querySelectorAll('.toast, .uid-toast, [class*="toast"]')]
         .map(e => e.textContent).join(' | '));
     ok('서버가 말한 이유가 그대로 보인다', /바쁩니다/.test(toast), toast.slice(0, 200));
+    fakeMode = 'ok';
+  }
+
+  /* --- 4-5. 맨 아래 신체변화 그래프 -------------------------------------- */
+  console.log('\n[4-5] 신체변화 그래프 — 지난 측정이 같이 저장된다');
+  {
+    /* 결과지 한 장에 지난 측정이 몇 개씩 같이 인쇄돼 있습니다. 서버가
+       읽어 보내면 검수 화면이 내 기록에 없는 날만 골라 체크박스로 보여
+       주고, 저장할 때 같이 넣습니다. 이번 측정과 같은 날(마지막 열)은
+       이번 측정이므로 빠져야 합니다. */
+    fakeMode = 'history';
+    await go('P02'); await go('P03');
+    await page.setInputFiles('[data-uid="P03-F01"]', {
+      name: 'inbody.jpg', mimeType: 'image/jpeg', buffer: JPEG_1PX
+    });
+    await page.waitForTimeout(900);
+    await page.click('[data-uid="P03-B13"]');
+    await page.waitForTimeout(2500);
+    const st = await page.evaluate(() => ({
+      screen: window.MB_APP.current,
+      row: (document.querySelector('[data-uid="P04-C07"]') || {}).innerText || '',
+      checked: !!(document.querySelector('[data-uid="P04-F16"]') || {}).checked,
+      before: window.MB_STORE.sortedScans().length
+    }));
+    ok('검수 화면에 지난 측정 줄이 뜬다', st.screen === 'P04' && !!st.row, st);
+    ok('이번 측정과 같은 날은 빼고 2개', /지난 측정 2개/.test(st.row), st.row);
+    ok('기본은 같이 저장(체크됨)', st.checked);
+    ok('날짜를 같이 보여 준다', /2026\. 5\. 5\./.test(st.row) && /2026\. 7\. 7\./.test(st.row), st.row);
+
+    await page.click('[data-uid="P04-B04"]');   // 나중에 (저장만)
+    await page.waitForTimeout(900);
+    const after = await page.evaluate(() => {
+      const s = window.MB_STORE.sortedScans();
+      return {
+        n: s.length,
+        chart: s.filter(x => x.source === 'chart').map(x => x.weightKg),
+        last: s[s.length - 1] && s[s.length - 1].weightKg,
+        toast: [...document.querySelectorAll('.toast, .uid-toast, [class*="toast"]')]
+          .map(e => e.textContent).join(' | ')
+      };
+    });
+    ok('이번 측정 + 지난 2개가 저장된다', after.n === st.before + 3, after);
+    ok('지난 것의 출처는 그래프 복원(chart)', after.chart.length === 2 &&
+       after.chart[0] === 89 && after.chart[1] === 86.9, after.chart);
+    ok('최신은 이번 측정 그대로', after.last === 86.7, after.last);
+    ok('토스트가 개수를 말한다', /지난 측정 2개/.test(after.toast), after.toast.slice(0, 200));
+
+    /* 같은 결과지를 다시 넣으면 — 이미 있는 날이라 줄이 안 뜹니다. */
+    await go('P03');
+    await page.setInputFiles('[data-uid="P03-F01"]', {
+      name: 'inbody.jpg', mimeType: 'image/jpeg', buffer: JPEG_1PX
+    });
+    await page.waitForTimeout(900);
+    await page.click('[data-uid="P03-B13"]');
+    await page.waitForTimeout(2500);
+    const again = await page.evaluate(() => ({
+      screen: window.MB_APP.current,
+      row: !!document.querySelector('[data-uid="P04-C07"]')
+    }));
+    ok('이미 있는 날은 다시 안 묻는다', again.screen === 'P04' && !again.row, again);
     fakeMode = 'ok';
   }
 

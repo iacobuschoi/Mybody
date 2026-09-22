@@ -67,6 +67,7 @@
       var camInput = null;        // capture 속성이 붙은 쪽 — 폰에서 바로 카메라
       var serverExtra = null;     // 2층이 돌려준 나머지 칸들 (검수 화면으로 넘어감)
       var serverAt = null;        // 서버가 결과지에서 읽은 측정 시각 (날짜만이 아니라)
+      var serverHistory = null;   // 맨 아래 「신체변화」 그래프의 지난 측정들 (검수 화면이 같이 저장)
       var cancelOcr = null;       // 판독을 실제로 멈추는 손잡이
       var body = h('div');
       wrap.appendChild(body);
@@ -233,7 +234,7 @@
                 text: '바꾸기', uid: 'P03-B10', uidLabel: '사진 바꾸기',
                 onClick: function () {
                   if (cancelOcr) { cancelOcr(); cancelOcr = null; }
-                  mode = 'idle'; shot = null; serverExtra = null; serverAt = null; draw();
+                  mode = 'idle'; shot = null; serverExtra = null; serverAt = null; serverHistory = null; draw();
                 }
               }),
               h('button.btn.btn--ghost.btn--sm', {
@@ -241,7 +242,7 @@
                 onClick: function () {
                   if (cancelOcr) { cancelOcr(); cancelOcr = null; }
                   if (shot && shot.id) global.MB_PHOTO.remove(shot.id);
-                  shot = null; serverExtra = null; serverAt = null;
+                  shot = null; serverExtra = null; serverAt = null; serverHistory = null;
                   mode = 'idle'; draw();
                   global.MB_UID.toast('사진을 지웠습니다');
                 }
@@ -555,6 +556,10 @@
             serverAt = /\d{2}:\d{2}/.test(at) ? at : null;
           }
           serverExtra = fields;
+          /* 맨 아래 「신체변화」 그래프의 지난 측정들. 검수 화면이 내 기록과
+             대조해서 없는 날만 같이 저장합니다. */
+          serverHistory = (res && Array.isArray(res.history) && res.history.length)
+            ? res.history : null;
           mode = 'shot';
 
           /* 세 칸을 다 읽었으면 검수 화면으로 바로 넘깁니다.
@@ -602,7 +607,7 @@
           shot = { dataUrl: out.dataUrl, w: out.w, h: out.h, bytes: out.bytes,
                    name: out.name, exifAt: out.exifAt || null, id: id };
           if (out.exifAt) quickAt = String(out.exifAt).slice(0, 10);
-          serverExtra = null; serverAt = null;
+          serverExtra = null; serverAt = null; serverHistory = null;
           mode = 'shot'; step = 0;
           draw();
         });
@@ -668,6 +673,7 @@
           });
           draft.source = 'ocr';
         }
+        if (serverHistory) draft.sheetHistory = serverHistory;
         S.set({ draft: draft });
         global.MB_DRAFT = draft;
         var before = A.current;

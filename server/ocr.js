@@ -246,6 +246,26 @@ const FIELDS = {
   idealWeightKg:    { hard: [25, 200],    desc: '적정체중 (kg)' }
 };
 
+/* 그래프에 찍히는 세 값. 결과지의 신체변화 그래프는 이 셋만 그립니다. */
+const HISTORY_FIELDS = ['weightKg', 'smmKg', 'pbfPct'];
+/* 「전체」 로 뽑은 결과지는 열이 꽤 많을 수 있습니다. 최근 것부터 이만큼. */
+const HISTORY_MAX = 16;
+
+/** 결과지의 날짜 표기를 시각(ms)으로. 못 읽으면 NaN.
+ *  ISO(2026-06-30T07:36) 도, 결과지 그대로(26.06.30. 07:36) 도 받습니다 —
+ *  모델에게 ISO 로 달라고 하지만 가끔 인쇄된 대로 옮겨 적습니다.
+ *  시각이 없으면 9시로 둡니다(앱이 날짜만 있을 때 쓰는 값과 같음). */
+function parseWhen(s) {
+  if (typeof s !== 'string') return NaN;
+  const m = s.trim().match(/^(\d{2}|\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})\.?(?:[ T](\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+  if (!m) return NaN;
+  const y = m[1].length === 2 ? 2000 + Number(m[1]) : Number(m[1]);
+  const d = new Date(y, Number(m[2]) - 1, Number(m[3]),
+                     m[4] == null ? 9 : Number(m[4]), m[5] == null ? 0 : Number(m[5]),
+                     m[6] == null ? 0 : Number(m[6]));
+  return d.getTime();
+}
+
 const SYSTEM = [
   '당신은 인바디(InBody) 체성분 결과지 사진에서 숫자를 옮겨 적는 일만 합니다.',
   '',
@@ -260,6 +280,13 @@ const SYSTEM = [
   '6. 읽히지 않거나 결과지에 없는 항목은 null 로 두세요. 추측하거나 계산해서',
   '   채우지 마세요 — 계산은 앱이 따로 합니다. 지어낸 값은 빈칸보다 나쁩니다.',
   '7. 측정일시는 보통 머리글에 있습니다. 없으면 null 입니다.',
+  '8. 맨 아래 「신체변화 (Body Composition History)」 그래프는 지난 측정들입니다.',
+  '   열 하나가 측정 한 번입니다 — 열 아래의 날짜(예: "26.06.30. 07:36" 은',
+  '   2026년 6월 30일 07:36)와, 그 열의 점 옆에 적힌 체중(kg)·골격근량(kg)·',
+  '   체지방률(%)입니다. 왼쪽(오래된 것)부터 순서대로 history 에 넣으세요.',
+  '   마지막 열은 보통 이번 측정(머리글의 검사일시와 같은 날)입니다 — 빼지 말고',
+  '   그대로 넣으세요. 점 옆에 숫자가 없으면 그 칸은 null 입니다. 그래프가',
+  '   없으면 history 는 빈 배열입니다.',
   '',
   '사진이 인바디 결과지가 아니면 모든 칸을 null 로 두고 notInBody 를 true 로 하세요.'
 ].join('\n');
@@ -276,6 +303,20 @@ function schema() {
   Object.keys(FIELDS).forEach(k => {
     props[k] = { type: ['number', 'null'], description: FIELDS[k].desc };
   });
+  /* 맨 아래 「신체변화」 그래프 — 결과지 한 장에 지난 측정이 몇 개씩 같이
+     인쇄돼 있습니다. 앱을 처음 쓰는 사람의 추이가 이걸로 시작됩니다. */
+  const hp = {
+    measuredAt: { type: 'string',
+      description: '그 열의 날짜(와 시각). ISO 8601 (예: 2026-06-30T07:36). 두 자리 연도는 20xx' }
+  };
+  HISTORY_FIELDS.forEach(k => {
+    hp[k] = { type: ['number', 'null'], description: FIELDS[k].desc };
+  });
+  props.history = {
+    type: 'array',
+    description: '맨 아래 「신체변화 (Body Composition History)」 그래프의 열들. 왼쪽부터 순서대로. 없으면 빈 배열',
+    items: { type: 'object', properties: hp, required: ['measuredAt'] }
+  };
   return { type: 'object', properties: props, required: ['notInBody'] };
 }
 
@@ -284,6 +325,40 @@ const TOOL = {
   description: '결과지에서 읽은 값을 기록합니다.',
   input_schema: schema()
 };
+
+// 미래이거나 10년보다 오래됐으면 잘못 읽은 것입니다.
+function plausibleWhen(t) {
+  return isFinite(t) && t <= Date.now() + 86400000 && t > Date.now() - 10 * 365 * 86400000;
+}
+
+/** 신체변화 그래프에서 읽은 열들을 다듬습니다.
+ *  날짜가 없거나 말이 안 되는 열, 값이 하나도 안 남는 열은 버리고, 같은
+ *  시각은 하나로(뒤에 온 것이 이김), 오래된 순으로 정렬, 최근 HISTORY_MAX 개.
+ *  이번 측정과 겹치는 열(같은 날)을 여기서 빼지는 않습니다 — 앱이 자기
+ *  기록과 대조해서 뺍니다. 서버는 앱의 기록을 모릅니다. */
+function cleanHistory(raw) {
+  if (!Array.isArray(raw)) return [];
+  const byAt = new Map();
+  raw.forEach(it => {
+    if (!it || typeof it !== 'object') return;
+    const t = parseWhen(it.measuredAt);
+    if (!plausibleWhen(t)) return;
+    const row = { measuredAt: new Date(t).toISOString() };
+    let n = 0;
+    HISTORY_FIELDS.forEach(k => {
+      const v = it[k];
+      if (typeof v !== 'number' || !isFinite(v)) return;
+      const [lo, hi] = FIELDS[k].hard;
+      if (v < lo || v > hi) return;
+      row[k] = Math.round(v * 1000) / 1000;
+      n++;
+    });
+    if (n) byAt.set(row.measuredAt, row);
+  });
+  return Array.from(byAt.values())
+    .sort((a, b) => a.measuredAt < b.measuredAt ? -1 : a.measuredAt > b.measuredAt ? 1 : 0)
+    .slice(-HISTORY_MAX);
+}
 
 /** 사람의 몸에서 나올 수 없는 값은 버립니다. 애매한 값은 남겨 둡니다. */
 function clean(raw) {
@@ -299,11 +374,8 @@ function clean(raw) {
   if (out.inbodyScore != null) out.inbodyScore = Math.round(out.inbodyScore);
 
   if (typeof raw.measuredAt === 'string') {
-    const t = Date.parse(raw.measuredAt.length <= 10 ? raw.measuredAt + 'T09:00:00' : raw.measuredAt);
-    // 미래이거나 10년보다 오래됐으면 잘못 읽은 것입니다.
-    if (isFinite(t) && t <= Date.now() + 86400000 && t > Date.now() - 10 * 365 * 86400000) {
-      out.measuredAt = new Date(t).toISOString();
-    }
+    const t = parseWhen(raw.measuredAt);
+    if (plausibleWhen(t)) out.measuredAt = new Date(t).toISOString();
   }
   if (typeof raw.device === 'string' && raw.device.length <= 40) {
     out.device = raw.device.replace(/[^\w가-힣 .\-]/g, '').slice(0, 40);
@@ -349,7 +421,8 @@ async function runOcr(body, opts) {
                              authHeaders(apiKey, opts.workspace)),
       body: JSON.stringify({
         model: opts.model || DEFAULT_MODEL,
-        max_tokens: 1500,
+        /* 지난 측정 열이 열여섯 개까지 실릴 수 있어 여유를 둡니다. */
+        max_tokens: 2500,
         system: SYSTEM,
         tools: [TOOL],
         tool_choice: { type: 'tool', name: TOOL.name },
@@ -357,7 +430,8 @@ async function runOcr(body, opts) {
           role: 'user',
           content: [
             { type: 'image', source: { type: 'base64', media_type: mediaType, data: data } },
-            { type: 'text', text: '이 결과지에서 값을 읽어 기록해 주세요.' }
+            { type: 'text', text: '이 결과지에서 값을 읽어 기록해 주세요. 맨 아래 신체변화 ' +
+                                  '그래프가 있으면 지난 측정도 history 에 넣어 주세요.' }
           ]
         }]
       })
@@ -398,9 +472,13 @@ async function runOcr(body, opts) {
   return { status: 200, body: {
     ok: true,
     fields: fields,
+    /* 맨 아래 그래프의 지난 측정들. 앱이 자기 기록에 없는 날만 골라
+       같이 저장합니다. 이번 측정(마지막 열)도 들어 있습니다. */
+    history: cleanHistory(block.input.history),
     read: Object.keys(fields).length,
     usage: j.usage ? { in: j.usage.input_tokens, out: j.usage.output_tokens } : null
   } };
 }
 
-module.exports = { runOcr, clean, FIELDS, SYSTEM, TOOL, checkKey, explain, DEFAULT_MODEL };
+module.exports = { runOcr, clean, cleanHistory, parseWhen, FIELDS, HISTORY_FIELDS, SYSTEM, TOOL,
+                   checkKey, explain, DEFAULT_MODEL };

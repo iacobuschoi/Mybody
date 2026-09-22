@@ -82,6 +82,7 @@
 
       var touched = {};             // 사람이 손댄 필드 = 확인된 필드
       var savedOnce = false;        // 저장하고 나면 더 지킬 것이 없습니다
+      var histOn = true;            // 그래프의 지난 측정도 같이 저장 (기본 켬)
 
       /* 고치던 것을 두고 나가려 하면 물어봅니다.
          탭바 · 뒤로가기 · 화면 안 버튼 어느 쪽으로 나가든 라우터가
@@ -172,6 +173,8 @@
       ]);
       infoCard.appendChild(dateRow());
       infoCard.appendChild(deviceRow());
+      var histRow = historyRow();
+      if (histRow) infoCard.appendChild(histRow);
       wrap.appendChild(infoCard);
 
       /* --- 상태(S01) + 액션 -------------------------------------------------- */
@@ -283,6 +286,71 @@
           ]),
           input,
           h('div.field__hint', { text: '결과지에 인쇄된 측정 시각을 그대로 넣으면 추이가 정확해집니다' })
+        ]);
+      }
+
+      /* 결과지 아래 「신체변화」 그래프에서 읽은 지난 측정 중 **내 기록에 없는
+         날**. 이번 측정과 같은 날·그 뒤는 뺍니다(그건 이번 측정입니다). 값이
+         물리적으로 안 맞는 열은 조용히 뺍니다 — 그래프의 작은 글씨는 오독이
+         잦고, 열마다 검산을 보여 줄 자리는 없습니다. 앱(sheet_history.dart)과
+         같은 규칙입니다. */
+      function dayKey(iso) {
+        var d = new Date(iso || '');
+        return isNaN(d) ? '' : d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+      }
+      function historyToAdd() {
+        var raw = src.sheetHistory;
+        if (!raw || !raw.length) return [];
+        var cur = new Date(v.measuredAt || '');
+        var taken = {};
+        taken[dayKey(v.measuredAt)] = true;
+        S.sortedScans().forEach(function (s) { taken[dayKey(s.measuredAt)] = true; });
+        var out = [];
+        raw.forEach(function (e) {
+          if (!e || typeof e !== 'object') return;
+          var d = new Date(e.measuredAt || '');
+          if (isNaN(d) || isNaN(cur) || !(d < cur)) return;
+          if (typeof e.weightKg !== 'number' || typeof e.smmKg !== 'number' ||
+              typeof e.pbfPct !== 'number') return;
+          var k = dayKey(e.measuredAt);
+          if (!k || taken[k]) return;
+          taken[k] = true;
+          var bfm = round(e.weightKg * e.pbfPct / 100, 1);
+          var scan = {
+            id: 'scan-h' + d.getTime(),   // 같은 결과지를 두 번 넣어도 같은 줄
+            measuredAt: d.toISOString(),
+            weightKg: e.weightKg, smmKg: e.smmKg, pbfPct: e.pbfPct,
+            bfmKg: bfm, ffmKg: round(e.weightKg - bfm, 1),
+            source: 'chart', device: null, photoId: null
+          };
+          if (heightM > 0) scan.bmi = round(e.weightKg / (heightM * heightM), 1);
+          if (E.validateScan(scan, null)) return;
+          out.push(scan);
+        });
+        out.sort(function (a, b) { return a.measuredAt < b.measuredAt ? -1 : 1; });
+        return out;
+      }
+      function ymd(iso) {
+        var d = new Date(iso);
+        return d.getFullYear() + '. ' + (d.getMonth() + 1) + '. ' + d.getDate() + '.';
+      }
+      function historyRow() {
+        var list = historyToAdd();
+        if (!list.length) return null;
+        var box = h('input', {
+          type: 'checkbox', uid: 'P04-F16', uidLabel: '그래프의 지난 측정도 같이 저장',
+          onChange: function () { histOn = !!box.checked; }
+        });
+        box.checked = histOn;
+        return h('div.field', { uid: 'P04-C07', uidLabel: '그래프의 지난 측정' }, [
+          h('label', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
+            box,
+            h('span', { text: '아래 그래프의 지난 측정 ' + list.length + '개도 같이 저장' })
+          ]),
+          h('div.field__hint', {
+            text: list.map(function (s) { return ymd(s.measuredAt); }).join(' · ') +
+                  ' — 내 기록에 없는 날만'
+          })
         ]);
       }
 
@@ -732,9 +800,13 @@
           return;
         }
         savedOnce = true;
+        /* 그래프에서 읽은 지난 측정. 이번 측정보다 앞선 날들이라 "최신" 은
+           안 바뀌고, 아래 backfill 판단도 이번 측정 기준 그대로입니다. */
+        var added = 0;
+        if (histOn) historyToAdd().forEach(function (s) { S.addScan(s); added++; });
         S.set({ draft: null });
         global.MB_DRAFT = null;
-        global.MB_UID.toast('측정이 저장되었습니다');
+        global.MB_UID.toast('측정이 저장되었습니다' + (added ? ' · 지난 측정 ' + added + '개도 추가' : ''));
 
         if (where === 'later') { A.go('P02'); return; }
 
@@ -876,6 +948,7 @@
                   'manual-photo' = 사진을 보면서 사람이 옮겨 적음 (0층)
                   'ocr'          = 서버가 읽어 준 초안 (2층) */
                source: draft.source || 'ocr',
+               sheetHistory: Array.isArray(draft.sheetHistory) ? draft.sheetHistory : null,
                rawMeasuredAt: draft.measuredAt,
                fileName: draft.ocr && draft.ocr.fileName,
                parseMs: draft.ocr && draft.ocr.parseMs };
