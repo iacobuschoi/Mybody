@@ -140,6 +140,12 @@ jobs:
         working-directory: app
         run: flutter build apk --release --build-number=${{ github.run_number }}
 
+      # 플레이스토어는 새 앱을 **APK 로 안 받습니다** — .aab 여야 합니다.
+      # 친구들한테 바로 주는 건 APK 라, 둘 다 만듭니다.
+      - name: 스토어용 묶음(AAB) 만들기
+        working-directory: app
+        run: flutter build appbundle --release --build-number=${{ github.run_number }}
+
       - name: 만들어졌는지 확인
         id: find
         run: |
@@ -148,7 +154,13 @@ jobs:
             echo "app-release.apk 를 못 찾았습니다"; find app/build -name '*.apk'; exit 1
           fi
           echo "path=$apk" >> "$GITHUB_OUTPUT"
-          echo "크기 $(du -h "$apk" | cut -f1)"
+          echo "APK  $(du -h "$apk" | cut -f1)"
+          aab=$(find app/build -name '*.aab' | head -1)
+          if [ -z "$aab" ]; then
+            echo "app-release.aab 를 못 찾았습니다"; find app/build -name '*.aab'; exit 1
+          fi
+          echo "aab=$aab" >> "$GITHUB_OUTPUT"
+          echo "AAB  $(du -h "$aab" | cut -f1)"
 
       # **만든 앱을 열어서 확인합니다.**
       #
@@ -202,7 +214,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ steps.name.outputs.artifact }}
-          path: ${{ steps.find.outputs.path }}
+          path: |
+            ${{ steps.find.outputs.path }}
+            ${{ steps.find.outputs.aab }}
           retention-days: 90
           if-no-files-found: error
 

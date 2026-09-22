@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mybody 개인정보처리방침</title>
+<style>
+  :root { color-scheme: light dark; --ink:#17171f; --muted:#6a6a7a; --line:#e4e4ec;
+          --paper:#fafafb; --accent:#4f46e5; --warn:#b45309; }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink:#ececf2; --muted:#9c9cae; --line:#2a2a36; --paper:#0f0f14;
+            --accent:#a5a0fb; --warn:#f0b45e; }
+  }
+  body { margin:0; background:var(--paper); color:var(--ink);
+         font-family:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+         line-height:1.8; font-size:16px; }
+  main { max-width:44rem; margin:0 auto; padding:3rem 1.25rem 6rem; }
+  h1 { font-size:1.8rem; margin:0 0 .25rem; letter-spacing:-.02em; }
+  h2 { font-size:1.15rem; margin:2.5rem 0 .5rem; letter-spacing:-.01em;
+       padding-top:1.5rem; border-top:1px solid var(--line); }
+  h2:first-of-type { border-top:0; padding-top:0; }
+  .sub { color:var(--muted); margin:0 0 2rem; font-size:.95rem; }
+  table { border-collapse:collapse; width:100%; font-size:.93rem; margin:1rem 0; }
+  th,td { text-align:left; padding:.55rem .7rem; border-bottom:1px solid var(--line);
+          vertical-align:top; }
+  th { font-size:.78rem; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); }
+  .tw { overflow-x:auto; }
+  table { min-width:32rem; }
+  code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:.88em;
+         background:color-mix(in srgb, var(--accent) 12%, transparent);
+         color:var(--accent); padding:.05em .35em; border-radius:.25em; }
+  .note { border-left:3px solid var(--accent); padding:.1rem 0 .1rem 1rem; margin:1.25rem 0;
+          color:var(--muted); font-size:.95rem; }
+  .fill { background:color-mix(in srgb, var(--warn) 16%, transparent);
+          color:var(--warn); padding:.05em .4em; border-radius:.25em; font-weight:700; }
+  footer { margin-top:3rem; padding-top:1.5rem; border-top:1px solid var(--line);
+           color:var(--muted); font-size:.87rem; }
+  a { color:var(--accent); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>개인정보처리방침</h1>
+<p class="sub">Mybody · 최종 수정 2026년 9월 22일</p>
+
+<p>Mybody 는 인바디(체성분) 결과를 기록하고 운동·식단 계획을 세우는 개인용 앱입니다.
+이 문서는 <strong>어떤 정보가 어디에 남는지</strong>를 실제 동작 그대로 적은 것입니다.</p>
+
+<h2>한 줄 요약</h2>
+<p><strong>몸 숫자는 이 앱을 깐 기기에만 저장됩니다.</strong> 서버로 올라가지 않습니다.
+친구 기능을 쓰려고 로그인한 경우에만, 친구에게 보여 줄 <strong>주간 요약</strong>이 서버에 저장됩니다.</p>
+
+<h2>기기에만 저장되는 것</h2>
+<p>아래는 앱을 깐 기기 안에만 있습니다. 서버로 전송되지 않습니다.</p>
+<ul>
+  <li>인바디 측정 기록 (체중 · 골격근량 · 체지방량 · 체지방률 · 측정일)</li>
+  <li>프로필 (키 · 나이 · 성별 · 운동 경력)</li>
+  <li>목표와 계획 (목표 수치, 기간, 주차별 계획)</li>
+  <li>식단 기록과 운동 기록</li>
+  <li>앱 설정</li>
+</ul>
+<p class="note"><strong>앱을 지우면 이 기록도 같이 지워집니다.</strong> 서버에 사본이 없기 때문에
+복구할 수 없습니다. 설정 화면의 <strong>내보내기</strong>로 파일을 저장해 두실 수 있습니다.</p>
+
+<h2>로그인한 경우에만 서버에 저장되는 것</h2>
+<p>친구 기능(친구 추가, 서로의 진행 상황 보기)을 쓰려면 계정이 필요합니다.
+로그인하지 않으면 이 항목은 하나도 만들어지지 않습니다.</p>
+<div class="tw">
+<table>
+  <thead><tr><th>항목</th><th>내용</th><th>왜</th></tr></thead>
+  <tbody>
+    <tr><td>계정</td><td>아이디, 표시 이름, 가입 코드, 가입 시각</td><td>계정 구분</td></tr>
+    <tr><td>비밀번호</td><td><strong>scrypt 해시만</strong> 저장. 원문은 어디에도 남지 않습니다</td><td>로그인</td></tr>
+    <tr><td>로그인 세션</td><td>토큰, 마지막 사용 시각, 만료 시각</td><td>로그인 유지</td></tr>
+    <tr><td>친구 관계</td><td>누가 누구와 친구인지, 요청·수락·차단 상태</td><td>친구 목록</td></tr>
+    <tr><td>공개 범위</td><td>어떤 친구에게 어떤 항목을 보여 줄지</td><td>본인이 정한 설정</td></tr>
+    <tr><td>주간 요약</td><td>최근 체중 · 골격근량 · 체지방량과 그 변화량</td><td>친구에게 보여 주는 값</td></tr>
+    <tr><td>프로필 사진</td><td>본인이 올린 경우에만</td><td>친구 목록 표시</td></tr>
+  </tbody>
+</table>
+</div>
+<p><strong>측정 기록 전체가 올라가는 것이 아닙니다.</strong> 친구에게 보여 주기로 한 주간 요약만
+계산해서 올립니다. 공개 범위는 설정에서 언제든 바꿀 수 있습니다.</p>
+
+<h2>결과지 사진</h2>
+<p>인바디 결과지를 <strong>자동으로 읽어 들이는 기능을 직접 켠 경우에만</strong>, 그 사진이
+서버를 거쳐 외부 판독 서비스로 전송됩니다. 판독이 끝나면 사진은 보관하지 않습니다.</p>
+<p>이 기능은 기본적으로 꺼져 있습니다. 끈 상태에서는 사진이 기기 밖으로 나가지 않으며,
+숫자를 직접 입력해서 앱의 모든 기능을 쓸 수 있습니다.</p>
+
+<h2>서버를 누가 운영하나</h2>
+<p>이 앱의 서버는 회사가 아니라 <strong>앱 개발자가 자기 컴퓨터에서 직접 운영합니다.</strong>
+그 주소는 앱 안에 들어 있지 않고, 쓰는 사람이 설정에서 직접 넣습니다.
+주소를 넣지 않으면 앱은 서버 없이 기기 안에서만 동작합니다.</p>
+
+<h2>하지 않는 것</h2>
+<ul>
+  <li>광고를 넣지 않습니다.</li>
+  <li>행동 분석·추적 도구를 넣지 않습니다.</li>
+  <li>어떤 정보도 팔거나 광고 목적으로 제3자에게 제공하지 않습니다.</li>
+  <li>위치·연락처·통화기록·기기 식별자를 수집하지 않습니다.</li>
+</ul>
+<p>앱이 요구하는 권한은 <strong>인터넷 접속 하나뿐</strong>입니다.</p>
+
+<h2>지우기</h2>
+<p>앱의 설정 화면에서 <strong>계정 삭제</strong>를 누르면 서버에 있는 그 계정의 모든 기록이
+지워집니다 — 계정, 세션, 친구 관계, 공개 범위, 주간 요약, 프로필 사진, 판독 사용 기록까지
+함께 지워지며 되돌릴 수 없습니다.</p>
+<p>기기 안의 기록은 앱을 삭제하면 함께 지워집니다.</p>
+
+<h2>보관 기간</h2>
+<p>계정을 지우기 전까지 보관합니다. 로그인 세션은 만료 시각이 지나면 자동으로 무효가 됩니다.</p>
+
+<h2>어린이</h2>
+<p>이 앱은 만 14세 미만을 대상으로 하지 않으며, 해당 연령대의 정보를 알면서 수집하지 않습니다.</p>
+
+<h2>의료 목적이 아닙니다</h2>
+<p>이 앱이 계산해 주는 수치와 계획은 <strong>참고용</strong>입니다. 질병의 진단·치료·예방을
+목적으로 하지 않으며 의료기기가 아닙니다. 건강 상태에 관한 판단은 의료 전문가와
+상의하시기 바랍니다.</p>
+
+<h2>바뀌면</h2>
+<p>이 문서가 바뀌면 위의 최종 수정 날짜가 함께 바뀝니다. 수집 항목이 늘어나는 변경은
+앱 안에서 다시 알려 드립니다.</p>
+
+<h2>문의</h2>
+<p><span class="fill">여기에 연락받을 이메일 주소를 적어 주세요</span></p>
+
+<footer>
+  Mybody · 소스 코드: <a href="https://github.com/iacobuschoi/Mybody">github.com/iacobuschoi/Mybody</a><br>
+  이 문서에 적힌 내용은 공개된 소스 코드에서 직접 확인하실 수 있습니다.
+</footer>
+
+</main>
+</body>
+</html>
