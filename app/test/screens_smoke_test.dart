@@ -463,10 +463,10 @@ void main() {
     await t.pumpWidget(host(app, FoodSearchScreen(date: app.store.dayKey(), meal: '저녁')));
     await t.pump(const Duration(milliseconds: 200));
     expect(find.widgetWithText(AppBar, '저녁에 추가'), findsOneWidget);
-    await t.tap(find.widgetWithText(FilterChip, '단백질'));
+    await t.tap(find.widgetWithText(ChoiceChip, '단백질'));
     await t.pump();
-    final tiles = find.byType(ListTile).evaluate().length;
-    expect(tiles, greaterThan(0));
+    /* 목록 줄마다 오른쪽에 kcal 이 큼직하게 — 그걸로 셉니다. */
+    expect(find.text('kcal').evaluate().length, greaterThan(0));
 
     await t.tap(find.text('목록에 없어요 · 직접 입력'));
     await t.pumpAndSettle();
@@ -475,7 +475,8 @@ void main() {
     await t.enterText(find.widgetWithText(TextField, '단백질 (g)'), '30');
     await t.tap(find.text('추가'));
     await t.pumpAndSettle();
-    expect(find.text('1개 저장'), findsOneWidget);
+    expect(find.textContaining('1개 저장'), findsOneWidget);
+    expect(find.widgetWithText(InputChip, '구내식당 점심 · 650kcal'), findsOneWidget, reason: '담은 것이 보여야 합니다');
   });
 
   testWidgets('음식 검색', (t) async {
@@ -494,7 +495,7 @@ void main() {
   });
 
   /* 서버 카드는 없습니다 — 주소는 앱에 박혀 있어 볼 일이 없습니다. 계정 카드와
-     맨 아래 작은 「서버 주소 바꾸기」만. */
+     서버 주소를 바꾸는 길은 없습니다 — 서버를 옮기면 앱을 업데이트합니다. */
   testWidgets('설정 — 서버 카드 대신 계정 카드, 주소 바꾸기는 맨 아래 작게', (t) async {
     t.view.physicalSize = const Size(1000, 4000);
     t.view.devicePixelRatio = 1.0;
@@ -506,8 +507,8 @@ void main() {
     expect(find.text('계정'), findsOneWidget);
     expect(find.text('로그아웃'), findsOneWidget);
     expect(find.text('계정 관리'), findsOneWidget);
-    expect(find.textContaining('서버 주소 바꾸기'), findsOneWidget);
-    expect(find.text('주소 바꾸기'), findsNothing);
+    expect(find.textContaining('서버 주소'), findsNothing);
+    expect(find.text('내 기록 내보내기'), findsOneWidget);
   });
 
   testWidgets('설정', (t) async {

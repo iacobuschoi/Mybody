@@ -181,38 +181,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onPressed: () => _import(context, app),
             child: Text('가져오기', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
           ),
-          TextButton(
-            onPressed: () => _setServer(context),
-            child: Text(
-              '서버 주소 바꾸기 · ${Uri.tryParse(api.baseUrl)?.host ?? api.baseUrl}',
-              style: t.textTheme.labelSmall?.copyWith(color: t.hintColor),
-            ),
-          ),
         ]),
       ]),
     );
   }
 
-  /* 주소를 넣고 고치는 일은 **한 군데서만** 합니다.
-   *
-   * 예전에는 여기에 손으로 만든 대화상자가 따로 있었는데, 그쪽은 넣은 글자를
-   * 검사도 안 하고 닿는지 보지도 않고 그냥 저장했습니다. 오타 하나면 친구
-   * 기능이 통째로 조용히 죽고, 사용자는 어디가 틀렸는지 알 길이 없었습니다.
-   * 처음 들어올 때 쓰는 화면(ServerScreen)은 그 검사를 이미 다 합니다. */
-  Future<void> _setServer(BuildContext context) async {
-    final api = Scope.apiOf(context);
-    final set = Scope.serverSetterOf(context);
-    await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ServerScreen(
-        initial: api.baseUrl,
-        onSet: (url) async {
-          await set(url);
-          if (context.mounted) Navigator.of(context).pop();
-        },
-      ),
-    ));
-    if (context.mounted) setState(() {});
-  }
+  /* 서버 주소를 바꾸는 길은 없습니다. 주소는 앱에 박혀 있고, 서버를 옮기면
+     앱을 업데이트합니다 — 주인의 결정. */
 
   Future<void> _editProfile(BuildContext context, app) async {
     final p = app.profile ?? <String, Object?>{};

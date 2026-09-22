@@ -745,67 +745,78 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
     final q = _q.text.trim();
     final hits = _hits();
     final favs = ((app.state['foodFavorites'] as List?) ?? const []).map((x) => '$x').toList();
-    final recents = q.isEmpty && _cat == null ? app.store.recentFoods(8) : const <Map<String, Object?>>[];
+    final recents = q.isEmpty && _cat == null ? app.store.recentFoods(6) : const <Map<String, Object?>>[];
+    final pickedSum = core.Store.sumItems(_picked);
+
+    Widget label(String s) => Padding(
+          padding: const EdgeInsets.only(top: 6, bottom: 8),
+          child: Text(s,
+              style: t.textTheme.labelSmall?.copyWith(
+                  color: t.hintColor, fontWeight: FontWeight.w700, letterSpacing: 0.2)),
+        );
 
     return Scaffold(
       appBar: AppBar(title: Text('$_meal에 추가')),
       body: Column(children: [
+        /* 위: 검색 → 끼니 → 분류. 한 줄씩, 칩은 가로로 흘려서 세로 공간을 안 먹습니다. */
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(dateK(widget.date), style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-            const SizedBox(height: 6),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             TextField(
               controller: _q,
               onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(
-                hintText: '음식 이름 (예: 닭가슴살, 찌개, 김밥)',
-                prefixIcon: Icon(LucideIcons.search),
-                border: OutlineInputBorder(),
+              textInputAction: TextInputAction.search,
+              decoration: InputDecoration(
+                hintText: '음식 이름 — 닭가슴살, 찌개, 김밥…',
+                prefixIcon: const Icon(LucideIcons.search, size: 20),
+                suffixIcon: q.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(LucideIcons.x, size: 18),
+                        onPressed: () => setState(_q.clear),
+                      ),
+                filled: true,
+                fillColor: t.colorScheme.surfaceContainerHighest.withValues(alpha: 0.6),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14), borderSide: BorderSide.none),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               ),
             ),
+            const SizedBox(height: 10),
+            SegmentedButton<String>(
+              showSelectedIcon: false,
+              style: const ButtonStyle(visualDensity: VisualDensity.compact),
+              segments: [for (final m in _meals) ButtonSegment(value: m, label: Text(m))],
+              selected: {_meal},
+              onSelectionChanged: (s) => setState(() => _meal = s.first),
+            ),
             const SizedBox(height: 8),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(children: [
-                for (final m in _meals)
+            SizedBox(
+              height: 36,
+              child: ListView(scrollDirection: Axis.horizontal, children: [
+                for (final c in [null, ...core.kFoodCats])
                   Padding(
                     padding: const EdgeInsets.only(right: 6),
                     child: ChoiceChip(
-                        label: Text(m), selected: _meal == m,
-                        onSelected: (_) => setState(() => _meal = m)),
-                  ),
-              ]),
-            ),
-            const SizedBox(height: 4),
-            /* 분류 — 검색어 없이 훑을 때 씁니다. */
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(children: [
-                Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: FilterChip(label: const Text('전체'), selected: _cat == null,
-                      onSelected: (_) => setState(() => _cat = null)),
-                ),
-                for (final c in core.kFoodCats)
-                  Padding(
-                    padding: const EdgeInsets.only(right: 6),
-                    child: FilterChip(label: Text(c), selected: _cat == c,
-                        onSelected: (_) => setState(() => _cat = _cat == c ? null : c)),
+                      label: Text(c ?? '전체'),
+                      selected: _cat == c,
+                      showCheckmark: false,
+                      visualDensity: VisualDensity.compact,
+                      onSelected: (_) => setState(() => _cat = c),
+                    ),
                   ),
               ]),
             ),
           ]),
         ),
         Expanded(
-          child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 16), children: [
+          child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 16), children: [
             if (favs.isNotEmpty && q.isEmpty) ...[
-              Text('즐겨찾기', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-              const SizedBox(height: 6),
+              label('즐겨찾기'),
               Wrap(spacing: 6, runSpacing: 6, children: [
                 for (final n in favs)
                   ActionChip(
-                    avatar: const Icon(Icons.star, size: 16),
+                    avatar: Icon(Icons.star, size: 16, color: t.colorScheme.primary),
                     label: Text(n),
                     onPressed: () {
                       final f = core.foodByName(n);
@@ -813,16 +824,14 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
                     },
                   ),
               ]),
-              const SizedBox(height: 12),
             ],
             if (recents.isNotEmpty) ...[
               /* 최근에 먹은 것이 먼저입니다 — 같은 음식을 같은 추정치로
                  다시 쓰면 주마다 편향이 흔들리지 않습니다. */
-              Text('최근에 먹은 것', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-              for (final f in recents) _FoodTile(food: f, onTap: () => _pick(f)),
-              const SizedBox(height: 12),
-              Text('목록', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+              label('최근에 먹은 것'),
+              for (final f in recents) _FoodRow(food: f, onTap: () => _pick(f)),
             ],
+            label(q.isNotEmpty ? '검색 결과' : (_cat ?? '목록')),
             if (hits.isEmpty)
               EmptyState(
                 title: '찾는 음식이 없습니다',
@@ -830,29 +839,55 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
                 action: OutlinedButton(onPressed: _custom, child: const Text('직접 입력')),
               )
             else
-              for (final f in hits) _FoodTile(food: f, onTap: () => _pick(f)),
-            if (q.isEmpty && hits.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              OutlinedButton(onPressed: _custom, child: const Text('목록에 없어요 · 직접 입력')),
+              for (final f in hits) _FoodRow(food: f, onTap: () => _pick(f)),
+            if (hits.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _custom,
+                  icon: const Icon(LucideIcons.plus, size: 16),
+                  label: const Text('목록에 없어요 · 직접 입력'),
+                ),
+              ),
             ],
           ]),
         ),
+        /* 담은 것 — 보이게. 개수만 보이면 뭘 담았는지 모릅니다. */
         if (_picked.isNotEmpty)
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: FilledButton(
-                onPressed: () {
-                  app.store.addFoodLog({
-                    'date': widget.date, 'meal': _meal, 'items': _picked, 'source': 'manual',
-                  });
-                  if (!app.store.saved()) {
-                    toast(context, '기기에 저장하지 못했습니다');
-                    return;
-                  }
-                  Navigator.of(context).pop();
-                },
-                child: Text('${_picked.length}개 저장'),
+          Container(
+            decoration: BoxDecoration(
+              color: t.colorScheme.surface,
+              border: Border(top: BorderSide(color: t.dividerColor)),
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  Wrap(spacing: 6, runSpacing: 6, children: [
+                    for (var i = 0; i < _picked.length; i++)
+                      InputChip(
+                        label: Text('${_picked[i]['name']} · ${n0(_picked[i]['kcal'])}kcal'),
+                        visualDensity: VisualDensity.compact,
+                        onDeleted: () => setState(() => _picked.removeAt(i)),
+                      ),
+                  ]),
+                  const SizedBox(height: 10),
+                  FilledButton(
+                    onPressed: () {
+                      app.store.addFoodLog({
+                        'date': widget.date, 'meal': _meal, 'items': _picked, 'source': 'manual',
+                      });
+                      if (!app.store.saved()) {
+                        toast(context, '기기에 저장하지 못했습니다');
+                        return;
+                      }
+                      Navigator.of(context).pop();
+                    },
+                    child: Text('$_meal에 ${_picked.length}개 저장 · ${n0(pickedSum['kcal'])}kcal · 단백질 ${n0(pickedSum['p'])}g'),
+                  ),
+                ]),
               ),
             ),
           ),
@@ -896,47 +931,60 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
         }));
   }
 
+  /* 양 고르기 — 시트 하나. 이름 · 기준 · 편차 안내 · 배수 버튼 · 즐겨찾기. */
   Future<void> _pick(Map<String, Object?> food) async {
     final app = Scope.of(context);
     final mult = await showModalBottomSheet<double>(
       context: context,
       showDragHandle: true,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        final t = Theme.of(ctx);
         final fav = ((app.state['foodFavorites'] as List?) ?? const []).contains(food['name']);
+        final note = '${(core.kConfLabel['${food['conf']}'] as Map?)?['note'] ?? ''}';
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text('${food['name']}', style: Theme.of(ctx).textTheme.titleMedium),
-                Text('${food['unit']} 기준 ${n0(food['kcal'])}kcal',
-                    style: Theme.of(ctx).textTheme.bodySmall),
-                const SizedBox(height: 4),
-                /* 편차가 큰 음식은 그렇다고 말합니다 — 숫자를 얼마나 믿어도
-                   되는지가 숫자만큼 중요합니다. */
-                Text('${(core.kConfLabel['${food['conf']}'] as Map?)?['note'] ?? ''}',
-                    style: Theme.of(ctx).textTheme.labelSmall
-                        ?.copyWith(color: Theme.of(ctx).hintColor, height: 1.4)),
+                Row(children: [
+                  Expanded(
+                    child: Text('${food['name']}',
+                        style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                  ),
+                  IconButton(
+                    tooltip: fav ? '즐겨찾기 해제' : '즐겨찾기',
+                    onPressed: () {
+                      app.store.toggleFavorite(food['name']);
+                      setSheet(() {});
+                    },
+                    icon: Icon(fav ? Icons.star : Icons.star_outline,
+                        color: fav ? t.colorScheme.primary : t.hintColor),
+                  ),
+                ]),
+                Text(
+                    '${food['unit']} ${n0(food['g'])}g · ${n0(food['kcal'])}kcal · '
+                    '단백질 ${n1(food['p'])}g · 탄수 ${n1(food['c'])}g · 지방 ${n1(food['f'])}g',
+                    style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
+                if (note.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  /* 편차가 큰 음식은 그렇다고 말합니다 — 숫자를 얼마나 믿어도
+                     되는지가 숫자만큼 중요합니다. */
+                  Text(note, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.4)),
+                ],
                 const SizedBox(height: 16),
-                Wrap(spacing: 8, children: [
+                Text('얼마나?', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                Wrap(spacing: 8, runSpacing: 8, children: [
                   for (final p0 in core.kPortions)
                     Builder(builder: (_) {
                       final p = (p0 as Map).cast<String, Object?>();
-                      return OutlinedButton(
-                        onPressed: () => Navigator.pop(ctx, core.jsToNumber(p['mult'])),
-                        child: Text('${p['label']}'),
+                      final m = core.jsToNumber(p['mult']);
+                      return FilledButton.tonal(
+                        onPressed: () => Navigator.pop(ctx, m),
+                        child: Text('${p['label']}  ·  ${n0(core.jsToNumber(food['kcal']) * m)}kcal'),
                       );
                     }),
                 ]),
-                const SizedBox(height: 8),
-                TextButton.icon(
-                  onPressed: () {
-                    app.store.toggleFavorite(food['name']);
-                    setSheet(() {});
-                  },
-                  icon: Icon(fav ? Icons.star : Icons.star_outline, size: 18),
-                  label: Text(fav ? '즐겨찾기 해제' : '즐겨찾기'),
-                ),
               ]),
           ),
         );
@@ -947,28 +995,53 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
   }
 }
 
-class _FoodTile extends StatelessWidget {
-  const _FoodTile({required this.food, required this.onTap});
+/// 목록 한 줄 — 이름과 성분은 왼쪽, 칼로리는 오른쪽에 크게. 편차가 큰 것만 표시.
+class _FoodRow extends StatelessWidget {
+  const _FoodRow({required this.food, required this.onTap});
   final Map<String, Object?> food;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
-    final conf = '${food['conf']}';
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      title: Text('${food['name']}', style: t.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
-      /* 무게와 영양소를 말로 구분합니다. "1개 (50g) · 72kcal · P6.3" 이면
-         50g 이 단백질처럼 읽힙니다. */
-      subtitle: Text(
-          '${food['unit'] ?? ''} ${n0(food['g'])}g · ${n0(food['kcal'])}kcal · 단백질 ${n1(food['p'])}g · '
-          '탄수 ${n1(food['c'])}g · 지방 ${n1(food['f'])}g',
-          style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-      trailing: conf == 'low'
-          ? const Pill('편차 큼', tone: Tone.warn)
-          : (conf == 'high' ? const Pill('정확', tone: Tone.ok) : const Icon(LucideIcons.plus)),
+    final c = mb(context);
+    final low = '${food['conf']}' == 'low';
+    return InkWell(
       onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+        decoration: BoxDecoration(border: Border(bottom: BorderSide(color: t.dividerColor))),
+        child: Row(children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Flexible(
+                  child: Text('${food['name']}',
+                      style: t.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w700),
+                      overflow: TextOverflow.ellipsis),
+                ),
+                if (low) ...[const SizedBox(width: 6), const Pill('편차 큼', tone: Tone.warn)],
+              ]),
+              const SizedBox(height: 2),
+              /* 무게와 영양소를 말로 구분합니다. "1개 (50g) · 72kcal · P6.3" 이면
+                 50g 이 단백질처럼 읽힙니다. */
+              Text(
+                  '${food['unit'] ?? ''} ${n0(food['g'])}g · 단백질 ${n1(food['p'])} · '
+                  '탄수 ${n1(food['c'])} · 지방 ${n1(food['f'])}',
+                  style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+            ]),
+          ),
+          const SizedBox(width: 10),
+          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Text(n0(food['kcal']),
+                style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800, color: c.weight)),
+            Text('kcal', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+          ]),
+          const SizedBox(width: 4),
+          Icon(LucideIcons.plus, size: 18, color: t.hintColor),
+        ]),
+      ),
     );
   }
 }
