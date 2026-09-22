@@ -87,25 +87,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ]),
         ),
 
+        /* 서버 카드는 뺐습니다. 주소는 앱에 박혀 있어서 사람이 볼 일이
+           없고, "주소가 없습니다 — 친구 기능이 꺼져 있습니다" 같은 줄은
+           읽는 사람을 불안하게만 합니다. 계정만 남기고, 주소 바꾸기는 맨
+           아래 작은 글씨로 — 주인이 서버를 옮겼을 때만 쓰는 것. */
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SectionTitle('서버'),
-            Text(
-              api.baseUrl.isEmpty ? '주소가 없습니다 — 친구 기능이 꺼져 있습니다' : api.baseUrl,
-              style: t.textTheme.bodySmall?.copyWith(color: t.hintColor),
-            ),
-            const SizedBox(height: 4),
+            const SectionTitle('계정'),
             Text(
               api.signedIn ? '로그인되어 있습니다' : '로그인하지 않았습니다',
-              style: t.textTheme.labelSmall?.copyWith(color: t.hintColor),
+              style: t.textTheme.bodySmall?.copyWith(color: t.hintColor),
             ),
             const SizedBox(height: 10),
             Wrap(spacing: 8, children: [
-              OutlinedButton(
-                onPressed: () => _setServer(context),
-                child: Text(api.baseUrl.isEmpty ? '주소 넣기' : '주소 바꾸기'),
-              ),
-              if (api.baseUrl.isNotEmpty && !api.signedIn)
+              if (api.signedIn)
+                OutlinedButton(
+                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                      builder: (_) => AccountScreen(
+                            api: api,
+                            onServerChange: Scope.serverSetterOf(context),
+                          ))),
+                  child: const Text('계정 관리'),
+                ),
+              if (api.signedIn)
+                OutlinedButton(
+                  onPressed: () async {
+                    await api.signOut();
+                    /* 로그아웃하면 셸이 로그인 화면으로 바뀝니다. 그 위에
+                       설정이 남아 있으면 이상하니 같이 닫습니다. */
+                    if (context.mounted) Navigator.of(context).pop();
+                  },
+                  child: const Text('로그아웃'),
+                ),
+              if (!api.signedIn)
                 FilledButton(
                   onPressed: () => Navigator.of(context).push(MaterialPageRoute(
                       builder: (_) => SignInScreen(
@@ -117,14 +131,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                             onServerChange: Scope.serverSetterOf(context),
                           ))),
                   child: const Text('로그인'),
-                ),
-              if (api.signedIn)
-                OutlinedButton(
-                  onPressed: () async {
-                    await api.signOut();
-                    if (context.mounted) setState(() {});
-                  },
-                  child: const Text('로그아웃'),
                 ),
             ]),
           ]),
@@ -184,6 +190,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ],
           ]),
+        ),
+
+        /* 서버 주소 — 주인이 서버를 옮겼을 때만 쓰는 것이라 맨 아래 작은 글씨. */
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            onPressed: () => _setServer(context),
+            child: Text(
+              '서버 주소 바꾸기 · ${Uri.tryParse(api.baseUrl)?.host ?? api.baseUrl}',
+              style: t.textTheme.labelSmall?.copyWith(color: t.hintColor),
+            ),
+          ),
         ),
       ]),
     );

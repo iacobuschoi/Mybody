@@ -493,6 +493,23 @@ void main() {
     await standsUp(t, app, const ScanDetailScreen(scanId: 's2'));
   });
 
+  /* 서버 카드는 없습니다 — 주소는 앱에 박혀 있어 볼 일이 없습니다. 계정 카드와
+     맨 아래 작은 「서버 주소 바꾸기」만. */
+  testWidgets('설정 — 서버 카드 대신 계정 카드, 주소 바꾸기는 맨 아래 작게', (t) async {
+    t.view.physicalSize = const Size(1000, 4000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    final app = await seeded();
+    await t.pumpWidget(host(app, const SettingsScreen()));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(find.text('서버'), findsNothing);
+    expect(find.text('계정'), findsOneWidget);
+    expect(find.text('로그아웃'), findsOneWidget);
+    expect(find.text('계정 관리'), findsOneWidget);
+    expect(find.textContaining('서버 주소 바꾸기'), findsOneWidget);
+    expect(find.text('주소 바꾸기'), findsNothing);
+  });
+
   testWidgets('설정', (t) async {
     final app = await seeded();
     await standsUp(t, app, const SettingsScreen());
