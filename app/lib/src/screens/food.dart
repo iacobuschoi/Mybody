@@ -1,15 +1,13 @@
 /* =============================================================================
- * food.dart — P18 식단 · P19 음식 검색 · P21 음식 상세
+ * food.dart — 식단 (P18 식단 기록 · P19 음식 고르기 · P21 식단 달성률)
  *
- * **미기록일을 0으로 치환하지 않습니다.** 0 으로 채우면 주 평균이 폭락하고,
- * 엔진은 "이 사람 대사가 예상보다 낮다" 고 판단해 칼로리를 더 깎습니다.
- * 실제로는 목표치를 먹고 있었는데도요. 그래서 안 적은 날은 분모에서 빼고,
- * 뺐다는 사실을 화면에 씁니다.
- *
- * 그리고 오늘 상태는 **명령이 아니라 보고**로 씁니다. "그만 드세요" 는
- * 앱이 내리는 지시이고, "오늘 목표치를 다 채웠습니다" 는 정보입니다.
- * 정보는 결정권을 사람에게 남깁니다.
+ * 원본 웹 화면을 카드 단위로 그대로 따릅니다. 이 화면은 **먹기 직전에**
+ * 보는 화면이라, 퍼센트가 아니라 "남은 양" 으로 말합니다 — "단백질 40g
+ * 남음" 은 닭가슴살 한 팩으로 바로 이어지지만 "60% 달성" 은 목표를
+ * 기억해 곱셈을 해야 행동이 됩니다.
  * ========================================================================== */
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
@@ -18,6 +16,25 @@ import '../scope.dart';
 import '../ui/fmt.dart';
 import '../ui/widgets.dart';
 
+const _meals = ['아침', '점심', '저녁', '간식'];
+
+/// 지금 시각으로 다음 끼니를 짐작합니다 (원본 guessMeal).
+String guessMeal([DateTime? now]) {
+  final hr = (now ?? DateTime.now()).hour;
+  if (hr < 10) return '아침';
+  if (hr < 15) return '점심';
+  if (hr < 21) return '저녁';
+  return '간식';
+}
+
+Map<String, Object?>? _targetOf(BuildContext context) {
+  final plan = Scope.of(context).state['plan'];
+  if (plan is! Map) return null;
+  final m = plan['macros'];
+  return m is Map ? m.cast<String, Object?>() : null;
+}
+
+/* --- P18 식단 기록 (일간) ------------------------------------------------- */
 class FoodScreen extends StatefulWidget {
   const FoodScreen({super.key, required this.go});
   final void Function(String route, [Object? arg]) go;
@@ -29,124 +46,514 @@ class FoodScreen extends StatefulWidget {
 class _FoodScreenState extends State<FoodScreen> {
   String? _date;
 
+  void _refresh() => setState(() {});
+
   @override
   Widget build(BuildContext context) {
     final app = Scope.of(context);
-    final date = _date ?? app.store.dayKey();
-    final totals = app.store.dayTotals(date);
-    final logs = app.store.logsForDate(date);
-    final plan = app.state['plan'] == null
-        ? null
-        : (app.state['plan'] as Map).cast<String, Object?>();
-    final target = plan?['macros'] == null
-        ? null
-        : (plan!['macros'] as Map).cast<String, Object?>();
+    final store = app.store;
+    final date = _date ?? store.dayKey();
+    final totals = store.dayTotals(date);
+    final logs = store.logsForDate(date);
+    final target = _targetOf(context);
     final t = Theme.of(context);
-    final c = mb(context);
+    final hint = t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5);
 
-    final nudge = target == null
-        ? null
-        : core.dietNudge({
-            'logged': totals['logged'],
-            'kcal': totals['kcal'],
-            'p': totals['p'],
-          }, target);
+    final remainP = target == null
+        ? 0.0
+        : math.max(0.0, core.jsToNumber(target['proteinG']) - core.jsToNumber(totals['p']));
+    final remainK = target == null
+        ? 0.0
+        : core.jsToNumber(target['intakeKcal']) - core.jsToNumber(totals['kcal']);
 
     return ListView(padding: const EdgeInsets.all(16), children: [
-      _DayStrip(
-        date: date,
-        onPick: (d) => setState(() => _date = d),
-      ),
-      if (target == null)
-        const Note(
-          text: '목표를 정하면 하루 섭취·단백질 목표가 생기고, 남은 양에 맞는 '
-              '음식을 추천할 수 있습니다. 지금은 기록만 남습니다.',
-        ),
-      MbCard(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          SectionTitle('오늘 먹은 것',
-              trailing: Text(core.jsTruthy(totals['logged']) ? '${n0(totals['entries'])}건' : '기록 없음',
-                  style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
-          Row(children: [
-            Expanded(child: Stat(label: '칼로리', value: n0(totals['kcal']), unit: 'kcal')),
-            Expanded(child: Stat(label: '단백질', value: n1(totals['p']), unit: 'g', color: c.muscle)),
-            Expanded(child: Stat(label: '탄수', value: n1(totals['c']), unit: 'g')),
-            Expanded(child: Stat(label: '지방', value: n1(totals['f']), unit: 'g', color: c.fat)),
+      _DayStrip(date: date, onPick: (d) => setState(() => _date = d)),
+
+      if (target == null) ...[
+        MbCard(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const SectionTitle('아직 하루 목표가 없습니다'),
+            Text('플랜을 만들면 칼로리와 탄단지 목표가 생기고, 여기에 대조해서 보여드립니다.',
+                style: hint),
+            const SizedBox(height: 10),
+            FilledButton(onPressed: () => widget.go('goal'), child: const Text('플랜 만들기')),
           ]),
-          if (target != null) ...[
-            const SizedBox(height: 12),
-            _Bar(label: '칼로리', got: core.jsToNumber(totals['kcal']),
-                want: core.jsToNumber(target['intakeKcal']), color: t.colorScheme.primary),
-            const SizedBox(height: 8),
-            _Bar(label: '단백질', got: core.jsToNumber(totals['p']),
-                want: core.jsToNumber(target['proteinG']), color: c.muscle),
-          ],
-        ]),
-      ),
-      if (nudge != null)
-        Note(
-          tone: nudge['tone'] == 'ok' ? Tone.ok : (nudge['tone'] == 'warn' ? Tone.warn : Tone.none),
-          title: '${nudge['text']}',
-          text: ' ${nudge['detail']}',
         ),
-      /* 기록이 없을 때 "아직 없습니다" 를 두 번 말하지 않습니다 —
-         위의 한 줄(dietNudge)이 이미 그 말을 하고, 할 일까지 알려 줍니다.
-         목표가 없어서 그 한 줄이 없을 때만 빈 화면을 띄웁니다. */
-      if (logs.isEmpty && nudge == null)
-        const EmptyState(title: '아직 적은 게 없습니다', detail: '한 끼만 적어도 주 평균이 살아납니다.')
-      else
-        for (final l in logs) _LogCard(log: l, onRemove: () {
-          app.store.removeFoodLog(l['id']);
-          setState(() {});
-        }),
-      FilledButton.icon(
+        _TotalsCard(totals: totals),
+      ] else ...[
+        _TodayCard(totals: totals, target: target),
+        /* 남은 양을 알려주는 것과 그걸 음식으로 번역해 주는 것은 다른 일입니다.
+           "단백질 40g 남음" 을 보고 닭가슴살 한 팩 반을 떠올리려면 매번 계산이
+           필요하고, 하루 세 번 그 계산을 하다가 사람들이 포기합니다. */
+        if (remainP > 0)
+          _SuggestCard(date: date, remainP: remainP, remainK: remainK, onAdded: _refresh),
+      ],
+
+      for (final meal in _meals)
+        _MealCard(meal: meal, date: date, logs: logs, onChanged: _refresh),
+
+      _RecentChips(date: date, onAdded: _refresh),
+      if (logs.isEmpty) _YesterdayCard(date: date, onCopied: _refresh),
+
+      OutlinedButton.icon(
         onPressed: () async {
           await Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => FoodSearchScreen(date: date)));
-          setState(() {});
+              builder: (_) => DietAdherenceScreen(go: widget.go)));
+          _refresh();
         },
-        icon: const Icon(LucideIcons.plus),
-        label: const Text('음식 추가'),
+        icon: const Icon(LucideIcons.lineChart),
+        label: const Text('달성률'),
       ),
-      if (target != null) ...[
-        const SizedBox(height: 8),
-        OutlinedButton.icon(
-          onPressed: () => _suggest(context, totals, target),
-          icon: const Icon(LucideIcons.utensilsCrossed),
-          label: const Text('뭘 먹지? — 남은 양으로 채우기'),
-        ),
-      ],
+      if (logs.isEmpty)
+        const Note(
+            text: '완벽하게 적을 필요 없습니다. 한 끼만 적어도 주 평균이 살아납니다. '
+                '안 적은 날은 0으로 치지 않고 평균에서 빼기 때문입니다.'),
     ]);
   }
+}
 
-  Future<void> _suggest(BuildContext context, Map<String, Object?> totals,
-      Map<String, Object?> target) async {
-    final remainP = core.jsToNumber(target['proteinG']) - core.jsToNumber(totals['p']);
-    final remainKcal = core.jsToNumber(target['intakeKcal']) - core.jsToNumber(totals['kcal']);
-    await showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (ctx) => DefaultTabController(
-        length: 3,
-        child: DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.85,
-          builder: (ctx, sc) => Column(children: [
-            const TabBar(tabs: [Tab(text: '한 끼'), Tab(text: '사먹기'), Tab(text: '간식')]),
-            Expanded(
-              child: TabBarView(children: [
-                _SuggestList(res: core.suggestMeal(
-                    {'remainP': remainP, 'remainKcal': remainKcal, 'mealsLeft': 1})),
-                _SuggestList(res: core.suggestEatOut(
-                    {'remainP': remainP, 'remainKcal': remainKcal, 'mealsLeft': 1})),
-                _SuggestList(res: core.suggestSnack(
-                    {'remainP': remainP, 'remainKcal': remainKcal})),
+/* 목표가 없을 때: 먹은 것 합계만. */
+class _TotalsCard extends StatelessWidget {
+  const _TotalsCard({required this.totals});
+  final Map<String, Object?> totals;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final c = mb(context);
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SectionTitle('오늘 먹은 것',
+            trailing: Text(
+                core.jsTruthy(totals['logged']) ? '${n0(totals['entries'])}건' : '기록 없음',
+                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+        Row(children: [
+          Expanded(child: Stat(label: '칼로리', value: n0(totals['kcal']), unit: 'kcal')),
+          Expanded(child: Stat(label: '단백질', value: n1(totals['p']), unit: 'g', color: c.muscle)),
+          Expanded(child: Stat(label: '탄수', value: n1(totals['c']), unit: 'g')),
+          Expanded(child: Stat(label: '지방', value: n1(totals['f']), unit: 'g', color: c.fat)),
+        ]),
+      ]),
+    );
+  }
+}
+
+/* --- C02 오늘 남은 양 (핵심) --------------------------------------------- */
+class _TodayCard extends StatelessWidget {
+  const _TodayCard({required this.totals, required this.target});
+  final Map<String, Object?> totals, target;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final c = mb(context);
+    final p = core.jsToNumber(totals['p']);
+    final kcal = core.jsToNumber(totals['kcal']);
+    final tp = core.jsToNumber(target['proteinG']);
+    final tk = core.jsToNumber(target['intakeKcal']);
+    final remainP = math.max(0.0, tp - p);
+    final lo = core.jsRound(tk * 0.9).toDouble(), hi = core.jsRound(tk * 1.1).toDouble();
+    final logged = core.jsTruthy(totals['logged']);
+    final inBand = kcal >= lo && kcal <= hi;
+    final nudge = core.dietNudge(
+        {'logged': totals['logged'], 'kcal': totals['kcal'], 'p': totals['p']}, target);
+    final small = t.textTheme.labelSmall?.copyWith(color: t.hintColor);
+    final big = t.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.w900, height: 1.1);
+
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SectionTitle('오늘',
+            trailing: Pill(logged ? '${n0(totals['entries'])}건 기록' : '기록 없음',
+                tone: logged && inBand ? Tone.ok : Tone.none)),
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('단백질 남음', style: small),
+              Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic, children: [
+                Text(remainP > 0 ? n0(remainP) : '완료',
+                    style: big?.copyWith(color: remainP > 0 ? c.muscle : c.ok)),
+                if (remainP > 0) Text(' g', style: small),
+              ]),
+              Text('${n0(p)} / ${n0(tp)}g', style: small),
+            ]),
+          ),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('칼로리', style: small),
+              Text(n0(kcal),
+                  style: big?.copyWith(color: inBand ? c.ok : (kcal > hi ? c.warn : null))),
+              Text('목표 범위 ${n0(lo)}~${n0(hi)}', style: small),
+            ]),
+          ),
+        ]),
+        _BandBar(value: kcal, target: tk, lo: lo, hi: hi),
+        _MacroRow(label: '단백질', got: p, want: tp, color: c.muscle),
+        _MacroRow(label: '탄수화물', got: core.jsToNumber(totals['c']),
+            want: core.jsToNumber(target['carbG']), color: t.colorScheme.primary),
+        _MacroRow(label: '지방', got: core.jsToNumber(totals['f']),
+            want: core.jsToNumber(target['fatG']), color: c.fat),
+        if (nudge != null) ...[
+          const SizedBox(height: 6),
+          Note(
+            tone: nudge['tone'] == 'ok' ? Tone.ok : (nudge['tone'] == 'warn' ? Tone.warn : Tone.none),
+            title: '${nudge['text']}',
+            text: ' ${nudge['detail'] ?? ''}',
+          ),
+        ],
+      ]),
+    );
+  }
+}
+
+/// 칼로리 막대 — 목표 범위(90~110%)를 띠로 깔고 그 위에 먹은 양.
+class _BandBar extends StatelessWidget {
+  const _BandBar({required this.value, required this.target, required this.lo, required this.hi});
+  final double value, target, lo, hi;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final c = mb(context);
+    final max = [hi * 1.15, value * 1.05, target * 1.2].reduce(math.max);
+    double pct(double v) => max > 0 ? (v / max).clamp(0.0, 1.0) : 0.0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        LayoutBuilder(builder: (_, box) {
+          final w = box.maxWidth;
+          return SizedBox(
+            height: 10,
+            child: Stack(children: [
+              Container(
+                  decoration: BoxDecoration(
+                      color: t.dividerColor, borderRadius: BorderRadius.circular(999))),
+              Positioned(
+                left: w * pct(lo), width: w * (pct(hi) - pct(lo)), top: 0, bottom: 0,
+                child: Container(color: c.ok.withValues(alpha: 0.22)),
+              ),
+              Container(
+                width: w * pct(value),
+                decoration: BoxDecoration(
+                    color: t.colorScheme.primary.withValues(alpha: 0.75),
+                    borderRadius: BorderRadius.circular(999)),
+              ),
+            ]),
+          );
+        }),
+        const SizedBox(height: 3),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Text('0', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, fontSize: 10.5)),
+          Text('목표 범위 ${n0(lo)}~${n0(hi)} kcal',
+              style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, fontSize: 10.5)),
+          Text(n0(max), style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, fontSize: 10.5)),
+        ]),
+      ]),
+    );
+  }
+}
+
+class _MacroRow extends StatelessWidget {
+  const _MacroRow({required this.label, required this.got, required this.want, required this.color});
+  final String label;
+  final double got, want;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final pct = want > 0 ? (got / want).clamp(0.0, 1.0) : 0.0;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Text(label, style: t.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600, color: t.hintColor)),
+          Text('${n0(got)} / ${n0(want)}g', style: t.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700)),
+        ]),
+        const SizedBox(height: 3),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+              value: pct, minHeight: 6, backgroundColor: t.dividerColor,
+              valueColor: AlwaysStoppedAnimation(color)),
+        ),
+      ]),
+    );
+  }
+}
+
+/* --- C10 뭘 먹을까 — 남은 단백질을 실제 음식으로 번역 -------------------- */
+class _SuggestCard extends StatefulWidget {
+  const _SuggestCard({required this.date, required this.remainP, required this.remainK, required this.onAdded});
+  final String date;
+  final double remainP, remainK;
+  final VoidCallback onAdded;
+
+  @override
+  State<_SuggestCard> createState() => _SuggestCardState();
+}
+
+class _SuggestCardState extends State<_SuggestCard> {
+  static const _modes = [('out', '사먹기'), ('home', '집밥'), ('snack', '간식')];
+  late String _mode;
+  late final String _nextMeal = guessMeal();
+
+  @override
+  void initState() {
+    super.initState();
+    // 점심·저녁은 대개 밖에서 사먹습니다. 그 시간대면 사먹기를 먼저 보여줍니다.
+    _mode = (_nextMeal == '점심' || _nextMeal == '저녁') ? 'out' : (_nextMeal == '간식' ? 'snack' : 'home');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = Scope.of(context);
+    final t = Theme.of(context);
+    final logs = app.store.logsForDate(widget.date);
+    // 오늘 이미 먹은 건 또 권하지 않습니다 — 같은 걸 세 번 권하면 추천이 아닙니다.
+    final eaten = <String>{
+      for (final l in logs) for (final it in ((l['items'] as List?) ?? const [])) '${(it as Map)['name']}',
+    };
+    // 오늘 아직 안 먹은 끼니 수. 아침에 하루치를 한 끼에 몰지 않기 위해서입니다.
+    final loggedMeals = {for (final l in logs) '${l['meal']}'};
+    final mealsLeft = ['아침', '점심', '저녁'].where((m) => !loggedMeals.contains(m)).length;
+    final opts = <String, Object?>{
+      'remainP': widget.remainP, 'remainKcal': widget.remainK, 'avoid': eaten.toList(),
+      'mealsLeft': math.max(1, mealsLeft), 'limit': 3,
+    };
+    final res = switch (_mode) {
+      'out' => core.suggestEatOut(opts),
+      'snack' => core.suggestSnack(opts),
+      _ => core.suggestMeal(opts),
+    };
+    final sum = core.suggestSummaryText(res);
+    final options = ((res['options'] as List?) ?? const [])
+        .map((o) => (o as Map).cast<String, Object?>())
+        .take(3)
+        .toList();
+    final tone = sum['tone'] == 'ok' ? Tone.ok : (sum['tone'] == 'warn' ? Tone.warn : Tone.none);
+
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SectionTitle('뭘 먹을까',
+            trailing: Text('단백질 ${n0(widget.remainP)}g 남음',
+                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+        Wrap(spacing: 6, children: [
+          for (final m in _modes)
+            ChoiceChip(
+              label: Text(m.$2),
+              selected: _mode == m.$1,
+              onSelected: (_) => setState(() => _mode = m.$1),
+            ),
+        ]),
+        const SizedBox(height: 10),
+        if (options.isEmpty)
+          Note(tone: tone, title: '${sum['text']}', text: ' ${sum['detail'] ?? ''}')
+        else ...[
+          if (core.jsTruthy(sum['tone']))
+            Note(tone: tone, title: '${sum['text']}', text: ' ${sum['detail'] ?? ''}'),
+          for (var i = 0; i < options.length; i++)
+            Container(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              decoration: BoxDecoration(
+                  border: i == 0 ? null : Border(top: BorderSide(color: t.dividerColor))),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(
+                  ((options[i]['items'] as List?) ?? const [])
+                      .map((x) => '${(x as Map)['name']} ${core.suggestPortionText(x.cast<String, Object?>())}'.trim())
+                      .join(' + '),
+                  style: t.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                Text(
+                  '단백질 ${n0(options[i]['totalP'])}g · ${n0(options[i]['totalKcal'])}kcal'
+                  '${core.jsTruthy(options[i]['shape']) ? ' · ${options[i]['shape']}' : ''}',
+                  style: t.textTheme.labelSmall?.copyWith(color: t.hintColor),
+                ),
+                const SizedBox(height: 6),
+                OutlinedButton(
+                  onPressed: () {
+                    final meal = _mode == 'snack' ? '간식' : _nextMeal;
+                    app.store.addFoodLog({
+                      'date': widget.date, 'meal': meal, 'source': 'suggest',
+                      'items': [
+                        for (final x in ((options[i]['items'] as List?) ?? const []))
+                          {
+                            'name': (x as Map)['name'], 'g': x['g'], 'kcal': x['kcal'],
+                            'p': x['p'], 'c': x['c'], 'f': x['f'],
+                          },
+                      ],
+                    });
+                    toast(context, '$meal에 담았습니다');
+                    widget.onAdded();
+                  },
+                  child: const Text('기록에 담기'),
+                ),
               ]),
             ),
-          ]),
+        ],
+      ]),
+    );
+  }
+}
+
+/* --- C04 끼니별 ------------------------------------------------------------ */
+class _MealCard extends StatelessWidget {
+  const _MealCard({required this.meal, required this.date, required this.logs, required this.onChanged});
+  final String meal, date;
+  final List<Map<String, Object?>> logs;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = Scope.of(context);
+    final t = Theme.of(context);
+    final mine = logs.where((l) => l['meal'] == meal).toList();
+    final rows = <({Map<String, Object?> log, int index, Map<String, Object?> it})>[];
+    for (final l in mine) {
+      final items = (l['items'] as List?) ?? const [];
+      for (var i = 0; i < items.length; i++) {
+        rows.add((log: l, index: i, it: (items[i] as Map).cast<String, Object?>()));
+      }
+    }
+    final sum = core.Store.sumItems([for (final r in rows) r.it]);
+    final last = app.store.lastMealLike(meal, date);
+
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SectionTitle(meal,
+            trailing: Text(
+                rows.isEmpty ? '비어 있음' : '${n0(sum['kcal'])}kcal · 단백질 ${n0(sum['p'])}g',
+                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+        for (final r in rows)
+          Container(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            decoration: BoxDecoration(border: Border(bottom: BorderSide(color: t.dividerColor))),
+            child: Row(children: [
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(
+                    '${r.it['name']}'
+                    '${core.jsToNumber(r.it['mult'] ?? 1) != 1 ? ' × ${core.jsNumToString(core.jsToNumber(r.it['mult']))}' : ''}',
+                    style: t.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                  ),
+                  Text(
+                    '${n0(r.it['g'])}g · ${n0(r.it['kcal'])}kcal · 단백질 ${n1(r.it['p'])}g · '
+                    '탄수 ${n1(r.it['c'])}g · 지방 ${n1(r.it['f'])}g'
+                    '${r.it['conf'] == 'low' ? ' · 편차 큼' : ''}',
+                    style: t.textTheme.labelSmall?.copyWith(color: t.hintColor),
+                  ),
+                ]),
+              ),
+              IconButton(
+                iconSize: 16,
+                visualDensity: VisualDensity.compact,
+                tooltip: '항목 삭제',
+                onPressed: () {
+                  final items = (r.log['items'] as List);
+                  if (r.index < items.length) items.removeAt(r.index);
+                  if (items.isEmpty) {
+                    app.store.removeFoodLog(r.log['id']);
+                  } else {
+                    app.store.save();
+                  }
+                  onChanged();
+                },
+                icon: const Icon(LucideIcons.x),
+              ),
+            ]),
+          ),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, children: [
+          OutlinedButton(
+            onPressed: () async {
+              await Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => FoodSearchScreen(date: date, meal: meal)));
+              onChanged();
+            },
+            child: const Text('+ 추가'),
+          ),
+          if (last != null)
+            TextButton(
+              onPressed: () {
+                app.store.copyMeal(last, date, meal);
+                toast(context, '${dateK(last['date'])} $meal을 그대로 가져왔습니다');
+                onChanged();
+              },
+              child: const Text('지난번과 같이'),
+            ),
+        ]),
+      ]),
+    );
+  }
+}
+
+/* --- C08 최근 먹은 것 — 누르면 바로 추가 ---------------------------------- */
+class _RecentChips extends StatelessWidget {
+  const _RecentChips({required this.date, required this.onAdded});
+  final String date;
+  final VoidCallback onAdded;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = Scope.of(context);
+    final t = Theme.of(context);
+    final recents = app.store.recentFoods(8);
+    if (recents.isEmpty) return const SizedBox.shrink();
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SectionTitle('최근 먹은 것',
+            trailing: Text('누르면 바로 추가', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+        Wrap(spacing: 6, runSpacing: 6, children: [
+          for (final it in recents)
+            ActionChip(
+              label: Text('${it['name']}'),
+              onPressed: () {
+                app.store.addFoodLog({
+                  'date': date, 'meal': guessMeal(),
+                  'items': [Map<String, Object?>.of(it)], 'source': 'recent',
+                });
+                toast(context, '${it['name']} 추가');
+                onAdded();
+              },
+            ),
+        ]),
+      ]),
+    );
+  }
+}
+
+/* --- C09 어제와 동일 ------------------------------------------------------- */
+class _YesterdayCard extends StatelessWidget {
+  const _YesterdayCard({required this.date, required this.onCopied});
+  final String date;
+  final VoidCallback onCopied;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = Scope.of(context);
+    final t = Theme.of(context);
+    final yest = app.store.yesterdayLogs(date);
+    if (yest.isEmpty) return const SizedBox.shrink();
+    final tot = core.Store.sumItems([for (final l in yest) ...((l['items'] as List?) ?? const [])]);
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        SectionTitle('어제와 같이 드셨나요?',
+            trailing: Text('${n0(tot['kcal'])}kcal · 단백질 ${n0(tot['p'])}g',
+                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+        Text('같은 음식을 같은 값으로 재사용하면 주마다 기록 편향이 흔들리지 않습니다. '
+            '계획 재조정이 그만큼 정확해집니다.',
+            style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          onPressed: () {
+            for (final l in yest) {
+              app.store.copyMeal(l, date, l['meal']);
+            }
+            toast(context, '어제 기록 ${yest.length}건을 가져왔습니다');
+            onCopied();
+          },
+          child: const Text('어제 것 그대로 가져오기'),
         ),
-      ),
+      ]),
     );
   }
 }
@@ -164,7 +571,6 @@ class _DayStrip extends StatelessWidget {
     final days = [for (var i = 6; i >= 0; i--) app.store.dayKey(DateTime(d.year, d.month, d.day - i))];
     final t = Theme.of(context);
     final c = mb(context);
-
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(children: [
@@ -210,107 +616,11 @@ String _dowOf(String key) {
   return d == null ? '' : core.kDow[(d.weekday - 1) % 7];
 }
 
-class _Bar extends StatelessWidget {
-  const _Bar({required this.label, required this.got, required this.want, required this.color});
-  final String label;
-  final double got, want;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context);
-    final pct = want > 0 ? (got / want).clamp(0.0, 1.0) : 0.0;
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Text(label, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-        Text('${n0(got)} / ${n0(want)}', style: t.textTheme.labelSmall),
-      ]),
-      const SizedBox(height: 3),
-      ClipRRect(
-        borderRadius: BorderRadius.circular(999),
-        child: LinearProgressIndicator(
-          value: pct, minHeight: 6,
-          backgroundColor: t.dividerColor,
-          valueColor: AlwaysStoppedAnimation(color),
-        ),
-      ),
-    ]);
-  }
-}
-
-class _LogCard extends StatelessWidget {
-  const _LogCard({required this.log, required this.onRemove});
-  final Map<String, Object?> log;
-  final VoidCallback onRemove;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context);
-    final items = ((log['items'] as List?) ?? const []).cast<Map<String, Object?>>();
-    final sum = core.Store.sumItems(items);
-    return MbCard(
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [
-          Expanded(child: Text('${log['meal']}', style: t.textTheme.titleSmall)),
-          Text('${n0(sum['kcal'])}kcal · 단 ${n1(sum['p'])}g',
-              style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-          IconButton(
-            iconSize: 18,
-            visualDensity: VisualDensity.compact,
-            onPressed: onRemove,
-            icon: const Icon(LucideIcons.x),
-          ),
-        ]),
-        for (final i in items)
-          Text('· ${i['name']} ${core.jsTruthy(i['unit']) ? '(${i['unit']})' : ''} '
-              '${n0(i['kcal'])}kcal',
-              style: t.textTheme.bodySmall),
-      ]),
-    );
-  }
-}
-
-class _SuggestList extends StatelessWidget {
-  const _SuggestList({required this.res});
-  final Map<String, Object?> res;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context);
-    final summary = core.suggestSummaryText(res);
-    final options = ((res['options'] as List?) ?? const []).cast<Map<String, Object?>>();
-    return ListView(padding: const EdgeInsets.all(16), children: [
-      Note(
-        tone: summary['tone'] == 'ok' ? Tone.ok : (summary['tone'] == 'warn' ? Tone.warn : Tone.none),
-        title: '${summary['text']}',
-        text: ' ${summary['detail'] ?? ''}',
-      ),
-      for (final o in options)
-        MbCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Row(children: [
-              Expanded(child: Text('${o['main']}', style: t.textTheme.titleSmall)),
-              Text('단 ${n1(o['totalP'])}g · ${n0(o['totalKcal'])}kcal',
-                  style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-            ]),
-            const SizedBox(height: 6),
-            for (final i0 in ((o['items'] as List?) ?? const []))
-              Builder(builder: (_) {
-                final i = (i0 as Map).cast<String, Object?>();
-                return Text('· ${i['name']} ${core.suggestPortionText(i)}',
-                    style: t.textTheme.bodySmall);
-              }),
-          ]),
-        ),
-    ]);
-  }
-}
-
-/* --- P19 음식 검색 ---------------------------------------------------------- */
-
+/* --- P19 음식 고르기 ------------------------------------------------------- */
 class FoodSearchScreen extends StatefulWidget {
-  const FoodSearchScreen({super.key, required this.date});
+  const FoodSearchScreen({super.key, required this.date, this.meal});
   final String date;
+  final String? meal;
 
   @override
   State<FoodSearchScreen> createState() => _FoodSearchScreenState();
@@ -318,7 +628,8 @@ class FoodSearchScreen extends StatefulWidget {
 
 class _FoodSearchScreenState extends State<FoodSearchScreen> {
   final _q = TextEditingController();
-  String _meal = '점심';
+  late String _meal = widget.meal ?? guessMeal();
+  String? _cat;
   final _picked = <Map<String, Object?>>[];
 
   @override
@@ -327,69 +638,115 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
     super.dispose();
   }
 
+  List<Map<String, Object?>> _hits() {
+    final q = _q.text.trim();
+    var list = q.isNotEmpty
+        ? core.foodSearch(q, 40)
+        : (_cat != null
+            ? core.foodByCat(_cat)
+            : core.kFoodDb.take(24).map((f) => (f as Map).cast<String, Object?>()).toList());
+    if (_cat != null && q.isNotEmpty) list = list.where((x) => x['cat'] == _cat).toList();
+    return list;
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = Scope.of(context);
     final t = Theme.of(context);
-    final hits = _q.text.trim().isEmpty
-        ? app.store.recentFoods(12)
-        : core.foodSearch(_q.text, 30);
+    final q = _q.text.trim();
+    final hits = _hits();
+    final favs = ((app.state['foodFavorites'] as List?) ?? const []).map((x) => '$x').toList();
+    final recents = q.isEmpty && _cat == null ? app.store.recentFoods(8) : const <Map<String, Object?>>[];
 
     return Scaffold(
-      appBar: AppBar(title: const Text('음식 추가')),
+      appBar: AppBar(title: Text('$_meal에 추가')),
       body: Column(children: [
         Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(children: [
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(dateK(widget.date), style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+            const SizedBox(height: 6),
             TextField(
               controller: _q,
               onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(
-                hintText: '음식 이름 (닭가슴살, 김치찌개, 프로틴…)',
+                hintText: '음식 이름 (예: 닭가슴살, 찌개, 김밥)',
                 prefixIcon: Icon(LucideIcons.search),
                 border: OutlineInputBorder(),
               ),
             ),
-            const SizedBox(height: 10),
-            Row(children: [
-              for (final m in ['아침', '점심', '저녁', '간식'])
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(children: [
+                for (final m in _meals)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: ChoiceChip(
+                        label: Text(m), selected: _meal == m,
+                        onSelected: (_) => setState(() => _meal = m)),
+                  ),
+              ]),
+            ),
+            const SizedBox(height: 4),
+            /* 분류 — 검색어 없이 훑을 때 씁니다. */
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(children: [
                 Padding(
                   padding: const EdgeInsets.only(right: 6),
-                  child: ChoiceChip(
-                    label: Text(m),
-                    selected: _meal == m,
-                    onSelected: (_) => setState(() => _meal = m),
-                  ),
+                  child: FilterChip(label: const Text('전체'), selected: _cat == null,
+                      onSelected: (_) => setState(() => _cat = null)),
                 ),
-            ]),
+                for (final c in core.kFoodCats)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 6),
+                    child: FilterChip(label: Text(c), selected: _cat == c,
+                        onSelected: (_) => setState(() => _cat = _cat == c ? null : c)),
+                  ),
+              ]),
+            ),
           ]),
         ),
-        if (_q.text.trim().isEmpty)
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Align(
-              alignment: Alignment.centerLeft,
+        Expanded(
+          child: ListView(padding: const EdgeInsets.fromLTRB(16, 8, 16, 16), children: [
+            if (favs.isNotEmpty && q.isEmpty) ...[
+              Text('즐겨찾기', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+              const SizedBox(height: 6),
+              Wrap(spacing: 6, runSpacing: 6, children: [
+                for (final n in favs)
+                  ActionChip(
+                    avatar: const Icon(Icons.star, size: 16),
+                    label: Text(n),
+                    onPressed: () {
+                      final f = core.foodByName(n);
+                      if (f != null) _pick(f);
+                    },
+                  ),
+              ]),
+              const SizedBox(height: 12),
+            ],
+            if (recents.isNotEmpty) ...[
               /* 최근에 먹은 것이 먼저입니다 — 같은 음식을 같은 추정치로
                  다시 쓰면 주마다 편향이 흔들리지 않습니다. */
-              child: Text('최근에 먹은 것',
-                  style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-            ),
-          ),
-        Expanded(
-          child: ListView.builder(
-            itemCount: hits.length,
-            itemBuilder: (ctx, i) {
-              final f = hits[i];
-              return ListTile(
-                title: Text('${f['name']}'),
-                subtitle: Text(
-                    '${f['unit'] ?? ''} · ${n0(f['kcal'])}kcal · 단 ${n1(f['p'])}g',
-                    style: t.textTheme.labelSmall),
-                trailing: const Icon(LucideIcons.plus),
-                onTap: () => _pick(f),
-              );
-            },
-          ),
+              Text('최근에 먹은 것', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+              for (final f in recents) _FoodTile(food: f, onTap: () => _pick(f)),
+              const SizedBox(height: 12),
+              Text('목록', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+            ],
+            if (hits.isEmpty)
+              EmptyState(
+                title: '찾는 음식이 없습니다',
+                detail: '비슷한 걸 골라서 양을 조절하는 편이 안 적는 것보다 낫습니다.',
+                action: OutlinedButton(onPressed: _custom, child: const Text('직접 입력')),
+              )
+            else
+              for (final f in hits) _FoodTile(food: f, onTap: () => _pick(f)),
+            if (q.isEmpty && hits.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              OutlinedButton(onPressed: _custom, child: const Text('목록에 없어요 · 직접 입력')),
+            ],
+          ]),
         ),
         if (_picked.isNotEmpty)
           SafeArea(
@@ -414,40 +771,369 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
     );
   }
 
+  /* 직접 입력 — 목록에 없는 것. 원본 customFood 모달과 같은 칸. */
+  Future<void> _custom() async {
+    final name = TextEditingController();
+    final kcal = TextEditingController();
+    final p = TextEditingController();
+    final c = TextEditingController();
+    final f = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('직접 입력'),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            TextField(controller: name, decoration: const InputDecoration(labelText: '이름', hintText: '예: 회사 구내식당 점심')),
+            TextField(controller: kcal, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '칼로리 (kcal)')),
+            TextField(controller: p, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '단백질 (g)')),
+            TextField(controller: c, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '탄수화물 (g)')),
+            TextField(controller: f, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '지방 (g)')),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('추가')),
+        ],
+      ),
+    );
+    final n = name.text.trim();
+    if (ok != true || n.isEmpty) return;
+    double num(TextEditingController x) => double.tryParse(x.text.trim()) ?? 0;
+    setState(() => _picked.add({
+          'name': n, 'unit': '직접', 'mult': 1, 'g': 0,
+          'kcal': core.jsRound(num(kcal)), 'p': num(p), 'c': num(c), 'f': num(f),
+          'conf': 'mid', 'custom': true,
+        }));
+  }
+
   Future<void> _pick(Map<String, Object?> food) async {
+    final app = Scope.of(context);
     final mult = await showModalBottomSheet<double>(
       context: context,
       showDragHandle: true,
-      builder: (ctx) => SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('${food['name']}', style: Theme.of(ctx).textTheme.titleMedium),
-              Text('${food['unit']} 기준 ${n0(food['kcal'])}kcal',
-                  style: Theme.of(ctx).textTheme.bodySmall),
-              const SizedBox(height: 4),
-              /* 편차가 큰 음식은 그렇다고 말합니다 — 숫자를 얼마나 믿어도
-                 되는지가 숫자만큼 중요합니다. */
-              Text('${(core.kConfLabel['${food['conf']}'] as Map?)?['note'] ?? ''}',
-                  style: Theme.of(ctx).textTheme.labelSmall
-                      ?.copyWith(color: Theme.of(ctx).hintColor, height: 1.4)),
-              const SizedBox(height: 16),
-              Wrap(spacing: 8, children: [
-                for (final p0 in core.kPortions)
-                  Builder(builder: (_) {
-                    final p = (p0 as Map).cast<String, Object?>();
-                    return OutlinedButton(
-                      onPressed: () => Navigator.pop(ctx, core.jsToNumber(p['mult'])),
-                      child: Text('${p['label']}'),
-                    );
-                  }),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        final fav = ((app.state['foodFavorites'] as List?) ?? const []).contains(food['name']);
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('${food['name']}', style: Theme.of(ctx).textTheme.titleMedium),
+                Text('${food['unit']} 기준 ${n0(food['kcal'])}kcal',
+                    style: Theme.of(ctx).textTheme.bodySmall),
+                const SizedBox(height: 4),
+                /* 편차가 큰 음식은 그렇다고 말합니다 — 숫자를 얼마나 믿어도
+                   되는지가 숫자만큼 중요합니다. */
+                Text('${(core.kConfLabel['${food['conf']}'] as Map?)?['note'] ?? ''}',
+                    style: Theme.of(ctx).textTheme.labelSmall
+                        ?.copyWith(color: Theme.of(ctx).hintColor, height: 1.4)),
+                const SizedBox(height: 16),
+                Wrap(spacing: 8, children: [
+                  for (final p0 in core.kPortions)
+                    Builder(builder: (_) {
+                      final p = (p0 as Map).cast<String, Object?>();
+                      return OutlinedButton(
+                        onPressed: () => Navigator.pop(ctx, core.jsToNumber(p['mult'])),
+                        child: Text('${p['label']}'),
+                      );
+                    }),
+                ]),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: () {
+                    app.store.toggleFavorite(food['name']);
+                    setSheet(() {});
+                  },
+                  icon: Icon(fav ? Icons.star : Icons.star_outline, size: 18),
+                  label: Text(fav ? '즐겨찾기 해제' : '즐겨찾기'),
+                ),
               ]),
-            ]),
-        ),
-      ),
+          ),
+        );
+      }),
     );
     if (mult == null) return;
     setState(() => _picked.add(core.foodScaled(food, mult)));
+  }
+}
+
+class _FoodTile extends StatelessWidget {
+  const _FoodTile({required this.food, required this.onTap});
+  final Map<String, Object?> food;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final conf = '${food['conf']}';
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      title: Text('${food['name']}', style: t.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+      /* 무게와 영양소를 말로 구분합니다. "1개 (50g) · 72kcal · P6.3" 이면
+         50g 이 단백질처럼 읽힙니다. */
+      subtitle: Text(
+          '${food['unit'] ?? ''} ${n0(food['g'])}g · ${n0(food['kcal'])}kcal · 단백질 ${n1(food['p'])}g · '
+          '탄수 ${n1(food['c'])}g · 지방 ${n1(food['f'])}g',
+          style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+      trailing: conf == 'low'
+          ? const Pill('편차 큼', tone: Tone.warn)
+          : (conf == 'high' ? const Pill('정확', tone: Tone.ok) : const Icon(LucideIcons.plus)),
+      onTap: onTap,
+    );
+  }
+}
+
+/* --- P21 식단 달성률 ------------------------------------------------------- */
+class DietAdherenceScreen extends StatefulWidget {
+  const DietAdherenceScreen({super.key, required this.go});
+  final void Function(String route, [Object? arg]) go;
+
+  @override
+  State<DietAdherenceScreen> createState() => _DietAdherenceScreenState();
+}
+
+class _DietAdherenceScreenState extends State<DietAdherenceScreen> {
+  String _tab = 'week';
+
+  List<Map<String, Object?>> _collect(core.Store store, int n) {
+    final today = DateTime.tryParse('${store.dayKey()}T00:00:00') ?? DateTime.now();
+    return [
+      for (var i = n - 1; i >= 0; i--)
+        () {
+          final key = store.dayKey(DateTime(today.year, today.month, today.day - i));
+          final tt = store.dayTotals(key);
+          return <String, Object?>{
+            'date': key, 'logged': tt['logged'], 'kcal': tt['kcal'],
+            'p': tt['p'], 'c': tt['c'], 'f': tt['f'],
+          };
+        }(),
+    ];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = Scope.of(context);
+    final t = Theme.of(context);
+    final target = _targetOf(context);
+    final hint = t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5);
+
+    final tabs = SegmentedButton<String>(
+      showSelectedIcon: false,
+      segments: const [
+        ButtonSegment(value: 'week', label: Text('주간')),
+        ButtonSegment(value: 'month', label: Text('월간')),
+      ],
+      selected: {_tab},
+      onSelectionChanged: (s) => setState(() => _tab = s.first),
+    );
+
+    if (target == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('식단 달성률')),
+        body: EmptyState(
+          title: '하루 목표가 없습니다',
+          detail: '플랜을 만들면 목표 대비 달성률을 볼 수 있습니다.',
+          action: FilledButton(
+              onPressed: () { Navigator.of(context).pop(); widget.go('goal'); },
+              child: const Text('플랜 만들기')),
+        ),
+      );
+    }
+
+    final days = _collect(app.store, _tab == 'week' ? 7 : 30);
+    final adh = core.dietAdherence(days, target)!;
+    final loggedDays = core.jsToNumber(adh['loggedDays']);
+    final missedDays = core.jsToNumber(adh['missedDays']);
+    final totalDays = core.jsToNumber(adh['totalDays']);
+    final avg = (adh['avg'] as Map?)?.cast<String, Object?>();
+    final pct = (adh['pct'] as Map?)?.cast<String, Object?>();
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('식단 달성률')),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        tabs,
+        const SizedBox(height: 12),
+        /* 요약 — 분모를 반드시 명시합니다. */
+        MbCard(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SectionTitle(_tab == 'week' ? '최근 7일' : '최근 30일',
+                trailing: Pill('기록 ${n0(loggedDays)}/${n0(totalDays)}일',
+                    tone: core.jsToNumber(adh['logRatePct']) >= 70 ? Tone.ok : Tone.none)),
+            if (loggedDays == 0)
+              Text('이 기간에 기록이 없습니다.', style: hint)
+            else ...[
+              Row(children: [
+                Expanded(child: Stat(label: '칼로리 평균', value: n0(avg?['kcal']), unit: 'kcal',
+                    delta: '${n0(pct?['kcal'])}%')),
+                Expanded(child: Stat(label: '단백질 평균', value: n0(avg?['p']), unit: 'g',
+                    delta: '${n0(pct?['p'])}%')),
+              ]),
+              Row(children: [
+                Expanded(child: Stat(label: '범위 안', value: n0(adh['inBandDays']), unit: '일',
+                    delta: '${n0(adh['inBandPct'])}%')),
+                Expanded(child: Stat(label: '단백질 달성', value: n0(adh['proteinHitDays']), unit: '일',
+                    delta: '${n0(adh['proteinHitPct'])}%')),
+              ]),
+              const SizedBox(height: 6),
+              Text(
+                  '평균은 기록한 ${n0(loggedDays)}일만으로 냈습니다. '
+                  '${missedDays > 0 ? '기록 없는 ${n0(missedDays)}일은 0으로 치지 않고 분모에서 뺐습니다.' : ''}',
+                  style: hint),
+            ],
+          ]),
+        ),
+        if (missedDays >= (totalDays * 0.5).ceil())
+          const Note(
+              text: '절반 이상 안 적으셨습니다. 매 끼니를 다 적을 필요는 없고, '
+                  '단백질 들어간 것만 적어도 이 화면은 쓸모가 있습니다.'),
+        if (_tab == 'week')
+          ..._week(context, days, target, adh)
+        else
+          _month(context, days, target, adh),
+        const Note(
+            text: '하루 값이 아니라 주 평균으로 보세요. 기록 오차와 TDEE 추정 오차가 겹쳐서, '
+                '하루치 숫자는 원래 흔들립니다. 계획은 체중 변화를 보고 조정됩니다.'),
+      ]),
+    );
+  }
+
+  /* 주간 — 일별 막대 + 목표선. 단일 숫자만 보면 "평균은 맞는데 널뛰기" 를 놓칩니다. */
+  List<Widget> _week(BuildContext context, List<Map<String, Object?>> days,
+      Map<String, Object?> target, Map<String, Object?> adh) {
+    final t = Theme.of(context);
+    final c = mb(context);
+    final avg = (adh['avg'] as Map?)?.cast<String, Object?>();
+    final pct = (adh['pct'] as Map?)?.cast<String, Object?>();
+    final loggedDays = core.jsToNumber(adh['loggedDays']);
+    final specs = [
+      ('단백질', 'p', core.jsToNumber(target['proteinG']), c.muscle, 'g'),
+      ('칼로리', 'kcal', core.jsToNumber(target['intakeKcal']), t.colorScheme.primary, 'kcal'),
+      ('탄수화물', 'c', core.jsToNumber(target['carbG']), t.hintColor, 'g'),
+      ('지방', 'f', core.jsToNumber(target['fatG']), c.fat, 'g'),
+    ];
+    return [
+      for (final s in specs)
+        MbCard(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            SectionTitle(s.$1,
+                trailing: Text('목표 ${n0(s.$3)}${s.$5}',
+                    style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+            Builder(builder: (_) {
+              final vals = [for (final d in days) core.jsToNumber(d[s.$2] ?? 0)];
+              final maxV = [s.$3 * 1.4, vals.reduce(math.max) * 1.1, 1.0].reduce(math.max);
+              return SizedBox(
+                height: 90,
+                child: Stack(children: [
+                  Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+                    for (var i = 0; i < days.length; i++)
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 2),
+                          child: Container(
+                            height: core.jsTruthy(days[i]['logged'])
+                                ? math.max(3.0, vals[i] / maxV * 70)
+                                : 3,
+                            decoration: BoxDecoration(
+                              color: core.jsTruthy(days[i]['logged'])
+                                  ? s.$4.withValues(alpha: vals[i] >= s.$3 * 0.9 ? 1 : 0.55)
+                                  : t.dividerColor,
+                              borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ]),
+                  /* 목표선 */
+                  Positioned(
+                    left: 0, right: 0, bottom: (70 * s.$3 / maxV).clamp(0.0, 90.0),
+                    child: Container(height: 1, color: t.hintColor.withValues(alpha: 0.4)),
+                  ),
+                ]),
+              );
+            }),
+            Row(children: [
+              for (final d in days)
+                Expanded(
+                  child: Text(core.jsTruthy(d['logged']) ? _dowOf('${d['date']}') : '·',
+                      textAlign: TextAlign.center,
+                      style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, fontSize: 10)),
+                ),
+            ]),
+            const SizedBox(height: 6),
+            Text(
+                loggedDays > 0
+                    ? '기록한 ${n0(loggedDays)}일 평균 ${n0(avg?[s.$2])}${s.$5} (목표의 ${n0(pct?[s.$2])}%)'
+                    : '기록 없음',
+                style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
+          ]),
+        ),
+    ];
+  }
+
+  /* 월간 — 패턴을 봅니다. 미기록일은 0이 아니라 "없음" 으로 그립니다. */
+  Widget _month(BuildContext context, List<Map<String, Object?>> days,
+      Map<String, Object?> target, Map<String, Object?> adh) {
+    final t = Theme.of(context);
+    final c = mb(context);
+    final band = (adh['band'] as Map?)?.cast<String, Object?>();
+    final lo = core.jsToNumber(band?['lo']), hi = core.jsToNumber(band?['hi']);
+    final tp = core.jsToNumber(target['proteinG']);
+    Widget legend(String label, Color color, {bool dashed = false}) => Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            width: 11, height: 11,
+            decoration: BoxDecoration(
+                color: color, borderRadius: BorderRadius.circular(3),
+                border: dashed ? Border.all(color: t.dividerColor) : null),
+          ),
+          const SizedBox(width: 4),
+          Text(label, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+        ]);
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SectionTitle('최근 30일',
+            trailing: Text('칸 하나 = 하루', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+        GridView.count(
+          crossAxisCount: 7, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 4, crossAxisSpacing: 4,
+          children: [
+            for (final d in days)
+              Builder(builder: (_) {
+                final logged = core.jsTruthy(d['logged']);
+                final kcal = core.jsToNumber(d['kcal']);
+                Color bg = t.scaffoldBackgroundColor;
+                if (logged) {
+                  bg = kcal < lo
+                      ? t.colorScheme.primary.withValues(alpha: 0.25)
+                      : (kcal > hi ? c.warn.withValues(alpha: 0.35) : c.ok.withValues(alpha: 0.35));
+                }
+                final hit = logged && core.jsToNumber(d['p']) >= tp * 0.9;
+                return Container(
+                  decoration: BoxDecoration(
+                      color: bg, borderRadius: BorderRadius.circular(6),
+                      border: logged ? null : Border.all(color: t.dividerColor)),
+                  alignment: Alignment.center,
+                  child: hit ? Text('•', style: TextStyle(color: c.muscle, fontSize: 14)) : null,
+                );
+              }),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Wrap(spacing: 10, runSpacing: 6, children: [
+          legend('범위 안', c.ok.withValues(alpha: 0.35)),
+          legend('범위 위', c.warn.withValues(alpha: 0.35)),
+          legend('범위 아래', t.colorScheme.primary.withValues(alpha: 0.25)),
+          legend('기록 없음', t.scaffoldBackgroundColor, dashed: true),
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            Text('•', style: TextStyle(color: c.muscle)),
+            const SizedBox(width: 3),
+            Text('단백질 달성', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+          ]),
+        ]),
+        const SizedBox(height: 8),
+        Text('여기서 볼 건 정확한 값이 아니라 패턴입니다 — 주말에 무너지는지, 바쁜 주에 끊기는지.',
+            style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
+      ]),
+    );
   }
 }

@@ -348,6 +348,104 @@ void main() {
     await standsUp(t, app, Scaffold(body: FoodScreen(go: noop)));
   });
 
+  /* 원본 식단 화면의 카드들: 남은 양 · 뭘 먹을까 · 끼니별 · 최근 · 어제 · 달성률 */
+  testWidgets('식단 — 남은 양·끼니 카드·지난번과 같이·어제와 같이·최근 먹은 것', (t) async {
+    t.view.physicalSize = const Size(1000, 6000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    final app = await seeded(withPlan: true);
+    final today = app.store.dayKey();
+    final d = DateTime.parse('${today}T00:00:00');
+    final yesterday = app.store.dayKey(DateTime(d.year, d.month, d.day - 1));
+    app.store.addFoodLog({
+      'date': yesterday, 'meal': '점심', 'source': 'manual',
+      'items': [{'name': '닭가슴살', 'unit': '1팩', 'g': 100, 'mult': 1, 'kcal': 165, 'p': 31, 'c': 0, 'f': 3.6}],
+    });
+    await t.pumpWidget(host(app, Scaffold(body: FoodScreen(go: noop))));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(find.byType(ErrorWidget), findsNothing);
+
+    expect(find.text('단백질 남음'), findsOneWidget, reason: '남은 양 카드');
+    expect(find.textContaining('목표 범위'), findsWidgets);
+    expect(find.text('뭘 먹을까'), findsOneWidget);
+    for (final m in ['아침', '점심', '저녁', '간식']) {
+      expect(find.text(m), findsWidgets, reason: '$m 카드');
+    }
+    expect(find.text('어제 것 그대로 가져오기'), findsOneWidget);
+    expect(find.text('지난번과 같이'), findsOneWidget, reason: '어제 점심이 있으니 점심 카드에만');
+    expect(find.widgetWithText(ActionChip, '닭가슴살'), findsOneWidget, reason: '최근 먹은 것');
+
+    await t.tap(find.text('지난번과 같이'));
+    await t.pump();
+    expect(app.store.logsForDate(today), hasLength(1));
+    expect(app.store.logsForDate(today).first['meal'], '점심');
+    expect(find.text('어제 것 그대로 가져오기'), findsNothing, reason: '오늘 기록이 생기면 사라집니다');
+
+    /* 항목 하나를 지우면 빈 기록은 통째로 사라집니다. */
+    await t.tap(find.byTooltip('항목 삭제').first);
+    await t.pump();
+    expect(app.store.logsForDate(today), isEmpty);
+
+    await t.tap(find.widgetWithText(ActionChip, '닭가슴살'));
+    await t.pump();
+    expect(app.store.logsForDate(today), hasLength(1));
+    expect(find.text('지난번과 같이'), findsWidgets);
+  });
+
+  testWidgets('식단 — 목표가 없으면 플랜 만들기로 보낸다', (t) async {
+    final app = await seeded();
+    String? went;
+    await t.pumpWidget(host(app, Scaffold(body: FoodScreen(go: (r, [_]) => went = r))));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(find.text('아직 하루 목표가 없습니다'), findsOneWidget);
+    expect(find.text('단백질 남음'), findsNothing);
+    await t.tap(find.text('플랜 만들기'));
+    expect(went, 'goal');
+  });
+
+  testWidgets('식단 달성률 — 주간·월간이 선다', (t) async {
+    t.view.physicalSize = const Size(1000, 5000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    final app = await seeded(withPlan: true);
+    app.store.addFoodLog({
+      'date': app.store.dayKey(), 'meal': '아침', 'source': 'manual',
+      'items': [{'name': '계란', 'g': 50, 'kcal': 72, 'p': 6.3, 'c': 0.4, 'f': 5}],
+    });
+    await t.pumpWidget(host(app, DietAdherenceScreen(go: noop)));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(find.text('최근 7일'), findsOneWidget);
+    expect(find.byType(ErrorWidget), findsNothing);
+    await t.tap(find.text('월간'));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(find.text('최근 30일'), findsWidgets);
+    expect(find.byType(ErrorWidget), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('음식 검색 — 분류 필터와 직접 입력', (t) async {
+    t.view.physicalSize = const Size(1000, 4000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    final app = await seeded();
+    await t.pumpWidget(host(app, FoodSearchScreen(date: app.store.dayKey(), meal: '저녁')));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(find.widgetWithText(AppBar, '저녁에 추가'), findsOneWidget);
+    await t.tap(find.widgetWithText(FilterChip, '단백질'));
+    await t.pump();
+    final tiles = find.byType(ListTile).evaluate().length;
+    expect(tiles, greaterThan(0));
+
+    await t.tap(find.text('목록에 없어요 · 직접 입력'));
+    await t.pumpAndSettle();
+    await t.enterText(find.widgetWithText(TextField, '이름'), '구내식당 점심');
+    await t.enterText(find.widgetWithText(TextField, '칼로리 (kcal)'), '650');
+    await t.enterText(find.widgetWithText(TextField, '단백질 (g)'), '30');
+    await t.tap(find.text('추가'));
+    await t.pumpAndSettle();
+    expect(find.text('1개 저장'), findsOneWidget);
+  });
+
   testWidgets('음식 검색', (t) async {
     final app = await seeded();
     await standsUp(t, app, const FoodSearchScreen(date: '2026-06-01'));
