@@ -45,6 +45,9 @@ class FoodScreen extends StatefulWidget {
 
 class _FoodScreenState extends State<FoodScreen> {
   String? _date;
+  /// 위에서 고릅니다: 오늘 기록 / 달성률. 달성률을 맨 아래 버튼에 두면
+  /// 있는 줄도 모릅니다.
+  String _view = 'today';
 
   void _refresh() => setState(() {});
 
@@ -72,7 +75,28 @@ class _FoodScreenState extends State<FoodScreen> {
         ? 0.0
         : core.jsToNumber(target['fatG']) - core.jsToNumber(totals['f']);
 
+    final picker = Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: SegmentedButton<String>(
+        showSelectedIcon: false,
+        segments: const [
+          ButtonSegment(value: 'today', label: Text('오늘')),
+          ButtonSegment(value: 'adherence', label: Text('달성률')),
+        ],
+        selected: {_view},
+        onSelectionChanged: (s) => setState(() => _view = s.first),
+      ),
+    );
+
+    if (_view == 'adherence') {
+      return ListView(padding: const EdgeInsets.all(16), children: [
+        picker,
+        DietAdherenceBody(go: widget.go),
+      ]);
+    }
+
     return ListView(padding: const EdgeInsets.all(16), children: [
+      picker,
       _DayStrip(date: date, onPick: (d) => setState(() => _date = d)),
 
       if (target == null) ...[
@@ -107,21 +131,14 @@ class _FoodScreenState extends State<FoodScreen> {
           ),
       ],
 
+      /* 주로 먹는 것이 위에 — 식단은 대개 같은 것의 반복이라, 늘 먹는 것
+         여덟 개면 하루의 대부분이 한 번 누르기로 끝납니다. */
+      _FrequentChips(date: date, onAdded: _refresh),
+      if (logs.isEmpty) _YesterdayCard(date: date, onCopied: _refresh),
+
       for (final meal in _meals)
         _MealCard(meal: meal, date: date, logs: logs, onChanged: _refresh),
 
-      _RecentChips(date: date, onAdded: _refresh),
-      if (logs.isEmpty) _YesterdayCard(date: date, onCopied: _refresh),
-
-      OutlinedButton.icon(
-        onPressed: () async {
-          await Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => DietAdherenceScreen(go: widget.go)));
-          _refresh();
-        },
-        icon: const Icon(LucideIcons.lineChart),
-        label: const Text('달성률'),
-      ),
       if (logs.isEmpty)
         const Note(
             text: '완벽하게 적을 필요 없습니다. 한 끼만 적어도 주 평균이 살아납니다. '
@@ -535,9 +552,32 @@ class _MealCard extends StatelessWidget {
   }
 }
 
-/* --- C08 최근 먹은 것 — 누르면 바로 추가 ---------------------------------- */
-class _RecentChips extends StatelessWidget {
-  const _RecentChips({required this.date, required this.onAdded});
+/// 자주 먹은 순서 — 횟수, 같으면 최근 것. 이름이 같으면 한 번만.
+List<Map<String, Object?>> frequentFoods(List<Object?> logs, [int limit = 8]) {
+  final count = <String, int>{};
+  final last = <String, int>{};
+  final item = <String, Map<String, Object?>>{};
+  var i = 0;
+  for (final l in logs) {
+    for (final it in (((l as Map)['items'] as List?) ?? const [])) {
+      final m = (it as Map).cast<String, Object?>();
+      final name = '${m['name']}';
+      count[name] = (count[name] ?? 0) + 1;
+      last[name] = i++;
+      item[name] = m;
+    }
+  }
+  final names = count.keys.toList()
+    ..sort((a, b) {
+      final c = count[b]! - count[a]!;
+      return c != 0 ? c : last[b]! - last[a]!;
+    });
+  return [for (final n in names.take(limit)) item[n]!];
+}
+
+/* --- 주로 먹는 것 — 누르면 바로 추가 --------------------------------------- */
+class _FrequentChips extends StatelessWidget {
+  const _FrequentChips({required this.date, required this.onAdded});
   final String date;
   final VoidCallback onAdded;
 
@@ -545,12 +585,12 @@ class _RecentChips extends StatelessWidget {
   Widget build(BuildContext context) {
     final app = Scope.of(context);
     final t = Theme.of(context);
-    final recents = app.store.recentFoods(8);
+    final recents = frequentFoods((app.state['foodLogs'] as List?) ?? const []);
     if (recents.isEmpty) return const SizedBox.shrink();
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        SectionTitle('최근 먹은 것',
-            trailing: Text('누르면 바로 추가', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+        SectionTitle('주로 먹는 것',
+            trailing: Text('누르면 지금 끼니에 바로 추가', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
         Wrap(spacing: 6, runSpacing: 6, children: [
           for (final it in recents)
             ActionChip(
@@ -934,15 +974,27 @@ class _FoodTile extends StatelessWidget {
 }
 
 /* --- P21 식단 달성률 ------------------------------------------------------- */
-class DietAdherenceScreen extends StatefulWidget {
+class DietAdherenceScreen extends StatelessWidget {
   const DietAdherenceScreen({super.key, required this.go});
   final void Function(String route, [Object? arg]) go;
 
   @override
-  State<DietAdherenceScreen> createState() => _DietAdherenceScreenState();
+  Widget build(BuildContext context) => Scaffold(
+        appBar: AppBar(title: const Text('식단 달성률')),
+        body: ListView(padding: const EdgeInsets.all(16), children: [DietAdherenceBody(go: go)]),
+      );
 }
 
-class _DietAdherenceScreenState extends State<DietAdherenceScreen> {
+/// 식단 탭 위의 「달성률」이 보여 주는 것. 스크롤은 밖에서 맡습니다.
+class DietAdherenceBody extends StatefulWidget {
+  const DietAdherenceBody({super.key, required this.go});
+  final void Function(String route, [Object? arg]) go;
+
+  @override
+  State<DietAdherenceBody> createState() => _DietAdherenceBodyState();
+}
+
+class _DietAdherenceBodyState extends State<DietAdherenceBody> {
   String _tab = 'week';
 
   List<Map<String, Object?>> _collect(core.Store store, int n) {
@@ -978,15 +1030,10 @@ class _DietAdherenceScreenState extends State<DietAdherenceScreen> {
     );
 
     if (target == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('식단 달성률')),
-        body: EmptyState(
-          title: '하루 목표가 없습니다',
-          detail: '플랜을 만들면 목표 대비 달성률을 볼 수 있습니다.',
-          action: FilledButton(
-              onPressed: () { Navigator.of(context).pop(); widget.go('goal'); },
-              child: const Text('플랜 만들기')),
-        ),
+      return EmptyState(
+        title: '하루 목표가 없습니다',
+        detail: '플랜을 만들면 목표 대비 달성률을 볼 수 있습니다.',
+        action: FilledButton(onPressed: () => widget.go('goal'), child: const Text('플랜 만들기')),
       );
     }
 
@@ -998,9 +1045,7 @@ class _DietAdherenceScreenState extends State<DietAdherenceScreen> {
     final avg = (adh['avg'] as Map?)?.cast<String, Object?>();
     final pct = (adh['pct'] as Map?)?.cast<String, Object?>();
 
-    return Scaffold(
-      appBar: AppBar(title: const Text('식단 달성률')),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         tabs,
         const SizedBox(height: 12),
         /* 요약 — 분모를 반드시 명시합니다. */
@@ -1043,8 +1088,7 @@ class _DietAdherenceScreenState extends State<DietAdherenceScreen> {
         const Note(
             text: '하루 값이 아니라 주 평균으로 보세요. 기록 오차와 TDEE 추정 오차가 겹쳐서, '
                 '하루치 숫자는 원래 흔들립니다. 계획은 체중 변화를 보고 조정됩니다.'),
-      ]),
-    );
+    ]);
   }
 
   /* 주간 — 일별 막대 + 목표선. 단일 숫자만 보면 "평균은 맞는데 널뛰기" 를 놓칩니다. */

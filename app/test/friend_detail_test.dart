@@ -87,8 +87,9 @@ void main() {
     expect(find.text('3일째'), findsOneWidget, reason: '운동 스트릭');
     expect(find.text('5일째'), findsOneWidget, reason: '식단 스트릭');
     expect(find.text('오늘 식단'), findsOneWidget);
-    expect(find.text('140 / 147 g'), findsOneWidget, reason: '단백질 달성/목표');
-    expect(find.text('1800 / 2445 kcal'), findsOneWidget);
+    expect(find.text('140 / 147 g · 95%'), findsOneWidget, reason: '단백질 먹은 것/먹어야 하는 것');
+    expect(find.text('1800 / 2445 kcal · 74%'), findsOneWidget);
+    expect(find.textContaining('먹어야 하는 것 중'), findsOneWidget);
     expect(find.text('이번 주 운동'), findsOneWidget);
     expect(find.text('2/4일 완료'), findsOneWidget);
     expect(find.text('몸'), findsOneWidget, reason: '켠 몸 수치만 따로');

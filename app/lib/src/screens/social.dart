@@ -655,8 +655,17 @@ class _FriendDietCard extends StatelessWidget {
                 : Text(
                     target == null
                         ? '${n0(td['kcal'])} kcal'
-                        : '${n0(td['kcal'])} / ${n0(target['intakeKcal'])} kcal',
+                        : '${n0(td['kcal'])} / ${n0(target['intakeKcal'])} kcal · ${_pctOf(td['kcal'], target['intakeKcal'])}',
                     style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+        /* 먹어야 하는 것 중 얼마나 먹었나 — 한 줄로. */
+        if (logged && target != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 4),
+            child: Text(
+                '먹어야 하는 것 중 칼로리 ${_pctOf(td['kcal'], target['intakeKcal'])} · '
+                '단백질 ${_pctOf(td['p'], target['proteinG'])} 먹었습니다.',
+                style: hint),
+          ),
         if (td == null)
           Text('이 친구가 식단을 공유하지 않습니다.', style: hint)
         else if (!logged)
@@ -669,6 +678,13 @@ class _FriendDietCard extends StatelessWidget {
       ]),
     );
   }
+}
+
+/// "먹은 것 / 먹어야 하는 것" 을 퍼센트로. 목표가 없으면 '—'.
+String _pctOf(Object? got, Object? want) {
+  final g = core.jsToNumber(got ?? 0), w = core.jsToNumber(want);
+  if (!w.isFinite || w <= 0) return '—';
+  return '${n0(core.jsRound(g / w * 100))}%';
 }
 
 class _MacroBar extends StatelessWidget {
@@ -688,7 +704,7 @@ class _MacroBar extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
           Text(label, style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
-          Text(w.isFinite ? '${n0(g)} / ${n0(w)} g' : '${n0(g)} g',
+          Text(w.isFinite ? '${n0(g)} / ${n0(w)} g · ${_pctOf(g, w)}' : '${n0(g)} g',
               style: t.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700)),
         ]),
         const SizedBox(height: 4),

@@ -386,7 +386,8 @@ void main() {
     }
     expect(find.text('어제 것 그대로 가져오기'), findsOneWidget);
     expect(find.text('지난번과 같이'), findsOneWidget, reason: '어제 점심이 있으니 점심 카드에만');
-    expect(find.widgetWithText(ActionChip, '닭가슴살'), findsOneWidget, reason: '최근 먹은 것');
+    expect(find.text('주로 먹는 것'), findsOneWidget);
+    expect(find.widgetWithText(ActionChip, '닭가슴살'), findsOneWidget, reason: '주로 먹는 것');
 
     await t.tap(find.text('지난번과 같이'));
     await t.pump();
@@ -403,6 +404,24 @@ void main() {
     await t.pump();
     expect(app.store.logsForDate(today), hasLength(1));
     expect(find.text('지난번과 같이'), findsWidgets);
+
+    /* 달성률은 맨 아래 버튼이 아니라 위에서 고릅니다. */
+    expect(find.widgetWithText(OutlinedButton, '달성률'), findsNothing);
+    final seg = find.byType(SegmentedButton<String>);
+    await t.tap(find.descendant(of: seg, matching: find.text('달성률')));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(find.text('최근 7일'), findsOneWidget);
+    expect(find.byType(ErrorWidget), findsNothing);
+    await t.tap(find.descendant(of: seg, matching: find.text('오늘')));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(find.text('단백질 남음'), findsOneWidget);
+  });
+
+  test('주로 먹는 것 — 횟수순, 같으면 최근 것', () {
+    Map<String, Object?> log(List<String> names) =>
+        {'items': [for (final n in names) {'name': n, 'kcal': 1}]};
+    final out = frequentFoods([log(['a', 'b']), log(['b', 'c']), log(['c']), log(['d'])]);
+    expect(out.map((x) => x['name']).toList(), ['c', 'b', 'd', 'a']);
   });
 
   testWidgets('식단 — 목표가 없으면 플랜 만들기로 보낸다', (t) async {
