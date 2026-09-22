@@ -32,6 +32,23 @@ const _quick = [
   (key: 'bfmKg', label: '체지방량', unit: 'kg', hint: '그 아래, BFM — %가 아니라 kg'),
 ];
 
+/// 2층이 읽어 준 나머지 칸(체지방률·BMI·기초대사량…)을 초안에 싣습니다.
+///
+/// **핵심 세 칸은 사용자가 이깁니다** — 초안에 이미 있는 값은 안 건드립니다.
+/// 세 칸만 넘기면 검수 화면이 나머지를 세 칸에서 *계산해* 채우고, 검산은
+/// 결과지 값끼리가 아니라 계산값끼리 대조해서 언제나 통과합니다. 원본
+/// 웹 앱이 하던 대로 결과지가 준 값을 그대로 싣습니다.
+Map<String, Object?> mergeOcrExtras(Map<String, Object?> draft, Map<String, dynamic>? extra) {
+  if (extra == null) return draft;
+  final out = Map<String, Object?>.of(draft);
+  for (final k in reviewFieldKeys) {
+    final v = extra[k];
+    if (out[k] == null && v is num) out[k] = v;
+  }
+  out['source'] = 'ocr';
+  return out;
+}
+
 class UploadScreen extends StatefulWidget {
   const UploadScreen({super.key});
   @override
@@ -49,6 +66,10 @@ class _UploadScreenState extends State<UploadScreen> {
   File? _photoFile;
   bool _reading = false;
   String? _ocrNote;
+  /// 2층이 읽어 준 **나머지** 칸들. 검수 화면으로 그대로 넘어갑니다.
+  Map<String, dynamic>? _serverExtra;
+  /// 결과지에 인쇄된 시각(있을 때만). 날짜 칸은 날짜만 받으니 따로 듭니다.
+  String? _serverAt;
 
   Future<void> _pick(ImageSource src) async {
     final picked = await ImagePicker().pickImage(
@@ -73,6 +94,8 @@ class _UploadScreenState extends State<UploadScreen> {
       _photoId = id;
       _photoFile = photos.fileOf(id);
       _ocrNote = null;
+      _serverExtra = null;
+      _serverAt = null;
     });
   }
 
@@ -111,7 +134,12 @@ class _UploadScreenState extends State<UploadScreen> {
     if (at is String) {
       final d = DateTime.tryParse(at);
       if (d != null) _measuredAt = d.toLocal();
+      /* 결과지 머리글의 시각을 통째로 둡니다. 날짜만 남기면 저장할 때
+         9시가 박히는데, 그건 결과지에 인쇄된 시각이 아닙니다 — 같은 날
+         두 번 잰 순서도 잃습니다. */
+      _serverAt = RegExp(r'\d{2}:\d{2}').hasMatch(at) ? at : null;
     }
+    _serverExtra = fields;
     setState(() {
       _reading = false;
       _ocrNote = filled == _quick.length
@@ -133,18 +161,30 @@ class _UploadScreenState extends State<UploadScreen> {
         return v != null && v > 0;
       });
 
+  /// 결과지에 인쇄된 시각이 있고 날짜 칸을 안 고쳤으면 그 시각, 아니면 9시.
+  String _measuredAtIso() {
+    final at = _serverAt == null ? null : DateTime.tryParse(_serverAt!);
+    if (at != null) {
+      final l = at.toLocal();
+      if (l.year == _measuredAt.year && l.month == _measuredAt.month && l.day == _measuredAt.day) {
+        return at.toUtc().toIso8601String();
+      }
+    }
+    return DateTime(_measuredAt.year, _measuredAt.month, _measuredAt.day, 9)
+        .toUtc()
+        .toIso8601String();
+  }
+
   void _next() {
     final scan = <String, Object?>{
       'id': 'scan-${DateTime.now().millisecondsSinceEpoch}',
-      'measuredAt': DateTime(_measuredAt.year, _measuredAt.month, _measuredAt.day, 9)
-          .toUtc()
-          .toIso8601String(),
+      'measuredAt': _measuredAtIso(),
       for (final q in _quick) q.key: double.tryParse(_ctrl[q.key]!.text.trim()),
       // 사진은 이름만 붙여 둡니다. 알맹이는 파일에 있습니다.
       if (_photoId != null) 'photoId': _photoId,
     };
-    Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => ReviewScreen(draft: scan)));
+    Navigator.of(context).pushReplacement(MaterialPageRoute(
+        builder: (_) => ReviewScreen(draft: mergeOcrExtras(scan, _serverExtra))));
   }
 
   @override

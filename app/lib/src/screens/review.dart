@@ -63,6 +63,10 @@ const _labels = {
 
 String _labelOf(Object? key) => _labels['$key'] ?? '$key';
 
+/// 검수 화면이 아는 칸 전부. 판독이 읽어 준 나머지 칸을 초안에 실을 때 씁니다.
+List<String> get reviewFieldKeys =>
+    [for (final f in [..._core, ..._derived, ..._composition]) f.key];
+
 class ReviewScreen extends StatefulWidget {
   const ReviewScreen({super.key, required this.draft});
   final Map<String, Object?> draft;
@@ -99,6 +103,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
     final out = <String, Object?>{
       'id': widget.draft['id'],
       'measuredAt': widget.draft['measuredAt'],
+      /* 숫자 칸이 아닌 것도 따라갑니다. 사진 이름을 여기서 떨어뜨려서,
+         붙인 사진이 측정 상세에 안 나왔습니다. */
+      if (widget.draft['photoId'] != null) 'photoId': widget.draft['photoId'],
+      if (widget.draft['source'] != null) 'source': widget.draft['source'],
     };
     for (final f in _all) {
       final v = double.tryParse(_ctrl[f.key]!.text.trim());

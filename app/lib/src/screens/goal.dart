@@ -131,7 +131,10 @@ class _GoalScreenState extends State<GoalScreen> {
             _num(_b, '목표 체지방량', 'kg'),
             if (goalInfo != null) ...[
               Wrap(spacing: 6, runSpacing: 6, children: [
-                Pill('${goalInfo['typeLabel']}'),
+                /* 이건 숫자가 가리키는 **방향**이고, 아래 모드는 규칙이 고른
+                   것이라 둘이 다를 수 있습니다(리컴프 방향인데 감량모드).
+                   이름표 없이 두면 한 화면이 두 말을 하는 것처럼 보입니다. */
+                Pill('목표 방향 · ${goalInfo['typeLabel']}'),
                 Pill('체중 ${signed(goalInfo['dWeightKg'])}kg'),
                 Pill('근육 ${signed(goalInfo['dSmmKg'])}kg'),
                 Pill('지방 ${signed(goalInfo['dBfmKg'])}kg'),

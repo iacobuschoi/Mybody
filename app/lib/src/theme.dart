@@ -84,17 +84,22 @@ ThemeData _base(Brightness b) {
     /* 한글은 글자 하나하나가 네모라서, 기본 자간으로 두면 헐거워 보입니다.
        제목일수록 더 그렇습니다 — 큰 글씨에서 틈이 그대로 커집니다.
        조금씩 좁히고, 본문은 줄 간격을 넉넉히 둡니다. */
-    textTheme: Typography.englishLike2021.apply(fontFamily: 'Pretendard').copyWith(
-      displayLarge: const TextStyle(letterSpacing: -1.0, fontWeight: FontWeight.w700),
-      displayMedium: const TextStyle(letterSpacing: -0.8, fontWeight: FontWeight.w700),
-      displaySmall: const TextStyle(letterSpacing: -0.6, fontWeight: FontWeight.w700),
-      headlineMedium: const TextStyle(letterSpacing: -0.5, fontWeight: FontWeight.w700),
-      headlineSmall: const TextStyle(letterSpacing: -0.4, fontWeight: FontWeight.w700),
-      titleLarge: const TextStyle(letterSpacing: -0.4, fontWeight: FontWeight.w700),
-      titleMedium: const TextStyle(letterSpacing: -0.2),
-      bodyLarge: const TextStyle(height: 1.55),
-      bodyMedium: const TextStyle(height: 1.55),
-      bodySmall: const TextStyle(height: 1.55),
+    /* **바탕은 기본 테마여야 합니다.** `Typography.englishLike2021` 을 바탕으로
+       깔았더니, 거기 없는 색이 그대로 비어(inherit: false) 여기서 안 건드린
+       `titleSmall`·`label*` 글자가 **흰색**으로 나갔습니다 — 친구 화면 제목,
+       강도 카드의 상·중·하 제목이 밝은 배경에서 안 보였습니다. 여기엔 고칠
+       것만 적고, 색과 크기는 ThemeData 가 기본값과 섞어 채웁니다. */
+    textTheme: const TextTheme(
+      displayLarge: TextStyle(letterSpacing: -1.0, fontWeight: FontWeight.w700),
+      displayMedium: TextStyle(letterSpacing: -0.8, fontWeight: FontWeight.w700),
+      displaySmall: TextStyle(letterSpacing: -0.6, fontWeight: FontWeight.w700),
+      headlineMedium: TextStyle(letterSpacing: -0.5, fontWeight: FontWeight.w700),
+      headlineSmall: TextStyle(letterSpacing: -0.4, fontWeight: FontWeight.w700),
+      titleLarge: TextStyle(letterSpacing: -0.4, fontWeight: FontWeight.w700),
+      titleMedium: TextStyle(letterSpacing: -0.2),
+      bodyLarge: TextStyle(height: 1.55),
+      bodyMedium: TextStyle(height: 1.55),
+      bodySmall: TextStyle(height: 1.55),
     ),
     scaffoldBackgroundColor: dark ? const Color(0xFF0E1014) : const Color(0xFFF6F7F9),
     dividerColor: dark ? const Color(0xFF2A2F39) : const Color(0xFFE2E5EA),

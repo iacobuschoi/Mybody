@@ -158,6 +158,27 @@ void main() {
     }));
   });
 
+  /* **사진 이름이 저장까지 갑니다.** 초안엔 있었는데 검수가 숫자만 옮겨서
+     붙인 사진이 측정 상세에 안 나왔습니다 — 에뮬레이터에서 잡은 것. */
+  testWidgets('판독 검수 — 붙인 사진이 측정에 남는다', (t) async {
+    t.view.physicalSize = const Size(1000, 4000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    SharedPreferences.setMockInitialValues({});
+    final app = await AppState.boot();
+    app.store.set({'profile': _profile, 'onboarded': true});
+    await t.pumpWidget(host(app, const _PushReview()));
+    await t.tap(find.text('열기'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('저장하기'));
+    await t.pumpAndSettle();
+    final scans = app.store.sortedScans();
+    expect(scans, hasLength(1));
+    expect(scans.last['photoId'], 'p1');
+    expect(scans.last['source'], 'ocr');
+    expect(scans.last['pbfPct'], 23.1, reason: '판독이 준 값이 계산값으로 바뀌면 안 됩니다');
+  });
+
   testWidgets('판독 검수 — 이전 측정이 있을 때', (t) async {
     final app = await seeded();
     await standsUp(t, app, const ReviewScreen(draft: {
@@ -386,6 +407,21 @@ void main() {
         reason: '모드를 안 걸었는데도 같은 범위 안에 있습니다 — 시험이 구분을 못 합니다');
   });
 
+  /* 폰의 뒤로 가기가 식단 탭에서 앱을 닫았습니다. 홈으로 가야 합니다. */
+  testWidgets('셸 — 다른 탭에서 뒤로 가기는 홈으로 간다', (t) async {
+    final app = await seeded(withPlan: true, twoScans: true);
+    await t.pumpWidget(host(app, const Shell()));
+    await t.pump(const Duration(milliseconds: 200));
+    await t.tap(find.text('식단'));
+    await t.pump(const Duration(milliseconds: 300));
+    expect(find.widgetWithText(AppBar, '식단'), findsOneWidget);
+
+    await t.binding.handlePopRoute();   // 폰의 뒤로 가기
+    await t.pump(const Duration(milliseconds: 300));
+    expect(find.widgetWithText(AppBar, '홈'), findsOneWidget);
+    expect(find.byType(Shell), findsOneWidget, reason: '앱이 닫히면 안 됩니다');
+  });
+
   testWidgets('셸 — 탭 다섯 개가 다 선다', (t) async {
     final app = await seeded(withPlan: true, twoScans: true);
     await t.pumpWidget(host(app, const Shell()));
@@ -397,6 +433,25 @@ void main() {
       expect(t.takeException(), isNull, reason: '$label 탭에서 예외');
     }
   });
+}
+
+/// 검수 화면을 밀어 올립니다 — 저장하면 pop 하므로 home 자리엔 못 둡니다.
+class _PushReview extends StatelessWidget {
+  const _PushReview();
+  @override
+  Widget build(BuildContext context) => Scaffold(
+        body: Center(
+          child: TextButton(
+            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const ReviewScreen(draft: {
+                      'id': 'd1', 'measuredAt': '2026-06-01T00:00:00.000Z',
+                      'weightKg': 86.7, 'smmKg': 38.0, 'bfmKg': 20.0,
+                      'pbfPct': 23.1, 'photoId': 'p1', 'source': 'ocr',
+                    }))),
+            child: const Text('열기'),
+          ),
+        ),
+      );
 }
 
 /// 진짜 앱처럼 화면을 **밀어 올려** 봅니다.

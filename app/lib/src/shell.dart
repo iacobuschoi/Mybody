@@ -134,7 +134,15 @@ class _ShellState extends State<Shell> {
       _ => SocialScreen(go: _go),
     };
 
-    return Scaffold(
+    /* **다른 탭에서 뒤로 가기는 홈입니다.** 폰의 뒤로 가기가 식단 탭에서
+       앱을 통째로 닫았습니다 — 셸은 화면 하나라 Navigator 에 뺄 것이 없어서.
+       홈에서만 앱이 닫힙니다. */
+    return PopScope(
+      canPop: _tab == 0,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) setState(() => _tab = 0);
+      },
+      child: Scaffold(
       appBar: AppBar(
         title: Text(_tabs[_tab].label),
         actions: [
@@ -165,7 +173,7 @@ class _ShellState extends State<Shell> {
               label: const Text('인바디'),
             )
           : null,
-    );
+    ));
   }
 }
 
