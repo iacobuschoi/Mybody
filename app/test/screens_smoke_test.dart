@@ -31,6 +31,7 @@ import 'package:mybody/src/screens/social.dart';
 import 'package:mybody/src/screens/upload.dart';
 import 'package:mybody/src/shell.dart';
 import 'package:mybody/src/theme.dart';
+import 'package:mybody/src/ui/widgets.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -461,6 +462,27 @@ void main() {
      모드를 보여 주는 이유는 그 모드의 속도 상한과 단백질 하한 때문입니다.
      화면에는 "감량모드" 라고 써 놓고 계획은 아무 제약 없이 만들면,
      그 글자는 장식이 됩니다. */
+  /* 위쪽 설명 세 덩이는 한 장에 첫 문장만. 화면을 열자마자 글을 읽게
+     하면 골라야 할 카드가 화면 밖으로 밀립니다. */
+  testWidgets('기간 고르기 — 설명은 한 장에 첫 문장만, 「자세히」로 펼친다', (t) async {
+    t.view.physicalSize = const Size(1000, 5000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    final app = await seeded();
+    await t.pumpWidget(host(app, const IntensityScreen(
+        goal: {'weightKg': 80.5, 'smmKg': 39.0, 'bfmKg': 12.0}, modeId: 'cutting')));
+    await t.pumpAndSettle();
+    expect(find.text('이 목표는'), findsOneWidget);
+    final before = find.byType(Note).evaluate().length;
+    expect(find.text('자세히'), findsOneWidget);
+    await t.tap(find.text('자세히'));
+    await t.pump();
+    expect(find.text('접기'), findsOneWidget);
+    expect(find.byType(Note).evaluate().length, greaterThan(before));
+    expect(find.byType(ErrorWidget), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+
   testWidgets('고른 모드의 제약이 계획에 실제로 걸린다', (t) async {
     final app = await seeded();
     await t.pumpWidget(host(app, const IntensityScreen(

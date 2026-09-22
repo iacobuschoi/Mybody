@@ -93,14 +93,7 @@ class _IntensityScreenState extends State<IntensityScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('기간 고르기')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
-        if (cmp['spanNote'] != null)
-          Note(text: '${(cmp['spanNote'] as Map)['text']}'),
-        for (final w in ((cmp['warnings'] as List?) ?? const []))
-          Note(tone: Tone.warn, text: '$w'),
-        if (cmp['bottleneckNote'] != null)
-          Note(
-              title: '병목',
-              text: ' ${(cmp['bottleneckNote'] as Map)['text']}'),
+        _NotesCard(cmp: cmp),
 
         for (final r in results) _LevelCard(
           r: r,
@@ -175,6 +168,62 @@ class _IntensityScreenState extends State<IntensityScreen> {
       ..pop()
       ..pop();
     toast(context, '계획을 세웠습니다');
+  }
+}
+
+/* 위쪽 설명 세 덩이(구간 · 주의 · 병목)를 한 장으로. 첫 문장만 두고
+   나머지는 「자세히」. 화면을 열자마자 글 세 덩이를 읽게 하면 정작
+   골라야 할 카드가 화면 밖으로 밀립니다. */
+class _NotesCard extends StatefulWidget {
+  const _NotesCard({required this.cmp});
+  final Map<String, Object?> cmp;
+  @override
+  State<_NotesCard> createState() => _NotesCardState();
+}
+
+class _NotesCardState extends State<_NotesCard> {
+  bool _open = false;
+
+  /// 첫 문장. 소수점("0.35")은 문장 끝이 아닙니다 — 뒤에 빈칸이 와야 끝입니다.
+  static String firstSentence(String s) {
+    final m = RegExp(r'^.*?[.!?](?=\s|$)').firstMatch(s.trim());
+    return m?.group(0) ?? s.trim();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final cmp = widget.cmp;
+    final span = cmp['spanNote'] is Map ? '${(cmp['spanNote'] as Map)['text']}' : null;
+    final warnings = ((cmp['warnings'] as List?) ?? const []).map((w) => '$w').toList();
+    final bottle = cmp['bottleneckNote'] is Map ? '${(cmp['bottleneckNote'] as Map)['text']}' : null;
+    if (span == null && warnings.isEmpty && bottle == null) return const SizedBox.shrink();
+
+    final head = [
+      if (span != null) firstSentence(span),
+      if (bottle != null) firstSentence(bottle),
+    ].join(' ');
+
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SectionTitle('이 목표는',
+            trailing: warnings.isEmpty ? null : Pill('주의 ${warnings.length}', tone: Tone.warn)),
+        Text(head, style: t.textTheme.bodySmall?.copyWith(height: 1.5)),
+        if (_open) ...[
+          const SizedBox(height: 10),
+          if (span != null) Note(text: span),
+          for (final w in warnings) Note(tone: Tone.warn, text: w),
+          if (bottle != null) Note(title: '병목', text: ' $bottle'),
+        ],
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            onPressed: () => setState(() => _open = !_open),
+            child: Text(_open ? '접기' : '자세히'),
+          ),
+        ),
+      ]),
+    );
   }
 }
 
