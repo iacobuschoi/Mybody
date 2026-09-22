@@ -1,40 +1,43 @@
-# 노트북 보고 —  (2b 진단 완료 · 3 진행 중)
+# 노트북 보고 — 2026-09-22 15:27 KST (최종: 1 · 2 · 2b · 3 전부 끝)
+
+이전 보고(c0fb871 · ac302fe)는 이 파일로 대체합니다. 코드는 건드리지 않았습니다.
 
 ## 1. 가입 코드
-끝 — 이전 보고(1f11dc0)와 같음. `/api/health` 가 `"openSignup":true`.
+끝 — 이미 열려 있었음. `/api/health` → `{"ok":true,"openSignup":true}` (로컬 · Tailscale 둘 다). `~/.mybody/config.json` 에 `openSignup: true`.
 
 ## 2. 에뮬레이터 — 됨
-- Flutter 3.41.2 (Dart 3.11.0) → `E:\flutter` (CI 와 같은 방식: git clone --depth 1 --branch 3.41.2). doctor 가 채널이 [user-branch] 라고 경고만 함 — 태그 체크아웃이라 그런 것, 무해.
-- Android SDK → `E:\android-sdk` (cmdline-tools 15859902, sha256 확인). 설치: platform-tools 37.0.1 · emulator 37.1.11 · build-tools 34.0.0, 36.0.0 · platforms 34, 36 · system-images;android-34;google_apis;x86_64. 라이선스 전부 동의(사용자 "진행해").
-- `flutter config --android-sdk E:\android-sdk`. **flutter doctor: [√] Android toolchain (Android SDK version 36.0.0)**. Windows · Chrome · Visual Studio 도 초록.
-- AVD **pixel_api34** (pixel_6, API 34, google_apis, x86_64). 부팅 완료 — `adb devices`: emulator-5554 device, Android 14. 가속: **WHPX operational**.
-- 노트북: Ryzen 9 7845HX, 메모리 31 GB.
+- Flutter 3.41.2 (Dart 3.11.0) → `E:\flutter`. Android SDK → `E:\android-sdk` (platform-tools 37.0.1 · emulator 37.1.11 · build-tools 34/36 · platforms 34/36 · system-images;android-34;google_apis;x86_64 · cmake 3.22.1 은 Gradle 이 자동 설치). 라이선스 전부 동의.
+- `flutter doctor`: **[√] Android toolchain (Android SDK version 36.0.0)**. Flutter 줄만 "[user-branch]" 경고(태그 체크아웃, 무해).
+- AVD **pixel_api34** (pixel_6 · API 34 · google_apis · x86_64), **WHPX 가속 동작**, adb: emulator-5554 · Android 14. 노트북 Ryzen 9 7845HX · 31 GB.
 
-## 2b. flutter test — **멈춤 재현됨. 원인은 코드이고, 어디서 멈추는지도 찾았습니다.**
+## 2b. flutter test
+- 5043ca5 에서: `screens_smoke_test.dart` 첫 시험에서 멈춤 재현(원인: 위젯 시험의 가짜 시간에서 path_provider 응답과 3초 타임아웃이 둘 다 안 옴 — 이전 보고).
+- **0aca2f8 에서: `flutter pub get && flutter test` → 73개 전부 통과, 3초.** "셸 — 탭 다섯 개가 다 선다" 포함.
 
-**재현.** `flutter pub get && flutter test -r expanded` 를 깨끗한 노트북에서 한 번만 돌림(동시 실행 없음).
-다른 파일 시험 **46개 통과**. `screens_smoke_test.dart` 는 **첫 시험 "홈 — 측정 없음"에서 시작한 뒤 한 줄도 안 나오고 6분 넘게 멈춤**.
-flutter_tester 를 끊자 스모크 시험 **27개 전부 "did not complete [E]"** (`06:03 +46: Some tests failed.`).
-"셸 — 탭 다섯 개가 다 선다" 까지는 **가지도 못했습니다** — 그 시험이 문제가 아니라 파일의 첫 시험부터 멈춥니다.
-`--timeout 60s` 로 다시 돌려도 안 터짐(flutter_test 가 자체 10분 제한으로 덮어씀) — 스택은 못 받았고, 대신 코드로 짚었습니다.
+## 3. 앱
+빌드: `flutter build apk --debug --dart-define=SERVER_URL=https://desktop-il9c3if.tail0a8f8f.ts.net` (마지막은 9b562da). 에뮬레이터 pixel_api34 에 깔고 adb 로 탭·입력·스크린샷하며 **손으로 눌러 본 것과 같은 순서**로 확인. 오류 로그 0건(logcat flutter · AndroidRuntime).
 
-**어디서.** `AppState.boot()` → `FilePhotos.open()` → `await getApplicationDocumentsDirectory().timeout(3s)` (lib/src/photos.dart 32행).
-
-**왜 시험에서만.**
-- `testWidgets` 는 **가짜 시간(FakeAsync)** 안에서 돕니다. 플러그인 채널(path_provider) 응답은 진짜 비동기 이벤트라 `tester.runAsync` 밖에서는 **영영 안 옵니다**. 그래서 await 가 안 끝납니다.
-- `.timeout(3초)` 도 **안 터집니다** — 가짜 시계는 `pump`/`elapse` 로만 움직이는데, 시험은 `pumpWidget` 전에 `await AppState.boot()` 을 하고 있어서 시계가 멈춰 있습니다. 결국 둘 다 기다리기만 합니다.
-- `core_wiring_test.dart` 도 `boot()` 을 부르지만 통과한 이유: 그건 `test()`(진짜 시간)라 3초 뒤 타임아웃이 터지고 `try/catch` 가 삼켜서 사진 없이 갑니다.
-- 그러니 실기기에서는 3초 타임아웃이 제대로 작동할 것이고, **시험만** 걸립니다. 클라우드에서 본 "did not complete" 도 경합이 아니라 이것입니다.
-
-**고치는 길(시험 쪽, 코드는 그쪽이).** 셋 중 하나:
-1. 시험에서 path_provider 를 가짜로: `PathProviderPlatform.instance = 임시폴더를 돌려주는 가짜` 를 `setUp` 에서 (path_provider_platform_interface 의 `PathProviderPlatform` 상속, `getApplicationDocumentsPath` 만 구현). 제일 정석.
-2. 시험에서 `await t.runAsync(() => AppState.boot())` 로 감싸기 — 진짜 시간이 흘러 3초 뒤 타임아웃이 터지고 사진 없이 부팅. 시험마다 3초씩 느려짐.
-3. `AppState.boot({PhotoHost? photos})` 처럼 주입 가능하게 하고 시험은 메모리 구현을 넘김.
-
-## 3. 앱 — 진행 중
-- `flutter build apk --debug --dart-define=SERVER_URL=https://desktop-il9c3if.tail0a8f8f.ts.net` 빌드 중 (첫 Gradle 내려받기라 몇 분). 끝나면 에뮬레이터에 깔고 체크리스트를 adb 로 하나씩 눌러 보고 화면 문구를 적습니다.
+- [x] 온보딩 → 인바디 숫자 3개 → 계획 — 됨. 온보딩 3단계(기본 정보 → 활동·운동 → 동의) → 홈 → 인바디 올리기(86.7 / 38.0 / 20.0) → "검산을 통과했습니다" → 저장 → "목표 정하기"(기본 80.5 / 39.0 / 12.0, 모드 자동) → "기간 계산하기" → 카드 3개 + 궤적 차트 → "이 계획으로 시작하기" → 홈에 **감량모드 · 상 강도 · D-139 · 2027.2.9**.
+- [x] 앨범에서 사진 붙이기 → 미리보기 — 됨. 안드로이드 사진 선택기가 뜨고, 고르면 미리보기와 「사진에서 읽기」 버튼이 생김.
+- [x] 「사진에서 읽기」 → 세 칸 — 됨, **단 로그인 뒤에만**. 로그인 전엔 화면 문구 **"로그인이 필요합니다"** (판독 키 문구가 아님). 로그인 뒤: 서버에 판독 키가 있어 실제 판독됨 — 시험용 이미지도, **사용자가 준 실제 InBody270 결과지(사진)도 날짜 · 체중 · 골격근량 · 체지방량을 결과지와 똑같이** 읽음 → "읽었습니다 — 맞는지 보고 넘어가 주세요" → 검산 통과 → "지난 기록으로 저장했습니다 — 계획은 그대로입니다". 소소한 것: 38.0 → "38", 20.0 → "20" 으로 소수점 없이 채워짐(값은 맞음).
+- [ ] 측정 상세에서 붙인 사진 — **안 됨.** 상세 화면에 사진이 없어 확대도 못 함. 원인(코드): `upload.dart` 는 초안에 `photoId` 를 넣는데(144행), `review.dart` 의 `_scan()`(98~108행)이 `id` · `measuredAt` · 숫자 칸만 복사해서 `photoId` 가 떨어짐. 내보내기 JSON 의 scans 에도 `photoId` 없음. 고칠 곳: `_scan()` 에 `if (widget.draft['photoId'] != null) out['photoId'] = widget.draft['photoId'];` 한 줄.
+- [x] 친구 탭 → 로그인 화면에 「처음이에요」「비밀번호 잊음」 — 됨.
+- [x] 「처음이에요」로 가입 — 가입 코드 칸 없음 — 됨(아이디 · 친구에게 보일 이름 · 비밀번호 · 동의 체크만).
+- [x] 가입 직후 복구 코드 — 됨("복구 코드" 팝업, 「복사하고 닫기」).
+- [x] 친구 탭 → 「소식」 — 됨("아직 소식이 없습니다").
+- [ ] 비행기 모드 → 친구 상세 → 공유 스위치 → "나중에 보냅니다" — **못 함.** 친구가 없어 친구 상세 화면에 들어갈 수 없음(계정 둘 + 초대 코드 교환이 필요). 계정 하나로는 확인 불가.
+- [x] 설정 → 내보내기 → 「복사하기」 → 붙여넣기 — 됨. 백업 JSON 팝업 → 복사 → 안드로이드 클립보드에 들어감 → 「가져오기」 칸에 붙여넣기 됨.
+- [x] 뒤로 가기 — 홈에서 뒤로: **앱이 닫힘**(런처로). 식단 탭에서 뒤로: **바로 앱이 닫힘**(홈으로 안 감). 하위 화면(설정 · 측정 상세 · 계정 · 소식)에서 뒤로: 이전 화면으로.
+- [x] (새 항목, 9b562da) 첫 실행에 로그인/가입이 먼저 — 됨. 데이터 초기화 후 첫 화면이 "계정"(안내: "처음이면 「처음이에요」로 가입하세요. 결과지 사진 판독과 친구 기능은 계정으로 됩니다."). 「처음이에요」로 가입 → **온보딩 1/3 으로 넘어가고**, 그 위에 복구 코드 팝업이 1초쯤 뒤에 뜸 → 닫으면 온보딩 계속.
 
 ## 그 밖에 눈에 띈 것
-- 깃허브 비밀값 **MYBODY_SERVER_URL 이 없었습니다** (apk.yml 이 `secrets.MYBODY_SERVER_URL` 을 읽는데 목록에 없음). `https://desktop-il9c3if.tail0a8f8f.ts.net` 으로 넣었습니다 (gh secret set). 다음 CI 빌드부터 주소가 박힙니다.
-- release.yml 의 build 잡에 `secrets: inherit` 가 들어가 있음 — 다음 릴리스는 제 열쇠로 서명됨.
-- SendMessage 는 안 씁니다. 이 파일이 통로입니다. 이쪽은 origin 푸시를 45초마다 봅니다.
+- **기간 고르기 카드 라벨**: 카드 셋이 전부 "★★☆ 보통". 설명은 "가능한 가장 빠르게" / "여유를 조금 두고" / "생활을 크게 바꾸지 않고" 로 상·중·하가 맞는데 별 개수와 라벨이 같음. 고른 뒤 홈에는 "상 강도"로 뜸 — 라벨만 틀림.
+- **목표 설정 화면**: 위 칩은 "리컴프 (지방↓ + 근육↑ 동시)", 아래 설명은 감량모드 설명("근육은 '지키는 것'이 목표…"). 의도 분류와 선택된 모드가 한 화면에서 다르게 보임.
+- **친구 화면 글자 색**: 로그인 전 제목 "친구는 로그인해야 쓸 수 있습니다", 로그인 뒤 구역 제목 "친구" 가 거의 흰색이라 안 보임(밝은 배경).
+- **판독이 세 칸만 채움**: 결과지에 있는 체지방률 · BMI · 제지방량 · 기초대사량 · 체수분 등은 비워 둠. 그래서 검수 화면의 검산이 결과지 값끼리 대조하지 못하고 세 칸에서 계산한 값으로 채워 사실상 항상 통과함. README 의 "규칙 8개 검산" 취지와 어긋남.
+- 시험 계정이 서버에 셋 생김: **emutest1 · emutest2 · emutest3**. 필요하면 서버에서 지우세요. 비밀번호는 적지 않습니다.
+- 사용자가 이 창에서 낸 요청 "앱 처음 들어가면 로그인/회원가입을 먼저 띄워서 첫 사진 인식이 안 될 일 없게" → 9b562da 로 반영된 것을 위와 같이 확인.
+- 실제 결과지 이미지는 노트북과 에뮬레이터에만 있고 저장소에는 넣지 않았음.
+- 깃허브: MYBODY_SERVER_URL 비밀값 넣음(이전 보고). release.yml 의 `secrets: inherit` 들어가 있음.
+
+에뮬레이터는 켜 둔 채입니다. 다시 확인할 것이 있으면 LOCAL-TASKS.md 에 적어 주세요 — 이쪽은 origin 푸시를 계속 봅니다.
