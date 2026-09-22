@@ -25,6 +25,7 @@ import 'src/app_state.dart';
 import 'src/scope.dart';
 import 'src/shell.dart';
 import 'src/theme.dart';
+import 'src/ui/edge.dart';
 
 void main() {
   /* **회색 네모를 없앱니다.**
@@ -190,6 +191,8 @@ class _MyBodyAppState extends State<MyBodyApp> {
       theme: mbLight(),
       darkTheme: mbDark(),
       debugShowCheckedModeBanner: false,
+      /* 아래 시스템 막대 밑으로 버튼이 안 들어가게 — 모든 화면 한 번에. */
+      builder: edgeSafe,
       /* 서버가 없어도 바로 들어갑니다 — 주소와 로그인은 나중 일입니다. */
       home: !_ready
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
