@@ -15,6 +15,26 @@ import '../theme.dart';
  * 지금 쓰는 웹 앱은 자기가 올라간 주소를 그냥 쓰면 됐지만, 설치하는 앱은
  * 그게 없습니다. 그래서 이 화면이 필요합니다.
  * -------------------------------------------------------------------------- */
+/// 붙여넣은 주소를 **쓸 수 있는 꼴로 다듬습니다.**
+///
+/// 친구는 이 주소를 카톡으로 받아서 붙여넣습니다. 그때 딸려 오는 것들이
+/// 있습니다 — 문장 끝 마침표, 감싼 따옴표, `tailscale status` 가 내주는
+/// 끝점(`mypc.tail1234.ts.net.`), 그리고 무엇보다 **https:// 가 없는 맨
+/// 주소**. 예전에는 이걸 전부 거부하고 "https:// 로 시작하는 주소를 넣어
+/// 주세요" 라고만 했습니다. 폰 키보드로 주소 앞에 글자를 끼워 넣는 일은
+/// 거기서 그만두게 만드는 종류의 일입니다.
+String normalizeServerUrl(String raw) {
+  var s = raw.trim();
+  s = s.replaceAll(RegExp('^[\'"`<]+'), '').replaceAll(RegExp('[\'"`>]+\$'), '');
+  s = s.replaceAll(RegExp(r'[.,]+$'), '').trim();
+  if (s.isEmpty) return s;
+  final lower = s.toLowerCase();
+  if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
+    s = 'https://$s';
+  }
+  return s.replaceAll(RegExp(r'/+$'), '');
+}
+
 class ServerScreen extends StatefulWidget {
   const ServerScreen({super.key, required this.onSet, this.initial = ''});
   final Future<void> Function(String) onSet;
@@ -30,7 +50,7 @@ class _ServerScreenState extends State<ServerScreen> {
   bool _busy = false;
 
   Future<void> _go() async {
-    final url = _c.text.trim();
+    final url = normalizeServerUrl(_c.text);
     /* **http 는 받지 않습니다.**
      *
      * 예전에는 http 도 통과시켰는데, 말과 코드가 달랐습니다 — 안내문은
@@ -45,8 +65,9 @@ class _ServerScreenState extends State<ServerScreen> {
       setState(() => _err = '안드로이드가 http 주소를 막습니다 — https 주소를 넣어 주세요');
       return;
     }
-    if (!url.startsWith('https://')) {
-      setState(() => _err = 'https:// 로 시작하는 주소를 넣어 주세요');
+    final parsed = Uri.tryParse(url);
+    if (url.contains(' ') || parsed == null || parsed.host.isEmpty) {
+      setState(() => _err = '주소 같지 않습니다 — 받은 주소를 통째로 붙여넣어 주세요');
       return;
     }
     setState(() { _busy = true; _err = null; });
@@ -79,7 +100,7 @@ class _ServerScreenState extends State<ServerScreen> {
             keyboardType: TextInputType.url,
             decoration: InputDecoration(
               border: const OutlineInputBorder(),
-              hintText: 'https://…',
+              hintText: '받은 주소를 붙여넣으세요',
               errorText: _err,
             ),
           ),

@@ -43,14 +43,42 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   group('서버 주소 화면', () {
-    testWidgets('https 가 아니면 저장하지 않는다', (t) async {
+    testWidgets('맨 주소를 붙여넣어도 받아 준다 (https 를 붙여 줍니다)', (t) async {
       var saved = '';
       await t.pumpWidget(wrap(ServerScreen(onSet: (u) async { saved = u; })));
+      /* 친구는 카톡에서 복사해 붙여넣습니다. 거기에 https:// 가 붙어 있을
+         거라고 기대하면 안 됩니다 — 폰 키보드로 주소 앞에 글자를 끼워
+         넣으라고 하는 셈이고, 거기서 그만두게 됩니다. */
       await t.enterText(find.byType(TextField), 'my-server.local');
       await t.tap(find.widgetWithText(FilledButton, '연결'));
       await t.pumpAndSettle();
-      expect(find.textContaining('https:// 로 시작'), findsOneWidget);
-      expect(saved, '', reason: '틀린 주소가 저장되면 다음 화면부터 전부 실패합니다');
+      /* 스킴 때문에 막지는 않습니다. 다만 닿지 않으므로 저장도 안 합니다. */
+      expect(find.textContaining('https:// 로 시작'), findsNothing);
+      expect(find.textContaining('응답이 없습니다'), findsOneWidget);
+      expect(saved, '', reason: '닿지 않는 주소가 저장되면 다음 화면부터 전부 실패합니다');
+    });
+
+    testWidgets('http 는 막고, 왜 막는지 말해 준다', (t) async {
+      var saved = '';
+      await t.pumpWidget(wrap(ServerScreen(onSet: (u) async { saved = u; })));
+      /* 안드로이드 9 부터 http 는 기본으로 막힙니다. 받아 주면 저장은 되고
+         연결만 조용히 실패해서, 화면에는 "컴퓨터가 꺼져 있을 수 있습니다"
+         가 뜹니다 — 켜져 있는데도요. */
+      await t.enterText(find.byType(TextField), 'http://192.168.0.10:8080');
+      await t.tap(find.widgetWithText(FilledButton, '연결'));
+      await t.pumpAndSettle();
+      expect(find.textContaining('안드로이드가 http'), findsOneWidget);
+      expect(saved, '');
+    });
+
+    testWidgets('주소 같지 않으면 그렇다고 말한다', (t) async {
+      var saved = '';
+      await t.pumpWidget(wrap(ServerScreen(onSet: (u) async { saved = u; })));
+      await t.enterText(find.byType(TextField), '주소 받은 거 여기');
+      await t.tap(find.widgetWithText(FilledButton, '연결'));
+      await t.pumpAndSettle();
+      expect(find.textContaining('주소 같지 않습니다'), findsOneWidget);
+      expect(saved, '');
     });
 
     testWidgets('닿지 않는 주소는 저장하지 않고 이유를 말한다', (t) async {
