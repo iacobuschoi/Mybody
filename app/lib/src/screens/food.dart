@@ -65,6 +65,12 @@ class _FoodScreenState extends State<FoodScreen> {
     final remainK = target == null
         ? 0.0
         : core.jsToNumber(target['intakeKcal']) - core.jsToNumber(totals['kcal']);
+    final remainC = target == null
+        ? 0.0
+        : core.jsToNumber(target['carbG']) - core.jsToNumber(totals['c']);
+    final remainF = target == null
+        ? 0.0
+        : core.jsToNumber(target['fatG']) - core.jsToNumber(totals['f']);
 
     return ListView(padding: const EdgeInsets.all(16), children: [
       _DayStrip(date: date, onPick: (d) => setState(() => _date = d)),
@@ -93,7 +99,7 @@ class _FoodScreenState extends State<FoodScreen> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: FilledButton.tonalIcon(
-                onPressed: () => _openSuggest(context, date, remainP, remainK),
+                onPressed: () => _openSuggest(context, date, remainP, remainK, remainC, remainF),
                 icon: const Icon(LucideIcons.wand2, size: 18),
                 label: Text('뭘 먹을까 · 단백질 ${n0(remainP)}g 남음'),
               ),
@@ -123,7 +129,8 @@ class _FoodScreenState extends State<FoodScreen> {
     ]);
   }
 
-  Future<void> _openSuggest(BuildContext context, String date, double remainP, double remainK) async {
+  Future<void> _openSuggest(BuildContext context, String date, double remainP, double remainK,
+      double remainC, double remainF) async {
     await showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -136,7 +143,7 @@ class _FoodScreenState extends State<FoodScreen> {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
           children: [
             _SuggestCard(
-              date: date, remainP: remainP, remainK: remainK,
+              date: date, remainP: remainP, remainK: remainK, remainC: remainC, remainF: remainF,
               onAdded: () {
                 Navigator.of(ctx).pop();
                 _refresh();
@@ -320,9 +327,10 @@ class _MacroRow extends StatelessWidget {
 
 /* --- C10 뭘 먹을까 — 남은 단백질을 실제 음식으로 번역 -------------------- */
 class _SuggestCard extends StatefulWidget {
-  const _SuggestCard({required this.date, required this.remainP, required this.remainK, required this.onAdded});
+  const _SuggestCard({required this.date, required this.remainP, required this.remainK,
+      required this.remainC, required this.remainF, required this.onAdded});
   final String date;
-  final double remainP, remainK;
+  final double remainP, remainK, remainC, remainF;
   final VoidCallback onAdded;
 
   @override
@@ -353,8 +361,12 @@ class _SuggestCardState extends State<_SuggestCard> {
     // 오늘 아직 안 먹은 끼니 수. 아침에 하루치를 한 끼에 몰지 않기 위해서입니다.
     final loggedMeals = {for (final l in logs) '${l['meal']}'};
     final mealsLeft = ['아침', '점심', '저녁'].where((m) => !loggedMeals.contains(m)).length;
+    /* 오늘 먹은 것과 먹어야 하는 탄단지에 맞춥니다 — 남은 탄수·지방을
+       넘기는 조합은 뒤로 갑니다. */
     final opts = <String, Object?>{
-      'remainP': widget.remainP, 'remainKcal': widget.remainK, 'avoid': eaten.toList(),
+      'remainP': widget.remainP, 'remainKcal': widget.remainK,
+      'remainC': widget.remainC, 'remainF': widget.remainF,
+      'avoid': eaten.toList(),
       'mealsLeft': math.max(1, mealsLeft), 'limit': 3,
     };
     final res = switch (_mode) {

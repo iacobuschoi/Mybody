@@ -72,6 +72,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 setState(() {});
               },
             ),
+            /* 간식 알림 — 서버가 아니라 폰이 직접 예약합니다. */
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('간식 단백질 알림'),
+              subtitle: Text('오후 3시 반·저녁 8시 반에, 그날 단백질이 15g 넘게 남았을 때만.',
+                  style: t.textTheme.labelSmall),
+              value: settings['snackNudge'] != false,
+              onChanged: (on) {
+                app.store.set({'settings': {...settings, 'snackNudge': on}});
+                setState(() {});
+              },
+            ),
           ]),
         ),
 

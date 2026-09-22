@@ -151,14 +151,35 @@
    *
    * @param aim 이번 끼니가 겨냥하는 칼로리
    */
-  function score(totalP, totalKcal, needP, aim) {
+  function score(totalP, totalKcal, needP, aim, over) {
     var gap = needP - totalP;
     // 모자란 건 크게 벌줍니다. 넘치는 건 거의 벌주지 않습니다 —
     // 칼로리 안에서 단백질이 좀 넘치는 건 나쁜 일이 아닌데, 예전엔 2배로 벌줘서
     // 삼계탕·설렁탕 같은 단품 한 끼가 한 번도 추천되지 않았습니다.
     var pPenalty = gap > 0 ? gap * 10 : -gap * 0.5;
     var kPenalty = Math.abs(totalKcal - aim) / 100 * 3;
-    return pPenalty + kPenalty;
+    /* 탄수·지방은 오늘 남은 양을 **넘긴 만큼만** 벌줍니다(g당 0.5). 남은 양
+       안에 드는 조합을 앞에 세우려는 것이지, 탄수를 적게 먹으라는 게
+       아닙니다. 예산을 안 주면 예전과 같습니다. */
+    var cfPenalty = (over || 0) * 0.5;
+    return pPenalty + kPenalty + cfPenalty;
+  }
+
+  /** 오늘 남은 탄수·지방(opts.remainC / remainF)을 이 조합이 얼마나 넘기는가(g). */
+  function overBudget(items, opts) {
+    if (!opts) return 0;
+    var over = 0;
+    if (opts.remainC != null) {
+      var sc = 0;
+      items.forEach(function (x) { sc += (x.c || 0); });
+      over += Math.max(0, sc - opts.remainC);
+    }
+    if (opts.remainF != null) {
+      var sf = 0;
+      items.forEach(function (x) { sf += (x.f || 0); });
+      over += Math.max(0, sf - opts.remainF);
+    }
+    return over;
   }
 
   /** 조합에서 단백질을 가장 많이 내는 품목 — 이 끼니의 주인공 */
@@ -168,9 +189,9 @@
     return best.name;
   }
 
-  function finish(cands, needP, limit, aim) {
+  function finish(cands, needP, limit, aim, opts) {
     cands.forEach(function (c) {
-      c.score = score(c.totalP, c.totalKcal, needP, aim) + (c.extra || 0);
+      c.score = score(c.totalP, c.totalKcal, needP, aim, overBudget(c.items, opts)) + (c.extra || 0);
       c.coversPct = needP > 0 ? Math.round(c.totalP / needP * 100) : 100;
     });
     cands.sort(function (a, b) { return a.score - b.score; });
@@ -227,7 +248,7 @@
     }
     // 간식은 하루의 일부입니다. 남은 예산을 다 쓰면 끼니가 없어집니다.
     var aim = Math.min(budget, 250);
-    var out = finish(cands, needP, limit, aim);
+    var out = finish(cands, needP, limit, aim, opts);
     return { options: out, needP: needP, dayP: dayP, budget: budget, aim: aim,
              ceiling: ceilingProtein(budget, opts.avoid),
              feasible: out.length > 0 && out[0].totalP >= needP * 0.9 };
@@ -284,7 +305,7 @@
 
     var aim = opts.aimKcal || Math.min(budget, Math.round(budget / Math.max(1, opts.mealsLeft || 1)));
     if (aim > 900) aim = 900;
-    var out = finish(cands, needP, limit, aim);
+    var out = finish(cands, needP, limit, aim, opts);
     return { options: out, needP: needP, dayP: dayP, budget: budget, aim: aim,
              ceiling: ceilingProtein(budget, opts.avoid),
              feasible: out.length > 0 && out[0].totalP >= needP * 0.9 };
@@ -339,7 +360,7 @@
     // 호출부가 이번 끼니의 몫을 알려주면 그걸 쓰고, 없으면 700kcal 로 봅니다.
     var aim = opts.aimKcal || Math.min(budget, Math.round(budget / Math.max(1, opts.mealsLeft || 1)));
     if (aim > 900) aim = 900;
-    var out = finish(cands, needP, limit, aim);
+    var out = finish(cands, needP, limit, aim, opts);
     return { options: out, needP: needP, dayP: dayP, budget: budget, aim: aim,
              ceiling: ceilingProtein(budget, opts.avoid),
              feasible: out.length > 0 && out[0].totalP >= needP * 0.9 };

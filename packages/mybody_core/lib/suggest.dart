@@ -138,11 +138,40 @@ num ceilingProtein(double remainKcal, Object? avoid) {
 /// 조합 점수. **낮을수록 좋습니다.**
 ///
 /// 칼로리는 "적을수록 좋은 것" 이 아니라 "맞출 것" 입니다 — 이유는 원본 주석에.
-double _score(double totalP, double totalKcal, double needP, double aim) {
+double _score(double totalP, double totalKcal, double needP, double aim, [double over = 0]) {
   final gap = needP - totalP;
   final pPenalty = gap > 0 ? gap * 10 : -gap * 0.5;
   final kPenalty = (totalKcal - aim).abs() / 100 * 3;
-  return pPenalty + kPenalty;
+  /* 탄수·지방은 오늘 남은 양을 **넘긴 만큼만** 벌줍니다(g당 0.5). 남은 양
+     안에 드는 조합을 앞에 세우려는 것이지, 탄수를 적게 먹으라는 게
+     아닙니다. 예산을 안 주면 예전과 같습니다. */
+  final cfPenalty = over * 0.5;
+  return pPenalty + kPenalty + cfPenalty;
+}
+
+/// 오늘 남은 탄수·지방(opts['remainC'] / ['remainF'])을 이 조합이 얼마나 넘기는가(g).
+double _overBudget(List<Map<String, Object?>> items, Map<String, Object?>? opts) {
+  if (opts == null) return 0;
+  var over = 0.0;
+  double g(Object? v) {
+    final n = jsToNumber(v);
+    return (n.isNaN || n == 0) ? 0 : n;   // JS 의 (x.c || 0) 와 같습니다
+  }
+  if (opts['remainC'] != null) {
+    var sc = 0.0;
+    for (final x in items) {
+      sc += g(x['c']);
+    }
+    over += math.max(0.0, sc - jsToNumber(opts['remainC']));
+  }
+  if (opts['remainF'] != null) {
+    var sf = 0.0;
+    for (final x in items) {
+      sf += g(x['f']);
+    }
+    over += math.max(0.0, sf - jsToNumber(opts['remainF']));
+  }
+  return over;
 }
 
 /// 조합에서 단백질을 가장 많이 내는 품목 — 이 끼니의 주인공.
@@ -155,9 +184,11 @@ Object? _mainOf(List<Map<String, Object?>> items) {
 }
 
 List<Map<String, Object?>> _finish(
-    List<Map<String, Object?>> cands, double needP, int limit, double aim) {
+    List<Map<String, Object?>> cands, double needP, int limit, double aim,
+    [Map<String, Object?>? opts]) {
   for (final c in cands) {
-    c['score'] = _score(jsToNumber(c['totalP']), jsToNumber(c['totalKcal']), needP, aim) +
+    c['score'] = _score(jsToNumber(c['totalP']), jsToNumber(c['totalKcal']), needP, aim,
+            _overBudget((c['items'] as List).cast<Map<String, Object?>>(), opts)) +
         (jsTruthy(c['extra']) ? jsToNumber(c['extra']) : 0);
     c['coversPct'] =
         needP > 0 ? jsRound(jsToNumber(c['totalP']) / needP * 100) : 100;
@@ -229,7 +260,7 @@ Map<String, Object?> suggestSnack(Map<String, Object?> opts) {
   }
   // 간식은 하루의 일부입니다. 남은 예산을 다 쓰면 끼니가 없어집니다.
   final aim = math.min(budget, 250.0);
-  final out = _finish(cands, needP, limit, aim);
+  final out = _finish(cands, needP, limit, aim, opts);
   return {
     'options': out, 'needP': needP, 'dayP': dayP, 'budget': budget, 'aim': aim,
     'ceiling': ceilingProtein(budget, opts['avoid']),
@@ -294,7 +325,7 @@ Map<String, Object?> suggestEatOut(Map<String, Object?> opts) {
       ? jsToNumber(opts['aimKcal'])
       : math.min<num>(budget, jsRound(budget / mealsLeft)).toDouble();
   if (aim > 900) aim = 900;
-  final out = _finish(cands, needP, limit, aim);
+  final out = _finish(cands, needP, limit, aim, opts);
   return {
     'options': out, 'needP': needP, 'dayP': dayP, 'budget': budget, 'aim': aim,
     'ceiling': ceilingProtein(budget, opts['avoid']),
@@ -346,7 +377,7 @@ Map<String, Object?> suggestMeal(Map<String, Object?> opts) {
       ? jsToNumber(opts['aimKcal'])
       : math.min<num>(budget, jsRound(budget / mealsLeft)).toDouble();
   if (aim > 900) aim = 900;
-  final out = _finish(cands, needP, limit, aim);
+  final out = _finish(cands, needP, limit, aim, opts);
   return {
     'options': out, 'needP': needP, 'dayP': dayP, 'budget': budget, 'aim': aim,
     'ceiling': ceilingProtein(budget, opts['avoid']),

@@ -17,6 +17,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/api.dart';
 import 'src/news_store.dart';
+import 'src/nudge.dart';
 import 'src/publish.dart';
 import 'src/sync_queue.dart';
 import 'src/app_state.dart';
@@ -122,6 +123,13 @@ class _MyBodyAppState extends State<MyBodyApp> {
     _queue = await _makeQueue(api);
     final app = await AppState.boot();
     wirePublishing(app, api, _queue);
+    /* 간식 알림. 못 켜져도 앱은 돕니다. 저장이 바뀌면 다시 계산합니다 —
+       먹은 게 늘면 남은 단백질이 줄고, 알림 문구도 바뀌어야 합니다. */
+    unawaited(SnackNudge.init().then((_) => SnackNudge.reschedule(app)));
+    app.addListener(() {
+      _nudgeTimer?.cancel();
+      _nudgeTimer = Timer(const Duration(seconds: 2), () => SnackNudge.reschedule(app));
+    });
     if (!mounted) return;
     setState(() {
       _api = api;
@@ -131,6 +139,7 @@ class _MyBodyAppState extends State<MyBodyApp> {
   }
 
   SyncQueue? _queue;
+  Timer? _nudgeTimer;
 
   /* 큐는 Api 에 매여 있습니다 — 주소가 바뀌면 보낼 곳도 바뀝니다.
      못 만들어도 앱은 돕니다. 그때는 실패한 일이 그 자리에서 실패로 끝납니다. */

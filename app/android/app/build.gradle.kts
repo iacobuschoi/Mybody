@@ -27,6 +27,9 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // 알림 플러그인(flutter_local_notifications)이 java.time 을 씁니다 —
+        // 옛 안드로이드에도 깔리려면 이게 켜져 있어야 합니다.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -77,4 +80,8 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

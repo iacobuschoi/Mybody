@@ -335,6 +335,7 @@ function foodCase(rnd, module) {
   if (rnd() > 0.7) opts.aimP = Math.round(10 + rnd() * 60);
   if (rnd() > 0.75) opts.aimKcal = Math.round(200 + rnd() * 900);
   if (rnd() > 0.6) opts.limit = 1 + ((rnd() * 5) | 0);
+  if (rnd() > 0.5) { opts.remainC = Math.round(rnd() * 300); opts.remainF = Math.round(rnd() * 90); }
   if (rnd() > 0.7) {
     const F2 = loadJs('fooddb');
     opts.avoid = [F2.FOODS[(rnd() * F2.FOODS.length) | 0].name,
