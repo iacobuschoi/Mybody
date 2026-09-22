@@ -29,6 +29,9 @@ on:
       artifact:
         description: 만들어진 APK 가 담긴 꾸러미 이름
         value: ${{ jobs.apk.outputs.artifact }}
+      signed:
+        description: 내 서명 열쇠로 서명했으면 yes
+        value: ${{ jobs.apk.outputs.signed }}
 
 # 연달아 올리면 앞의 빌드는 그만둡니다. 어차피 마지막 것만 씁니다.
 concurrency:
@@ -50,6 +53,7 @@ jobs:
 
     outputs:
       artifact: ${{ steps.name.outputs.artifact }}
+      signed: ${{ steps.key.outputs.signed }}
 
     env:
       # `secrets` 는 step 의 `if:` 안에서 못 씁니다 — 그 문맥에 없습니다.
