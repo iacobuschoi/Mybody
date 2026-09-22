@@ -207,6 +207,10 @@ void main() {
     expect(review.draft['pbfPct'], 23.1);
     expect(review.draft['bfmKg'], 20.0, reason: '86.7 × 23.1% = 20.0kg');
     expect(review.draft['weightKg'], 86.7);
+    /* 오늘 것은 지금 시각 — 9시로 박으면 같은 날 다른 기기에서 오후에 넣은
+       측정보다 앞 순서가 돼 "최신" 이 뒤바뀝니다. */
+    final at = DateTime.parse('${review.draft['measuredAt']}');
+    expect(DateTime.now().difference(at).inMinutes.abs(), lessThan(5));
   });
 
   test('bfmFrom — 인쇄된 kg 가 계산과 반올림 안에서 같으면 인쇄값', () {

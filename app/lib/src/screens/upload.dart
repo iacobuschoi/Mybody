@@ -181,14 +181,20 @@ class _UploadScreenState extends State<UploadScreen> {
         return v != null && v > 0 && (q.key != 'pbfPct' || v < 100);
       });
 
-  /// 결과지에 인쇄된 시각이 있고 날짜 칸을 안 고쳤으면 그 시각, 아니면 9시.
-  String _measuredAtIso() {
+  /// 결과지에 인쇄된 시각이 있고 날짜 칸을 안 고쳤으면 그 시각. 없으면 —
+  /// 오늘이면 **지금**, 지난 날이면 9시. 오늘 것을 9시로 박으면 같은 날 다른
+  /// 기기에서 오후에 넣은 측정보다 앞 순서가 돼 "최신" 이 뒤바뀝니다.
+  String measuredAtIso({DateTime? now}) {
     final at = _serverAt == null ? null : DateTime.tryParse(_serverAt!);
     if (at != null) {
       final l = at.toLocal();
       if (l.year == _measuredAt.year && l.month == _measuredAt.month && l.day == _measuredAt.day) {
         return at.toUtc().toIso8601String();
       }
+    }
+    final n = now ?? DateTime.now();
+    if (n.year == _measuredAt.year && n.month == _measuredAt.month && n.day == _measuredAt.day) {
+      return n.toUtc().toIso8601String();
     }
     return DateTime(_measuredAt.year, _measuredAt.month, _measuredAt.day, 9)
         .toUtc()
@@ -198,7 +204,7 @@ class _UploadScreenState extends State<UploadScreen> {
   void _next() {
     final scan = <String, Object?>{
       'id': 'scan-${DateTime.now().millisecondsSinceEpoch}',
-      'measuredAt': _measuredAtIso(),
+      'measuredAt': measuredAtIso(),
       for (final q in _quick) q.key: double.tryParse(_ctrl[q.key]!.text.trim()),
       // 사진은 이름만 붙여 둡니다. 알맹이는 파일에 있습니다.
       if (_photoId != null) 'photoId': _photoId,
