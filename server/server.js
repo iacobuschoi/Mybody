@@ -725,6 +725,23 @@ async function handleApi(req, res, url) {
     const b = await readBody(req); return send(res, 200, api.setShare(me, m[1], b || {}));
   }
 
+  /* --- 운동 독촉 ------------------------------------------------------- */
+  if (p === '/pokes' && method === 'POST') {
+    const b = await readBody(req);
+    const r = api.poke(me, b && b.userId, b && b.kind);
+    if (r.ok) {
+      /* 웹 푸시가 있으면 바로. 앱은 켜질 때 가져갑니다. */
+      const who = api.me(me);
+      const name = (who && who.displayName) || '친구';
+      pushToUser(String(b.userId), JSON.stringify({
+        t: name + '님이 운동하라고 콕 찔렀어요', b: '오늘 운동 어때요? 💪', u: '/#P15' })).catch(() => {});
+    }
+    return send(res, r.ok ? 200 : 400, r);
+  }
+  if (p === '/pokes' && method === 'GET') {
+    return send(res, 200, api.pullPokes(me));
+  }
+
   if (p === '/snapshots' && method === 'POST') {
     const b = await readBody(req);
     if (!b.weekStart) return send(res, 400, { ok: false, reason: 'weekStart 가 필요합니다' });

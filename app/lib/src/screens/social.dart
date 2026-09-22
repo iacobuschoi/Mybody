@@ -20,6 +20,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../api.dart';
+import '../pokes.dart';
 import '../scope.dart';
 import '../shell.dart';
 import '../ui/fmt.dart';
@@ -97,6 +98,9 @@ class _SocialScreenState extends State<SocialScreen> {
     if (!mounted) return;
     await _refreshNews(api, f);
     if (!mounted) return;
+    /* 친구가 보낸 독촉도 여기서 한 번 더 — 켜 둔 채로 탭에 들어오는 사람. */
+    unawaited(Scope.of(context).pokes?.fetch(api));
+    if (!mounted) return;
     setState(() {
       _busy = false;
       _me = me.ok ? (me.body['user'] as Map?)?.cast<String, dynamic>() : null;
@@ -153,6 +157,18 @@ class _SocialScreenState extends State<SocialScreen> {
               text: _fromCache
                   ? '$_error — 마지막으로 본 목록입니다. 여기서 바꾼 것은 망이 돌아오면 보냅니다.'
                   : _error!),
+        /* 나를 찌른 친구들 — 맨 위에. 치울 때까지 남습니다. */
+        Builder(builder: (_) {
+          final box = Scope.of(context).pokes;
+          if (box == null) return const SizedBox.shrink();
+          return ListenableBuilder(
+            listenable: box,
+            builder: (_, __) => Column(children: [
+              for (final p in box.items)
+                _PokeBanner(poke: p, onDismiss: () => box.dismiss(p['id'])),
+            ]),
+          );
+        }),
 
         /* 소식으로 가는 문. 안 읽은 게 있으면 숫자를 답니다.
            **좋은 소식만** 여기 쌓입니다 — 안 한 것은 안 올라옵니다. */
@@ -347,8 +363,97 @@ class _FriendRow extends StatelessWidget {
       ),
       if (core.jsTruthy(snap?['checkedIn']))
         const Pill('이번 주 기록', tone: Tone.ok),
+      if (needsNudge(snap)) _PokeButton(person: person, compact: true),
       const Icon(LucideIcons.chevronRight),
     ]);
+  }
+}
+
+/* 독촉 띠 — "OO님이 운동하라고 콕 찔렀어요". */
+class _PokeBanner extends StatelessWidget {
+  const _PokeBanner({required this.poke, required this.onDismiss});
+  final Map<String, dynamic> poke;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final c = mb(context);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+      decoration: BoxDecoration(
+          color: c.okBg, borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: c.ok.withValues(alpha: 0.35))),
+      child: Row(children: [
+        Icon(LucideIcons.bellRing, size: 18, color: c.ok),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(PokeBox.title(poke),
+                style: t.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700)),
+            Text('${PokeBox.body(poke)} · ${dateK(poke['at'])}',
+                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+          ]),
+        ),
+        IconButton(
+          tooltip: '치우기',
+          iconSize: 18,
+          visualDensity: VisualDensity.compact,
+          onPressed: onDismiss,
+          icon: const Icon(LucideIcons.x),
+        ),
+      ]),
+    );
+  }
+}
+
+/* 독촉 버튼 — 목록에선 아이콘만, 상세에선 글자와 함께. 보내면 하루 동안 "보냄". */
+class _PokeButton extends StatefulWidget {
+  const _PokeButton({required this.person, this.compact = false});
+  final Map<String, dynamic> person;
+  final bool compact;
+
+  @override
+  State<_PokeButton> createState() => _PokeButtonState();
+}
+
+class _PokeButtonState extends State<_PokeButton> {
+  bool _sent = false;
+  bool _busy = false;
+
+  Future<void> _send() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final api = Scope.apiOf(context);
+    final name = '${widget.person['displayName']}';
+    final r = await api.poke('${widget.person['id']}');
+    if (!mounted) return;
+    setState(() { _busy = false; _sent = r.ok || r.body['already'] == true; });
+    if (r.ok) {
+      toast(context, '$name님에게 운동 독촉을 보냈습니다 💪');
+    } else {
+      toast(context, r.reason);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    if (widget.compact) {
+      return IconButton(
+        tooltip: _sent ? '오늘 보냄' : '운동 독촉',
+        visualDensity: VisualDensity.compact,
+        onPressed: _sent ? null : _send,
+        icon: Icon(LucideIcons.bellRing, size: 20,
+            color: _sent ? t.hintColor : t.colorScheme.primary),
+      );
+    }
+    return OutlinedButton.icon(
+      onPressed: _sent ? null : _send,
+      icon: const Icon(LucideIcons.bellRing, size: 18),
+      label: Text(_sent ? '오늘 독촉 보냄' : '운동 독촉하기'),
+    );
   }
 }
 
@@ -592,6 +697,11 @@ class _FriendHeader extends StatelessWidget {
                   icon: LucideIcons.utensils, label: '식단',
                   days: streaks?['foodDays'], color: c.ok)),
         ]),
+        /* 운동 안 한 친구면 — 콕. 한 친구는 안 찌릅니다. */
+        if (needsNudge(snap.isEmpty ? null : snap)) ...[
+          const SizedBox(height: 12),
+          _PokeButton(person: person),
+        ],
       ]),
     );
   }

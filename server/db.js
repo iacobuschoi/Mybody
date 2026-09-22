@@ -74,6 +74,16 @@ function open(file) {
       payload TEXT NOT NULL,
       PRIMARY KEY (user_id, kind, id)
     );
+    -- 운동 독촉. 친구가 친구에게 "오늘 운동 어때요" 한 번. 하루 한 번만.
+    CREATE TABLE IF NOT EXISTS pokes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      from_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      to_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      delivered_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_pokes_to ON pokes(to_id, delivered_at);
     CREATE TABLE IF NOT EXISTS push_subs (
       endpoint TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -385,6 +395,13 @@ function makeApi(db) {
       'SELECT * FROM records WHERE user_id=? AND (updated_at, kind, id) > (?,?,?) ' +
       'ORDER BY updated_at, kind, id LIMIT ?'),
     countRecords: db.prepare('SELECT COUNT(*) c FROM records WHERE user_id=?'),
+    insertPoke: db.prepare('INSERT INTO pokes (from_id,to_id,kind,created_at) VALUES (?,?,?,?)'),
+    lastPoke: db.prepare('SELECT created_at FROM pokes WHERE from_id=? AND to_id=? ORDER BY id DESC LIMIT 1'),
+    undeliveredPokes: db.prepare(
+      'SELECT p.id, p.from_id, p.kind, p.created_at, u.display_name FROM pokes p ' +
+      'JOIN users u ON u.id = p.from_id WHERE p.to_id=? AND p.delivered_at IS NULL ORDER BY p.id'),
+    markPokesDelivered: db.prepare('UPDATE pokes SET delivered_at=? WHERE to_id=? AND delivered_at IS NULL'),
+    prunePokes: db.prepare("DELETE FROM pokes WHERE created_at < datetime('now', '-30 days')"),
     updateAvatar: db.prepare('UPDATE users SET avatar=? WHERE id=?'),
 
     addPush: db.prepare(
@@ -1004,6 +1021,31 @@ function makeApi(db) {
        그동안 서버 전체가 — 다른 사람의 로그인까지 — 멈춥니다.
        노드는 스레드가 하나입니다. */
     PUSH_MAX: 1000,
+
+    /* --- 운동 독촉 --------------------------------------------------------
+     * 친구에게 "오늘 운동 어때요" 한 번. 받는 쪽 앱이 켜질 때 가져갑니다
+     * (앱엔 서버 푸시가 없습니다). 웹 푸시가 있는 사람에겐 바로 갑니다.
+     * 하루 한 번만 — 두 번째부터는 독촉이 아니라 성가심입니다. */
+    poke(me, toId, kind = 'workout') {
+      if (!this.exists(me) || !this.exists(toId)) return { ok: false, reason: '없는 계정입니다' };
+      if (me === toId) return { ok: false, reason: '자기 자신에게는 보낼 수 없습니다' };
+      if (!this.areFriends(me, toId)) return { ok: false, reason: '친구가 아닙니다' };
+      const last = q.lastPoke.get(me, toId);
+      if (last && Date.now() - Date.parse(last.created_at) < 24 * 3600 * 1000) {
+        return { ok: false, reason: '오늘은 이미 보냈습니다 — 하루 한 번만', already: true };
+      }
+      const r = q.insertPoke.run(me, toId, str(kind) || 'workout', nowISO());
+      try { q.prunePokes.run(); } catch {}
+      return { ok: true, id: Number(r.lastInsertRowid) };
+    },
+    pullPokes(me) {
+      if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다', pokes: [] };
+      const rows = q.undeliveredPokes.all(me);
+      if (rows.length) q.markPokesDelivered.run(nowISO(), me);
+      return { ok: true, pokes: rows.map(r => ({
+        id: r.id, kind: r.kind, at: r.created_at,
+        from: { id: r.from_id, displayName: r.display_name } })) };
+    },
 
     push(me, records) {
       if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다', accepted: 0, rejected: [] };

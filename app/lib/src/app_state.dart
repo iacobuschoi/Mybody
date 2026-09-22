@@ -22,6 +22,7 @@ import 'package:mybody_core/news.dart';
 
 import 'news_store.dart';
 import 'photos.dart';
+import 'pokes.dart';
 
 /// SharedPreferences 한 칸을 코어의 저장소로 씁니다.
 ///
@@ -63,7 +64,7 @@ class PrefsStorage implements StateStorage {
 
 /// 앱 한 벌의 상태. 화면들은 이걸 듣습니다.
 class AppState extends ChangeNotifier {
-  AppState._(this.store, this.news) : schedule = Schedule(store) {
+  AppState._(this.store, this.news, this.pokes) : schedule = Schedule(store) {
     store.onChange((_) => notifyListeners());
     /* 엔진이 modes 를 느슨하게 부르는 고리를 여기서 꽂습니다 —
        원본이 `global.MB_MODES` 가 있으면 쓰던 자리입니다. */
@@ -89,7 +90,8 @@ class AppState extends ChangeNotifier {
     store.newsReset = () => news?.reset();
 
     store.load();
-    final app = AppState._(store, news);
+    final pokes = sp == null ? null : PokeBox(sp);
+    final app = AppState._(store, news, pokes);
 
     /* 사진 보관소는 **기다리지 않습니다.**
      *
@@ -120,6 +122,9 @@ class AppState extends ChangeNotifier {
 
   /// 친구 소식. 저장소가 없으면 null 입니다.
   final News? news;
+
+  /// 친구가 보낸 운동 독촉. 저장소가 없으면 null 입니다.
+  final PokeBox? pokes;
 
   final Store store;
   final Schedule schedule;

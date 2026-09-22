@@ -199,6 +199,17 @@ async function main() {
      Object.keys(row).filter(k => /^(plan|kept|missed|open)/.test(k)).sort().join() ===
        'keptDays,missedDays,openDays,plannedDays', Object.keys(row));
 
+  console.log('\n[3a] 운동 독촉 — 친구에게만, 하루 한 번, 받는 쪽이 켜질 때 가져간다');
+  ok('친구에게 독촉을 보낸다', (await call('POST', '/pokes', { userId: meB.id }, ta)).json.ok === true);
+  ok('같은 날 두 번은 안 된다', (await call('POST', '/pokes', { userId: meB.id }, ta)).json.already === true);
+  ok('자기 자신에게는 안 된다', (await call('POST', '/pokes', { userId: meA.id }, ta)).json.ok === false);
+  {
+    const got = (await call('GET', '/pokes', null, tb)).json;
+    ok('받는 쪽이 가져가면 보낸 사람 이름이 있다', got.ok && got.pokes.length === 1 && got.pokes[0].from.id === meA.id && !!got.pokes[0].from.displayName, got);
+    const again = (await call('GET', '/pokes', null, tb)).json;
+    ok('한 번 가져간 것은 다시 안 온다', again.ok && again.pokes.length === 0, again);
+  }
+
   console.log('\n[3b] 스트릭 · 요일별 일정 · 오늘 식단 — 행동은 나가고, 스위치로 막힌다');
   const rich = Object.assign({}, payload, {
     streaks: { workoutDays: 3, foodDays: 5 },

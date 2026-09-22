@@ -240,6 +240,11 @@ extension ApiSocial on Api {
   Future<ApiResult> setShare(String userId, Map<String, dynamic> flags) =>
       send('PUT', '/share/$userId', flags);
 
+  /// 운동 독촉 — 친구에게 "오늘 운동 어때요" 한 번(하루 한 번).
+  Future<ApiResult> poke(String userId) => _send('POST', '/pokes', {'userId': userId, 'kind': 'workout'});
+  /// 나에게 온 독촉. 가져가면 서버는 전달됐다고 표시합니다.
+  Future<ApiResult> pullPokes() => _send('GET', '/pokes');
+
   /// 기록 전체를 내 계정에 — 기기를 바꿔도 따라오게. 서버는 종류·id 별
   /// 레코드를 그대로 보관합니다(/sync). 사진은 안 갑니다.
   Future<ApiResult> pushRecords(List<Map<String, Object?>> records) =>

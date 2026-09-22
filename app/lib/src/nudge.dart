@@ -93,6 +93,26 @@ class SnackNudge {
     }
   }
 
+  /// 지금 바로 하나 — 친구의 운동 독촉 같은 것. 못 띄워도 조용히.
+  static Future<void> showNow({required int id, required String title, required String body}) async {
+    if (!_ready) return;
+    try {
+      await _plugin.show(
+        id: id,
+        title: title,
+        body: body,
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'friends', '친구 알림',
+            channelDescription: '친구가 보낸 운동 독촉',
+            importance: Importance.defaultImportance,
+            priority: Priority.defaultPriority,
+          ),
+        ),
+      );
+    } catch (_) {}
+  }
+
   /// 지금 상태로 다음 알림을 다시 겁니다. 늘 먼저 지우고 — 남은 양이
   /// 바뀌었으면 옛 문구가 울리면 안 됩니다.
   static Future<void> reschedule(AppState app) async {

@@ -13,12 +13,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:mybody_core/mybody_core.dart' as core;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/api.dart';
 import 'src/cloud.dart';
 import 'src/news_store.dart';
 import 'src/nudge.dart';
+import 'src/pokes.dart';
 import 'src/publish.dart';
 import 'src/sync_queue.dart';
 import 'src/app_state.dart';
@@ -130,7 +132,12 @@ class _MyBodyAppState extends State<MyBodyApp> {
     unawaited(_cloud!.pull());
     /* 간식 알림. 못 켜져도 앱은 돕니다. 저장이 바뀌면 다시 계산합니다 —
        먹은 게 늘면 남은 단백질이 줄고, 알림 문구도 바뀌어야 합니다. */
-    unawaited(SnackNudge.init().then((_) => SnackNudge.reschedule(app)));
+    unawaited(SnackNudge.init().then((_) async {
+      await SnackNudge.reschedule(app);
+      /* 친구가 보낸 운동 독촉 — 켤 때 가져와서 알림 하나. 로그인할 때도. */
+      await _fetchPokes(app, api);
+      api.addListener(() { if (api.signedIn) unawaited(_fetchPokes(app, api)); });
+    }));
     app.addListener(() {
       _nudgeTimer?.cancel();
       _nudgeTimer = Timer(const Duration(seconds: 2), () => SnackNudge.reschedule(app));
@@ -146,6 +153,17 @@ class _MyBodyAppState extends State<MyBodyApp> {
   SyncQueue? _queue;
   Timer? _nudgeTimer;
   CloudSync? _cloud;
+
+  Future<void> _fetchPokes(AppState app, Api api) async {
+    final box = app.pokes;
+    if (box == null) return;
+    final fresh = await box.fetch(api);
+    for (final p in fresh) {
+      await SnackNudge.showNow(
+          id: 1000 + (core.jsToNumber(p['id']).toInt() % 1000),
+          title: PokeBox.title(p), body: PokeBox.body(p));
+    }
+  }
 
   /* 큐는 Api 에 매여 있습니다 — 주소가 바뀌면 보낼 곳도 바뀝니다.
      못 만들어도 앱은 돕니다. 그때는 실패한 일이 그 자리에서 실패로 끝납니다. */
