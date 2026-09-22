@@ -10,8 +10,23 @@
          영문을 모르게 됩니다. 게다가 `flutter run` 이나 웹으로 시험할 때는
          권한이 있어서 **멀쩡히 동작합니다** — 친구 폰에 들어가야 드러납니다. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- **몸 기록이 구글 드라이브로 넘어가지 않게 합니다.**
+
+         android:allowBackup 을 안 적으면 안드로이드는 **기본을 true 로**
+         봅니다. 그러면 자동 백업이 이 앱의 저장소를 통째로 떠서 사용자의
+         구글 계정에 올립니다 — 측정 기록 · 프로필 · 목표 전부요.
+
+         이 앱은 "몸 숫자는 이 폰에만 있고 서버로 안 올라갑니다" 를 내세우고
+         있고, 개인정보처리방침에도 그렇게 적었습니다. 그런데 정작 안드로이드가
+         뒤로 구글에 보내고 있었습니다. 말과 실제가 달랐습니다.
+
+         끄는 대신, 내보내기가 실제로 쓸 수 있는 백업이 되게 고쳤습니다
+         (설정 → 내보내기 → 복사하기). -->
     <application
         android:label="Mybody"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

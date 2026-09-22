@@ -138,6 +138,21 @@ class Api {
     return r;
   }
 
+  /// 비밀번호를 잊었을 때. 가입할 때 받은 복구 코드로 새 비밀번호를 겁니다.
+  ///
+  /// 로그인 화면이 "복구 코드가 필요합니다" 라고 말하면서 정작 이 길이
+  /// 없었습니다 — 그 말을 믿고 코드를 찾아온 사람이 넣을 데가 없었습니다.
+  Future<ApiResult> recover({
+    required String handle,
+    required String code,
+    required String password,
+  }) async {
+    final r = await _send('POST', '/auth/recover',
+        {'handle': handle, 'code': code, 'password': password});
+    if (r.ok && r.body['token'] is String) await _saveToken(r.body['token'] as String);
+    return r;
+  }
+
   Future<ApiResult> signIn({required String handle, required String password}) async {
     final r = await _send('POST', '/auth/signin', {'handle': handle, 'password': password});
     if (r.ok && r.body['token'] is String) await _saveToken(r.body['token'] as String);

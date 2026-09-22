@@ -85,12 +85,31 @@ class _MyBodyAppState extends State<MyBodyApp> {
     _boot();
   }
 
+  /* **주소를 앱에 넣어 둡니다.**
+   *
+   * 안 넣어 두면 친구는 깔자마자 빈 칸 앞에 섭니다 — 카톡으로 받은 주소를
+   * 찾아 와서 폰 키보드로 붙여넣어야 합니다. 거기서 그만두는 사람이 나옵니다.
+   *
+   * 값은 빌드할 때 `--dart-define=SERVER_URL=...` 로 들어갑니다. 저장소에는
+   * 안 적습니다 — 깃허브 Secrets 에 두고 빌드가 꺼내 씁니다
+   * (.github/workflows/apk.yml).
+   *
+   * **다만 APK 안에는 남습니다.** 파일을 뜯으면 주소가 보입니다. 공개된
+   * 곳에 앱을 두는 이상 주소도 공개된 셈이라고 보셔야 합니다 — 계정과
+   * 가입 코드가 그 뒤를 막습니다.
+   *
+   * 한 번이라도 직접 넣은 주소가 있으면 그걸 씁니다. 주인이 주소를 바꿨을
+   * 때 앱에 박힌 옛 주소가 그걸 덮어쓰면 안 됩니다. */
+  static const String _builtInServer =
+      String.fromEnvironment('SERVER_URL', defaultValue: '');
+
   Future<void> _boot() async {
     String base = '';
     try {
       final sp = await SharedPreferences.getInstance();
       base = sp.getString(_serverKey) ?? '';
     } catch (_) {}
+    if (base.isEmpty) base = _builtInServer.trim();
     final api = Api(baseUrl: base);
     await api.loadToken();
     final app = await AppState.boot();

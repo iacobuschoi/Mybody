@@ -6,9 +6,16 @@
  * 인바디를 넣고 계획을 세우는 데는 하나도 필요 없습니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../api.dart';
 import '../theme.dart';
+import '../ui/widgets.dart';
+
+/// 서버가 받아 주는 건강정보 동의 판. 서버의 `HEALTH_CONSENT_VERSION` 과
+/// **글자까지 같아야** 합니다 — 다르면 가입이 400 으로 거부됩니다.
+/// (server/db.js 의 같은 이름 상수. 웹 앱도 sync.js 에 같은 값을 들고 있습니다.)
+const String kHealthConsentVersion = '2026-09-20';
 
 /* --- 서버 주소 -------------------------------------------------------------
  * 서버가 주인 노트북이라, 앱이 어디를 봐야 하는지 알려 줘야 합니다.
@@ -115,7 +122,19 @@ class _ServerScreenState extends State<ServerScreen> {
   }
 }
 
-/* --- 로그인 ---------------------------------------------------------------- */
+/* --- 로그인 · 가입 · 비밀번호 잊음 ---------------------------------------
+ *
+ * 한 화면에서 세 갈래입니다. 웹 앱이 그렇게 돼 있고(M29), 그게 맞습니다 —
+ * 로그인하러 왔는데 계정이 없다는 걸 그 자리에서 알게 되는 사람이 대부분이라
+ * 화면을 옮겨 다니게 하면 거기서 끝납니다.
+ *
+ * 예전에는 **로그인만 있었습니다.** 가입도 복구도 없었습니다. 기존 친구들은
+ * 웹에서 만든 계정이 있어서 티가 안 났지만, 새로 들어오는 친구는 계정을 만들
+ * 길이 없었고, 비밀번호를 잊은 사람은 화면이 "복구 코드가 필요합니다" 라고
+ * 말하는 걸 읽고도 넣을 데가 없었습니다.
+ * -------------------------------------------------------------------------- */
+enum _AuthMode { signIn, signUp, recover }
+
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key, required this.api, required this.onDone,
                       required this.onServerChange});
@@ -127,70 +146,245 @@ class SignInScreen extends StatefulWidget {
 }
 
 class _SignInScreenState extends State<SignInScreen> {
+  _AuthMode _mode = _AuthMode.signIn;
+
   final _handle = TextEditingController();
   final _pw = TextEditingController();
+  final _name = TextEditingController();
+  final _pair = TextEditingController();
+  final _code = TextEditingController();
+
   String? _err;
   bool _busy = false;
+  bool _consent = false;
+
+  /// 서버가 가입 코드를 요구하는지. null 이면 아직 안 물어봤습니다.
+  bool? _openSignup;
+
+  @override
+  void initState() {
+    super.initState();
+    _askServer();
+  }
+
+  /* 가입 코드 칸을 **필요할 때만** 보여 줍니다. 서버가 아무나 받는 설정이면
+     그 칸은 물어볼 이유가 없고, 빈 칸 하나가 "나는 이걸 모르는데" 를 만듭니다. */
+  Future<void> _askServer() async {
+    final r = await widget.api.health();
+    if (!mounted) return;
+    setState(() => _openSignup = r.ok ? r.body['openSignup'] == true : null);
+  }
 
   Future<void> _go() async {
+    final handle = _handle.text.trim();
+    if (handle.isEmpty) {
+      setState(() => _err = '아이디를 넣어 주세요');
+      return;
+    }
+    if (_mode == _AuthMode.signUp && !_consent) {
+      setState(() => _err = '몸 숫자를 서버에 올리는 것에 동의해야 계정을 만들 수 있습니다');
+      return;
+    }
     setState(() { _busy = true; _err = null; });
-    final r = await widget.api.signIn(handle: _handle.text.trim(), password: _pw.text);
+
+    final ApiResult r;
+    switch (_mode) {
+      case _AuthMode.signIn:
+        r = await widget.api.signIn(handle: handle, password: _pw.text);
+      case _AuthMode.signUp:
+        r = await widget.api.signUp(
+          handle: handle,
+          password: _pw.text,
+          displayName: _name.text.trim().isEmpty ? handle : _name.text.trim(),
+          pairSecret: _pair.text.trim(),
+          healthConsent: kHealthConsentVersion,
+        );
+      case _AuthMode.recover:
+        r = await widget.api.recover(
+            handle: handle, code: _code.text.trim(), password: _pw.text);
+    }
     if (!mounted) return;
     if (!r.ok) {
       setState(() { _busy = false; _err = r.reason; });
       return;
     }
+    /* 복구 코드는 **이때 한 번만** 보여 줍니다. 서버는 해시만 들고 있어서
+       다시 꺼내 줄 수 없습니다. 놓치면 비밀번호를 잊었을 때 길이 없습니다. */
+    final code = r.body['recoveryCode'];
+    if (code is String && code.isNotEmpty) {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('복구 코드'),
+          content: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text(
+              '비밀번호를 잊으면 이 코드로만 되돌릴 수 있습니다. '
+              '지금 어딘가에 적어 두세요 — 다시 보여 드릴 수 없습니다.',
+              style: TextStyle(fontSize: 13, height: 1.5),
+            ),
+            const SizedBox(height: 14),
+            SelectableText(code,
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          ]),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: code));
+                if (ctx.mounted) Navigator.pop(ctx);
+              },
+              child: const Text('복사하고 닫기'),
+            ),
+          ],
+        ),
+      );
+    }
+    if (!mounted) return;
     widget.onDone();
   }
 
   @override
   Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final signUp = _mode == _AuthMode.signUp;
+    final recover = _mode == _AuthMode.recover;
+    final needPair = signUp && _openSignup == false;
+
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('로그인'),
-        actions: [
-          IconButton(
-            tooltip: '서버 주소 바꾸기',
-            icon: const Icon(Icons.dns_outlined),
-            onPressed: () => widget.onServerChange(''),
-          ),
-        ],
-      ),
-      body: Padding(
+      appBar: AppBar(title: const Text('계정')),
+      body: ListView(
         padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        children: [
+          SegmentedButton<_AuthMode>(
+            segments: const [
+              ButtonSegment(value: _AuthMode.signIn, label: Text('로그인')),
+              ButtonSegment(value: _AuthMode.signUp, label: Text('처음이에요')),
+              ButtonSegment(value: _AuthMode.recover, label: Text('비밀번호 잊음')),
+            ],
+            selected: {_mode},
+            onSelectionChanged: (v) => setState(() {
+              _mode = v.first;
+              _err = null;
+            }),
+          ),
+          const SizedBox(height: 18),
+
           TextField(
             controller: _handle,
             autocorrect: false,
-            decoration: const InputDecoration(labelText: '아이디', border: OutlineInputBorder()),
+            decoration: const InputDecoration(
+                labelText: '아이디', border: OutlineInputBorder()),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+
+          if (signUp) ...[
+            TextField(
+              controller: _name,
+              decoration: const InputDecoration(
+                  labelText: '친구에게 보일 이름',
+                  hintText: '비워 두면 아이디를 씁니다',
+                  border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 10),
+          ],
+
+          if (recover) ...[
+            TextField(
+              controller: _code,
+              autocorrect: false,
+              decoration: const InputDecoration(
+                  labelText: '복구 코드',
+                  hintText: '가입할 때 받은 코드',
+                  border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 10),
+          ],
+
           TextField(
             controller: _pw,
             obscureText: true,
-            onSubmitted: (_) => _go(),
             decoration: InputDecoration(
-              labelText: '비밀번호',
-              border: const OutlineInputBorder(),
-              errorText: _err,
-            ),
+                labelText: recover ? '새 비밀번호' : '비밀번호',
+                border: const OutlineInputBorder()),
           ),
-          const SizedBox(height: 16),
+
+          if (needPair) ...[
+            const SizedBox(height: 10),
+            TextField(
+              controller: _pair,
+              autocorrect: false,
+              decoration: const InputDecoration(
+                  labelText: '가입 코드',
+                  hintText: '이 서버를 띄운 사람에게 받으세요',
+                  border: OutlineInputBorder()),
+            ),
+          ],
+
+          if (_err != null) ...[
+            const SizedBox(height: 12),
+            Text(_err!, style: TextStyle(color: t.colorScheme.error)),
+          ],
+
+          /* 건강정보 동의는 **계정 만들기와 따로** 받습니다.
+             체성분은 민감정보입니다. 로그인하면 친구가 하나도 없어도 주간
+             요약이 올라가므로, 가입이 곧 업로드 동의가 됩니다. 다른 것과
+             섞어 받으면 안 읽히고, 안 읽힌 동의는 동의가 아닙니다. */
+          if (signUp) ...[
+            const SizedBox(height: 16),
+            MbCard(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('몸에 대한 숫자를 서버에 올리는 것에 동의가 필요합니다',
+                    style: t.textTheme.bodyMedium
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 8),
+                ...[
+                  '무엇을 — 가장 최근 측정의 체중 · 골격근량 · 체지방량 · 체지방률과 '
+                      '그 변화량, 목표 달성률, 이번 주 체크인 여부',
+                  '왜 — 친구에게 보여 줄 주간 요약을 만들기 위해서. 친구 화면에 실제로 '
+                      '보이는 것은 친구마다 직접 켠 항목뿐입니다.',
+                  '얼마나 — 최근 52주까지만. 그보다 오래된 주는 서버가 지웁니다. '
+                      '계정을 지우면 남은 것도 같이 지워집니다.',
+                  '거부하면 — 계정을 못 만듭니다. 대신 로그인 없이 그냥 쓰시면 됩니다. '
+                      '측정 · 목표 · 계획 · 식단은 로그인과 상관없이 다 되고, '
+                      '친구 기능만 못 씁니다.',
+                ].map((line) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text('· $line',
+                          style: t.textTheme.bodySmall?.copyWith(height: 1.5)),
+                    )),
+                const SizedBox(height: 4),
+                CheckboxListTile(
+                  value: _consent,
+                  onChanged: (v) => setState(() => _consent = v ?? false),
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('동의합니다'),
+                ),
+              ]),
+            ),
+          ],
+
+          const SizedBox(height: 18),
           FilledButton(
             onPressed: _busy ? null : _go,
-            child: Text(_busy ? '들어가는 중…' : '로그인'),
+            child: Text(_busy
+                ? '하는 중…'
+                : switch (_mode) {
+                    _AuthMode.signIn => '로그인',
+                    _AuthMode.signUp => '계정 만들기',
+                    _AuthMode.recover => '비밀번호 바꾸기',
+                  }),
           ),
-          const SizedBox(height: 8),
-          /* 비밀번호를 잊었을 때 갈 곳을 여기서 말해 둡니다.
-             이 서버는 메일을 안 보내서, 복구 코드가 없으면 주인에게
-             말하는 것이 유일한 길입니다. 그 사실을 숨기면 사람들은
-             새 계정을 만듭니다 — 실제로 그렇게 되고 있었습니다. */
-          const Text(
-            '비밀번호를 잊었다면 가입할 때 받은 복구 코드가 필요합니다.\n'
-            '그것도 없으면 이 서버를 띄운 사람에게 말하면 풀어 줄 수 있습니다.',
-            style: TextStyle(fontSize: 12, height: 1.5),
-          ),
-        ]),
+
+          const SizedBox(height: 16),
+          if (_mode == _AuthMode.signIn)
+            Text(
+              '계정이 없으면 위에서 「처음이에요」를 누르세요.\n'
+              '비밀번호를 잊었다면 가입할 때 받은 복구 코드가 필요합니다. '
+              '그것도 없으면 이 서버를 띄운 사람에게 말하면 풀어 줄 수 있습니다.',
+              style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5),
+            ),
+        ],
       ),
     );
   }

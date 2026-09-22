@@ -140,15 +140,40 @@ jobs:
       # 폰은 versionCode 가 더 큰 것만 업데이트로 받습니다. pubspec 에는
       # 빌드 번호가 없어서 그냥 두면 **전부 1번**이 되고, 두 번째 앱부터
       # 폰이 "이미 최신입니다" 하고 안 받습니다. 실행 횟수를 씁니다.
+      # **받는 사람 입장에서 크기를 깎습니다.**
+      #
+      # 기본값은 CPU 종류를 **세 벌** 넣습니다 — arm64(요즘 폰) · arm(옛날 폰)
+      # · x86_64. 마지막 것은 **에뮬레이터 전용**이라 진짜 폰에서는 한 번도
+      # 안 쓰이는데 10MB 쯤을 차지합니다. 빼도 못 깔리는 폰이 없습니다.
+      #
+      # --split-debug-info 는 디버그 기호를 앱 밖으로 뺍니다. 오류 추적에
+      # 필요한 것이라 버리지 않고 build/symbols 에 남겨 둡니다.
       - name: 앱 파일 만들기
         working-directory: app
-        run: flutter build apk --release --build-number=${{ github.run_number }}
+        env:
+          # 서버 주소를 앱에 넣어 둡니다. 없으면 빈 값으로 들어가고, 앱은
+          # 예전처럼 사용자에게 주소를 묻습니다.
+          SERVER_URL: ${{ secrets.MYBODY_SERVER_URL }}
+        run: |
+          flutter build apk --release \
+            --build-number=${{ github.run_number }} \
+            --target-platform android-arm,android-arm64 \
+            --split-debug-info=build/symbols \
+            --dart-define=SERVER_URL="$SERVER_URL"
 
       # 플레이스토어는 새 앱을 **APK 로 안 받습니다** — .aab 여야 합니다.
       # 친구들한테 바로 주는 건 APK 라, 둘 다 만듭니다.
+      # 스토어용은 CPU 를 안 깎습니다. 플레이가 기기마다 알맞은 조각만
+      # 내려보내므로, 넣어 둬도 받는 사람이 더 받지 않습니다.
       - name: 스토어용 묶음(AAB) 만들기
         working-directory: app
-        run: flutter build appbundle --release --build-number=${{ github.run_number }}
+        env:
+          SERVER_URL: ${{ secrets.MYBODY_SERVER_URL }}
+        run: |
+          flutter build appbundle --release \
+            --build-number=${{ github.run_number }} \
+            --split-debug-info=build/symbols \
+            --dart-define=SERVER_URL="$SERVER_URL"
 
       - name: 만들어졌는지 확인
         id: find
@@ -159,6 +184,7 @@ jobs:
           fi
           echo "path=$apk" >> "$GITHUB_OUTPUT"
           echo "APK  $(du -h "$apk" | cut -f1)"
+          { echo ""; echo "APK 크기 **$(du -h "$apk" | cut -f1)**"; } >> "$GITHUB_STEP_SUMMARY"
           aab=$(find app/build -name '*.aab' | head -1)
           if [ -z "$aab" ]; then
             echo "app-release.aab 를 못 찾았습니다"; find app/build -name '*.aab'; exit 1

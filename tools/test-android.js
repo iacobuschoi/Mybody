@@ -90,6 +90,29 @@ const leaked = tracked.split('\n').filter(f => /\.(jks|keystore)$|key\.propertie
 if (leaked.length) no('서명 열쇠가 저장소에 들어 있습니다: ' + leaked.join(' '));
 else ok('서명 열쇠는 저장소에 없습니다');
 
+/* --- 3b. 몸 기록이 구글로 넘어가지 않는가 --------------------------------
+ * android:allowBackup 을 **안 적으면 기본이 true** 입니다. 그러면 안드로이드
+ * 자동 백업이 앱 저장소를 통째로 떠서 사용자의 구글 드라이브에 올립니다 —
+ * 측정 기록 · 프로필 · 목표 전부요.
+ *
+ * 이 앱은 "몸 숫자는 이 폰에만" 을 내세우고 개인정보처리방침에도 그렇게
+ * 적혀 있습니다. 비어 있으면 그 말이 거짓이 됩니다. 그래서 **명시적으로**
+ * false 인지 봅니다. */
+if (/android:allowBackup\s*=\s*"false"/.test(main))
+  ok('자동 백업이 꺼져 있습니다 — 몸 기록이 구글 드라이브로 안 넘어갑니다');
+else
+  no('android:allowBackup 이 false 가 아닙니다 — 안드로이드가 몸 기록을 구글에 백업합니다',
+     '안 적으면 기본이 true 입니다. 개인정보처리방침과 어긋납니다');
+
+/* 내보내기가 **가져갈 수 있는** 것인가. "지우기 전에 내보내기 하세요" 라고
+   여러 군데서 말하고 있으므로, 화면에 띄우기만 하면 거짓말이 됩니다. */
+const settings = R('app/lib/src/screens/settings.dart');
+if (/Clipboard\.setData/.test(settings))
+  ok('내보내기가 복사됩니다 (붙여넣어 두면 그게 백업입니다)');
+else
+  no('내보내기가 화면에 보여 주기만 합니다',
+     '"지우기 전에 내보내기 하세요" 라고 안내하면서 가져갈 방법이 없습니다');
+
 /* --- 4b. Kotlin DSL 의 `java` 함정 --------------------------------------
  * .gradle.kts 안에서 `java` 는 Gradle 의 java 확장을 가리킵니다 — 패키지가
  * 아닙니다. 그래서 `java.util.Properties()` 라고 쓰면

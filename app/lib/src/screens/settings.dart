@@ -12,6 +12,7 @@
  *     않으므로 계정 삭제로는 사라지지 않습니다 — 두 개는 다른 일입니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../api.dart';
@@ -122,7 +123,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SectionTitle('백업'),
             RichishText(
               '측정 기록·목표·계획은 **이 기기에만** 있습니다. 서버로 올라가지 않으므로 '
-              '기기를 바꾸면 따라오지 않습니다. 내보내기가 유일한 백업입니다.',
+              '기기를 바꾸면 따라오지 않습니다. 내보내기가 유일한 백업입니다 — '
+              '**복사해서 어딘가에 붙여넣어 두셔야** 합니다.',
               style: t.textTheme.bodySmall?.copyWith(height: 1.5),
             ),
             const SizedBox(height: 10),
@@ -292,18 +294,50 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (mounted) setState(() {});
   }
 
+  /* **내보내기는 실제로 가져갈 수 있어야 합니다.**
+   *
+   * 예전에는 JSON 을 화면에 띄우기만 했습니다. 그런데 앱 곳곳에서 — 그리고
+   * 배포 안내문에서 — "지우기 전에 내보내기 하세요" 라고 말하고 있었습니다.
+   * 따를 수 없는 안내였습니다. 폰에서 긴 JSON 을 손으로 긁어 복사하는 사람은
+   * 없습니다.
+   *
+   * 파일로 저장하려면 플러그인이 필요한데 여기서는 시험할 수가 없습니다.
+   * 그래서 클립보드로 갑니다 — 플러그인이 없어도 되고, 카톡 '나에게 보내기'
+   * 나 메모에 붙여넣으면 그게 백업입니다. */
   void _export(BuildContext context, app) {
     final text = app.store.exportJSON();
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('백업 내용'),
+        title: const Text('백업'),
         content: SizedBox(
           width: double.maxFinite,
-          child: SingleChildScrollView(child: SelectableText(text)),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const Text(
+              '아래를 복사해서 카톡 「나에게 보내기」나 메모에 붙여넣어 두세요. '
+              '앱을 지우거나 폰을 바꿀 때 이것만 있으면 되돌릴 수 있습니다.',
+              style: TextStyle(fontSize: 12, height: 1.5),
+            ),
+            const SizedBox(height: 12),
+            Flexible(
+              child: SingleChildScrollView(
+                child: SelectableText(text,
+                    style: const TextStyle(fontSize: 11, height: 1.4)),
+              ),
+            ),
+          ]),
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기')),
+          FilledButton(
+            onPressed: () async {
+              await Clipboard.setData(ClipboardData(text: text));
+              if (!ctx.mounted) return;
+              Navigator.pop(ctx);
+              toast(context, '복사했습니다 — 어딘가에 붙여넣어 두세요');
+            },
+            child: const Text('복사하기'),
+          ),
         ],
       ),
     );
