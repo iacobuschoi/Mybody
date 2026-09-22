@@ -403,6 +403,17 @@ async function main() {
       row: !!document.querySelector('[data-uid="P04-C07"]')
     }));
     ok('이미 있는 날은 다시 안 묻는다', again.screen === 'P04' && !again.row, again);
+
+    /* 같은 결과지를 다시 저장 — 같은 시각 · 같은 값이면 두 줄이 아니라 갱신. */
+    await page.click('[data-uid="P04-B04"]');
+    await page.waitForTimeout(900);
+    const dup = await page.evaluate(() => ({
+      n: window.MB_STORE.sortedScans().length,
+      toast: [...document.querySelectorAll('.toast, .uid-toast, [class*="toast"]')]
+        .map(e => e.textContent).join(' | ')
+    }));
+    ok('같은 결과지를 다시 저장해도 두 줄이 되지 않는다', dup.n === after.n, dup);
+    ok('갱신했다고 말한다', /갱신/.test(dup.toast), dup.toast.slice(0, 200));
     fakeMode = 'ok';
   }
 

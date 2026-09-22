@@ -788,6 +788,8 @@
           return;
         }
         save.forced = false;
+        var twin = sameSheet();
+        if (twin && !scan.photoId) scan.photoId = twin.photoId || null;
         S.addScan(scan);
 
         /* 저장이 실제로 기기에 쓰였는지 확인하고 나서 말합니다.
@@ -806,7 +808,8 @@
         if (histOn) historyToAdd().forEach(function (s) { S.addScan(s); added++; });
         S.set({ draft: null });
         global.MB_DRAFT = null;
-        global.MB_UID.toast('측정이 저장되었습니다' + (added ? ' · 지난 측정 ' + added + '개도 추가' : ''));
+        global.MB_UID.toast((twin ? '이미 있던 기록을 갱신했습니다' : '측정이 저장되었습니다') +
+                            (added ? ' · 지난 측정 ' + added + '개도 추가' : ''));
 
         if (where === 'later') { A.go('P02'); return; }
 
@@ -866,8 +869,31 @@
       }
 
       /** 'scan-' + 측정일시 숫자 (같은 날 재측정이면 시·분까지 붙인다) */
+      /* 같은 결과지를 두 번 넣으면 같은 시각(결과지에 인쇄된 검사일시)의
+         기록이 두 줄 생겼습니다(노트북 11번 보고). 시각이 같고 핵심 세 값까지
+         같으면 같은 결과지입니다 — 그 기록입니다. 시각만 같고 값이 다르면
+         아래 규칙대로 새 줄입니다(덮어쓰기는 편집으로만). 앱(review.dart)과
+         같은 규칙. */
+      function sameSheet() {
+        if (origin || !v.measuredAt) return null;
+        var at = new Date(v.measuredAt).getTime();
+        if (isNaN(at)) return null;
+        var hit = null;
+        S.sortedScans().forEach(function (s) {
+          if (hit || !s.measuredAt || new Date(s.measuredAt).getTime() !== at) return;
+          var same = ['weightKg', 'smmKg', 'bfmKg'].every(function (k) {
+            return typeof s[k] === 'number' && typeof v[k] === 'number' &&
+                   Math.abs(s[k] - v[k]) <= 0.05;
+          });
+          if (same) hit = s;
+        });
+        return hit;
+      }
+
       function makeId() {
         if (origin && origin.id) return origin.id;
+        var twin = sameSheet();
+        if (twin) return twin.id;
         var digits = String(v.measuredAt || nowISO()).replace(/[^0-9]/g, '');
         if (!digits) digits = String(Date.now());
         var id = 'scan-' + digits.slice(0, 8);

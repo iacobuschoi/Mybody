@@ -85,6 +85,33 @@ class _ReviewScreenState extends State<ReviewScreen> {
   bool _showMore = false;
   /// 같이 저장할 지난 측정(measuredAt). 처음엔 전부.
   late final Set<String> _histOn = {for (final h in widget.history) h.measuredAt};
+  /// 같은 시각의 기록이 있고 값이 다를 때, 그 기록을 덮어쓸지. 기본은 아니오.
+  bool _overwrite = false;
+
+  /* 같은 결과지를 두 번 넣으면 같은 시각(결과지에 인쇄된 검사일시)의 기록이
+     두 줄 생겼습니다(노트북 11번 보고). 시각이 같고 핵심 세 값까지 같으면
+     같은 결과지입니다 — 두 줄을 만들지 않고 그 기록을 갱신합니다. 시각만
+     같고 값이 다르면 사람이 정합니다: 다른 측정일 수도(EXIF 없는 사진은
+     둘 다 9시가 박힙니다), 고쳐 넣는 것일 수도 있습니다. */
+  Map<String, Object?>? _sameMoment(List<Map<String, Object?>> scans) {
+    final at = DateTime.tryParse('${widget.draft['measuredAt']}');
+    if (at == null) return null;
+    for (final s in scans) {
+      if (s['id'] == widget.draft['id']) continue;
+      final t = DateTime.tryParse('${s['measuredAt']}');
+      if (t != null && t.isAtSameMomentAs(at)) return s;
+    }
+    return null;
+  }
+
+  static bool _sameValues(Map<String, Object?> a, Map<String, Object?> b) {
+    for (final k in const ['weightKg', 'smmKg', 'bfmKg']) {
+      final x = a[k];
+      final y = b[k];
+      if (x is! num || y is! num || (x - y).abs() > 0.05) return false;
+    }
+    return true;
+  }
 
   List<_F> get _all => [..._core, ..._derived, ..._composition];
 
@@ -141,6 +168,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
     final scans = app.store.sortedScans();
     final prev = scans.isEmpty ? null : scans.last;
     final s = _filled(profile);
+    final same = _sameMoment(scans);
+    final twin = same != null && _sameValues(s, same);
 
     final invalid = core.validateScan(s, prev);
     final check = core.run(s, profile, prev);
@@ -165,6 +194,26 @@ class _ReviewScreenState extends State<ReviewScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('판독 결과 확인')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
+        if (twin)
+          const Note(
+            tone: Tone.ok,
+            title: '이미 있는 기록과 같습니다.',
+            text: ' 같은 결과지입니다 — 저장하면 두 줄이 되지 않고 그 기록을 갱신합니다.',
+          ),
+        if (same != null && !twin) ...[
+          Note(
+            tone: Tone.warn,
+            title: '같은 시각의 측정이 이미 있습니다.',
+            text: ' ${dateK(same['measuredAt'])} · 체중 ${n1(same['weightKg'])}kg. 값이 다릅니다 — '
+                '다른 측정이면 그대로 저장되고, 그 기록을 고쳐 넣는 것이면 덮어쓰기를 켜세요.',
+          ),
+          SwitchListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _overwrite,
+            onChanged: (v) => setState(() => _overwrite = v),
+            title: const Text('이미 있는 기록을 덮어쓰기'),
+          ),
+        ],
         if (invalid != null)
           Note(
             tone: Tone.bad,
@@ -279,6 +328,23 @@ class _ReviewScreenState extends State<ReviewScreen> {
     final before = app.store.sortedScans();
     final prevLatest = before.isEmpty ? null : before.last;
 
+    /* 같은 시각의 기록을 갱신할 때는 그 기록의 이름표를 씁니다 — 저장소가
+       같은 이름표는 덮어씁니다. 사진이 새로 없으면 옛 사진을 그대로 둡니다. */
+    final same = _sameMoment(before);
+    final replacing = same != null && (_overwrite || _sameValues(s, same));
+    if (replacing) {
+      s['id'] = same['id'];
+      final oldPhoto = same['photoId'];
+      if (s['photoId'] == null) {
+        if (oldPhoto != null) s['photoId'] = oldPhoto;
+      } else if (oldPhoto != null && oldPhoto != s['photoId'] &&
+          !before.any((x) => x['id'] != same['id'] && x['photoId'] == oldPhoto)) {
+        try {
+          app.photos?.remove('$oldPhoto');
+        } catch (_) {}
+      }
+    }
+
     app.store.addScan(s);
     if (!app.store.saved()) {
       toast(context, '기기에 저장하지 못했습니다 — 설정에서 사진을 지우고 다시 해 보세요');
@@ -305,7 +371,11 @@ class _ReviewScreenState extends State<ReviewScreen> {
 
     Navigator.of(context).pop();
     toast(context,
-        (backfill ? '지난 기록으로 저장했습니다 — 계획은 그대로입니다' : '저장했습니다') +
+        (replacing
+                ? '이미 있던 기록을 갱신했습니다'
+                : backfill
+                    ? '지난 기록으로 저장했습니다 — 계획은 그대로입니다'
+                    : '저장했습니다') +
             (added > 0 ? ' · 지난 측정 $added개 추가' : ''));
   }
 }
