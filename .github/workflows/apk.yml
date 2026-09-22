@@ -64,6 +64,25 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 판 번호를 커밋 수로 매기려면 역사가 다 있어야 합니다 — 얕은
+          # 클론이면 커밋 수가 언제나 1 입니다. 아래 「판 번호」 단계 참고.
+          fetch-depth: 0
+
+      # **versionCode 는 커밋 수입니다.**
+      #
+      # 전에는 실행 번호(run_number)였는데, 그 번호가 **두 갈래**였습니다 —
+      # 푸시 빌드는 이 파일의 실행 번호(40번대)를, 배포(release.yml)는
+      # 그쪽 실행 번호(v0.2.2 = 8)를 받았습니다. 같은 코드가 어느 길로
+      # 빌드됐느냐에 따라 번호가 달라서, 플레이에 푸시 빌드(40)를 한 번
+      # 올리고 나면 다음 배포(9)는 "번호가 작다" 고 거부됩니다. 커밋 수는
+      # 길이 하나고 커밋마다 커집니다. 친구 폰의 8 보다는 이미 큽니다.
+      - name: 판 번호(versionCode)
+        id: vc
+        run: |
+          n=$(git rev-list --count HEAD)
+          echo "code=$n" >> "$GITHUB_OUTPUT"
+          echo "versionCode $n"
 
       # AGP 8.11 / Gradle 8.14 가 도는 자바입니다. 기계 기본값은 그때그때
       # 달라지므로 **손으로 고릅니다.**
@@ -142,7 +161,7 @@ jobs:
 
       # 폰은 versionCode 가 더 큰 것만 업데이트로 받습니다. pubspec 에는
       # 빌드 번호가 없어서 그냥 두면 **전부 1번**이 되고, 두 번째 앱부터
-      # 폰이 "이미 최신입니다" 하고 안 받습니다. 실행 횟수를 씁니다.
+      # 폰이 "이미 최신입니다" 하고 안 받습니다. 커밋 수를 씁니다(위).
       # **받는 사람 입장에서 크기를 깎습니다.**
       #
       # 기본값은 CPU 종류를 **세 벌** 넣습니다 — arm64(요즘 폰) · arm(옛날 폰)
@@ -159,7 +178,7 @@ jobs:
           SERVER_URL: ${{ secrets.MYBODY_SERVER_URL }}
         run: |
           flutter build apk --release \
-            --build-number=${{ github.run_number }} \
+            --build-number=${{ steps.vc.outputs.code }} \
             --target-platform android-arm,android-arm64 \
             --split-debug-info=build/symbols \
             --dart-define=SERVER_URL="$SERVER_URL"
@@ -174,7 +193,7 @@ jobs:
           SERVER_URL: ${{ secrets.MYBODY_SERVER_URL }}
         run: |
           flutter build appbundle --release \
-            --build-number=${{ github.run_number }} \
+            --build-number=${{ steps.vc.outputs.code }} \
             --split-debug-info=build/symbols \
             --dart-define=SERVER_URL="$SERVER_URL"
 
@@ -187,7 +206,7 @@ jobs:
           fi
           echo "path=$apk" >> "$GITHUB_OUTPUT"
           echo "APK  $(du -h "$apk" | cut -f1)"
-          { echo ""; echo "APK 크기 **$(du -h "$apk" | cut -f1)**"; } >> "$GITHUB_STEP_SUMMARY"
+          { echo ""; echo "APK 크기 **$(du -h "$apk" | cut -f1)** · versionCode **${{ steps.vc.outputs.code }}**"; } >> "$GITHUB_STEP_SUMMARY"
           aab=$(find app/build -name '*.aab' | head -1)
           if [ -z "$aab" ]; then
             echo "app-release.aab 를 못 찾았습니다"; find app/build -name '*.aab'; exit 1

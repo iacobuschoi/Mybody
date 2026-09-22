@@ -12,13 +12,20 @@
  *     않으므로 계정 삭제로는 사라지지 않습니다 — 두 개는 다른 일입니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
+import 'dart:async';
+
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../api.dart';
 import '../scope.dart';
 import 'account.dart';
 import '../ui/widgets.dart';
+
+/// 공개된 개인정보처리방침. 플레이 스토어는 콘솔에 적은 주소와 **앱 안의
+/// 링크** 둘 다를 요구합니다. 저장소의 docs/ 가 GitHub Pages 로 나갑니다.
+const kPrivacyUrl = 'https://iacobuschoi.github.io/Mybody/privacy.html';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -180,6 +187,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
           TextButton(
             onPressed: () => _import(context, app),
             child: Text('가져오기', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+          ),
+          TextButton(
+            onPressed: () => unawaited(
+                launchUrl(Uri.parse(kPrivacyUrl), mode: LaunchMode.externalApplication)),
+            child: Text('개인정보처리방침',
+                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
           ),
         ]),
       ]),

@@ -87,6 +87,15 @@ jobs:
           mv "$src" "$out"
           echo "file=$out" >> "$GITHUB_OUTPUT"
           echo "size=$(du -h "$out" | cut -f1)" >> "$GITHUB_OUTPUT"
+          # 플레이 스토어용 묶음(.aab)도 같이 올립니다 — 주인이 Actions 를
+          # 뒤지지 않고 이 페이지에서 바로 받아 콘솔에 올리도록. 폰에는
+          # 안 깔리는 파일이라 안내문에 그렇게 적습니다.
+          aab=$(find apk -name '*.aab' | head -1)
+          if [ -n "$aab" ]; then
+            outb="mybody-${tag}-playstore.aab"
+            mv "$aab" "$outb"
+            echo "aab=$outb" >> "$GITHUB_OUTPUT"
+          fi
 
       # 서명 지문을 적어 둡니다. 친구가 "업데이트가 안 깔려요" 할 때
       # 어느 판부터 열쇠가 바뀌었는지 여기서 바로 보입니다.
@@ -109,6 +118,7 @@ jobs:
         run: |
           cat > notes.md <<'NOTES'
           아래 **mybody-...apk** 를 눌러서 받고, 받은 파일을 누르면 깔립니다.
+          (`...-playstore.aab` 는 구글 플레이에 올리는 개발자용 파일입니다 — 폰에는 안 깔립니다.)
 
           ## 깔 때 나오는 경고
 
@@ -146,7 +156,9 @@ jobs:
             echo "크기 ${{ steps.apk.outputs.size }} · 서명 지문 \`${{ steps.sign.outputs.fp }}\`"
           } >> notes.md
 
-          gh release create "${{ steps.v.outputs.tag }}" "${{ steps.apk.outputs.file }}" \
+          files="${{ steps.apk.outputs.file }}"
+          if [ -n "${{ steps.apk.outputs.aab }}" ]; then files="$files ${{ steps.apk.outputs.aab }}"; fi
+          gh release create "${{ steps.v.outputs.tag }}" $files \
             --title "Mybody ${{ steps.v.outputs.tag }}" \
             --notes-file notes.md \
             --repo "$GITHUB_REPOSITORY"
