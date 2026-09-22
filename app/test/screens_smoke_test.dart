@@ -12,6 +12,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody/src/api.dart';
 import 'package:mybody/src/screens/account.dart';
 import 'package:mybody/src/app_state.dart';
@@ -367,7 +368,19 @@ void main() {
 
     expect(find.text('단백질 남음'), findsOneWidget, reason: '남은 양 카드');
     expect(find.textContaining('목표 범위'), findsWidgets);
-    expect(find.text('뭘 먹을까'), findsOneWidget);
+    /* 뭘 먹을까는 작은 버튼 — 누르면 추천이 튀어나오고, 담으면 끼니에 들어갑니다. */
+    expect(find.textContaining('뭘 먹을까'), findsOneWidget);
+    expect(find.byIcon(LucideIcons.wand2), findsOneWidget);
+    await t.tap(find.textContaining('뭘 먹을까'));
+    await t.pumpAndSettle();
+    expect(find.text('사먹기'), findsOneWidget);
+    expect(find.text('기록에 담기'), findsWidgets);
+    await t.tap(find.text('기록에 담기').first);
+    await t.pumpAndSettle();
+    expect(find.text('사먹기'), findsNothing, reason: '담으면 시트가 닫힙니다');
+    expect(app.store.logsForDate(today), hasLength(1), reason: '추천이 끼니에 들어갑니다');
+    app.store.removeFoodLog(app.store.logsForDate(today).first['id']);
+    await t.pump();
     for (final m in ['아침', '점심', '저녁', '간식']) {
       expect(find.text(m), findsWidgets, reason: '$m 카드');
     }

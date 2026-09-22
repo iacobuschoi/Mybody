@@ -84,9 +84,21 @@ class _FoodScreenState extends State<FoodScreen> {
         _TodayCard(totals: totals, target: target),
         /* 남은 양을 알려주는 것과 그걸 음식으로 번역해 주는 것은 다른 일입니다.
            "단백질 40g 남음" 을 보고 닭가슴살 한 팩 반을 떠올리려면 매번 계산이
-           필요하고, 하루 세 번 그 계산을 하다가 사람들이 포기합니다. */
+           필요하고, 하루 세 번 그 계산을 하다가 사람들이 포기합니다.
+           작은 버튼 하나 — 누르면 추천이 튀어나옵니다. 화면에 늘 펼쳐 두면
+           끼니 카드가 아래로 밀립니다. */
         if (remainP > 0)
-          _SuggestCard(date: date, remainP: remainP, remainK: remainK, onAdded: _refresh),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: FilledButton.tonalIcon(
+                onPressed: () => _openSuggest(context, date, remainP, remainK),
+                icon: const Icon(LucideIcons.wand2, size: 18),
+                label: Text('뭘 먹을까 · 단백질 ${n0(remainP)}g 남음'),
+              ),
+            ),
+          ),
       ],
 
       for (final meal in _meals)
@@ -109,6 +121,31 @@ class _FoodScreenState extends State<FoodScreen> {
             text: '완벽하게 적을 필요 없습니다. 한 끼만 적어도 주 평균이 살아납니다. '
                 '안 적은 날은 0으로 치지 않고 평균에서 빼기 때문입니다.'),
     ]);
+  }
+
+  Future<void> _openSuggest(BuildContext context, String date, double remainP, double remainK) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.75,
+        builder: (ctx, sc) => ListView(
+          controller: sc,
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+          children: [
+            _SuggestCard(
+              date: date, remainP: remainP, remainK: remainK,
+              onAdded: () {
+                Navigator.of(ctx).pop();
+                _refresh();
+              },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
