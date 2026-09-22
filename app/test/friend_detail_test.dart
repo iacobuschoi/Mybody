@@ -162,4 +162,35 @@ void main() {
     expect(find.text('나린'), findsOneWidget, reason: '마지막으로 본 목록이 남아야 합니다');
     expect(find.textContaining('마지막으로 본 목록', findRichText: true), findsOneWidget);
   });
+
+  /* 비행기 모드에서 상세를 열면 "0개 켜짐" 에 스위치가 전부 꺼진 채로 보였고,
+     사람은 "다 꺼졌네" 하고 다시 켰습니다 — 서버엔 중복 PUT. */
+  testWidgets('친구 상세 — 서버에 못 닿으면 마지막으로 본 공유 설정을 보여 준다', (t) async {
+    SharedPreferences.setMockInitialValues({});
+    final app = await AppState.boot();
+    final good = Api(baseUrl: 'https://x.test', client: MockClient((req) async {
+      if (req.url.path.endsWith('/share/f1')) {
+        return http.Response(jsonEncode({'ok': true, 'share': {
+          for (final k in _serverShareKeys) k: k == 'streak' || k == 'schedule' || k == 'diet',
+        }}), 200);
+      }
+      return http.Response('{"ok":false}', 404);
+    }));
+    await good.setToken('tok');
+    await t.pumpWidget(Scope(state: app, api: good, onServerChange: (_) async {},
+        child: MaterialApp(theme: mbLight(), home: const FriendDetailScreen(
+            key: ValueKey('online'), person: {'id': 'f1', 'displayName': '나린'}))));
+    await t.pumpAndSettle();
+    expect(find.text('3개 켜짐'), findsOneWidget);
+
+    final dead = Api(baseUrl: 'https://x.test',
+        client: MockClient((_) async => throw Exception('no network')));
+    await dead.setToken('tok');
+    await t.pumpWidget(Scope(state: app, api: dead, onServerChange: (_) async {},
+        child: MaterialApp(theme: mbLight(), home: const FriendDetailScreen(
+            key: ValueKey('offline'), person: {'id': 'f1', 'displayName': '나린'}))));
+    await t.pumpAndSettle();
+    expect(find.textContaining('3개 켜짐'), findsOneWidget, reason: '캐시된 설정');
+    expect(find.textContaining('마지막으로 본 설정'), findsOneWidget);
+  });
 }

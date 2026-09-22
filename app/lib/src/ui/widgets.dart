@@ -267,10 +267,12 @@ class EmptyState extends StatelessWidget {
 }
 
 void toast(BuildContext context, String message) {
+  /* 토스트는 굵게를 모릅니다. 문구에 **표시**가 섞여 오면 별표가 그대로
+     찍힙니다 — 실제로 "**나중에 보냅니다.**" 가 별표째로 나갔습니다. */
   ScaffoldMessenger.of(context)
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(
-      content: Text(message),
+      content: Text(message.replaceAll('**', '')),
       behavior: SnackBarBehavior.floating,
       duration: const Duration(seconds: 3),
     ));

@@ -11,6 +11,7 @@
  * 친구가 이번 주에 운동을 안 했다는 것은 알림이 되지 않습니다.
  * 이 구분이 이 앱이 두는 압박의 상한선입니다.
  * ========================================================================== */
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -70,8 +71,16 @@ class _SocialScreenState extends State<SocialScreen> {
     final api = Scope.apiOf(context);
     if (!api.signedIn) return;
     setState(() => _busy = true);
-    final me = await api.me();
-    final f = await api.friends();
+    /* 캐시가 있으면 **먼저** 보여 줍니다. 서버가 5초 걸리는 동안 빈 스피너만
+       보면 사람들은 탭이 고장났다고 생각하고 눌러 댑니다. */
+    if (_friends == null) {
+      final cached = await _recall();
+      if (!mounted) return;
+      if (cached != null) setState(() { _friends = cached; _fromCache = true; });
+    }
+    final both = await Future.wait([api.me(), api.friends()]);
+    final me = both[0];
+    final f = both[1];
     if (!mounted) return;
     var friends = f.ok ? (f.body['friends'] as Map?)?.cast<String, dynamic>() : null;
     var fromCache = false;
@@ -104,15 +113,17 @@ class _SocialScreenState extends State<SocialScreen> {
     final news = Scope.of(context).news;
     if (news == null || !f.ok) return;
     final friends = ((f.body['friends'] as Map?)?['accepted'] as List?) ?? const [];
+    /* 친구마다 한 번씩 — 차례로 기다리면 친구 수만큼 느려집니다. 한꺼번에. */
+    final people = [for (final p in friends) if ((p as Map)['id'] is String) p];
+    final results = await Future.wait([for (final p in people) api.friendSnapshots('${p['id']}')]);
     final snaps = <Object?>[];
-    for (final p in friends) {
-      final id = (p as Map)['id'];
-      if (id is! String) continue;
-      final r = await api.friendSnapshots(id);
+    for (var i = 0; i < people.length; i++) {
+      final p = people[i];
+      final r = results[i];
       /* 못 받아온 것과 공유를 끈 것은 다릅니다 — 실패는 rows 를 아예
          안 실어 보냅니다. 코어가 그 차이를 압니다. */
       final rows = r.ok ? ((r.body['rows'] as List?) ?? const []) : null;
-      snaps.add({'id': id, if (rows != null) 'rows': rows});
+      snaps.add({'id': p['id'], if (rows != null) 'rows': rows});
       /* 목록과 상세가 보는 최신 주. 이게 빠져 있어서 친구 화면이 늘
          "공유한 것이 없습니다" 였습니다 — 서버는 주고 있었는데요. */
       if (rows != null && rows.isNotEmpty) p['snapshot'] = rows.first;
@@ -372,6 +383,30 @@ class _FriendDetailScreenState extends State<FriendDetailScreen> {
   Map<String, dynamic>? _snap;
   bool _busy = true;
   bool _started = false;
+  /// 서버에 못 닿아 마지막으로 본 공유 설정을 보여 주는 중인가.
+  bool _shareFromCache = false;
+
+  String get _shareKey => 'mybody.share.cache.v1.${widget.person['id']}';
+
+  /* 공유 설정도 캐시합니다. 비행기 모드에서 "0개 켜짐" 에 스위치가 전부
+     꺼진 채로 보이면, 사람은 "다 꺼졌네" 하고 다시 켭니다 — 실제로는 셋이
+     켜져 있었는데요. 여기서 바꾼 것도 같이 기억해 둡니다. */
+  Future<void> _rememberShare(Map<String, dynamic> share) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(_shareKey, jsonEncode(share));
+    } catch (_) {}
+  }
+
+  Future<Map<String, dynamic>?> _recallShare() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final s = sp.getString(_shareKey);
+      return s == null ? null : (jsonDecode(s) as Map).cast<String, dynamic>();
+    } catch (_) {
+      return null;
+    }
+  }
 
   @override
   void initState() {
@@ -391,11 +426,21 @@ class _FriendDetailScreenState extends State<FriendDetailScreen> {
   Future<void> _load() async {
     final api = Scope.apiOf(context);
     final id = '${widget.person['id']}';
-    final r = await api.getShare(id);
-    final sn = await api.friendSnapshots(id, limit: 1);
+    final both = await Future.wait([api.getShare(id), api.friendSnapshots(id, limit: 1)]);
+    final r = both[0];
+    final sn = both[1];
+    var share = r.ok ? (r.body['share'] as Map?)?.cast<String, dynamic>() : null;
+    var fromCache = false;
+    if (share != null) {
+      await _rememberShare(share);
+    } else {
+      share = await _recallShare();
+      fromCache = share != null;
+    }
     if (!mounted) return;
     setState(() {
-      _share = r.ok ? (r.body['share'] as Map?)?.cast<String, dynamic>() : {};
+      _share = share ?? {};
+      _shareFromCache = fromCache;
       final rows = sn.ok ? (sn.body['rows'] as List?) : null;
       if (rows != null && rows.isNotEmpty) _snap = (rows.first as Map).cast<String, dynamic>();
       _busy = false;
@@ -433,7 +478,10 @@ class _FriendDetailScreenState extends State<FriendDetailScreen> {
               childrenPadding: EdgeInsets.zero,
               title: Text('내가 이 친구에게 보여 주는 것',
                   style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-              subtitle: Text(_busy ? '불러오는 중' : '$onCount개 켜짐',
+              subtitle: Text(
+                  _busy
+                      ? '불러오는 중'
+                      : '$onCount개 켜짐${_shareFromCache ? ' · 서버에 못 닿아 마지막으로 본 설정' : ''}',
                   style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
               children: [
                 RichishText(
@@ -454,6 +502,7 @@ class _FriendDetailScreenState extends State<FriendDetailScreen> {
                       onChanged: (on) async {
                         final next = {...?_share, f.$1: on};
                         setState(() => _share = next.cast<String, dynamic>());
+                        unawaited(_rememberShare(next.cast<String, dynamic>()));
                         final id = '${widget.person['id']}';
                         final queue = Scope.queueOf(context);
                         final r = await Scope.apiOf(context)
@@ -468,7 +517,7 @@ class _FriendDetailScreenState extends State<FriendDetailScreen> {
                         if (queue != null && _worthRetrying(r)) {
                           queue.add('setShare',
                               {'userId': id, 'patch': next.cast<String, Object?>()});
-                          toast(context, '지금 서버에 못 닿아서 **나중에 보냅니다.**');
+                          toast(context, '지금 서버에 못 닿아서 나중에 보냅니다.');
                           return;
                         }
                         toast(context, r.reason);
