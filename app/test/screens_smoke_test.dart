@@ -182,6 +182,38 @@ void main() {
     }));
   });
 
+  /* 체지방은 %로 받고, 검수로 넘길 때 kg 도 같이 — 엔진과 검산이 보는 것. */
+  testWidgets('인바디 넣기 — 체지방률(%)로 받고 kg 를 계산해 넘긴다', (t) async {
+    t.view.physicalSize = const Size(1000, 3000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    SharedPreferences.setMockInitialValues({});
+    final app = await AppState.boot();
+    app.store.set({'profile': _profile, 'onboarded': true});
+    await t.pumpWidget(host(app, const UploadScreen()));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(find.widgetWithText(TextField, '체지방량'), findsNothing, reason: 'kg 칸은 없어야 합니다');
+    expect(find.widgetWithText(TextField, '체지방률'), findsOneWidget);
+
+    await t.enterText(find.widgetWithText(TextField, '체중'), '86.7');
+    await t.enterText(find.widgetWithText(TextField, '골격근량'), '38');
+    await t.enterText(find.widgetWithText(TextField, '체지방률'), '23.1');
+    await t.pump();
+    await t.tap(find.text('다음 — 검산하기'));
+    await t.pumpAndSettle();
+    expect(find.byType(ReviewScreen), findsOneWidget);
+    final review = t.widget<ReviewScreen>(find.byType(ReviewScreen));
+    expect(review.draft['pbfPct'], 23.1);
+    expect(review.draft['bfmKg'], 20.0, reason: '86.7 × 23.1% = 20.0kg');
+    expect(review.draft['weightKg'], 86.7);
+  });
+
+  test('bfmFrom — 인쇄된 kg 가 계산과 반올림 안에서 같으면 인쇄값', () {
+    expect(bfmFrom(86.7, 23.1), 20.0);
+    expect(bfmFrom(86.7, 23.1, printed: 20.1), 20.1);
+    expect(bfmFrom(86.7, 23.1, printed: 25.0), 20.0, reason: '많이 다르면 사용자의 %가 이깁니다');
+  });
+
   testWidgets('인바디 넣기 — 막 깐 앱', (t) async {
     SharedPreferences.setMockInitialValues({});
     final app = await AppState.boot();

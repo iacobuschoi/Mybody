@@ -8,7 +8,7 @@
  *   2층  서버에 사진을 보내 초안을 받는다         ← 켜야만 돕니다
  *
  * 왜 0층이 기본인가: 플래너가 실제로 쓰는 숫자는 세 개뿐입니다 — 체중,
- * 골격근량, 체지방량. 사진을 보며 세 칸을 채우는 데 15초쯤 걸립니다.
+ * 골격근량, 체지방률. 사진을 보며 세 칸을 채우는 데 15초쯤 걸립니다.
  * 그리고 2층이 아무리 좋아져도 0층은 남습니다. 서버가 죽어도, 비행기
  * 안이어도, 결과지가 처음 보는 양식이어도 숫자는 들어가야 하니까요.
  * ========================================================================== */
@@ -30,8 +30,18 @@ import 'review.dart';
 const _quick = [
   (key: 'weightKg', label: '체중', unit: 'kg', hint: '골격근·지방분석 맨 윗줄'),
   (key: 'smmKg', label: '골격근량', unit: 'kg', hint: '그 아래, SMM'),
-  (key: 'bfmKg', label: '체지방량', unit: 'kg', hint: '그 아래, BFM — %가 아니라 kg'),
+  /* 체지방은 **률(%)** 로 받습니다. 사람은 "23%" 로 기억하지 "20.0kg" 으로
+     기억하지 않습니다. 저장은 kg 도 같이 — 엔진과 검산이 보는 것. */
+  (key: 'pbfPct', label: '체지방률', unit: '%', hint: '그 아래, PBF — kg가 아니라 %'),
 ];
+
+/// 체중과 체지방률로 체지방량(kg). 결과지에 인쇄된 kg 가 있고 그 값이 이
+/// 계산과 반올림 안에서 같으면 인쇄값을 씁니다 — 계산은 0.1 이 흔들립니다.
+double bfmFrom(double weightKg, double pbfPct, {Object? printed}) {
+  final calc = core.r1(weightKg * pbfPct / 100);
+  if (printed is num && (printed.toDouble() - calc).abs() <= 0.15) return printed.toDouble();
+  return calc;
+}
 
 /// 2층이 읽어 준 나머지 칸(체지방률·BMI·기초대사량…)을 초안에 싣습니다.
 ///
@@ -131,6 +141,15 @@ class _UploadScreenState extends State<UploadScreen> {
       final v = fields[q.key];
       if (v is num) { _ctrl[q.key]!.text = core.jsNumToString(v.toDouble()); filled++; }
     }
+    /* 결과지에 %가 없고 kg만 읽혔으면 %로 바꿔 채웁니다. */
+    if (_ctrl['pbfPct']!.text.isEmpty && fields['bfmKg'] is num && fields['weightKg'] is num) {
+      final w = (fields['weightKg'] as num).toDouble();
+      if (w > 0) {
+        _ctrl['pbfPct']!.text =
+            core.jsNumToString(core.r1((fields['bfmKg'] as num) / w * 100));
+        filled++;
+      }
+    }
     final at = fields['measuredAt'];
     if (at is String) {
       final d = DateTime.tryParse(at);
@@ -159,7 +178,7 @@ class _UploadScreenState extends State<UploadScreen> {
 
   bool get _ready => _quick.every((q) {
         final v = double.tryParse(_ctrl[q.key]!.text.trim());
-        return v != null && v > 0;
+        return v != null && v > 0 && (q.key != 'pbfPct' || v < 100);
       });
 
   /// 결과지에 인쇄된 시각이 있고 날짜 칸을 안 고쳤으면 그 시각, 아니면 9시.
@@ -184,6 +203,11 @@ class _UploadScreenState extends State<UploadScreen> {
       // 사진은 이름만 붙여 둡니다. 알맹이는 파일에 있습니다.
       if (_photoId != null) 'photoId': _photoId,
     };
+    final w = scan['weightKg'] as double?;
+    final pbf = scan['pbfPct'] as double?;
+    if (w != null && pbf != null) {
+      scan['bfmKg'] = bfmFrom(w, pbf, printed: _serverExtra?['bfmKg']);
+    }
     Navigator.of(context).pushReplacement(MaterialPageRoute(
         builder: (_) => ReviewScreen(draft: mergeOcrExtras(scan, _serverExtra))));
   }
