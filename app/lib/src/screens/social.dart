@@ -12,6 +12,7 @@
  * 이 구분이 이 앱이 두는 압박의 상한선입니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../api.dart';
@@ -72,7 +73,11 @@ class _SocialScreenState extends State<SocialScreen> {
       final r = await api.friendSnapshots(id);
       /* 못 받아온 것과 공유를 끈 것은 다릅니다 — 실패는 rows 를 아예
          안 실어 보냅니다. 코어가 그 차이를 압니다. */
-      snaps.add({'id': id, if (r.ok) 'rows': (r.body['rows'] as List?) ?? const []});
+      final rows = r.ok ? ((r.body['rows'] as List?) ?? const []) : null;
+      snaps.add({'id': id, if (rows != null) 'rows': rows});
+      /* 목록과 상세가 보는 최신 주. 이게 빠져 있어서 친구 화면이 늘
+         "공유한 것이 없습니다" 였습니다 — 서버는 주고 있었는데요. */
+      if (rows != null && rows.isNotEmpty) p['snapshot'] = rows.first;
     }
     news.apply(snaps, friends);
   }
@@ -112,12 +117,12 @@ class _SocialScreenState extends State<SocialScreen> {
               if (mounted) setState(() {});
             },
             child: Row(children: [
-              const Icon(Icons.notifications_none, size: 20),
+              const Icon(LucideIcons.bell, size: 20),
               const SizedBox(width: 10),
               const Expanded(child: Text('소식')),
               if (unread > 0) Pill('$unread', tone: Tone.ok),
               const SizedBox(width: 6),
-              Icon(Icons.chevron_right, size: 18, color: t.hintColor),
+              Icon(LucideIcons.chevronRight, size: 18, color: t.hintColor),
             ]),
           );
         }),
@@ -141,7 +146,7 @@ class _SocialScreenState extends State<SocialScreen> {
               ),
               IconButton(
                 tooltip: '내 계정',
-                icon: const Icon(Icons.manage_accounts_outlined),
+                icon: const Icon(LucideIcons.userCog),
                 onPressed: () => widget.go('account'),
               ),
             ]),
@@ -277,6 +282,10 @@ class _FriendRow extends StatelessWidget {
                 : '이번 주 ${n0(kept)}/${n0(planned)}일 운동',
             style: t.textTheme.labelSmall?.copyWith(color: t.hintColor),
           ),
+          if (snap?['streaks'] is Map)
+            Text('운동 ${n0((snap!['streaks'] as Map)['workoutDays'])}일째 · '
+                '식단 ${n0((snap['streaks'] as Map)['foodDays'])}일째',
+                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
           if (snap != null && snap['weightKg'] != null)
             Text('${n1(snap['weightKg'])}kg · 근 ${n1(snap['smmKg'])} · 지 ${n1(snap['bfmKg'])}',
                 style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
@@ -284,22 +293,29 @@ class _FriendRow extends StatelessWidget {
       ),
       if (core.jsTruthy(snap?['checkedIn']))
         const Pill('이번 주 기록', tone: Tone.ok),
-      const Icon(Icons.chevron_right),
+      const Icon(LucideIcons.chevronRight),
     ]);
   }
 }
 
 /* --- P16 친구 상세 ---------------------------------------------------------- */
 
+/// 공유 스위치 — **서버가 아는 이름 그대로** (server/db.js 의 SHARE_FIELDS).
+/// 예전엔 weight·smm 같은 다른 이름으로 보내서, 켜도 서버가 버렸습니다 —
+/// 스위치는 켜졌는데 나가는 건 없었습니다.
 const _shareFields = [
-  ('weight', '체중'),
-  ('smm', '골격근량'),
-  ('bfm', '체지방량'),
-  ('pbf', '체지방률'),
-  ('progress', '목표 진행률'),
-  ('schedule', '주간 운동 일정'),
+  ('streak', '기록 여부 · 스트릭'),
+  ('schedule', '이번 주 운동 (요일별 계획·체크)'),
+  ('diet', '오늘 식단 (칼로리·탄단지)'),
+  ('weightTrend', '체중 변화'),
+  ('smmTrend', '골격근 변화'),
+  ('bfmTrend', '체지방 변화'),
+  ('absolute', '변화량이 아니라 실제 수치까지'),
+  ('planProgress', '목표 진행률'),
 ];
 
+/// 친구 한 사람. **친구에 대한 것**이 먼저입니다 — 스트릭, 오늘 식단,
+/// 이번 주 운동. 내가 뭘 보여 주는지는 아래에 접어 둡니다.
 class FriendDetailScreen extends StatefulWidget {
   const FriendDetailScreen({super.key, required this.person});
   final Map<String, dynamic> person;
@@ -310,97 +326,117 @@ class FriendDetailScreen extends StatefulWidget {
 
 class _FriendDetailScreenState extends State<FriendDetailScreen> {
   Map<String, dynamic>? _share;
+  Map<String, dynamic>? _snap;
   bool _busy = true;
+  bool _started = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _snap = (widget.person['snapshot'] as Map?)?.cast<String, dynamic>();
+  }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_share == null) _load();
+    if (!_started) {
+      _started = true;
+      _load();
+    }
   }
 
   Future<void> _load() async {
-    final r = await Scope.apiOf(context).getShare('${widget.person['id']}');
+    final api = Scope.apiOf(context);
+    final id = '${widget.person['id']}';
+    final r = await api.getShare(id);
+    final sn = await api.friendSnapshots(id, limit: 1);
     if (!mounted) return;
     setState(() {
       _share = r.ok ? (r.body['share'] as Map?)?.cast<String, dynamic>() : {};
+      final rows = sn.ok ? (sn.body['rows'] as List?) : null;
+      if (rows != null && rows.isNotEmpty) _snap = (rows.first as Map).cast<String, dynamic>();
       _busy = false;
     });
   }
 
+  static bool _hasBody(Map<String, dynamic> s) => const [
+        'weightKg', 'smmKg', 'bfmKg', 'dWeightKg', 'dSmmKg', 'dBfmKg', 'progressPct'
+      ].any((k) => s[k] != null);
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
-    final snap = (widget.person['snapshot'] as Map?)?.cast<String, dynamic>();
+    final snap = _snap ?? const <String, dynamic>{};
+    final streaks = (snap['streaks'] as Map?)?.cast<String, dynamic>();
+    final today = (snap['today'] as Map?)?.cast<String, dynamic>();
+    final week = (snap['week'] as Map?)?.cast<String, dynamic>();
+    final onCount = _shareFields.where((f) => core.jsTruthy(_share?[f.$1])).length;
 
     return Scaffold(
       appBar: AppBar(title: Text('${widget.person['displayName']}')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
-        MbCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SectionTitle('이번 주'),
-            if (snap == null || snap.isEmpty)
-              Text('아직 공유한 것이 없습니다',
-                  style: t.textTheme.bodySmall?.copyWith(color: t.hintColor))
-            else ...[
-              if (snap['plannedDays'] != null)
-                Text('운동 ${n0(snap['keptDays'])}/${n0(snap['plannedDays'])}일',
-                    style: t.textTheme.bodyMedium),
-              if (snap['weightKg'] != null)
-                Row(children: [
-                  Expanded(child: Stat(label: '체중', value: n1(snap['weightKg']), unit: 'kg',
-                      delta: snap['dWeightKg'] == null ? null : signed(snap['dWeightKg']))),
-                  Expanded(child: Stat(label: '골격근', value: n1(snap['smmKg']), unit: 'kg',
-                      delta: snap['dSmmKg'] == null ? null : signed(snap['dSmmKg'], 2))),
-                  Expanded(child: Stat(label: '체지방', value: n1(snap['bfmKg']), unit: 'kg',
-                      delta: snap['dBfmKg'] == null ? null : signed(snap['dBfmKg'], 2))),
-                ]),
-            ],
-          ]),
-        ),
-        MbCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SectionTitle('이 친구에게 보여 줄 것'),
-            RichishText(
-              '끄면 화면에서 가리는 게 아니라 **서버가 안 보냅니다.** '
-              '기본은 전부 꺼져 있고, 운동 체크만 보입니다.',
-              style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5),
-            ),
-            const SizedBox(height: 8),
-            if (_busy)
-              const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator())
-            else
-              for (final f in _shareFields)
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  title: Text(f.$2),
-                  value: core.jsTruthy(_share?[f.$1]),
-                  onChanged: (on) async {
-                    final next = {...?_share, f.$1: on};
-                    setState(() => _share = next.cast<String, dynamic>());
-                    final id = '${widget.person['id']}';
-                    final queue = Scope.queueOf(context);
-                    final r = await Scope.apiOf(context)
-                        .setShare(id, next.cast<String, dynamic>());
-                    if (!context.mounted) return;
-                    if (r.ok) return;
+        _FriendHeader(person: widget.person, snap: snap, streaks: streaks),
+        _FriendDietCard(today: today),
+        _FriendWeekCard(snap: snap, week: week),
+        if (_hasBody(snap)) _FriendBodyCard(snap: snap),
 
-                    /* **껐는데 계속 나가는 것**이 이 앱에서 제일 나쁜
-                       고장입니다. 껐다고 믿는 사람은 다시 확인하지
-                       않습니다. 그래서 지금 못 닿았으면 되돌리지 않고
-                       큐에 맡깁니다 — 망이 돌아오면 알아서 갑니다. */
-                    if (queue != null && _worthRetrying(r)) {
-                      queue.add('setShare',
-                          {'userId': id, 'patch': next.cast<String, Object?>()});
-                      toast(context, '지금 서버에 못 닿아서 **나중에 보냅니다.**');
-                      return;
-                    }
-                    toast(context, r.reason);
-                    _load();
-                  },
+        /* 내가 보여 주는 것 — 접어 둡니다. 여기 오는 사람은 친구를 보러
+           온 것이지 설정을 만지러 온 것이 아닙니다. */
+        MbCard(
+          child: Theme(
+            data: t.copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: EdgeInsets.zero,
+              title: Text('내가 이 친구에게 보여 주는 것',
+                  style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+              subtitle: Text(_busy ? '불러오는 중' : '$onCount개 켜짐',
+                  style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+              children: [
+                RichishText(
+                  '끄면 화면에서 가리는 게 아니라 **서버가 안 보냅니다.** '
+                  '몸 숫자는 기본으로 꺼져 있고, 행동(기록·운동·식단)만 보입니다.',
+                  style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5),
                 ),
-          ]),
+                const SizedBox(height: 8),
+                if (_busy)
+                  const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator())
+                else
+                  for (final f in _shareFields)
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: Text(f.$2),
+                      value: core.jsTruthy(_share?[f.$1]),
+                      onChanged: (on) async {
+                        final next = {...?_share, f.$1: on};
+                        setState(() => _share = next.cast<String, dynamic>());
+                        final id = '${widget.person['id']}';
+                        final queue = Scope.queueOf(context);
+                        final r = await Scope.apiOf(context)
+                            .setShare(id, next.cast<String, dynamic>());
+                        if (!context.mounted) return;
+                        if (r.ok) return;
+
+                        /* **껐는데 계속 나가는 것**이 이 앱에서 제일 나쁜
+                           고장입니다. 껐다고 믿는 사람은 다시 확인하지
+                           않습니다. 그래서 지금 못 닿았으면 되돌리지 않고
+                           큐에 맡깁니다 — 망이 돌아오면 알아서 갑니다. */
+                        if (queue != null && _worthRetrying(r)) {
+                          queue.add('setShare',
+                              {'userId': id, 'patch': next.cast<String, Object?>()});
+                          toast(context, '지금 서버에 못 닿아서 **나중에 보냅니다.**');
+                          return;
+                        }
+                        toast(context, r.reason);
+                        _load();
+                      },
+                    ),
+              ],
+            ),
+          ),
         ),
+        const SizedBox(height: 4),
         OutlinedButton(
           onPressed: () async {
             final yes = await showDialog<bool>(
@@ -420,6 +456,287 @@ class _FriendDetailScreenState extends State<FriendDetailScreen> {
           },
           child: const Text('친구 끊기'),
         ),
+      ]),
+    );
+  }
+}
+
+/* 이름 + 스트릭 둘. 스트릭은 행동에만 답니다 — 몸무게에는 달지 않습니다. */
+class _FriendHeader extends StatelessWidget {
+  const _FriendHeader({required this.person, required this.snap, required this.streaks});
+  final Map<String, dynamic> person, snap;
+  final Map<String, dynamic>? streaks;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final c = mb(context);
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Avatar(displayName: '${person['displayName']}', id: '${person['id']}',
+              avatarUrl: person['avatar'] as String?, size: 48),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('${person['displayName']}',
+                  style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+              if (person['handle'] != null)
+                Text('@${person['handle']}',
+                    style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+            ]),
+          ),
+          if (core.jsTruthy(snap['checkedIn'])) const Pill('이번 주 기록', tone: Tone.ok),
+        ]),
+        const SizedBox(height: 14),
+        Row(children: [
+          Expanded(
+              child: _StreakTile(
+                  icon: LucideIcons.dumbbell, label: '운동',
+                  days: streaks?['workoutDays'], color: c.muscle)),
+          const SizedBox(width: 10),
+          Expanded(
+              child: _StreakTile(
+                  icon: LucideIcons.utensils, label: '식단',
+                  days: streaks?['foodDays'], color: c.ok)),
+        ]),
+      ]),
+    );
+  }
+}
+
+class _StreakTile extends StatelessWidget {
+  const _StreakTile({required this.icon, required this.label, required this.days, required this.color});
+  final IconData icon;
+  final String label;
+  final Object? days;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final n = days == null ? null : core.jsToNumber(days);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.10), borderRadius: BorderRadius.circular(14)),
+      child: Row(children: [
+        Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(color: color.withValues(alpha: 0.18), shape: BoxShape.circle),
+          child: Icon(icon, size: 18, color: color),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('$label 스트릭', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+            Text(n == null ? '—' : '${n0(n)}일째',
+                style: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800, color: color)),
+            if (n == null)
+              Text('공유 안 함', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
+/* 오늘 식단 — 먹은 것 / 목표. 친구가 **안 한 것**은 말하지 않습니다:
+   공유를 껐거나 아직 안 적은 것은 "안 먹었다" 가 아닙니다. */
+class _FriendDietCard extends StatelessWidget {
+  const _FriendDietCard({required this.today});
+  final Map<String, dynamic>? today;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final c = mb(context);
+    final td = today;
+    final logged = td != null && core.jsTruthy(td['logged']);
+    final target = (td?['target'] as Map?)?.cast<String, dynamic>();
+    final hint = t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5);
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SectionTitle('오늘 식단',
+            trailing: !logged
+                ? null
+                : Text(
+                    target == null
+                        ? '${n0(td['kcal'])} kcal'
+                        : '${n0(td['kcal'])} / ${n0(target['intakeKcal'])} kcal',
+                    style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+        if (td == null)
+          Text('이 친구가 식단을 공유하지 않습니다.', style: hint)
+        else if (!logged)
+          Text('오늘은 아직 기록이 없습니다.', style: hint)
+        else ...[
+          _MacroBar(label: '탄수화물', got: td['c'], want: target?['carbG'], color: c.weight),
+          _MacroBar(label: '단백질', got: td['p'], want: target?['proteinG'], color: c.muscle),
+          _MacroBar(label: '지방', got: td['f'], want: target?['fatG'], color: c.fat),
+        ],
+      ]),
+    );
+  }
+}
+
+class _MacroBar extends StatelessWidget {
+  const _MacroBar({required this.label, required this.got, required this.want, required this.color});
+  final String label;
+  final Object? got, want;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final g = core.jsToNumber(got ?? 0);
+    final w = want == null ? double.nan : core.jsToNumber(want);
+    final ratio = (w.isFinite && w > 0) ? (g / w).clamp(0.0, 1.0) : 0.0;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Text(label, style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
+          Text(w.isFinite ? '${n0(g)} / ${n0(w)} g' : '${n0(g)} g',
+              style: t.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700)),
+        ]),
+        const SizedBox(height: 4),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+              value: ratio, minHeight: 8, color: color,
+              backgroundColor: color.withValues(alpha: 0.15)),
+        ),
+      ]),
+    );
+  }
+}
+
+/* 이번 주 운동 — 홈의 이번 주 카드와 같은 그림, 누를 수는 없습니다. */
+class _FriendWeekCard extends StatelessWidget {
+  const _FriendWeekCard({required this.snap, required this.week});
+  final Map<String, dynamic> snap;
+  final Map<String, dynamic>? week;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final hint = t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5);
+    final days = ((week?['days'] as List?) ?? const [])
+        .map((d) => (d as Map).cast<String, dynamic>())
+        .toList();
+    final planned = snap['plannedDays'];
+    final today = Scope.of(context).store.dayKey();
+    final missed = core.jsToNumber(snap['missedDays'] ?? 0);
+    final open = core.jsToNumber(snap['openDays'] ?? 0);
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SectionTitle('이번 주 운동',
+            trailing: Text(
+                planned != null
+                    ? '${n0(snap['keptDays'])}/${n0(planned)}일 완료'
+                    : (week == null ? '' : '정한 날 없음'),
+                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+        if (week == null || days.isEmpty)
+          Text('이 친구가 운동 일정을 공유하지 않습니다.', style: hint)
+        else ...[
+          Row(children: [
+            for (final d in days)
+              Expanded(child: _FriendDayCell(day: d, isToday: '${d['key']}' == today)),
+          ]),
+          if (planned != null && (missed > 0 || open > 0)) ...[
+            const SizedBox(height: 10),
+            Text('지나간 날 중 체크 없음 ${n0(missed)} · 남은 날 ${n0(open)}', style: hint),
+          ],
+        ],
+      ]),
+    );
+  }
+}
+
+class _FriendDayCell extends StatelessWidget {
+  const _FriendDayCell({required this.day, required this.isToday});
+  final Map<String, dynamic> day;
+  final bool isToday;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final c = mb(context);
+    final plan = (day['plan'] as List?) ?? const [];
+    final done = (day['done'] as List?) ?? const [];
+    final missed = day['missed'] == true;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 1),
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        color: isToday ? c.accentSub : null,
+        border: missed ? Border.all(color: c.warn.withValues(alpha: 0.5)) : null,
+      ),
+      child: Column(children: [
+        Text('${day['dow']}', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+        Text(n0(day['dayNum']),
+            style: t.textTheme.bodySmall?.copyWith(
+                fontWeight: isToday ? FontWeight.w800 : FontWeight.w500)),
+        const SizedBox(height: 3),
+        SizedBox(
+          height: 6,
+          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            for (final ty in core.kSchedTypes)
+              if (plan.contains(ty['id']))
+                Container(
+                  width: 5, height: 5,
+                  margin: const EdgeInsets.symmetric(horizontal: 1),
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: done.contains(ty['id'])
+                        ? (ty['id'] == 'gym' ? c.muscle : c.ok)
+                        : t.dividerColor,
+                    border: done.contains(ty['id'])
+                        ? null
+                        : Border.all(color: t.hintColor.withValues(alpha: 0.5), width: 1),
+                  ),
+                ),
+          ]),
+        ),
+      ]),
+    );
+  }
+}
+
+/* 몸 — 친구가 켠 것만. 변화량만 켰으면 변화량만, 실제 수치까지 켰으면 둘 다. */
+class _FriendBodyCard extends StatelessWidget {
+  const _FriendBodyCard({required this.snap});
+  final Map<String, dynamic> snap;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = mb(context);
+    Widget stat(String label, String absKey, String dKey, Color color) {
+      final a = snap[absKey];
+      final d = snap[dKey];
+      if (a == null && d == null) return const SizedBox.shrink();
+      return Expanded(
+        child: Stat(
+          label: label,
+          value: a != null ? n1(a) : signed(d),
+          unit: 'kg',
+          delta: (a != null && d != null) ? signed(d) : null,
+          color: color,
+        ),
+      );
+    }
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SectionTitle('몸',
+            trailing: snap['progressPct'] == null
+                ? null
+                : Pill('목표 ${n0(snap['progressPct'])}%', tone: Tone.ok)),
+        Row(children: [
+          stat('체중', 'weightKg', 'dWeightKg', c.weight),
+          stat('골격근', 'smmKg', 'dSmmKg', c.muscle),
+          stat('체지방', 'bfmKg', 'dBfmKg', c.fat),
+        ]),
       ]),
     );
   }

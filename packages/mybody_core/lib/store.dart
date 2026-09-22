@@ -76,6 +76,8 @@ class Store {
   PhotoHost? photos;
   NewsReset? newsReset;
   WeekSummary? weekSummaryOf;
+  /// 스트릭 두 개 — {workoutDays, foodDays}. 화면 쪽(Schedule)이 꽂아 줍니다.
+  Map<String, Object?> Function()? streaksOf;
   CurrentUser? currentUser;
   PublishSnapshot? publishSnapshot;
 
@@ -698,7 +700,38 @@ class Store {
       /* 계획이 0일이면 키를 아예 안 넣습니다. 0 을 보내면 친구 화면에
          "계획 0일 · 지킴 0일" 이 뜨고, 그건 "안 했다" 로 읽힙니다.
          실제로는 앱에 안 적었다는 뜻일 뿐입니다 — 다른 말입니다. */
+
+      /* 요일별 계획과 체크. 친구 화면이 홈의 이번 주 카드를 그대로 그립니다.
+         나가는지는 읽는 쪽의 schedule 스위치가 정합니다. */
+      out['week'] = {
+        'start': sum['start'],
+        'days': [
+          for (final d in (sum['days'] as List).cast<Map<String, Object?>>())
+            {
+              'key': d['key'], 'dow': d['dow'], 'dayNum': d['dayNum'],
+              'plan': List<Object?>.of(d['plan'] as List),
+              'done': List<Object?>.of(d['doneList'] as List),
+              'kept': d['kept'], 'missed': d['missed'],
+            },
+        ],
+      };
+      /* 스트릭 — 행동에만 답니다. */
+      final sk = streaksOf;
+      if (sk != null) out['streaks'] = sk();
     }
+
+    /* 오늘 식단 — 먹은 칼로리·탄단지와 (계획이 있으면) 목표. 몸 수치가
+       아니라 본인이 적은 것입니다. 나가는지는 diet 스위치가 정합니다. */
+    final tt = dayTotals();
+    final mac = _mapOrNull(_mapOrNull(_state['plan'])?['macros']);
+    out['today'] = {
+      'date': dayKey(), 'logged': jsTruthy(tt['logged']),
+      'kcal': tt['kcal'], 'p': tt['p'], 'c': tt['c'], 'f': tt['f'],
+      'target': mac == null
+          ? null
+          : {'intakeKcal': mac['intakeKcal'], 'proteinG': mac['proteinG'],
+             'carbG': mac['carbG'], 'fatG': mac['fatG']},
+    };
 
     /* "이번 주에 기록했는가" 도 몸이 아니라 행동입니다. 주간 체크인만 보면,
        홈에서 매일 칸을 체크하는 사람이 친구 화면에서는 영원히 "이번 주
@@ -746,6 +779,11 @@ class Store {
     if (snap == null) return false;
     if (jsTruthy(snap['checkedIn'])) return true;
     if (snap.containsKey('plannedDays') && snap['plannedDays'] != null) return true;
+    final today = snap['today'];
+    if (today is Map && jsTruthy(today['logged'])) return true;
+    final st = snap['streaks'];
+    if (st is Map && (jsNum(st.cast<String, Object?>(), 'workoutDays') > 0 ||
+                      jsNum(st.cast<String, Object?>(), 'foodDays') > 0)) return true;
     const keys = ['dWeightKg', 'dSmmKg', 'dBfmKg', 'progressPct',
                   'weightKg', 'smmKg', 'bfmKg', 'pbfPct'];
     for (final k in keys) {

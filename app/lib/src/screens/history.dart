@@ -7,6 +7,7 @@
  * 결과지에는 보통 이름·나이·성별이 같이 인쇄돼 있습니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../scope.dart';
@@ -42,7 +43,7 @@ class HistoryScreen extends StatelessWidget {
                       '${n1(d['weightKg'])}kg · 근 ${n1(d['smmKg'])} · 지 ${n1(d['bfmKg'])} '
                       '(${n1(d['pbfPct'])}%)',
                       style: t.textTheme.bodySmall),
-                  trailing: const Icon(Icons.chevron_right),
+                  trailing: const Icon(LucideIcons.chevronRight),
                   onTap: () => Navigator.of(ctx).push(MaterialPageRoute(
                       builder: (_) => ScanDetailScreen(scanId: s['id']))),
                 );

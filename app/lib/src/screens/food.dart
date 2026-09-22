@@ -11,6 +11,7 @@
  * 정보는 결정권을 사람에게 남깁니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../scope.dart';
@@ -104,14 +105,14 @@ class _FoodScreenState extends State<FoodScreen> {
               builder: (_) => FoodSearchScreen(date: date)));
           setState(() {});
         },
-        icon: const Icon(Icons.add),
+        icon: const Icon(LucideIcons.plus),
         label: const Text('음식 추가'),
       ),
       if (target != null) ...[
         const SizedBox(height: 8),
         OutlinedButton.icon(
           onPressed: () => _suggest(context, totals, target),
-          icon: const Icon(Icons.restaurant_menu),
+          icon: const Icon(LucideIcons.utensilsCrossed),
           label: const Text('뭘 먹지? — 남은 양으로 채우기'),
         ),
       ],
@@ -257,7 +258,7 @@ class _LogCard extends StatelessWidget {
             iconSize: 18,
             visualDensity: VisualDensity.compact,
             onPressed: onRemove,
-            icon: const Icon(Icons.close),
+            icon: const Icon(LucideIcons.x),
           ),
         ]),
         for (final i in items)
@@ -345,7 +346,7 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
               onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(
                 hintText: '음식 이름 (닭가슴살, 김치찌개, 프로틴…)',
-                prefixIcon: Icon(Icons.search),
+                prefixIcon: Icon(LucideIcons.search),
                 border: OutlineInputBorder(),
               ),
             ),
@@ -384,7 +385,7 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
                 subtitle: Text(
                     '${f['unit'] ?? ''} · ${n0(f['kcal'])}kcal · 단 ${n1(f['p'])}g',
                     style: t.textTheme.labelSmall),
-                trailing: const Icon(Icons.add),
+                trailing: const Icon(LucideIcons.plus),
                 onTap: () => _pick(f),
               );
             },

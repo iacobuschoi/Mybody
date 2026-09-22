@@ -37,7 +37,8 @@
     { key: 'planProgress', label: '목표 달성률',   kind: 'progress' },
     { key: 'streak',       label: '이번 주 기록 여부', kind: 'streak' },
     { key: 'schedule',     label: '이번 주 운동 일정', kind: 'schedule' },
-    { key: 'absolute',     label: '실제 수치까지', kind: 'absolute' }
+    { key: 'absolute',     label: '실제 수치까지', kind: 'absolute' },
+    { key: 'diet',         label: '오늘 식단 (탄단지)', kind: 'diet' }
   ];
 
   function blankShare() {
@@ -47,7 +48,7 @@
     // 서버의 blankShare() 와 같아야 한다. 어긋나면 오프라인에서 켜 둔
     // 것이 로그인 순간 꺼지거나, 그 반대가 된다.
     return { weightTrend: false, smmTrend: false, bfmTrend: false,
-             planProgress: false, streak: true, schedule: true,
+             planProgress: false, streak: true, schedule: true, diet: true,
              absolute: false, updatedAt: null };
   }
 

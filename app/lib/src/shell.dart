@@ -10,6 +10,7 @@
  * Flutter 의 Navigator 는 안드로이드 뒤로가기를 원래 받습니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 
 import 'scope.dart';
 import 'ui/symbols.dart';
@@ -37,11 +38,11 @@ class _ShellState extends State<Shell> {
   int _tab = 0;
 
   static const _tabs = [
-    (icon: Icons.home_outlined, on: Icons.home, label: '홈'),
-    (icon: Icons.rice_bowl_outlined, on: Icons.rice_bowl, label: '식단'),
-    (icon: Icons.assignment_outlined, on: Icons.assignment, label: '플랜'),
-    (icon: Icons.show_chart_outlined, on: Icons.show_chart, label: '추이'),
-    (icon: Icons.group_outlined, on: Icons.group, label: '친구'),
+    (icon: LucideIcons.home, on: LucideIcons.home, label: '홈'),
+    (icon: LucideIcons.utensils, on: LucideIcons.utensils, label: '식단'),
+    (icon: LucideIcons.clipboardList, on: LucideIcons.clipboardList, label: '플랜'),
+    (icon: LucideIcons.trendingUp, on: LucideIcons.trendingUp, label: '추이'),
+    (icon: LucideIcons.users, on: LucideIcons.users, label: '친구'),
   ];
 
   void _go(String route, [Object? arg]) {
@@ -148,7 +149,7 @@ class _ShellState extends State<Shell> {
         actions: [
           IconButton(
             tooltip: '설정',
-            icon: const Icon(Icons.settings_outlined),
+            icon: const Icon(LucideIcons.settings),
             onPressed: () => _go('settings'),
           ),
         ],
@@ -169,7 +170,7 @@ class _ShellState extends State<Shell> {
       floatingActionButton: (_tab == 0 && Scope.of(context).store.sortedScans().isNotEmpty)
           ? FloatingActionButton.extended(
               onPressed: () => _go('upload'),
-              icon: const Icon(Icons.add_a_photo_outlined),
+              icon: const Icon(LucideIcons.imagePlus),
               label: const Text('인바디'),
             )
           : null,

@@ -20,6 +20,7 @@
  * 것(Material 아이콘, 색칠한 원)으로 그립니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 
 import 'widgets.dart';
 
@@ -33,7 +34,7 @@ class VerdictDot extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = mb(context);
     final (color, icon) = switch ('$verdict') {
-      'blocked' => (c.bad, Icons.block),
+      'blocked' => (c.bad, LucideIcons.ban),
       'ok' => (c.ok, null),
       'tough' => (c.warn, null),
       'unrealistic' => (c.bad, null),
@@ -75,7 +76,7 @@ String withoutStars(Object? label) =>
 
 /// 일정 종목(gym·cardio) → Material 아이콘.
 IconData schedIcon(Object? typeId) =>
-    typeId == 'cardio' ? Icons.directions_run : Icons.fitness_center;
+    typeId == 'cardio' ? LucideIcons.footprints : LucideIcons.dumbbell;
 
 /* --- 한국어 조사 -------------------------------------------------------------
  *

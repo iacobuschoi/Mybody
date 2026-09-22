@@ -12,6 +12,7 @@
  * 흐리게 두는 편이 정직합니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../scope.dart';
@@ -133,7 +134,7 @@ class ProgressScreen extends StatelessWidget {
                   style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
             ]),
           ),
-          const Icon(Icons.chevron_right),
+          const Icon(LucideIcons.chevronRight),
         ]),
       ),
     ]);

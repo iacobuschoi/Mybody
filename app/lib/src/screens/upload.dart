@@ -15,6 +15,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'package:mybody_core/mybody_core.dart' as core;
@@ -211,12 +212,12 @@ class _UploadScreenState extends State<UploadScreen> {
             Wrap(spacing: 8, runSpacing: 8, children: [
               OutlinedButton.icon(
                 onPressed: _reading ? null : () => _pick(ImageSource.camera),
-                icon: const Icon(Icons.photo_camera_outlined, size: 18),
+                icon: const Icon(LucideIcons.camera, size: 18),
                 label: const Text('찍기'),
               ),
               OutlinedButton.icon(
                 onPressed: _reading ? null : () => _pick(ImageSource.gallery),
-                icon: const Icon(Icons.image_outlined, size: 18),
+                icon: const Icon(LucideIcons.image, size: 18),
                 label: const Text('앨범에서'),
               ),
               if (_photoId != null)
@@ -226,7 +227,7 @@ class _UploadScreenState extends State<UploadScreen> {
                       ? const SizedBox(
                           width: 14, height: 14,
                           child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.auto_fix_high_outlined, size: 18),
+                      : const Icon(LucideIcons.wand2, size: 18),
                   label: Text(_reading ? '읽는 중…' : '사진에서 읽기'),
                 ),
             ]),
@@ -255,7 +256,7 @@ class _UploadScreenState extends State<UploadScreen> {
                 decoration: const InputDecoration(border: OutlineInputBorder()),
                 child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
                   Text(dateK(_measuredAt.toIso8601String())),
-                  const Icon(Icons.calendar_today_outlined, size: 18),
+                  const Icon(LucideIcons.calendar, size: 18),
                 ]),
               ),
             ),

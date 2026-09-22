@@ -14,6 +14,7 @@
  * 그래서 셸이 이 화면을 먼저 세웁니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../scope.dart';
@@ -67,7 +68,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         leading: _step == 0
             ? null
             : IconButton(
-                icon: const Icon(Icons.arrow_back),
+                icon: const Icon(LucideIcons.arrowLeft),
                 onPressed: () => setState(() => _step--),
               ),
       ),

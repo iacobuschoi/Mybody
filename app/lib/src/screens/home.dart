@@ -15,6 +15,7 @@
  *     그 체크가 없고, 사람은 앱을 의심하기 전에 자기 기억을 의심합니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../scope.dart';
@@ -262,14 +263,14 @@ class _NextCard extends StatelessWidget {
         if (hasPlan) ...[
           OutlinedButton.icon(
             onPressed: () => go('checkin'),
-            icon: const Icon(Icons.check_circle_outline),
+            icon: const Icon(LucideIcons.checkCircle2),
             label: const Text('이번 주 체크인'),
           ),
           const SizedBox(height: 8),
         ],
         OutlinedButton.icon(
           onPressed: () => go('history'),
-          icon: const Icon(Icons.history),
+          icon: const Icon(LucideIcons.history),
           label: const Text('측정 기록 보기'),
         ),
       ]),
@@ -782,7 +783,7 @@ class _StreakRow extends StatelessWidget {
       child: Row(children: [
         Expanded(
           child: _Streak(
-            icon: Icons.fitness_center,
+            icon: LucideIcons.dumbbell,
             /* 오래된 기록은 숫자를 지우지 않고 **과거형으로** 말합니다 —
                지우면 "네 기록은 없다" 가 되고, 그건 사실이 아닙니다. */
             title: stale
@@ -795,7 +796,7 @@ class _StreakRow extends StatelessWidget {
         ),
         Expanded(
           child: _Streak(
-            icon: Icons.rice_bowl,
+            icon: LucideIcons.utensils,
             title: '식단 ${n0(f['days'])}일 연속',
             sub: '최근 7일 중 ${n0(f['last7'])}일',
           ),

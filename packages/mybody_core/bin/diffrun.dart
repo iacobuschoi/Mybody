@@ -55,6 +55,10 @@ Object? _storeCase(String module, Map<String, Object?> c) {
       if (fn == 'sortedScans') return st.sortedScans();
       if (fn == 'weeklySnapshot') {
         st.weekSummaryOf = (ws) => sc.weekSummary(ws);
+        st.streaksOf = () => {
+          'workoutDays': sc.workoutStreak()['days'],
+          'foodDays': sc.foodStreak()['days'],
+        };
         return st.weeklySnapshot();
       }
       if (fn == 'lastMealLike') return st.lastMealLike('점심', c['date']);

@@ -6,6 +6,7 @@
  * 인바디를 넣고 계획을 세우는 데는 하나도 필요 없습니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:flutter/services.dart';
 
 import '../api.dart';
@@ -454,7 +455,7 @@ class _AccountScreenState extends State<AccountScreen> {
         title: const Text('Mybody'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.logout),
+            icon: const Icon(LucideIcons.logOut),
             tooltip: '로그아웃',
             onPressed: () async {
               await widget.api.signOut();

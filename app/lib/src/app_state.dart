@@ -70,6 +70,10 @@ class AppState extends ChangeNotifier {
     engineModeLookup = modeById;
     engineNoise = kNoise;
     store.weekSummaryOf = (ws) => schedule.weekSummary(ws);
+    store.streaksOf = () => {
+      'workoutDays': schedule.workoutStreak()['days'],
+      'foodDays': schedule.foodStreak()['days'],
+    };
   }
 
   static Future<AppState> boot() async {

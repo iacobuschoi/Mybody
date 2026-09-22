@@ -9,7 +9,7 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 const fs = require('node:fs');
 
-const SHARE_FIELDS = ['weightTrend', 'smmTrend', 'bfmTrend', 'planProgress', 'streak', 'schedule', 'absolute'];
+const SHARE_FIELDS = ['weightTrend', 'smmTrend', 'bfmTrend', 'planProgress', 'streak', 'schedule', 'absolute', 'diet'];
 
 function open(file) {
   const dir = path.dirname(file);
@@ -315,8 +315,13 @@ function blankShare() {
   // 무슨 요일에 무슨 운동을 했는지는 안 나갑니다. 몸이 아니라 본인이 적은
   // 행동이고, 같이 운동하자고 친구를 맺은 사이에서 이 둘이 안 보이면
   // 친구 기능이 아무것도 아닌 것이 됩니다. 한 번 눌러 끌 수 있습니다.
+  //
+  // diet(오늘 식단 — 먹은 칼로리·탄단지와 목표)도 몸이 아니라 본인이 적은
+  // 행동이라 기본 켜짐입니다. 이 항목이 생기기 전의 관계는 위 마이그레이션
+  // 규칙대로 꺼진 채 시작합니다 — 본 적 없는 문장에 동의한 사람은 없습니다.
   return { weightTrend: false, smmTrend: false, bfmTrend: false,
-           planProgress: false, streak: true, schedule: true, absolute: false };
+           planProgress: false, streak: true, schedule: true, absolute: false,
+           diet: true };
 }
 
 function makeApi(db) {
@@ -781,7 +786,8 @@ function makeApi(db) {
       s.updatedAt = (r && r.updated_at) || null;
       const LABEL = { weightTrend: '체중 변화', smmTrend: '골격근 변화', bfmTrend: '체지방 변화',
                       planProgress: '목표 달성률', streak: '이번 주 기록 여부',
-                      schedule: '이번 주 운동 일정', absolute: '실제 수치까지' };
+                      schedule: '이번 주 운동 일정', absolute: '실제 수치까지',
+                      diet: '오늘 식단' };
       const on = SHARE_FIELDS.filter(k => s[k]);
       return { count: on.length, labels: on.map(k => LABEL[k]), settings: s };
     },
@@ -954,18 +960,27 @@ function makeApi(db) {
         if (s.smmTrend && p.dSmmKg != null) o.dSmmKg = p.dSmmKg;
         if (s.bfmTrend && p.dBfmKg != null) o.dBfmKg = p.dBfmKg;
         if (s.planProgress && p.progressPct != null) o.progressPct = p.progressPct;
-        if (s.streak && p.checkedIn != null) o.checkedIn = p.checkedIn;
-        /* 일정은 주 단위 숫자 네 개만 나갑니다 — 며칠 하기로 했고,
-           며칠 지켰고, 지나간 날 중 몇 날이 체크가 없고, 며칠이 남았는가.
-           무슨 요일에 무슨 운동을 했는지는 여기에 없습니다. 요일까지
-           나가면 친구가 남의 한 주를 재구성할 수 있고, 그건 "확인"이
-           아니라 일과 감시입니다. */
-        if (s.schedule && p.plannedDays != null) {
-          o.plannedDays = p.plannedDays;
-          o.keptDays = p.keptDays;
-          o.missedDays = p.missedDays;
-          o.openDays = p.openDays;
+        if (s.streak) {
+          if (p.checkedIn != null) o.checkedIn = p.checkedIn;
+          /* 스트릭(운동 며칠째 · 식단 며칠째)도 행동입니다 — 같은 스위치. */
+          if (p.streaks && typeof p.streaks === 'object') o.streaks = p.streaks;
         }
+        /* 일정은 주 단위 숫자 네 개(며칠 하기로 했고 · 지켰고 · 체크가 없고 ·
+           남았는가)에 더해 **요일별 계획과 체크**가 나갑니다. 처음엔 요일을
+           안 보냈습니다 — 남의 한 주를 재구성하는 것은 확인이 아니라 감시라고.
+           주인이 결정을 바꿨습니다: 같이 운동하자고 맺은 사이에서는 "화요일에
+           헬스 갔네" 가 바로 그 확인이라고. 여전히 한 번 눌러 끌 수 있습니다. */
+        if (s.schedule) {
+          if (p.plannedDays != null) {
+            o.plannedDays = p.plannedDays;
+            o.keptDays = p.keptDays;
+            o.missedDays = p.missedDays;
+            o.openDays = p.openDays;
+          }
+          if (p.week && typeof p.week === 'object') o.week = p.week;
+        }
+        /* 오늘 식단 — 먹은 칼로리·탄단지와 목표. 몸 수치는 아닙니다. */
+        if (s.diet && p.today && typeof p.today === 'object') o.today = p.today;
         // absolute 는 "숫자로 보여준다"는 뜻이지 "항목을 하나 더 연다"는 뜻이 아닙니다.
         // 켠 항목에만 붙습니다 — 체중만 켠 사람의 골격근/체지방이 여기로 새면 안 됩니다.
         if (s.absolute) {

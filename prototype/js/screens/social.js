@@ -501,6 +501,7 @@
       else if (x.key === 'schedule') v = snap.plannedDays == null ? '이번 주 정한 날 없음'
         : '계획 ' + snap.plannedDays + '일 · 지킴 ' + snap.keptDays + '일';
       else if (x.key === 'planProgress') v = snap.progressPct == null ? '아직 값 없음' : snap.progressPct + '%';
+      else if (x.key === 'diet') v = snap.today && snap.today.logged ? '오늘 ' + snap.today.kcal + ' kcal' : '오늘 기록 없음';
       else if (x.key === 'absolute') {
         var bits = [];
         if (cur.weightTrend && snap.weightKg != null) bits.push('체중 ' + UI.n1(snap.weightKg) + 'kg');

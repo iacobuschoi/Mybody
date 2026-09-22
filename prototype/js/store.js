@@ -575,7 +575,24 @@
       /* 계획이 0일이면 키를 아예 안 넣습니다. 0 을 보내면 친구 화면에
          "계획 0일 · 지킴 0일" 이 뜨고, 그건 "안 했다" 로 읽힙니다.
          실제로는 앱에 안 적었다는 뜻일 뿐입니다 — 다른 말입니다. */
+
+      /* 요일별 계획과 체크. 친구 화면이 홈의 이번 주 카드를 그대로 그립니다.
+         나가는지는 읽는 쪽의 schedule 스위치가 정합니다. */
+      out.week = { start: sum.start, days: sum.days.map(function (d) {
+        return { key: d.key, dow: d.dow, dayNum: d.dayNum, plan: d.plan.slice(),
+                 done: d.doneList.slice(), kept: d.kept, missed: d.missed };
+      }) };
+      /* 스트릭 — 행동에만 답니다. */
+      out.streaks = { workoutDays: W.workoutStreak().days, foodDays: W.foodStreak().days };
     }
+
+    /* 오늘 식단 — 먹은 칼로리·탄단지와 (계획이 있으면) 목표. 몸 수치가
+       아니라 본인이 적은 것입니다. 나가는지는 diet 스위치가 정합니다. */
+    var tt = dayTotals();
+    var mac = state.plan && state.plan.macros;
+    out.today = { date: dayKey(), logged: !!tt.logged, kcal: tt.kcal, p: tt.p, c: tt.c, f: tt.f,
+                  target: mac ? { intakeKcal: mac.intakeKcal, proteinG: mac.proteinG,
+                                  carbG: mac.carbG, fatG: mac.fatG } : null };
 
     /* "이번 주에 기록했는가" 도 몸이 아니라 행동입니다. 엔진도 프로필도
      * 필요 없으니 early return 위에서 셉니다 — 프로필이 없다고 이번 주에
@@ -629,6 +646,8 @@
     if (!snap) return false;
     if (snap.checkedIn) return true;
     if (snap.plannedDays != null) return true;
+    if (snap.today && snap.today.logged) return true;
+    if (snap.streaks && (snap.streaks.workoutDays > 0 || snap.streaks.foodDays > 0)) return true;
     var KEYS = ['dWeightKg', 'dSmmKg', 'dBfmKg', 'progressPct',
                 'weightKg', 'smmKg', 'bfmKg', 'pbfPct'];
     for (var i = 0; i < KEYS.length; i++) if (snap[KEYS[i]] != null) return true;

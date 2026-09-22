@@ -198,6 +198,25 @@ async function main() {
   ok('absolute 를 켜도 일정에서 새 값이 열리지 않는다',
      Object.keys(row).filter(k => /^(plan|kept|missed|open)/.test(k)).sort().join() ===
        'keptDays,missedDays,openDays,plannedDays', Object.keys(row));
+
+  console.log('\n[3b] 스트릭 · 요일별 일정 · 오늘 식단 — 행동은 나가고, 스위치로 막힌다');
+  const rich = Object.assign({}, payload, {
+    streaks: { workoutDays: 3, foodDays: 5 },
+    week: { start: '2026-09-14', days: [{ key: '2026-09-14', dow: '월', dayNum: 14,
+                                            plan: ['gym'], done: ['gym'], kept: true, missed: false }] },
+    today: { date: '2026-09-15', logged: true, kcal: 1800, p: 140, c: 180, f: 50,
+             target: { intakeKcal: 2445, proteinG: 147, carbG: 250, fatG: 70 } } });
+  await call('POST', '/snapshots', { weekStart: '2026-09-14', payload: rich }, tb);
+  row = (await call('GET', '/snapshots/' + meB.id, null, ta)).json.rows[0];
+  ok('스트릭은 streak 스위치로 나간다', !!row.streaks && row.streaks.workoutDays === 3, row);
+  ok('요일별 일정은 schedule 스위치로 나간다', !!row.week && row.week.days.length === 1, row);
+  ok('오늘 식단은 diet 스위치로 나간다 (새 관계는 기본 켜짐)', !!row.today && row.today.kcal === 1800, row);
+  await call('PUT', '/share/' + meA.id, { streak: false, schedule: false, diet: false }, tb);
+  row = (await call('GET', '/snapshots/' + meB.id, null, ta)).json.rows[0];
+  ok('셋을 끄면 셋 다 사라진다',
+     !('streaks' in row) && !('week' in row) && !('today' in row) && !('checkedIn' in row), row);
+  ok('diet 는 참/거짓만 받는다', (await call('PUT', '/share/' + meA.id, { diet: 'yes' }, tb)).json.ok === false);
+  await call('PUT', '/share/' + meA.id, { streak: true, schedule: true, diet: true }, tb);
   ok('안 켠 항목이 실제 수치로 새지 않는다',
      !('smmKg' in row) && !('bfmKg' in row) && !('pbfPct' in row), row);
   ok('아무 항목도 안 켜면 absolute 는 꺼진다',
@@ -344,7 +363,9 @@ async function main() {
     /* 공유 항목 자체는 그대로여야 합니다 — updatedAt 이 끼어들어
        "켜진 항목" 으로 세어지면 안 됩니다. */
     ok('updatedAt 이 공유 항목 수에 안 섞인다',
-       a2.iShare.count === 1 && a2.iShare.labels.length === 1, a2.iShare);
+       a2.iShare.count === Object.keys(a2.iShare.settings)
+           .filter(k => k !== 'updatedAt' && a2.iShare.settings[k] === true).length &&
+       a2.iShare.labels.length === a2.iShare.count && a2.iShare.labels.every(Boolean), a2.iShare);
   }
 
   console.log('\n[6-2] 프로필 사진');
