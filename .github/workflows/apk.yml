@@ -133,8 +133,11 @@ jobs:
         working-directory: app
         run: flutter analyze
 
+      # 시험이 멈추면(플러그인 응답을 기다리는 await 같은 것) flutter_test 는
+      # 시험 하나에 10분씩 기다립니다 — 27개면 네 시간 반. 그 전에 끊습니다.
       - name: 화면 시험
         working-directory: app
+        timeout-minutes: 10
         run: flutter test
 
       # 폰은 versionCode 가 더 큰 것만 업데이트로 받습니다. pubspec 에는
