@@ -33,16 +33,55 @@ class GoalScreen extends StatefulWidget {
 class _GoalScreenState extends State<GoalScreen> {
   final _w = TextEditingController();
   final _s = TextEditingController();
-  final _b = TextEditingController();
+  /// 체지방**률**(%)로 받습니다. 사람은 "15%" 로 생각하지 "12.1kg" 으로
+  /// 생각하지 않습니다. 저장은 여전히 kg 입니다 — 엔진과 백업 판이 그걸 봅니다.
+  final _p = TextEditingController();
   int? _deadlineWeeks;
   String? _manualModeId;
   bool _seeded = false;
+  bool _showWhy = false;
+
+  /* **세 칸 중 둘을 정하면 나머지 하나는 따라옵니다.**
+     체중 = 제지방 + 체지방이고 제지방은 골격근에 비례하니(지금 몸의 비율),
+     셋을 다 손으로 넣으면 서로 안 맞기 마련이고 앱은 그때 계획을 안
+     만듭니다. 마지막에 만진 두 칸을 남기고 나머지를 계산합니다. */
+  final _recent = <String>['w', 's'];
+  double _k = double.nan; // 지금 몸의 골격근/제지방 비율
+
+  String get _auto =>
+      (['w', 's', 'p']..removeWhere(_recent.contains)).single;
+
+  void _edited(String key) {
+    _recent.remove(key);
+    _recent.add(key);
+    if (_recent.length > 2) _recent.removeAt(0);
+    _recalc();
+    setState(() {});
+  }
+
+  void _recalc() {
+    final w = double.tryParse(_w.text.trim());
+    final sm = double.tryParse(_s.text.trim());
+    final pct = double.tryParse(_p.text.trim());
+    if (!_k.isFinite || _k <= 0) return;
+    switch (_auto) {
+      case 'w':
+        if (sm == null || pct == null || pct <= 0 || pct >= 100) return;
+        _w.text = core.toFixed(sm / _k / (1 - pct / 100), 1);
+      case 's':
+        if (w == null || pct == null || w <= 0 || pct <= 0 || pct >= 100) return;
+        _s.text = core.toFixed(w * (1 - pct / 100) * _k, 1);
+      default:
+        if (w == null || sm == null || w <= 0) return;
+        _p.text = core.toFixed((w - sm / _k) / w * 100, 1);
+    }
+  }
 
   @override
   void dispose() {
     _w.dispose();
     _s.dispose();
-    _b.dispose();
+    _p.dispose();
     super.dispose();
   }
 
@@ -50,9 +89,11 @@ class _GoalScreenState extends State<GoalScreen> {
     if (_seeded) return;
     _seeded = true;
     final g = goal ?? _recommend(cur, profile);
+    _k = core.jsToNumber(cur['smmToFfm']);
     _w.text = core.toFixed(core.jsToNumber(g['weightKg']), 1);
     _s.text = core.toFixed(core.jsToNumber(g['smmKg']), 1);
-    _b.text = core.toFixed(core.jsToNumber(g['bfmKg']), 1);
+    _p.text = core.toFixed(
+        core.jsToNumber(g['bfmKg']) / core.jsToNumber(g['weightKg']) * 100, 1);
     _deadlineWeeks = goal?['deadlineWeeks'] == null ? null : core.jsToNumber(goal!['deadlineWeeks']).toInt();
     _manualModeId = goal?['manualModeId'] as String?;
   }
@@ -66,13 +107,17 @@ class _GoalScreenState extends State<GoalScreen> {
     return {'weightKg': weight, 'smmKg': smm, 'bfmKg': core.r1(weight - ffm)};
   }
 
-  Map<String, Object?> get _goal => {
-        'weightKg': double.tryParse(_w.text.trim()),
+  Map<String, Object?> get _goal {
+    final w = double.tryParse(_w.text.trim());
+    final pct = double.tryParse(_p.text.trim());
+    return {
+        'weightKg': w,
         'smmKg': double.tryParse(_s.text.trim()),
-        'bfmKg': double.tryParse(_b.text.trim()),
+        'bfmKg': (w == null || pct == null) ? null : core.r1(w * pct / 100),
         if (_deadlineWeeks != null) 'deadlineWeeks': _deadlineWeeks,
         if (_manualModeId != null) 'manualModeId': _manualModeId,
       };
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -126,9 +171,16 @@ class _GoalScreenState extends State<GoalScreen> {
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const SectionTitle('목표'),
-            _num(_w, '목표 체중', 'kg'),
-            _num(_s, '목표 골격근량', 'kg'),
-            _num(_b, '목표 체지방량', 'kg'),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: Text('세 칸 중 두 칸을 정하면 나머지 한 칸은 자동으로 맞춥니다. '
+                  '자동 칸은 (자동) 으로 표시됩니다.',
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: Theme.of(context).hintColor, height: 1.5)),
+            ),
+            _num(_w, 'w', '목표 체중', 'kg'),
+            _num(_s, 's', '목표 골격근량', 'kg'),
+            _num(_p, 'p', '목표 체지방률', '%'),
             if (goalInfo != null) ...[
               Wrap(spacing: 6, runSpacing: 6, children: [
                 /* 이건 숫자가 가리키는 **방향**이고, 아래 모드는 규칙이 고른
@@ -190,15 +242,26 @@ class _GoalScreenState extends State<GoalScreen> {
                     trailing: sel['manual'] == true ? const Pill('직접 고름') : null),
                 Text('${mode['oneLiner']}',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.5)),
-                const SizedBox(height: 8),
-                Text('${sel['reason']}',
-                    style: Theme.of(context).textTheme.bodySmall
-                        ?.copyWith(color: Theme.of(context).hintColor, height: 1.5)),
-                const SizedBox(height: 10),
-                TextButton(
-                  onPressed: () => _pickMode(context, sel),
-                  child: const Text('다른 모드로 바꾸기'),
-                ),
+                /* 왜 이 모드인지는 길고 숫자가 많습니다. 한 줄만 두고,
+                   궁금하면 「자세히」. */
+                if (_showWhy) ...[
+                  const SizedBox(height: 8),
+                  Text('${sel['reason']}',
+                      key: const Key('mode-reason'),
+                      style: Theme.of(context).textTheme.bodySmall
+                          ?.copyWith(color: Theme.of(context).hintColor, height: 1.5)),
+                ],
+                const SizedBox(height: 6),
+                Row(children: [
+                  TextButton(
+                    onPressed: () => setState(() => _showWhy = !_showWhy),
+                    child: Text(_showWhy ? '접기' : '자세히'),
+                  ),
+                  TextButton(
+                    onPressed: () => _pickMode(context, sel),
+                    child: const Text('다른 모드로 바꾸기'),
+                  ),
+                ]),
               ]),
             ),
           if (sel['trendNote'] != null)
@@ -219,16 +282,24 @@ class _GoalScreenState extends State<GoalScreen> {
     );
   }
 
-  Widget _num(TextEditingController c, String label, String unit) => Padding(
-        padding: const EdgeInsets.only(bottom: 12),
-        child: TextField(
-          controller: c,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          onChanged: (_) => setState(() {}),
-          decoration: InputDecoration(
-              labelText: label, suffixText: unit, border: const OutlineInputBorder()),
+  Widget _num(TextEditingController c, String key, String label, String unit) {
+    final auto = _auto == key;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextField(
+        controller: c,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        onChanged: (_) => _edited(key),
+        decoration: InputDecoration(
+          labelText: auto ? '$label (자동)' : label,
+          suffixText: unit,
+          helperText: auto ? '나머지 두 칸으로 계산됩니다 — 직접 고치면 다른 칸이 자동이 됩니다' : null,
+          border: const OutlineInputBorder(),
+          filled: auto,
         ),
-      );
+      ),
+    );
+  }
 
   Map<String, Object?> _select(app, Map<String, Object?> cur, Map<String, Object?> g,
       Map<String, Object?> profile) {

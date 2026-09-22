@@ -200,6 +200,51 @@ void main() {
     await standsUp(t, app, const GoalScreen());
   });
 
+  /* **셋 중 둘을 정하면 나머지가 따라옵니다.** 셋을 다 손으로 넣으면
+     서로 안 맞기 마련이고, 그때 앱은 계획을 안 만듭니다 — 에뮬레이터에서
+     골격근을 40 으로 바꾸자 바로 그렇게 됐습니다. */
+  testWidgets('목표 — 체지방률로 받고, 두 칸을 정하면 나머지가 따라온다', (t) async {
+    t.view.physicalSize = const Size(1000, 4000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    final app = await seeded();
+    await t.pumpWidget(host(app, const GoalScreen()));
+    await t.pump(const Duration(milliseconds: 200));
+
+    expect(find.widgetWithText(TextField, '목표 체지방량'), findsNothing, reason: 'kg 칸은 없어야 합니다');
+    expect(find.widgetWithText(TextField, '목표 체지방률 (자동)'), findsOneWidget);
+    expect(find.textContaining('두 칸을 정하면 나머지 한 칸은 자동'), findsOneWidget);
+
+    final pctBefore = t.widget<TextField>(find.widgetWithText(TextField, '목표 체지방률 (자동)')).controller!.text;
+    await t.enterText(find.widgetWithText(TextField, '목표 골격근량'), '40');
+    await t.pump();
+    final pctAfter = t.widget<TextField>(find.widgetWithText(TextField, '목표 체지방률 (자동)')).controller!.text;
+    expect(pctAfter, isNot(pctBefore), reason: '골격근을 바꾸면 체지방률이 따라와야 합니다');
+    expect(find.text('세 숫자가 서로 안 맞습니다.'), findsNothing);
+
+    /* 체지방률을 직접 고치면 그 칸은 손 칸이 되고, 가장 오래된 체중이 자동이 됩니다. */
+    await t.enterText(find.widgetWithText(TextField, '목표 체지방률 (자동)'), '15');
+    await t.pump();
+    expect(find.widgetWithText(TextField, '목표 체중 (자동)'), findsOneWidget);
+    final w = t.widget<TextField>(find.widgetWithText(TextField, '목표 체중 (자동)')).controller!.text;
+    expect(w, isNot('80.5'));
+    expect(find.text('세 숫자가 서로 안 맞습니다.'), findsNothing);
+  });
+
+  testWidgets('목표 — 모드 설명은 접혀 있고 「자세히」로 펼친다', (t) async {
+    t.view.physicalSize = const Size(1000, 4000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    final app = await seeded();
+    await t.pumpWidget(host(app, const GoalScreen()));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(find.byKey(const Key('mode-reason')), findsNothing);
+    await t.tap(find.text('자세히'));
+    await t.pump();
+    expect(find.byKey(const Key('mode-reason')), findsOneWidget);
+    expect(find.text('접기'), findsOneWidget);
+  });
+
   testWidgets('플랜 — 계획 없음', (t) async {
     final app = await seeded();
     await standsUp(t, app, Scaffold(body: PlanScreen(go: noop)));
