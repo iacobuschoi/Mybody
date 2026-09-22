@@ -119,6 +119,51 @@ void main() {
     await standsUp(t, app, Scaffold(body: HomeScreen(go: noop)));
   });
 
+  /* 원본 홈에 있던 플랜 카드(오늘/이번주/한달)와 「플랜대로 채우기」. */
+  testWidgets('홈 — 플랜 카드 세 탭이 다 서고, 플랜대로 채우기가 이번 주를 채운다', (t) async {
+    t.view.physicalSize = const Size(1000, 5000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    final app = await seeded(withPlan: true);
+    await t.pumpWidget(host(app, Scaffold(body: HomeScreen(go: noop))));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(find.text('플랜'), findsOneWidget);
+    expect(find.text('다음에 할 일'), findsOneWidget);
+    for (final s in ['이번주', '한달', '오늘']) {
+      await t.tap(find.text(s));
+      await t.pump();
+      expect(find.byType(ErrorWidget), findsNothing, reason: '$s 탭');
+      expect(t.takeException(), isNull, reason: '$s 탭');
+    }
+
+    final sessions = ((app.state['plan'] as Map)['workout'] as Map)['sessions'] as List;
+    final days = (app.schedule.week()['days'] as List).cast<Map<String, Object?>>();
+    final today = app.store.dayKey();
+    final expectKeys = [
+      for (var i = 0; i < 7; i++)
+        if ('${days[i]['key']}'.compareTo(today) >= 0 && (sessions[i] as Map)['rest'] != true)
+          '${days[i]['key']}',
+    ];
+    final btn = find.textContaining('플랜대로 채우기');
+    if (expectKeys.isEmpty) {
+      expect(btn, findsNothing, reason: '채울 날이 없으면 버튼도 없습니다');
+      return;
+    }
+    expect(btn, findsOneWidget);
+    await t.tap(btn);
+    await t.pump();
+    for (final k in expectKeys) {
+      expect(app.store.scheduleDay(k)['plan'], contains('gym'), reason: k);
+    }
+    expect(btn, findsNothing, reason: '채우고 나면 버튼이 사라집니다');
+    /* 지나간 날은 건드리지 않았는지 */
+    for (final d in days) {
+      if ('${d['key']}'.compareTo(today) < 0) {
+        expect(app.store.scheduleDay('${d['key']}')['plan'], isEmpty, reason: '지난 날 ${d['key']}');
+      }
+    }
+  });
+
   testWidgets('인바디 넣기', (t) async {
     final app = await seeded();
     await standsUp(t, app, const UploadScreen());

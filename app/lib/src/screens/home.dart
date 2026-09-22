@@ -77,7 +77,203 @@ class HomeScreen extends StatelessWidget {
           ]),
         ),
       _WeekCard(go: go),
+      /* 전체 플랜은 20주가 넘어서 홈에서 보기엔 너무 깁니다. 지금 무엇을
+         할지(오늘), 이번 주에 뭘 끝내야 하는지(이번주), 한 달 뒤 어디쯤인지
+         (한달)로 나눠서 봅니다 — 원본 웹 앱의 카드 그대로. */
+      if (st['plan'] != null) _PlanCard(go: go),
+      _NextCard(go: go, hasPlan: st['plan'] != null),
     ]);
+  }
+}
+
+/* --- 플랜 (오늘 / 이번주 / 한달) ---------------------------------------- */
+class _PlanCard extends StatefulWidget {
+  const _PlanCard({required this.go});
+  final void Function(String route, [Object? arg]) go;
+  @override
+  State<_PlanCard> createState() => _PlanCardState();
+}
+
+class _PlanCardState extends State<_PlanCard> {
+  String _scope = 'today';
+
+  /// 오늘이 계획의 몇 주차인지 (0부터). 궤적 길이를 넘지 않습니다.
+  static int planWeek(Map<String, Object?> plan, int trajLen) {
+    final start = DateTime.tryParse('${plan['startDate']}T00:00:00');
+    if (start == null || trajLen == 0) return 0;
+    final days = (DateTime.now().difference(start).inMilliseconds / 86400000).floor();
+    return (days / 7).floor().clamp(0, trajLen - 1);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final app = Scope.of(context);
+    final t = Theme.of(context);
+    final c = mb(context);
+    final hint = t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5);
+    final plan = (app.state['plan'] as Map).cast<String, Object?>();
+    final traj = ((plan['trajectory'] as List?) ?? const [])
+        .map((e) => (e as Map).cast<String, Object?>())
+        .toList();
+    final wk = planWeek(plan, traj.length);
+    final m = ((plan['macros'] as Map?) ?? const {}).cast<String, Object?>();
+    final w = ((plan['workout'] as Map?) ?? const {}).cast<String, Object?>();
+    final sessions = (w['sessions'] as List?) ?? const [];
+    final todayIdx = DateTime.now().weekday - 1; // 월 0 … 일 6
+    final trains = sessions.where((x) => x is Map && x['rest'] != true).length;
+
+    Map<String, Object?>? sessionAt(int i) =>
+        i < sessions.length && sessions[i] is Map ? (sessions[i] as Map).cast<String, Object?>() : null;
+
+    final body = <Widget>[];
+    if (_scope == 'today') {
+      final sess = sessionAt(todayIdx);
+      body.addAll([
+        Text('${core.kDow[todayIdx]}요일', style: hint),
+        _Kv('운동', sess == null ? '—' : (sess['rest'] == true ? '휴식' : '${sess['label']}')),
+        _Kv('섭취 목표', '${n0(m['intakeKcal'])} kcal'),
+        _Kv('단백질', '${n0(m['proteinG'])} g'),
+      ]);
+    } else if (_scope == 'week') {
+      /* 이번 주에는 몸 변화를 목표로 걸지 않습니다. 주 단위 변화는 인바디
+         오차(체중 ±1.0kg, 체지방 ±1.0kg)보다 작아서, "이번 주 -0.2kg
+         달성/미달" 은 측정값이 아니라 동전던지기가 됩니다. 대신 셀 수 있는
+         것 — 운동 횟수와 식단 — 을 겁니다. */
+      body.addAll([
+        Row(children: [
+          for (var i = 0; i < 7; i++)
+            Expanded(
+              child: Builder(builder: (_) {
+                final sx = sessionAt(i);
+                final on = sx != null && sx['rest'] != true;
+                return Container(
+                  margin: const EdgeInsets.symmetric(horizontal: 2),
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                        color: i == todayIdx ? t.colorScheme.primary : t.dividerColor,
+                        width: i == todayIdx ? 2 : 1),
+                    color: on ? c.muscle.withValues(alpha: 0.16) : null,
+                  ),
+                  child: Column(children: [
+                    Text(core.kDow[i],
+                        style: t.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 2),
+                    Text(on ? '운동' : '휴식',
+                        style: t.textTheme.labelSmall?.copyWith(
+                            fontWeight: FontWeight.w700, color: on ? null : t.hintColor)),
+                  ]),
+                );
+              }),
+            ),
+        ]),
+        const SizedBox(height: 10),
+        _Kv('이번 주 운동', '$trains회'),
+        _Kv('하루 섭취', '${n0(m['intakeKcal'])} kcal'),
+        _Kv('하루 단백질', '${n0(m['proteinG'])} g'),
+        const SizedBox(height: 6),
+        Text('한 주 만에 생기는 몸 변화는 인바디 오차보다 작습니다. 이번 주는 횟수로 봅니다.',
+            style: hint),
+      ]);
+    } else {
+      /* 4주는 체지방 변화가 측정 오차를 넘어서는 첫 구간입니다. 그래서
+         한 달은 몸으로 말할 수 있습니다. 지표마다 오차가 달라서, 예상
+         변화가 그 오차 안이면 "이만큼 빠진다" 고 말할 수 없습니다 —
+         재도 구분이 안 되니까요. 그건 흐리게 + 별표. */
+      if (traj.isNotEmpty) {
+        final from = wk < traj.length ? traj[wk] : traj[0];
+        final toI = (wk + 4).clamp(0, traj.length - 1);
+        final to = traj[toI];
+        var under = 0;
+        Widget deltaRow(String label, Object? a, Object? b, Color color, Object? noise) {
+          final d = core.r1(core.jsToNumber(b) - core.jsToNumber(a));
+          final isUnder = noise != null && d.abs() < core.jsToNumber(noise);
+          if (isUnder) under++;
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+              Text(label, style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
+              Text('${signed(d)}kg${isUnder ? '*' : ''}  (${n1(b)})',
+                  style: t.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w700, color: isUnder ? t.hintColor : color)),
+            ]),
+          );
+        }
+        final rows = [
+          deltaRow('체중', from['weightKg'], to['weightKg'], c.weight, core.kNoise['weight']),
+          deltaRow('골격근량', from['smmKg'], to['smmKg'], c.muscle, core.kNoise['smm']),
+          deltaRow('체지방량', from['bfmKg'], to['bfmKg'], c.fat, core.kNoise['bfm']),
+        ];
+        final wks = toI - wk;
+        body.addAll([
+          Text('${wk + 1}주차 → ${toI + 1}주차', style: hint),
+          ...rows,
+          const SizedBox(height: 6),
+          _Kv('이 기간 운동', '${trains * wks}회 ($wks주)'),
+          _Kv('하루 단백질', '${n0(m['proteinG'])} g'),
+          if (under > 0) ...[
+            const SizedBox(height: 6),
+            Text('별표(*)는 예상 변화가 인바디 오차보다 작다는 뜻입니다. '
+                '그 항목은 재도 변했는지 구분되지 않으니 숫자로 확인하려 하지 마세요.',
+                style: hint),
+          ],
+        ]);
+      }
+    }
+
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        SectionTitle('플랜',
+            trailing: Text('${wk + 1}주차 / ${n0(plan['weeks'])}주',
+                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+        SegmentedButton<String>(
+          showSelectedIcon: false,
+          segments: const [
+            ButtonSegment(value: 'today', label: Text('오늘')),
+            ButtonSegment(value: 'week', label: Text('이번주')),
+            ButtonSegment(value: 'month', label: Text('한달')),
+          ],
+          selected: {_scope},
+          onSelectionChanged: (s) => setState(() => _scope = s.first),
+        ),
+        const SizedBox(height: 10),
+        ...body,
+        const SizedBox(height: 12),
+        OutlinedButton(onPressed: () => widget.go('plan'), child: const Text('전체 플랜 보기')),
+      ]),
+    );
+  }
+}
+
+/* --- 다음에 할 일 --------------------------------------------------------
+   원본에는 「인바디 새로 올리기」도 있는데, 앱은 그 자리에 떠 있는 버튼이
+   이미 있습니다. 같은 일을 하는 버튼이 한 화면에 둘이면 어느 쪽이
+   진짜인지 묻게 되니 여기엔 안 둡니다. */
+class _NextCard extends StatelessWidget {
+  const _NextCard({required this.go, required this.hasPlan});
+  final void Function(String route, [Object? arg]) go;
+  final bool hasPlan;
+  @override
+  Widget build(BuildContext context) {
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        const SectionTitle('다음에 할 일'),
+        if (hasPlan) ...[
+          OutlinedButton.icon(
+            onPressed: () => go('checkin'),
+            icon: const Icon(Icons.check_circle_outline),
+            label: const Text('이번 주 체크인'),
+          ),
+          const SizedBox(height: 8),
+        ],
+        OutlinedButton.icon(
+          onPressed: () => go('history'),
+          icon: const Icon(Icons.history),
+          label: const Text('측정 기록 보기'),
+        ),
+      ]),
+    );
   }
 }
 
@@ -336,10 +532,80 @@ class _WeekCard extends StatelessWidget {
                   ?.copyWith(color: Theme.of(context).hintColor))
         else
           _TodayRow(day: today),
+        ..._fillFromPlan(context, app, days),
+        ..._cardioNote(context, app, days),
         _StreakRow(),
       ]),
     );
   }
+}
+
+/* "플랜대로 채우기" — 엔진이 만든 주간 분할을 이번 주 칸에 깔아 줍니다.
+
+   두 가지를 지킵니다.
+     (가) 이미 정해 둔 날은 건드리지 않습니다. 엔진의 배치는 제안이고,
+          사람이 고른 것이 언제나 이깁니다.
+     (나) **지나간 날은 채우지 않습니다.** 금요일에 눌렀는데 월·수가
+          헬스로 채워지면, 안 간 날이 그 자리에서 "못 지킨 날" 이 됩니다.
+          하지도 않은 실패를 앱이 만들어 주는 셈입니다. 오늘부터 채웁니다.
+
+   유산소는 안 채웁니다. 엔진에는 요일 개념이 없고 주당 분(分)만 있습니다.
+   없는 정보를 있는 척 배치하지 않습니다. */
+List<Widget> _fillFromPlan(BuildContext context, app, List<Map<String, Object?>> days) {
+  final plan = app.state['plan'];
+  final w = plan is Map ? plan['workout'] : null;
+  final sessions = w is Map ? w['sessions'] : null;
+  if (sessions is! List || sessions.length != 7) return const [];
+
+  final today = app.store.dayKey();
+  final targets = <String>[];
+  for (var i = 0; i < days.length && i < 7; i++) {
+    final key = '${days[i]['key']}';
+    if (key.compareTo(today) < 0) continue;              // 지나간 날은 건드리지 않습니다
+    if ((days[i]['plan'] as List).isNotEmpty) continue;  // 이미 정해 둔 날도
+    final sess = sessions[i];
+    if (sess is! Map || sess['rest'] == true) continue;
+    targets.add(key);
+  }
+  if (targets.isEmpty) return const [];
+
+  final t = Theme.of(context);
+  return [
+    const SizedBox(height: 10),
+    FilledButton.tonal(
+      onPressed: () {
+        for (final k in targets) {
+          app.store.setSchedulePlan(k, 'gym', true);
+        }
+        if (!app.store.saved()) {
+          toast(context, '기기에 저장하지 못했습니다 — 설정에서 사진을 지우고 다시 해 보세요');
+          return;
+        }
+        toast(context, '${targets.length}일을 헬스로 채웠습니다');
+      },
+      child: Text('플랜대로 채우기 (${(w as Map)['splitName']} · 남은 ${targets.length}일)'),
+    ),
+    const SizedBox(height: 5),
+    Text('오늘부터 채웁니다. 이미 정한 날은 그대로 둡니다.',
+        style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
+  ];
+}
+
+/* 유산소 안내는 채우기 버튼과 따로 둡니다. 버튼 밑에 붙이면 누르는 순간
+   버튼이 사라지면서 설명도 같이 사라집니다 — 하필 "유산소는 왜 안
+   채워졌지?" 가 생기는 바로 그 순간에 답이 없어집니다. */
+List<Widget> _cardioNote(BuildContext context, app, List<Map<String, Object?>> days) {
+  final plan = app.state['plan'];
+  final w = plan is Map ? plan['workout'] : null;
+  if (w is! Map || !(core.jsToNumber(w['cardioMinPerWeek']) > 0)) return const [];
+  if (days.any((d) => (d['plan'] as List).contains('cardio'))) return const [];
+  final t = Theme.of(context);
+  return [
+    const SizedBox(height: 8),
+    Text('유산소는 플랜에 주 ${n0(w['cardioMinPerWeek'])}분만 있고 요일이 없습니다. '
+        '직접 고르셔야 합니다 (${w['cardioPlan'] ?? ''}).',
+        style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
+  ];
 }
 
 class _DayCell extends StatelessWidget {
