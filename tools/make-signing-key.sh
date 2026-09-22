@@ -14,6 +14,7 @@
 set -e
 
 OUT="$HOME/mybody-signing-key"
+SECRETS_URL="https://github.com/iacobuschoi/Mybody/settings/secrets/actions"
 JKS="$OUT/mybody.jks"
 ALIAS=mybody
 
@@ -42,7 +43,7 @@ keytool -genkeypair -v \
   -storepass "$PW" -keypass "$PW" \
   -dname "CN=Mybody, O=Mybody, C=KR" >/dev/null
 
-cat > "$OUT/열쇠-정보.txt" <<TXT
+cat > "$OUT/KEY-INFO.txt" <<TXT
 Mybody 앱 서명 열쇠
 ===================
 
@@ -59,7 +60,7 @@ Mybody 앱 서명 열쇠
   ANDROID_KEY_PASSWORD     = 위 비밀번호
   ANDROID_KEY_ALIAS        = $ALIAS
 TXT
-chmod 600 "$OUT/열쇠-정보.txt"
+chmod 600 "$OUT/KEY-INFO.txt"
 
 base64 < "$JKS" | tr -d '\n' > "$OUT/base64.txt"
 chmod 600 "$OUT/base64.txt"
@@ -84,10 +85,29 @@ else
   echo "gh 명령이 없어서 자동으로는 못 넣었습니다. 두 줄만 해 주세요:"
   echo
   echo "  1) 이 주소를 엽니다:"
-  echo "     https://github.com/iacobuschoi/Mybody/settings/secrets/actions"
+  echo "     $SECRETS_URL"
   echo "  2) New repository secret 으로 네 개를 넣습니다."
   echo "     무슨 값을 넣는지는 여기 적혀 있습니다:"
-  echo "     $OUT/열쇠-정보.txt"
+  echo "     $OUT/KEY-INFO.txt"
+
+  # 주소와 폴더를 **열어 줍니다.** 찍어만 주면 결국 손으로 찾아가야 합니다.
+  #
+  # 윈도우에서는 explorer.exe 를 씁니다. Git Bash 의 `start` 는 cmd 의
+  # 내장 명령이라 여기 PATH 에 없을 수 있습니다. 그리고 explorer.exe 는
+  # /c/Users/… 같은 경로를 못 읽으므로 cygpath 로 바꿔서 넘깁니다.
+  # (explorer.exe 는 잘 돼도 1 을 돌려주는 버릇이 있어 전부 || true 입니다.)
+  if command -v explorer.exe >/dev/null 2>&1; then
+    explorer.exe "$SECRETS_URL" >/dev/null 2>&1 || true
+    if command -v cygpath >/dev/null 2>&1; then
+      explorer.exe "$(cygpath -w "$OUT")" >/dev/null 2>&1 || true
+    fi
+  elif command -v open >/dev/null 2>&1; then
+    open "$SECRETS_URL" >/dev/null 2>&1 || true
+    open "$OUT"         >/dev/null 2>&1 || true
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$SECRETS_URL" >/dev/null 2>&1 || true
+    xdg-open "$OUT"         >/dev/null 2>&1 || true
+  fi
 fi
 echo
 echo "이 폴더를 어딘가에 복사해 두세요. 잃어버리면 못 되살립니다:"

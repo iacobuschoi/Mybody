@@ -65,7 +65,7 @@ Mybody 앱 서명 열쇠
   ANDROID_STORE_PASSWORD   = 위 비밀번호
   ANDROID_KEY_PASSWORD     = 위 비밀번호
   ANDROID_KEY_ALIAS        = $Alias
-"@ | Set-Content -Path (Join-Path $Out '열쇠-정보.txt') -Encoding UTF8
+"@ | Set-Content -Path (Join-Path $Out 'KEY-INFO.txt') -Encoding UTF8
 
 Write-Host "열쇠를 만들었습니다: $Jks"
 Write-Host "지문:"
@@ -94,7 +94,7 @@ if ($gh -and $LASTEXITCODE -eq 0) {
   Write-Host "     https://github.com/iacobuschoi/Mybody/settings/secrets/actions"
   Write-Host "  2) New repository secret 으로 네 개를 넣습니다."
   Write-Host "     무슨 값을 넣는지는 여기 적혀 있습니다:"
-  Write-Host "     $(Join-Path $Out '열쇠-정보.txt')"
+  Write-Host "     $(Join-Path $Out 'KEY-INFO.txt')"
   Start-Process "https://github.com/iacobuschoi/Mybody/settings/secrets/actions"
   Start-Process explorer.exe $Out
 }
