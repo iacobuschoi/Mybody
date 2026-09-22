@@ -90,6 +90,18 @@ const leaked = tracked.split('\n').filter(f => /\.(jks|keystore)$|key\.propertie
 if (leaked.length) no('서명 열쇠가 저장소에 들어 있습니다: ' + leaked.join(' '));
 else ok('서명 열쇠는 저장소에 없습니다');
 
+/* --- 4b. Kotlin DSL 의 `java` 함정 --------------------------------------
+ * .gradle.kts 안에서 `java` 는 Gradle 의 java 확장을 가리킵니다 — 패키지가
+ * 아닙니다. 그래서 `java.util.Properties()` 라고 쓰면
+ * "Unresolved reference: util" 로 **빌드가 시작도 못 합니다.**
+ * 여기서는 안드로이드 SDK 가 없어 Gradle 을 못 돌려 보므로, 이 한 가지는
+ * 글자로 막습니다 (실제로 첫 빌드가 이걸로 죽었습니다). */
+const gradleBody = gradle.split('\n').filter(l => !/^\s*import\s/.test(l)).join('\n');
+if (/(^|[^.\w])java\.(util|io|nio|text|time)\./m.test(gradleBody))
+  no('build.gradle.kts 가 java.* 를 그대로 씁니다 — Kotlin DSL 에서는 안 됩니다',
+     '위에 import 를 넣고 이름만 쓰세요: import java.util.Properties');
+else ok('Kotlin DSL 에서 java.* 를 그대로 쓰지 않습니다');
+
 /* --- 5. http 주소 -------------------------------------------------------- */
 const acc = R('app/lib/src/screens/account.dart');
 if (/안드로이드가 http 주소를 막습니다/.test(acc))

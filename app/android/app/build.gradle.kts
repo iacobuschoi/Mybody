@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -11,7 +13,7 @@ plugins {
  * 열쇠 자체는 저장소에 **안 들어갑니다** — 깃허브 Secrets 에 넣어 두고
  * 빌드할 때만 풀어서 씁니다 (.github/workflows/apk.yml 참고).
  */
-val keystoreProperties = java.util.Properties().apply {
+val keystoreProperties = Properties().apply {
     val f = rootProject.file("key.properties")
     if (f.exists()) f.inputStream().use { load(it) }
 }

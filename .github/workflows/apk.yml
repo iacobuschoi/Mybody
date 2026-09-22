@@ -125,6 +125,31 @@ jobs:
           echo "path=$apk" >> "$GITHUB_OUTPUT"
           echo "크기 $(du -h "$apk" | cut -f1)"
 
+      # **만든 앱을 열어서 확인합니다.**
+      #
+      # 설정 파일이 맞는 것과 나온 앱이 맞는 것은 다른 얘기입니다. 인터넷
+      # 권한은 빠져도 빌드가 멀쩡히 성공하고, 친구 폰에 들어가서야 드러납니다.
+      # 그래서 APK 안의 매니페스트를 직접 열어서 봅니다.
+      - name: 나온 앱에 인터넷 권한이 있는가
+        run: |
+          python3 - "${{ steps.find.outputs.path }}" <<'PY'
+          import sys, zipfile
+          apk = sys.argv[1]
+          raw = zipfile.ZipFile(apk).read('AndroidManifest.xml')
+          # 컴파일된 매니페스트라 글자가 UTF-8 이거나 UTF-16 입니다. 둘 다 봅니다.
+          want = 'android.permission.INTERNET'
+          found = want.encode() in raw or want.encode('utf-16-le') in raw
+          print(('있습니다' if found else '없습니다') + ': ' + want)
+          if not found:
+              print('이 앱은 깔려도 서버에 못 붙습니다.')
+              sys.exit(1)
+          for name in ('io.github.iacobuschoi.mybody',):
+              ok = name.encode() in raw or name.encode('utf-16-le') in raw
+              print(('있습니다' if ok else '없습니다') + ': ' + name)
+              if not ok:
+                  sys.exit(1)
+          PY
+
       - uses: actions/upload-artifact@v4
         with:
           name: mybody-${{ github.run_number }}-apk
