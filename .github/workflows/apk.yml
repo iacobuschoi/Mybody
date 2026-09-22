@@ -164,6 +164,26 @@ jobs:
                   sys.exit(1)
           PY
 
+      # **어느 열쇠로 서명됐는지 봅니다.**
+      #
+      # 비밀값을 넣었는데 이름을 하나 잘못 적으면, 빌드는 그냥 성공하고
+      # 조용히 디버그 열쇠로 서명됩니다. 그러면 친구 폰에서 업데이트가
+      # 거부될 때까지 모릅니다. 지문을 찍어 두면 눈으로 확인됩니다.
+      - name: 서명 지문
+        run: |
+          signer=$(find "$ANDROID_HOME/build-tools" -name apksigner | sort -V | tail -1)
+          if [ -z "$signer" ]; then echo "apksigner 가 없어 건너뜁니다"; exit 0; fi
+          fp=$("$signer" verify --print-certs "${{ steps.find.outputs.path }}" \
+               | grep -i 'SHA-256 digest' | head -1 | sed 's/.*: *//')
+          echo "지문 $fp"
+          {
+            echo ""
+            echo "서명 지문 (SHA-256): \`$fp\`"
+            echo ""
+            echo "열쇠를 넣은 뒤에는 이 값이 **바뀌고, 그 뒤로 계속 같아야 합니다.**"
+            echo "매번 달라지면 디버그 열쇠로 서명되고 있는 것입니다."
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: actions/upload-artifact@v4
         with:
           name: mybody-${{ github.run_number }}-apk
