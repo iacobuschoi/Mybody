@@ -22,6 +22,14 @@ on:
       - '!app/**/*.md'
   workflow_dispatch:      # Actions 탭에서 손으로도 돌릴 수 있습니다
 
+  # 배포용 워크플로(release.yml)가 이 빌드를 그대로 불러 씁니다.
+  # 빌드 과정을 두 벌로 베껴 두면 한쪽만 고치는 날이 옵니다.
+  workflow_call:
+    outputs:
+      artifact:
+        description: 만들어진 APK 가 담긴 꾸러미 이름
+        value: ${{ jobs.apk.outputs.artifact }}
+
 # 연달아 올리면 앞의 빌드는 그만둡니다. 어차피 마지막 것만 씁니다.
 concurrency:
   group: apk-${{ github.ref }}
@@ -39,6 +47,9 @@ jobs:
   apk:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+
+    outputs:
+      artifact: ${{ steps.name.outputs.artifact }}
 
     env:
       # `secrets` 는 step 의 `if:` 안에서 못 씁니다 — 그 문맥에 없습니다.
@@ -184,9 +195,13 @@ jobs:
             echo "매번 달라지면 디버그 열쇠로 서명되고 있는 것입니다."
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: 꾸러미 이름
+        id: name
+        run: echo "artifact=mybody-${{ github.run_number }}-apk" >> "$GITHUB_OUTPUT"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: mybody-${{ github.run_number }}-apk
+          name: ${{ steps.name.outputs.artifact }}
           path: ${{ steps.find.outputs.path }}
           retention-days: 90
           if-no-files-found: error
