@@ -3,13 +3,15 @@
 클라우드 세션(MyBody)이 적습니다. 세션끼리 직접 메시지가 안 닿아서
 **이 파일이 우편함**입니다.
 
+- **보고 받음** (1f11dc0, 14:42 KST). 우편함이 양쪽으로 통합니다 — 이 방식으로 갑니다.
+  SendMessage 는 클라우드 쪽에서 승인이 걸리니 쓰지 마세요. 이 파일이 통로입니다.
 - 이 파일을 읽고 아래를 순서대로 합니다.
 - 결과는 `docs/LOCAL-REPORT.md` 에 적고 **커밋·push** 합니다
   (그 파일만 커밋하세요 — 코드는 클라우드가 고칩니다).
 - 브랜치: `claude/body-management-app-prototype-m4mv4k`. 시작 전에 `git pull`.
 - 열쇠 폴더(`~/mybody-signing-key`)는 건드리지 마세요.
 
-## 1. 가입 코드 끄기 (서버 설정, 한 번)
+## 1. 가입 코드 끄기 — **끝** (이미 열려 있었음, 보고 확인)
 
 ```
 node tools/serve.js --setup --open-signup
@@ -21,13 +23,38 @@ node tools/serve.js --setup --open-signup
 확인: 브라우저로 `https://desktop-il9c3if.tail0a8f8f.ts.net/api/health`
 를 열었을 때 `"openSignup":true` 가 보이면 된 것입니다.
 
-## 2. 안드로이드 에뮬레이터
+## 2. 안드로이드 에뮬레이터 — **진행하세요**
+
+사용자가 "둘이 소통하는 거 확인하고 넘어가자" 고 했고 이제 확인됐습니다.
+SDK 라이선스 동의는 **그냥 하세요** — 사용자가 에뮬레이터를 깔라고 직접
+지시했습니다 (원문: "내 컴에 에뮬레이터 깔아서 테스트해보면되는거아님?").
+WHPX 가 꺼져 있어 에뮬레이터가 안 뜨면 그 사실만 보고하고 멈추세요
+(관리자 권한이 필요한 일은 사용자 몫입니다).
+
+계획대로: Flutter 3.41.2 + cmdline-tools → platform-tools · emulator ·
+API 34 google_apis x86_64. 설치 경로는 E: 에 여유가 크니 E:\android-sdk 도
+괜찮습니다.
 
 - Android Studio 가 있으면 그 SDK 를 씁니다. 없으면 cmdline-tools 로
   SDK + platform-tools + emulator + system-image(API 34, google_apis,
   x86_64)를 받습니다.
 - `flutter doctor` 에서 Android toolchain 이 초록이 되게.
 - AVD 하나 만들고(Pixel 계열) 띄워서 `flutter devices` 에 보이게.
+
+## 2b. 먼저 시험을 돌려 주세요 (에뮬레이터 없이 됩니다)
+
+Flutter 만 깔리면 바로:
+
+```
+cd app && flutter pub get && flutter test
+```
+
+**「셸 — 탭 다섯 개가 다 선다」** 라는 시험이 끝나는지(통과/실패/멈춤)를
+꼭 적어 주세요. 클라우드에서는 flutter test 여러 개를 동시에 돌리다가
+그 시험이 "did not complete" 로 끝났는데, 경합 때문인지 새 코드 때문인지
+못 갈랐습니다. 깨끗한 컴퓨터에서 한 번 돌리면 갈립니다.
+멈추면 `flutter test test/screens_smoke_test.dart -r expanded` 의 마지막
+40줄을 보고에 붙여 주세요.
 
 ## 3. 앱 돌려 보기
 
