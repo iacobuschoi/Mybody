@@ -137,10 +137,12 @@ enum _AuthMode { signIn, signUp, recover }
 
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key, required this.api, required this.onDone,
-                      required this.onServerChange});
+                      required this.onServerChange, this.intro});
   final Api api;
   final VoidCallback onDone;
   final Future<void> Function(String) onServerChange;
+  /// 첫 실행처럼 왜 이 화면이 먼저 뜨는지 말해 줘야 할 때 한 줄.
+  final String? intro;
   @override
   State<SignInScreen> createState() => _SignInScreenState();
 }
@@ -255,6 +257,10 @@ class _SignInScreenState extends State<SignInScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          if (widget.intro != null) ...[
+            Text(widget.intro!, style: t.textTheme.bodyMedium),
+            const SizedBox(height: 12),
+          ],
           SegmentedButton<_AuthMode>(
             segments: const [
               ButtonSegment(value: _AuthMode.signIn, label: Text('로그인')),

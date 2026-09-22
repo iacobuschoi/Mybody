@@ -96,6 +96,31 @@ class _ShellState extends State<Shell> {
 
   @override
   Widget build(BuildContext context) {
+    final api = Scope.apiOf(context);
+    /* **계정이 먼저입니다.** 사진 판독과 친구는 계정으로 되는 일입니다
+       (서버가 판독 횟수를 사람마다 셉니다). 계정 없이 들어가면 첫 판독이
+       "다시 로그인해야 합니다" 로 끝나는데, 그게 이 앱의 첫인상이 됩니다.
+       그래서 로그인/가입을 먼저 세웁니다. 토큰이 생기면 api 가 알리고
+       여기가 다시 그려져 온보딩으로 넘어갑니다. 서버가 안 닿으면 같은
+       화면에서 주소를 고칩니다. */
+    return ListenableBuilder(
+      listenable: api,
+      builder: (context, _) {
+        if (!api.signedIn) {
+          return SignInScreen(
+            api: api,
+            onDone: () {},   // 토큰이 생기는 순간 위에서 다시 그립니다
+            onServerChange: Scope.serverSetterOf(context),
+            intro: '처음이면 「처음이에요」로 가입하세요. '
+                '결과지 사진 판독과 친구 기능은 계정으로 됩니다.',
+          );
+        }
+        return _shell(context);
+      },
+    );
+  }
+
+  Widget _shell(BuildContext context) {
     /* **프로필이 없으면 먼저 받습니다.**
        없으면 코어가 씨앗 프로필(주인의 몸: 187cm · 22세)로 계산합니다.
        숫자는 그럴듯하게 나오고, 틀렸다는 표시는 어디에도 없습니다. */

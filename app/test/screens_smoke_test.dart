@@ -10,7 +10,10 @@
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:mybody/src/api.dart';
+import 'package:mybody/src/screens/account.dart';
 import 'package:mybody/src/app_state.dart';
 import 'package:mybody/src/scope.dart';
 import 'package:mybody/src/screens/food.dart';
@@ -70,9 +73,21 @@ void main() {
      화면을 home 자리에 직접 세워서 그 차이를 못 봅니다. 실제로 그래서
      검수 화면이 릴리스에서 회색 네모가 됐는데 시험 열아홉 개가 전부
      통과했습니다. */
-  Widget host(AppState app, Widget child) => Scope(
+  /* 서버는 없습니다 — 모든 요청에 404. 화면이 서는지만 보는 시험이라
+     그걸로 충분하고, 진짜 소켓을 열지 않으니 시험이 밖으로 나가지 않습니다. */
+  Api api({bool signedIn = true}) {
+    final a = Api(
+        baseUrl: '',
+        client: MockClient((_) async => http.Response('{"ok":false}', 404)));
+    if (signedIn) a.setToken('tok');
+    return a;
+  }
+
+  /* **로그인된 채로 세웁니다.** 셸이 로그인을 먼저 요구하므로, 로그인
+     안 된 상태는 그걸 보는 시험에서만 따로 만듭니다. */
+  Widget host(AppState app, Widget child, {Api? api_}) => Scope(
         state: app,
-        api: Api(baseUrl: ''),
+        api: api_ ?? api(),
         onServerChange: (_) async {},
         child: MaterialApp(theme: mbLight(), home: child),
       );
@@ -211,6 +226,15 @@ void main() {
 
   testWidgets('친구 — 로그인 안 함', (t) async {
     final app = await seeded();
+    await t.pumpWidget(host(app, Scaffold(body: SocialScreen(go: noop)),
+        api_: api(signedIn: false)));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(find.byType(ErrorWidget), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('친구 — 로그인 됨 (서버 없음)', (t) async {
+    final app = await seeded();
     await standsUp(t, app, Scaffold(body: SocialScreen(go: noop)));
   });
 
@@ -233,7 +257,34 @@ void main() {
      들어가면 코어가 씨앗 프로필(주인의 몸: 187cm · 22세 · 남성)로
      계산합니다 — 키 155cm 인 사람에게 187cm 기준 식단이 나가고,
      틀렸다는 표시는 어디에도 없습니다. */
-  testWidgets('막 깐 앱은 온보딩을 먼저 세운다', (t) async {
+  /* **막 깐 앱은 로그인이 먼저입니다.** 사진 판독은 계정으로 되는 일이라,
+     계정 없이 들어가면 첫 판독이 실패합니다 — 그게 첫인상이면 안 됩니다. */
+  testWidgets('막 깐 앱은 로그인을 먼저 세운다', (t) async {
+    SharedPreferences.setMockInitialValues({});
+    final app = await AppState.boot();
+    await t.pumpWidget(host(app, const Shell(), api_: api(signedIn: false)));
+    await t.pump();
+    expect(find.byType(SignInScreen), findsOneWidget);
+    expect(find.byType(OnboardingScreen), findsNothing, reason: '로그인 전에 온보딩이 보이면 안 됩니다');
+    expect(find.text('홈'), findsNothing, reason: '로그인 없이 홈이 보이면 안 됩니다');
+    expect(find.text('처음이에요'), findsOneWidget, reason: '가입 길이 보여야 합니다');
+  });
+
+  testWidgets('로그인이 되면 온보딩으로 넘어간다', (t) async {
+    SharedPreferences.setMockInitialValues({});
+    final app = await AppState.boot();
+    final a = api(signedIn: false);
+    await t.pumpWidget(host(app, const Shell(), api_: a));
+    await t.pump();
+    expect(find.byType(SignInScreen), findsOneWidget);
+
+    await a.setToken('tok');   // 로그인 성공이 하는 일과 같습니다
+    await t.pump();
+    expect(find.byType(SignInScreen), findsNothing);
+    expect(find.byType(OnboardingScreen), findsOneWidget);
+  });
+
+  testWidgets('로그인은 됐고 프로필이 없으면 온보딩을 세운다', (t) async {
     SharedPreferences.setMockInitialValues({});
     final app = await AppState.boot();
     await t.pumpWidget(host(app, const Shell()));

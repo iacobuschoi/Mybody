@@ -18,6 +18,8 @@
  *      줄 압니다. "컴퓨터가 꺼져 있는 것 같습니다" 라고 말할 수 있어야 합니다.
  * ========================================================================== */
 import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
@@ -39,7 +41,9 @@ class ApiResult {
   }
 }
 
-class Api {
+/// 로그인 상태가 바뀌면(토큰이 생기거나 지워지면) 듣는 쪽에 알립니다 —
+/// 셸이 그걸 듣고 로그인 화면과 앱 사이를 오갑니다.
+class Api extends ChangeNotifier {
   Api({required this.baseUrl, http.Client? client})
       : _client = client ?? http.Client();
 
@@ -60,10 +64,16 @@ class Api {
       /* 저장소를 못 읽어도 앱은 떠야 합니다 — 로그인만 다시 하면 됩니다. */
       _token = null;
     }
+    notifyListeners();
   }
+
+  /// 시험에서 로그인된 상태를 만들 때 씁니다. 앱 코드는 부르지 않습니다.
+  @visibleForTesting
+  Future<void> setToken(String? t) => _saveToken(t);
 
   Future<void> _saveToken(String? t) async {
     _token = t;
+    notifyListeners();   // 저장보다 먼저 — 화면은 지금 바뀌어야 합니다
     try {
       final sp = await SharedPreferences.getInstance();
       if (t == null) {
