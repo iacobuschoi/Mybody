@@ -175,36 +175,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
   }
 
+  /* 주소를 넣고 고치는 일은 **한 군데서만** 합니다.
+   *
+   * 예전에는 여기에 손으로 만든 대화상자가 따로 있었는데, 그쪽은 넣은 글자를
+   * 검사도 안 하고 닿는지 보지도 않고 그냥 저장했습니다. 오타 하나면 친구
+   * 기능이 통째로 조용히 죽고, 사용자는 어디가 틀렸는지 알 길이 없었습니다.
+   * 처음 들어올 때 쓰는 화면(ServerScreen)은 그 검사를 이미 다 합니다. */
   Future<void> _setServer(BuildContext context) async {
-    final ctrl = TextEditingController(text: Scope.apiOf(context).baseUrl);
-    final url = await showDialog<String>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('서버 주소'),
-        content: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text(
-            '이 앱은 주인의 컴퓨터에 있는 서버를 봅니다. 친구 기능에만 씁니다 — '
-            '몸 숫자는 주소를 넣어도 서버로 올라가지 않습니다.',
-            style: TextStyle(fontSize: 12, height: 1.5),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: ctrl,
-            autocorrect: false,
-            keyboardType: TextInputType.url,
-            decoration: const InputDecoration(
-                hintText: 'https://...', border: OutlineInputBorder()),
-          ),
-        ]),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('저장')),
-        ],
+    final api = Scope.apiOf(context);
+    final set = Scope.serverSetterOf(context);
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ServerScreen(
+        initial: api.baseUrl,
+        onSet: (url) async {
+          await set(url);
+          if (context.mounted) Navigator.of(context).pop();
+        },
       ),
-    );
-    if (url == null || !context.mounted) return;
-    await Scope.serverSetterOf(context)(url);
+    ));
     if (context.mounted) setState(() {});
   }
 

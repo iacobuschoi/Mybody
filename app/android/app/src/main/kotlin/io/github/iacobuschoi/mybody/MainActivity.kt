@@ -1,4 +1,4 @@
-package com.mybody.app.mybody
+package io.github.iacobuschoi.mybody
 
 import io.flutter.embedding.android.FlutterActivity
 

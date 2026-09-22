@@ -1,0 +1,151 @@
+# =============================================================================
+# 앱 파일(APK) 만들기
+#
+# 이 저장소에 코드를 올리면 깃허브 컴퓨터가 안드로이드 앱 파일을 만들어
+# 둡니다. 만들어진 파일은 Actions 탭 → 맨 위 실행 → 아래 "Artifacts" 에서
+# 받을 수 있습니다. 받아서 폰에 넣으면 깔립니다.
+#
+# 왜 여기서 만드나: 개발하는 곳에 안드로이드 SDK 가 없습니다. 깃허브
+# 기계에는 이미 깔려 있고, 이 저장소는 공개라 빌드 시간이 공짜입니다.
+# =============================================================================
+name: 앱 파일(APK) 만들기
+
+on:
+  push:
+    branches: [claude/body-management-app-prototype-m4mv4k]
+    paths:
+      - 'app/**'
+      - 'packages/**'
+      - '.github/workflows/apk.yml'
+  workflow_dispatch:      # Actions 탭에서 손으로도 돌릴 수 있습니다
+
+permissions:
+  contents: read          # 코드를 읽는 것 말고는 아무 권한도 주지 않습니다
+
+env:
+  # 여기서 쓰던 것과 **같은 판**을 씁니다. 안 박아 두면 깃허브가 그때그때
+  # 최신 Flutter 를 쓰게 되고, 여기서 통과한 시험과 다른 것이 빌드됩니다.
+  FLUTTER_VERSION: 3.41.2
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    env:
+      # `secrets` 는 step 의 `if:` 안에서 못 씁니다 — 그 문맥에 없습니다.
+      # (쓰면 "Unrecognized named-value: 'secrets'" 로 빌드가 시작도 못 합니다.)
+      # 잡 env 에서는 쓸 수 있으니 여기서 한 번 받아 두고, 아래에서는
+      # env 를 봅니다.
+      HAS_KEY: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # AGP 8.11 / Gradle 8.14 가 도는 자바입니다. 기계 기본값은 그때그때
+      # 달라지므로 **손으로 고릅니다.**
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Flutter 는 남의 액션을 쓰지 않고 직접 받습니다 — 이 저장소가
+      # 믿어야 할 바깥 것을 하나라도 줄이려고 그렇게 합니다.
+      - name: Flutter 캐시
+        id: fcache
+        uses: actions/cache@v4
+        with:
+          path: ~/flutter
+          key: flutter-${{ env.FLUTTER_VERSION }}-${{ runner.os }}
+
+      - name: Flutter 받기
+        if: steps.fcache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$HOME/flutter"
+
+      - name: Flutter 를 길에 올리기
+        run: |
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          git config --global --add safe.directory "$HOME/flutter"
+
+      - run: flutter --version
+
+      # 서명 열쇠가 Secrets 에 있으면 꺼내 씁니다. 없으면 이 단계는 통째로
+      # 건너뛰고 디버그 열쇠로 서명됩니다 (맨 아래 안내를 보세요).
+      - name: 서명 열쇠 꺼내기
+        id: key
+        if: env.HAS_KEY == 'true'
+        env:
+          KS: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PW: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_PW: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          printf '%s' "$KS" | base64 -d > app/android/mybody.jks
+          {
+            echo "storeFile=mybody.jks"
+            echo "storePassword=$STORE_PW"
+            echo "keyAlias=$ALIAS"
+            echo "keyPassword=$KEY_PW"
+          } > app/android/key.properties
+          echo "signed=yes" >> "$GITHUB_OUTPUT"
+
+      # 안드로이드 사용 승낙. 깃허브 기계는 보통 이미 돼 있습니다.
+      # 안 돼 있을 때 빌드가 거기서 멈추는 걸 막으려고 한 번 눌러 둡니다.
+      - name: 안드로이드 사용 승낙
+        run: yes | flutter doctor --android-licenses > /dev/null 2>&1 || true
+
+      - name: 묶음 받기
+        working-directory: app
+        run: flutter pub get
+
+      - name: 코드 검사
+        working-directory: app
+        run: flutter analyze
+
+      - name: 화면 시험
+        working-directory: app
+        run: flutter test
+
+      # 폰은 versionCode 가 더 큰 것만 업데이트로 받습니다. pubspec 에는
+      # 빌드 번호가 없어서 그냥 두면 **전부 1번**이 되고, 두 번째 앱부터
+      # 폰이 "이미 최신입니다" 하고 안 받습니다. 실행 횟수를 씁니다.
+      - name: 앱 파일 만들기
+        working-directory: app
+        run: flutter build apk --release --build-number=${{ github.run_number }}
+
+      - name: 만들어졌는지 확인
+        id: find
+        run: |
+          apk=$(find app/build -name 'app-release.apk' | head -1)
+          if [ -z "$apk" ]; then
+            echo "app-release.apk 를 못 찾았습니다"; find app/build -name '*.apk'; exit 1
+          fi
+          echo "path=$apk" >> "$GITHUB_OUTPUT"
+          echo "크기 $(du -h "$apk" | cut -f1)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mybody-${{ github.run_number }}-apk
+          path: ${{ steps.find.outputs.path }}
+          retention-days: 90
+
+      - name: 무슨 열쇠로 서명됐는지 적어 두기
+        run: |
+          if [ "${{ steps.key.outputs.signed }}" = "yes" ]; then
+            echo "### 앱 파일이 준비됐습니다" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "내 열쇠로 서명했습니다. 다음에 만든 것도 업데이트로 깔립니다." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### 앱 파일이 준비됐습니다 — 다만 읽어 주세요" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "서명 열쇠가 없어서 **디버그 열쇠**로 서명했습니다." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "지금 나눠 주는 데는 아무 문제 없습니다. 그런데 그 열쇠는" >> "$GITHUB_STEP_SUMMARY"
+            echo "빌드하는 기계마다 다르게 만들어집니다. 그래서 **다음에 만든" >> "$GITHUB_STEP_SUMMARY"
+            echo "앱은 친구 폰에 업데이트로 안 깔립니다** — 지웠다 다시 깔아야" >> "$GITHUB_STEP_SUMMARY"
+            echo "하고, 그러면 그 폰에 있던 기록이 사라집니다." >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo "열쇠 만드는 법: \`docs/APK.md\`" >> "$GITHUB_STEP_SUMMARY"
+          fi

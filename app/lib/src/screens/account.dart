@@ -16,20 +16,36 @@ import '../theme.dart';
  * 그게 없습니다. 그래서 이 화면이 필요합니다.
  * -------------------------------------------------------------------------- */
 class ServerScreen extends StatefulWidget {
-  const ServerScreen({super.key, required this.onSet});
+  const ServerScreen({super.key, required this.onSet, this.initial = ''});
   final Future<void> Function(String) onSet;
+  /// 이미 넣어 둔 주소를 고치러 들어올 때 채워 줍니다.
+  final String initial;
   @override
   State<ServerScreen> createState() => _ServerScreenState();
 }
 
 class _ServerScreenState extends State<ServerScreen> {
-  final _c = TextEditingController();
+  late final _c = TextEditingController(text: widget.initial);
   String? _err;
   bool _busy = false;
 
   Future<void> _go() async {
     final url = _c.text.trim();
-    if (!url.startsWith('https://') && !url.startsWith('http://')) {
+    /* **http 는 받지 않습니다.**
+     *
+     * 예전에는 http 도 통과시켰는데, 말과 코드가 달랐습니다 — 안내문은
+     * https 를 넣으라고 하면서 http 를 받았습니다. 그런데 안드로이드는
+     * 9 버전부터 http 를 기본으로 막습니다. 그래서 http 주소를 넣으면
+     * 저장은 되고 연결만 조용히 실패하고, 화면에는 "컴퓨터가 꺼져 있을 수
+     * 있습니다" 가 뜹니다. 켜져 있는데도요.
+     *
+     * 여기서 막고 이유를 말해 주는 편이 낫습니다. 터널 주소(*.ts.net)는
+     * 원래 https 라 실제로 쓰는 데 불편이 없습니다. */
+    if (url.startsWith('http://')) {
+      setState(() => _err = '안드로이드가 http 주소를 막습니다 — https 주소를 넣어 주세요');
+      return;
+    }
+    if (!url.startsWith('https://')) {
       setState(() => _err = 'https:// 로 시작하는 주소를 넣어 주세요');
       return;
     }

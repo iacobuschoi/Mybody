@@ -1,6 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- **릴리스에도 인터넷 권한이 있어야 합니다.**
+
+         flutter create 는 이 권한을 debug/ 와 profile/ 매니페스트에만 넣어
+         줍니다. 릴리스 빌드는 main 만 합쳐지므로, 이게 없으면 앱은 깔리고
+         켜지지만 서버로 가는 요청이 전부 EACCES 로 막힙니다.
+
+         그런데 그 실패가 화면에는 "서버에 닿지 못했습니다 — 컴퓨터가 꺼져
+         있을 수 있습니다" 로 나옵니다. 주인은 켜져 있는 노트북을 보면서
+         영문을 모르게 됩니다. 게다가 `flutter run` 이나 웹으로 시험할 때는
+         권한이 있어서 **멀쩡히 동작합니다** — 친구 폰에 들어가야 드러납니다. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="mybody"
+        android:label="Mybody"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
