@@ -232,17 +232,36 @@ class EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 16),
-      child: Column(children: [
-        Text(title, textAlign: TextAlign.center, style: t.textTheme.titleSmall),
-        if (detail != null) ...[
-          const SizedBox(height: 6),
-          Text(detail!, textAlign: TextAlign.center,
-              style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
-        ],
-        if (action != null) ...[const SizedBox(height: 14), action!],
-      ]),
+    /* **가운데에 둡니다.**
+     *
+     * 예전에는 그냥 Column 이었습니다. Column 은 위에서부터 쌓으므로, 화면
+     * 전체가 빈 상태일 때 글이 맨 위에 붙고 그 아래로 빈 공간이 화면 끝까지
+     * 이어졌습니다. 뭔가 덜 그려진 것처럼 보입니다.
+     *
+     * Center 는 부모가 높이를 주면 그 안에서 가운데로 가고, 안 주면(목록의
+     * 한 칸으로 들어갈 때) 내용만큼만 차지합니다 — 두 자리 다 맞습니다. */
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(28, 36, 28, 48),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Text(title,
+                textAlign: TextAlign.center,
+                style: t.textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.bold, letterSpacing: -0.2)),
+            if (detail != null) ...[
+              const SizedBox(height: 8),
+              Text(detail!,
+                  textAlign: TextAlign.center,
+                  style: t.textTheme.bodyMedium
+                      ?.copyWith(color: t.hintColor, height: 1.6)),
+            ],
+            if (action != null) ...[const SizedBox(height: 22), action!],
+          ],
+        ),
+      ),
     );
   }
 }

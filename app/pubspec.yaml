@@ -30,13 +30,12 @@ flutter:
     # **글자가 통째로 회색 네모로 나옵니다.** 실제로 첫 시험 빌드에서 그걸
     # 봤습니다 — 나중에 발견하면 "왜 한글이 네모지" 가 됩니다.
     #
-    # 용량이 한 벌에 6MB 입니다. 앱(APK)에는 문제가 안 되지만 웹으로 쓸 때는
-    # 무겁습니다. 실제로 쓰는 글자만 남기는 작업(subsetting)이 남아 있습니다.
-    - family: NotoSansKR
+    # 한 벌에 1.6MB 입니다 (전에 쓰던 것보다 1.2MB 작습니다).
+    - family: Pretendard
       fonts:
-        - asset: assets/fonts/NotoSansKR-Regular.ttf
+        - asset: assets/fonts/Pretendard-Regular.ttf
           weight: 400
-        - asset: assets/fonts/NotoSansKR-Bold.ttf
+        - asset: assets/fonts/Pretendard-Bold.ttf
           weight: 700
 
     # **이 이름표가 요청 한 건을 막습니다.**
@@ -47,8 +46,8 @@ flutter:
     #
     #     if (!loadedRoboto) { _downloadFont('Roboto', _robotoUrl, ...) }
     #
-    # 그래서 그 이름표를 우리가 답니다. 알맹이는 NotoSansKR 에서 라틴만
-    # 떼어낸 48KB 짜리입니다 (`tools/make-latin-fallback.py`).
+    # 그래서 그 이름표를 우리가 답니다. 알맹이는 Pretendard 에서 라틴만
+    # 떼어낸 작은 조각입니다 (`tools/make-latin-fallback.py`).
     # 통째로 또 넣으면 2.8MB 가 두 벌이 되고, 빈 껍데기를 넣으면 글꼴이
     # 안 정해진 글자 자리가 네모가 됩니다 — 받아 오던 Roboto 가 덮어
     # 주던 자리가 거기입니다.

@@ -21,22 +21,36 @@ from fontTools.ttLib import TTFont
 from fontTools.pens.recordingPen import DecomposingRecordingPen
 from fontTools.pens.ttGlyphPen import TTGlyphPen
 
-SRC = {
-    'Regular': '/usr/share/fonts/truetype/freefont/FreeSans.ttf',
-    'Bold': '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf',
-}
+# 도너 후보. **크기 단위(upem)가 맞는 것끼리만 붙일 수 있습니다** — 단위가
+# 다른 글꼴에서 떼어 오면 그 글자만 커지거나 작아집니다. 그래서 단위별로
+# 나눠 두고, 대상 글꼴의 단위에 맞는 쪽에서 고릅니다.
+#   1000 — FreeSans (NotoSansKR 이 1000 이었습니다)
+#   2048 — DejaVu   (Pretendard 가 2048 입니다)
+SRC = [
+    '/usr/share/fonts/truetype/freefont/FreeSansBold.ttf',
+    '/usr/share/fonts/truetype/freefont/FreeSans.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+]
 
 
 def donor_for(target, need):
-    """굵은 쪽에 없는 기호는 보통 쪽에서 가져옵니다 — 기호 몇 개가 굵지
-    않은 것과 그 자리가 네모인 것 중에서는 앞쪽이 낫습니다."""
+    """**단위가 같고** 필요한 글자를 다 가진 글꼴을 고릅니다.
+
+    굵은 대상에는 굵은 도너를 먼저 봅니다 — 기호 몇 개가 굵지 않은 것과
+    그 자리가 네모인 것 중에서는 앞쪽이 낫습니다."""
+    upem = TTFont(target)['head'].unitsPerEm
     bold = 'Bold' in os.path.basename(target)
-    order = ['Bold', 'Regular'] if bold else ['Regular']
-    for k in order:
-        f = TTFont(SRC[k])
+    cands = [p for p in SRC if os.path.exists(p)]
+    if not bold:
+        cands.sort(key=lambda p: 'Bold' in os.path.basename(p))
+    for path in cands:
+        f = TTFont(path)
+        if f['head'].unitsPerEm != upem:
+            continue
         cm = f.getBestCmap()
         if all(c in cm for c in need):
-            return f, SRC[k]
+            return f, path
     return None, None
 
 
@@ -56,18 +70,21 @@ def main():
 
     donor, used = donor_for(target, need)
     if donor is None:
-        f = TTFont(SRC['Regular'])
-        cm = f.getBestCmap()
-        gone = [c for c in need if c not in cm]
+        upem = dst['head'].unitsPerEm
+        have = set()
+        for path in SRC:
+            if os.path.exists(path) and TTFont(path)['head'].unitsPerEm == upem:
+                have |= set(TTFont(path).getBestCmap().keys())
+        gone = [c for c in need if c not in have]
+        print('단위 %d 짜리 도너 중에 이 글자를 가진 것이 없습니다:' % upem)
         # 여기서 멈춥니다. 조용히 건너뛰면 "고쳤다" 는 말과 달리 그 글자는
         # 여전히 네모가 됩니다 — 그게 원래 문제였습니다.
-        print('FreeSans 에도 없는 글자: ' +
-              ' '.join('%s U+%04X' % (chr(c), c) for c in gone))
+        print('  ' + ' '.join('%s U+%04X' % (chr(c), c) for c in gone))
         print('그 글자는 화면에서 빼거나 아이콘으로 그려야 합니다.')
         return 1
 
     if donor['head'].unitsPerEm != dst['head'].unitsPerEm:
-        print('단위가 달라 옮기면 크기가 틀어집니다 — 중단합니다')
+        print('단위가 달라 옮기면 크기가 틀어집니다 — 중단합니다')  # 여기 오면 안 됩니다
         return 1
 
     dcmap = donor.getBestCmap()

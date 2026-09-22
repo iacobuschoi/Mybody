@@ -132,7 +132,12 @@ void main() {
     testWidgets('이름과 친구 수를 보여준다 (한글이 실제로 그려진다)', (t) async {
       final api = Api(baseUrl: 'https://x.test', client: fake({
         '/me': {'ok': true, 'user': {'handle': 'chulsoo', 'displayName': '철수'}},
-        '/friends': {'ok': true, 'accepted': [{'id': 'a'}, {'id': 'b'}]},
+        /* **서버가 실제로 주는 모양대로** 흉내 냅니다.
+           예전에는 여기서 {'accepted': [...]} 를 바로 돌려줬는데, 서버는
+           friends 로 한 겹 감싸서 줍니다. 가짜가 진짜와 달라서, 화면이
+           틀린 자리를 읽고 있는데도 이 시험은 통과했습니다. */
+        '/friends': {'ok': true, 'friends': {'accepted': [{'id': 'a'}, {'id': 'b'}],
+                                             'incoming': [], 'outgoing': [], 'blocked': []}},
       }));
       await t.pumpWidget(wrap(AccountScreen(api: api, onServerChange: (_) async {})));
       await t.pumpAndSettle();

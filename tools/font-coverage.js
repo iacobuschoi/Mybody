@@ -84,8 +84,8 @@ function missing(file) {
 }
 
 const FONTS = [
-  path.join(ROOT, 'app', 'assets', 'fonts', 'NotoSansKR-Regular.ttf'),
-  path.join(ROOT, 'app', 'assets', 'fonts', 'NotoSansKR-Bold.ttf')
+  path.join(ROOT, 'app', 'assets', 'fonts', 'Pretendard-Regular.ttf'),
+  path.join(ROOT, 'app', 'assets', 'fonts', 'Pretendard-Bold.ttf')
 ];
 
 module.exports = { ROOT, EXEMPT, usedChars, fontChars, missing, FONTS };

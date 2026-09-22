@@ -16,8 +16,8 @@
 # 그래서 **Roboto 라는 이름표를 단 글꼴을 앱에 넣어 둡니다.** 그러면
 # 위 조건이 거짓이 되고 요청이 아예 안 나갑니다.
 #
-# 내용물은 이미 앱에 있는 NotoSansKR 에서 **라틴 글자만 떼어낸 것**입니다.
-# 통째로 또 넣으면 2.8MB 가 두 벌이 됩니다. 그렇다고 빈 껍데기를 넣으면,
+# 내용물은 이미 앱에 있는 Pretendard 에서 **라틴 글자만 떼어낸 것**입니다.
+# 통째로 또 넣으면 1.6MB 가 두 벌이 됩니다. 그렇다고 빈 껍데기를 넣으면,
 # 글꼴이 안 정해진 글자가 어딘가에 남아 있을 때 그 자리가 네모가 됩니다 —
 # 지금까지 받아 오던 Roboto 가 덮어 주던 자리가 바로 거기입니다.
 # 라틴만 남기면 그 자리를 그대로 덮으면서 수십 KB 로 끝납니다.
@@ -37,8 +37,8 @@ RANGES = ('U+0000-024F,U+0259,U+02B0-02FF,U+0300-036F,'
           'U+2000-206F,U+20A0-20BF,U+2100-214F,'
           'U+2190-21FF,U+2200-22FF,U+25A0-25FF')
 
-PAIRS = [('NotoSansKR-Regular.ttf', 'Roboto-Latin-Regular.ttf'),
-         ('NotoSansKR-Bold.ttf', 'Roboto-Latin-Bold.ttf')]
+PAIRS = [('Pretendard-Regular.ttf', 'Roboto-Latin-Regular.ttf'),
+         ('Pretendard-Bold.ttf', 'Roboto-Latin-Bold.ttf')]
 
 
 def main():

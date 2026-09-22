@@ -424,7 +424,15 @@ class _AccountScreenState extends State<AccountScreen> {
     }
     final f = await widget.api.friends();
     if (!mounted) return;
-    final accepted = (f.body['accepted'] as List?) ?? const [];
+    /* 서버는 **한 겹 더 감싸서** 줍니다:
+     *   { ok: true, friends: { accepted: [], incoming: [], outgoing: [], blocked: [] } }
+     *
+     * 여기서는 `body['accepted']` 를 읽고 있었습니다. 서버가 보내지 않는
+     * 이름이라 언제나 null 이었고, 친구가 몇이든 **0명**이라고 나왔습니다.
+     * 친구 목록 화면(social.dart)은 처음부터 맞게 읽고 있어서, 목록에는
+     * 친구가 보이는데 이 화면만 0명이라고 우기는 모양이 됐습니다. */
+    final friends = (f.body['friends'] as Map?)?.cast<String, dynamic>();
+    final accepted = (friends?['accepted'] as List?) ?? const [];
     setState(() {
       _me = (r.body['user'] as Map?)?.cast<String, dynamic>();
       _friendCount = accepted.length;

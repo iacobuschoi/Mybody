@@ -80,7 +80,22 @@ ThemeData _base(Brightness b) {
     colorScheme: scheme,
     /* 한글은 앱에 넣어 둔 글꼴로 그립니다. 시스템 글꼴에 기대면
        CanvasKit 이 못 찾아서 네모로 나옵니다. */
-    fontFamily: 'NotoSansKR',
+    fontFamily: 'Pretendard',
+    /* 한글은 글자 하나하나가 네모라서, 기본 자간으로 두면 헐거워 보입니다.
+       제목일수록 더 그렇습니다 — 큰 글씨에서 틈이 그대로 커집니다.
+       조금씩 좁히고, 본문은 줄 간격을 넉넉히 둡니다. */
+    textTheme: Typography.englishLike2021.apply(fontFamily: 'Pretendard').copyWith(
+      displayLarge: const TextStyle(letterSpacing: -1.0, fontWeight: FontWeight.w700),
+      displayMedium: const TextStyle(letterSpacing: -0.8, fontWeight: FontWeight.w700),
+      displaySmall: const TextStyle(letterSpacing: -0.6, fontWeight: FontWeight.w700),
+      headlineMedium: const TextStyle(letterSpacing: -0.5, fontWeight: FontWeight.w700),
+      headlineSmall: const TextStyle(letterSpacing: -0.4, fontWeight: FontWeight.w700),
+      titleLarge: const TextStyle(letterSpacing: -0.4, fontWeight: FontWeight.w700),
+      titleMedium: const TextStyle(letterSpacing: -0.2),
+      bodyLarge: const TextStyle(height: 1.55),
+      bodyMedium: const TextStyle(height: 1.55),
+      bodySmall: const TextStyle(height: 1.55),
+    ),
     scaffoldBackgroundColor: dark ? const Color(0xFF0E1014) : const Color(0xFFF6F7F9),
     dividerColor: dark ? const Color(0xFF2A2F39) : const Color(0xFFE2E5EA),
     extensions: [dark ? MbColors.dark : MbColors.light],
