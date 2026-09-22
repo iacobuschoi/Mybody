@@ -11,6 +11,11 @@
          권한이 있어서 **멀쩡히 동작합니다** — 친구 폰에 들어가야 드러납니다. -->
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <!-- 결과지를 **찍어서** 넣을 때 씁니다. 앨범에서 고르는 길은 권한이
+         필요 없습니다 (안드로이드가 고른 한 장만 건네줍니다).
+         카메라가 없는 기기에서도 앱이 깔려야 하므로 required=false 입니다. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+
     <!-- **몸 기록이 구글 드라이브로 넘어가지 않게 합니다.**
 
          android:allowBackup 을 안 적으면 안드로이드는 **기본을 true 로**

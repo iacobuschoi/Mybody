@@ -120,6 +120,24 @@ class Api {
 
   Future<ApiResult> health() => _send('GET', '/health');
 
+  /// 친구 한 명의 주간 요약들. `{ok, rows:[{weekStart, keptDays, …}]}`.
+  ///
+  /// **서버가 공유 설정으로 미리 걸러서** 줍니다 — 친구가 안 켠 항목은
+  /// 아예 안 실려 옵니다. 그래서 이 값을 그대로 화면에 써도 됩니다.
+  Future<ApiResult> friendSnapshots(String friendId, {int limit = 4}) =>
+      _send('GET', '/snapshots/$friendId?limit=$limit');
+
+  /// 결과지 사진을 서버에 보내 숫자를 읽어 옵니다.
+  ///
+  /// **직접 켰을 때만 부릅니다.** 이게 몸 사진이 기기 밖으로 나가는 단 하나의
+  /// 길이고, 서버는 읽고 나서 사진을 보관하지 않습니다.
+  ///
+  /// 돌아오는 것: `{ok, fields:{weightKg, smmKg, bfmKg, …}, read, notInBody}`.
+  /// `notInBody` 는 "인바디 결과지로 안 보입니다" 입니다 — 영수증을 찍은
+  /// 사람에게 "핵심 세 칸을 못 읽었습니다" 라고 하면 같은 사진을 다시 찍습니다.
+  Future<ApiResult> ocr({required String mediaType, required String data}) =>
+      _send('POST', '/ocr', {'mediaType': mediaType, 'data': data});
+
   Future<ApiResult> signUp({
     required String handle,
     required String password,

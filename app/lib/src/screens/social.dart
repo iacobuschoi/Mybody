@@ -19,6 +19,7 @@ import '../scope.dart';
 import '../shell.dart';
 import '../ui/fmt.dart';
 import '../ui/widgets.dart';
+import 'news.dart';
 
 class SocialScreen extends StatefulWidget {
   const SocialScreen({super.key, required this.go});
@@ -47,12 +48,33 @@ class _SocialScreenState extends State<SocialScreen> {
     final me = await api.me();
     final f = await api.friends();
     if (!mounted) return;
+    await _refreshNews(api, f);
+    if (!mounted) return;
     setState(() {
       _busy = false;
       _me = me.ok ? (me.body['user'] as Map?)?.cast<String, dynamic>() : null;
       _friends = f.ok ? (f.body['friends'] as Map?)?.cast<String, dynamic>() : null;
       _error = f.ok ? null : f.reason;
     });
+  }
+
+  /* 소식은 **기기 안에서** 계산합니다. 서버에 새 경로를 만들지 않습니다 —
+     이미 공유 설정으로 걸러져 온 주간 요약을 지난번 본 값과 견줄 뿐이라,
+     새로 나가는 정보가 하나도 없습니다. */
+  Future<void> _refreshNews(Api api, ApiResult f) async {
+    final news = Scope.of(context).news;
+    if (news == null || !f.ok) return;
+    final friends = ((f.body['friends'] as Map?)?['accepted'] as List?) ?? const [];
+    final snaps = <Object?>[];
+    for (final p in friends) {
+      final id = (p as Map)['id'];
+      if (id is! String) continue;
+      final r = await api.friendSnapshots(id);
+      /* 못 받아온 것과 공유를 끈 것은 다릅니다 — 실패는 rows 를 아예
+         안 실어 보냅니다. 코어가 그 차이를 압니다. */
+      snaps.add({'id': id, if (r.ok) 'rows': (r.body['rows'] as List?) ?? const []});
+    }
+    news.apply(snaps, friends);
   }
 
   @override
@@ -72,6 +94,34 @@ class _SocialScreenState extends State<SocialScreen> {
       onRefresh: _load,
       child: ListView(padding: const EdgeInsets.all(16), children: [
         if (_error != null) Note(tone: Tone.warn, text: _error!),
+
+        /* 소식으로 가는 문. 안 읽은 게 있으면 숫자를 답니다.
+           **좋은 소식만** 여기 쌓입니다 — 안 한 것은 안 올라옵니다. */
+        Builder(builder: (_) {
+          final news = Scope.of(context).news;
+          if (news == null) return const SizedBox.shrink();
+          final unread = news.unread();
+          final names = <String, String>{
+            for (final p in accepted)
+              '${(p as Map)['id']}': '${p['displayName']}',
+          };
+          return MbCard(
+            onTap: () async {
+              await Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => NewsScreen(names: names)));
+              if (mounted) setState(() {});
+            },
+            child: Row(children: [
+              const Icon(Icons.notifications_none, size: 20),
+              const SizedBox(width: 10),
+              const Expanded(child: Text('소식')),
+              if (unread > 0) Pill('$unread', tone: Tone.ok),
+              const SizedBox(width: 6),
+              Icon(Icons.chevron_right, size: 18, color: t.hintColor),
+            ]),
+          );
+        }),
+
         if (_me != null)
           MbCard(
             child: Row(children: [
@@ -173,14 +223,24 @@ class _RequestRow extends StatelessWidget {
         Expanded(child: Text('${person['displayName']}')),
         TextButton(
           onPressed: () async {
-            await api.declineFriend('${person['id']}');
+            final id = '${person['id']}';
+            final q = Scope.queueOf(context);
+            final r = await api.declineFriend(id);
+            if (!r.ok && q != null && _worthRetrying(r)) {
+              q.add('decline', {'userId': id});
+            }
             await onDone();
           },
           child: const Text('거절'),
         ),
         FilledButton(
           onPressed: () async {
-            final r = await api.acceptFriend('${person['id']}');
+            final id2 = '${person['id']}';
+            final q2 = Scope.queueOf(context);
+            final r = await api.acceptFriend(id2);
+            if (!r.ok && q2 != null && _worthRetrying(r)) {
+              q2.add('accept', {'userId': id2});
+            }
             if (context.mounted && !r.ok) toast(context, r.reason);
             await onDone();
           },
@@ -318,13 +378,25 @@ class _FriendDetailScreenState extends State<FriendDetailScreen> {
                   onChanged: (on) async {
                     final next = {...?_share, f.$1: on};
                     setState(() => _share = next.cast<String, dynamic>());
+                    final id = '${widget.person['id']}';
+                    final queue = Scope.queueOf(context);
                     final r = await Scope.apiOf(context)
-                        .setShare('${widget.person['id']}', next.cast<String, dynamic>());
+                        .setShare(id, next.cast<String, dynamic>());
                     if (!context.mounted) return;
-                    if (!r.ok) {
-                      toast(context, r.reason);
-                      _load();
+                    if (r.ok) return;
+
+                    /* **껐는데 계속 나가는 것**이 이 앱에서 제일 나쁜
+                       고장입니다. 껐다고 믿는 사람은 다시 확인하지
+                       않습니다. 그래서 지금 못 닿았으면 되돌리지 않고
+                       큐에 맡깁니다 — 망이 돌아오면 알아서 갑니다. */
+                    if (queue != null && _worthRetrying(r)) {
+                      queue.add('setShare',
+                          {'userId': id, 'patch': next.cast<String, Object?>()});
+                      toast(context, '지금 서버에 못 닿아서 **나중에 보냅니다.**');
+                      return;
                     }
+                    toast(context, r.reason);
+                    _load();
                   },
                 ),
           ]),
@@ -352,3 +424,14 @@ class _FriendDetailScreenState extends State<FriendDetailScreen> {
     );
   }
 }
+
+/* 다시 보내 볼 만한 실패인가.
+ *
+ *   0    서버에 아예 못 닿음 (지하철 · 노트북이 꺼짐)
+ *   408  시간 초과
+ *   429  지금은 너무 잦음
+ *   5xx  서버가 잠깐 삐끗함
+ *
+ * 나머지 4xx 는 다시 보내도 같은 답입니다 — 그건 그 자리에서 말해 줍니다. */
+bool _worthRetrying(ApiResult r) =>
+    r.status == 0 || r.status == 408 || r.status == 429 || r.status >= 500;

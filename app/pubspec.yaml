@@ -12,8 +12,10 @@ dependencies:
   # 도메인 로직은 순수 Dart 로 따로 둡니다 — Flutter 를 안 깔아도
   # `dart test` 로 돌릴 수 있어야 검증이 빨라집니다.
   http: ^1.6.0
+  image_picker: ^1.2.3
   mybody_core:
     path: ../packages/mybody_core
+  path_provider: ^2.1.6
   shared_preferences: ^2.5.5
 
 dev_dependencies:

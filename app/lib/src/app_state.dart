@@ -16,6 +16,11 @@ import 'package:flutter/foundation.dart';
 import 'package:mybody_core/mybody_core.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:mybody_core/news.dart';
+
+import 'news_store.dart';
+import 'photos.dart';
+
 /// SharedPreferences 한 칸을 코어의 저장소로 씁니다.
 ///
 /// 코어의 write 는 **동기**입니다(원본 localStorage 가 그랬고, 저장 실패를
@@ -56,7 +61,7 @@ class PrefsStorage implements StateStorage {
 
 /// 앱 한 벌의 상태. 화면들은 이걸 듣습니다.
 class AppState extends ChangeNotifier {
-  AppState._(this.store) : schedule = Schedule(store) {
+  AppState._(this.store, this.photos, this.news) : schedule = Schedule(store) {
     store.onChange((_) => notifyListeners());
     /* 엔진이 modes 를 느슨하게 부르는 고리를 여기서 꽂습니다 —
        원본이 `global.MB_MODES` 가 있으면 쓰던 자리입니다. */
@@ -72,9 +77,28 @@ class AppState extends ChangeNotifier {
     } catch (_) {/* 저장소가 없으면 메모리로 돕니다 — 앱이 멈추지는 않습니다 */}
     final storage = sp == null ? MemoryStorage() : PrefsStorage(sp);
     final store = Store(storage: storage);
+
+    /* 사진은 파일에 둡니다. 여기서 실패해도 앱은 돕니다 — 사진만 못
+       붙이게 되고, 숫자 세 개로 쓰는 0층은 그대로입니다. */
+    FilePhotos? photos;
+    try {
+      photos = await FilePhotos.open();
+      store.photos = photos;
+    } catch (_) {}
+
+    /* 친구 소식. 저장소가 없으면 소식만 조용히 꺼집니다. */
+    final news = sp == null ? null : News(PrefsNews(sp));
+    store.newsReset = () => news?.reset();
+
     store.load();
-    return AppState._(store);
+    return AppState._(store, photos, news);
   }
+
+  /// 결과지 사진 보관소. 못 열었으면 null 입니다.
+  final FilePhotos? photos;
+
+  /// 친구 소식. 저장소가 없으면 null 입니다.
+  final News? news;
 
   final Store store;
   final Schedule schedule;

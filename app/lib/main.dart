@@ -10,10 +10,14 @@
  * 직접 엮어야 했는데(그게 없어서 뒤로가기가 앱을 통째로 닫았습니다),
  * Flutter 의 Navigator 는 안드로이드 뒤로가기를 원래 받습니다.
  * ========================================================================== */
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/api.dart';
+import 'src/news_store.dart';
+import 'src/sync_queue.dart';
 import 'src/app_state.dart';
 import 'src/scope.dart';
 import 'src/shell.dart';
@@ -100,8 +104,10 @@ class _MyBodyAppState extends State<MyBodyApp> {
    *
    * 한 번이라도 직접 넣은 주소가 있으면 그걸 씁니다. 주인이 주소를 바꿨을
    * 때 앱에 박힌 옛 주소가 그걸 덮어쓰면 안 됩니다. */
-  static const String _builtInServer =
-      String.fromEnvironment('SERVER_URL', defaultValue: '');
+  static const String _builtInServer = String.fromEnvironment(
+    'SERVER_URL',
+    defaultValue: 'https://desktop-il9c3if.tail0a8f8f.ts.net',
+  );
 
   Future<void> _boot() async {
     String base = '';
@@ -112,6 +118,7 @@ class _MyBodyAppState extends State<MyBodyApp> {
     if (base.isEmpty) base = _builtInServer.trim();
     final api = Api(baseUrl: base);
     await api.loadToken();
+    _queue = await _makeQueue(api);
     final app = await AppState.boot();
     if (!mounted) return;
     setState(() {
@@ -119,6 +126,23 @@ class _MyBodyAppState extends State<MyBodyApp> {
       _app = app;
       _ready = true;
     });
+  }
+
+  SyncQueue? _queue;
+
+  /* 큐는 Api 에 매여 있습니다 — 주소가 바뀌면 보낼 곳도 바뀝니다.
+     못 만들어도 앱은 돕니다. 그때는 실패한 일이 그 자리에서 실패로 끝납니다. */
+  Future<SyncQueue?> _makeQueue(Api api) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final q = SyncQueue(api: api, storage: PrefsQueue(sp));
+      /* 켤 때 한 번 밀어 봅니다 — 지난번에 못 보낸 것이 남아 있을 수
+         있습니다. 실패하면 큐가 알아서 다시 시도합니다. */
+      unawaited(q.flush());
+      return q;
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<void> _setServer(String url) async {
@@ -129,8 +153,11 @@ class _MyBodyAppState extends State<MyBodyApp> {
     } catch (_) {}
     final api = Api(baseUrl: clean);
     await api.loadToken();
+    /* 주소가 바뀌면 큐도 새로 만듭니다 — 보낼 곳이 바뀌었으니까요.
+       담겨 있던 일은 저장소에 남아 있어서 그대로 이어집니다. */
+    final q = await _makeQueue(api);
     if (!mounted) return;
-    setState(() => _api = api);
+    setState(() { _api = api; _queue = q; });
   }
 
   @override
@@ -161,6 +188,7 @@ class _MyBodyAppState extends State<MyBodyApp> {
     return Scope(
       state: _app!,
       api: _api!,
+      queue: _queue,
       onServerChange: _setServer,
       child: app,
     );

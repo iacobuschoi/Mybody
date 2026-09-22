@@ -49,10 +49,31 @@ class ScanDetailScreen extends StatelessWidget {
         .where((c) => c['ok'] != true)
         .toList();
     final t = Theme.of(context);
+    final photoId = scan['photoId'];
+    final photoFile =
+        photoId is String ? app.photos?.fileOf(photoId) : null;
 
     return Scaffold(
       appBar: AppBar(title: Text(dateK(scan['measuredAt']))),
       body: ListView(padding: const EdgeInsets.all(16), children: [
+        /* 결과지 사진. 붙여 둔 게 있으면 여기서 다시 봅니다 — 숫자가
+           이상할 때 원본을 볼 수 있어야 합니다. */
+        if (photoFile != null)
+          MbCard(
+            padding: EdgeInsets.zero,
+            child: GestureDetector(
+              onTap: () => showDialog<void>(
+                context: context,
+                builder: (_) => Dialog(
+                  insetPadding: const EdgeInsets.all(12),
+                  child: InteractiveViewer(
+                      maxScale: 5, child: Image.file(photoFile)),
+                ),
+              ),
+              child: Image.file(photoFile,
+                  width: double.infinity, height: 220, fit: BoxFit.cover),
+            ),
+          ),
         for (final c in broken)
           Note(tone: Tone.warn, title: '${c['label']}', text: ' ${c['why'] ?? ''}'),
         MbCard(
