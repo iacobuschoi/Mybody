@@ -30,7 +30,7 @@ const PW = 'test-password-1';
 function withPair(p, body) {
   /* 가입에는 건강정보 별도 동의가 필요합니다 — 검사도 같은 문을 지납니다. */
   if (p === '/auth/signup' && body) return Object.assign(
-    { pairSecret: PAIR, password: PW, healthConsent: '2026-09-20' }, body);
+    { pairSecret: PAIR, password: PW, healthConsent: '2026-09-22' }, body);
   if (p === '/auth/signin' && body) return Object.assign({ password: PW }, body);
   return body;
 }
@@ -431,8 +431,8 @@ async function main() {
     const { open, makeApi } = require('../server/db.js');
     const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mb-push-')), 'p.db');
     const dbx = open(tmp); const apix = makeApi(dbx);
-    const A2 = apix.signUp({ handle: 'pushdb-a', password: PW, displayName: '가', healthConsent: '2026-09-20' });
-    const B2 = apix.signUp({ handle: 'pushdb-b', password: PW, displayName: '나', healthConsent: '2026-09-20' });
+    const A2 = apix.signUp({ handle: 'pushdb-a', password: PW, displayName: '가', healthConsent: '2026-09-22' });
+    const B2 = apix.signUp({ handle: 'pushdb-b', password: PW, displayName: '나', healthConsent: '2026-09-22' });
     ok('정상 구독은 받는다', apix.addPushSub(A2.user.id, good).ok === true);
     ok('http 엔드포인트는 거절', apix.addPushSub(A2.user.id,
        Object.assign({}, good, { endpoint: 'http://push.example.com/x' })).ok === false);

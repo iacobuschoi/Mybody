@@ -136,30 +136,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ]),
         ),
 
-        MbCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SectionTitle('백업'),
-            RichishText(
-              '측정 기록·목표·계획은 **이 기기에만** 있습니다. 서버로 올라가지 않으므로 '
-              '기기를 바꾸면 따라오지 않습니다. 내보내기가 유일한 백업입니다 — '
-              '**복사해서 어딘가에 붙여넣어 두셔야** 합니다.',
-              style: t.textTheme.bodySmall?.copyWith(height: 1.5),
-            ),
-            const SizedBox(height: 10),
-            Row(children: [
-              OutlinedButton(
-                onPressed: () => _export(context, app),
-                child: const Text('내보내기'),
-              ),
-              const SizedBox(width: 8),
-              OutlinedButton(
-                onPressed: () => _import(context, app),
-                child: const Text('가져오기'),
-              ),
-            ]),
-          ]),
-        ),
-
+        /* 백업 카드는 뺐습니다 — 기록이 내 계정에 저장되고 새 기기에서
+           로그인하면 따라옵니다. 내보내기·가져오기는 맨 아래 작은 글씨로
+           남깁니다(내 기록을 파일로 갖고 싶을 때). */
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const SectionTitle('지우기'),
@@ -178,8 +157,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             if (api.signedIn) ...[
               const Divider(height: 24),
               RichishText(
-                '계정을 지우면 친구 관계와 서버에 올라간 주간 요약이 사라집니다. '
-                '**이 기기의 측정 기록은 그대로 남습니다** — 그건 위 버튼으로 지웁니다.',
+                '계정을 지우면 친구 관계와 서버에 저장된 내 기록(동기화 사본·주간 요약)이 사라집니다. '
+                '**이 기기의 기록은 그대로 남습니다** — 그건 위 버튼으로 지웁니다.',
                 style: t.textTheme.bodySmall?.copyWith(height: 1.5),
               ),
               const SizedBox(height: 10),
@@ -192,17 +171,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ]),
         ),
 
-        /* 서버 주소 — 주인이 서버를 옮겼을 때만 쓰는 것이라 맨 아래 작은 글씨. */
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton(
+        /* 맨 아래 작은 글씨들 — 자주 쓸 일 없는 것. */
+        Wrap(children: [
+          TextButton(
+            onPressed: () => _export(context, app),
+            child: Text('내 기록 내보내기', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+          ),
+          TextButton(
+            onPressed: () => _import(context, app),
+            child: Text('가져오기', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+          ),
+          TextButton(
             onPressed: () => _setServer(context),
             child: Text(
               '서버 주소 바꾸기 · ${Uri.tryParse(api.baseUrl)?.host ?? api.baseUrl}',
               style: t.textTheme.labelSmall?.copyWith(color: t.hintColor),
             ),
           ),
-        ),
+        ]),
       ]),
     );
   }

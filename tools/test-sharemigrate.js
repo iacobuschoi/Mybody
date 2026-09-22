@@ -32,7 +32,7 @@ const t = (n, c, d) => {
 };
 
 const DB = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'mb-share-')), 't.db');
-const PW = 'pw-123456', CONSENT = '2026-09-20';
+const PW = 'pw-123456', CONSENT = '2026-09-22';
 
 function boot() { const db = open(DB); return { db, api: makeApi(db) }; }
 

@@ -664,14 +664,14 @@ function hostGet(port, p2, host) {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ handle: 'selfhost', password: 'selfhost-password-1',
                                displayName: '자가호스팅', pairSecret: cfg.pairSecret,
-                               healthConsent: '2026-09-20' })
+                               healthConsent: '2026-09-22' })
       }).then(x => x.json()).catch(e => ({ err: String(e) }));
       ok('설정의 가입 코드로 계정이 만들어진다', !!r.token, r);
       const bad = await fetch('http://127.0.0.1:' + port + '/api/auth/signup', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ handle: 'nope', password: 'selfhost-password-1',
                                displayName: 'x', pairSecret: 'wrong',
-                               healthConsent: '2026-09-20' })
+                               healthConsent: '2026-09-22' })
       });
       ok('틀린 코드로는 안 된다', bad.status === 401 || bad.status === 400, bad.status);
     }
@@ -822,7 +822,7 @@ function hostGet(port, p2, host) {
         await fetch(`http://127.0.0.1:${port}/api/auth/signup`, {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ handle: h, password: 'backup-password-1', displayName: h,
-                                 pairSecret: 'bk-secret', healthConsent: '2026-09-20' })
+                                 pairSecret: 'bk-secret', healthConsent: '2026-09-22' })
         }).catch(() => {});
       }
 
@@ -920,7 +920,7 @@ function hostGet(port, p2, host) {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify(b) }).then(r => r.json().catch(() => ({})));
       const me = await post('/auth/signup', { handle: 'loguser', password: 'log-password-1',
-        displayName: '로그', pairSecret: 'log-secret', healthConsent: '2026-09-20' });
+        displayName: '로그', pairSecret: 'log-secret', healthConsent: '2026-09-22' });
       await post('/auth/signin', { handle: 'loguser', password: 'nope' });
       await fetch(`http://127.0.0.1:${port}/api/snapshots`, {
         method: 'POST',
@@ -950,7 +950,7 @@ function hostGet(port, p2, host) {
          그렇게 애쓰는 바로 그 정보입니다. 게다가 이 로그에는 회전도
          보유 기간도 없습니다. */
       const other = await post('/auth/signup', { handle: 'loguser2', password: 'log-password-2',
-        displayName: '상대', pairSecret: 'log-secret', healthConsent: '2026-09-20' });
+        displayName: '상대', pairSecret: 'log-secret', healthConsent: '2026-09-22' });
       await fetch(`http://127.0.0.1:${port}/api/snapshots/${other.user.id}`, {
         headers: { authorization: 'Bearer ' + me.token } }).catch(() => {});
       await fetch(`http://127.0.0.1:${port}/api/share/${other.user.id}`, {

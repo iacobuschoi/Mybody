@@ -16,7 +16,7 @@ import '../ui/widgets.dart';
 /// 서버가 받아 주는 건강정보 동의 판. 서버의 `HEALTH_CONSENT_VERSION` 과
 /// **글자까지 같아야** 합니다 — 다르면 가입이 400 으로 거부됩니다.
 /// (server/db.js 의 같은 이름 상수. 웹 앱도 sync.js 에 같은 값을 들고 있습니다.)
-const String kHealthConsentVersion = '2026-09-20';
+const String kHealthConsentVersion = '2026-09-22';
 
 /* --- 서버 주소 -------------------------------------------------------------
  * 서버가 주인 노트북이라, 앱이 어디를 봐야 하는지 알려 줘야 합니다.
@@ -489,9 +489,9 @@ class _AccountScreenState extends State<AccountScreen> {
                 decoration: BoxDecoration(
                   color: mb.accentSub, borderRadius: BorderRadius.circular(12)),
                 child: const Text(
-                  '몸 숫자는 여기 없습니다.\n\n'
-                  '측정 기록·목표·계획은 이 기기에만 있고 서버로 올라가지 않습니다. '
-                  '서버가 아는 것은 친구 관계와, 친구에게 보여 주기로 켠 주간 요약뿐입니다.',
+                  '기록은 내 계정에도 저장됩니다.\n\n'
+                  '측정 기록·목표·계획·식단이 이 기기와 내 계정에 같이 있습니다 — 기기를 바꿔 '
+                  '로그인하면 그대로 따라옵니다. 친구가 보는 것은 친구에게 보여 주기로 켠 것뿐입니다.',
                   style: TextStyle(height: 1.6),
                 ),
               ),

@@ -134,7 +134,7 @@ async function main() {
   await waitUp(PORT);
   const u = await call('POST', '/auth/signup',
     { handle: 'owner', displayName: '주인', password: PW, pairSecret: PAIR,
-      healthConsent: '2026-09-20' });
+      healthConsent: '2026-09-22' });
   const tok = u.json.token;
   ok('가입됨', !!tok, u.json);
 
@@ -407,7 +407,7 @@ async function main() {
   const dayUser = 'daycap' + Date.now().toString(36).slice(-5);
   const t3 = (await call('POST', '/auth/signup',
     { handle: dayUser, displayName: '한도', password: PW, pairSecret: PAIR,
-      healthConsent: '2026-09-20' })).json.token;
+      healthConsent: '2026-09-22' })).json.token;
   nextReply = { status: 200, body: toolReply({ notInBody: false, weightKg: 86.7 }) };
   const codes = [];
   for (let i = 0; i < 5; i++) codes.push((await call('POST', '/ocr', shot(), t3)).status);
@@ -448,7 +448,7 @@ async function main() {
     const u = 'failcap' + Date.now().toString(36).slice(-5);
     const tk = (await call('POST', '/auth/signup',
       { handle: u, displayName: '실패', password: PW, pairSecret: PAIR,
-        healthConsent: '2026-09-20' })).json.token;
+        healthConsent: '2026-09-22' })).json.token;
 
     // 키가 거부되는 상황을 다섯 번 겪습니다 (사람이 될 때까지 눌러 보는 모습)
     nextReply = { status: 401, body: { error: { type: 'authentication_error', message: 'invalid x-api-key' } } };
@@ -478,7 +478,7 @@ async function main() {
     await waitUp(PORT);
     const tw = (await call('POST', '/auth/signup',
       { handle: 'wsuser', password: PW, displayName: 'ws', pairSecret: PAIR,
-        healthConsent: '2026-09-20' })).json.token;
+        healthConsent: '2026-09-22' })).json.token;
     nextReply = { status: 200, body: toolReply({ notInBody: false, weightKg: 86.7 }) };
     lastHeaders = null;
     await call('POST', '/ocr', shot(), tw);
@@ -516,7 +516,7 @@ async function main() {
   for (let i = 0; i < 4; i++) {
     const u3 = await call('POST', '/auth/signup',
       { handle: 'many' + i, password: PW, displayName: 'm' + i, pairSecret: PAIR,
-        healthConsent: '2026-09-20' });
+        healthConsent: '2026-09-22' });
     const tk = u3.json.token || (await call('POST', '/auth/signin',
       { handle: 'many' + i, password: PW })).json.token;
     seen.push((await call('POST', '/ocr', shot(), tk)).status);

@@ -240,6 +240,13 @@ extension ApiSocial on Api {
   Future<ApiResult> setShare(String userId, Map<String, dynamic> flags) =>
       send('PUT', '/share/$userId', flags);
 
+  /// 기록 전체를 내 계정에 — 기기를 바꿔도 따라오게. 서버는 종류·id 별
+  /// 레코드를 그대로 보관합니다(/sync). 사진은 안 갑니다.
+  Future<ApiResult> pushRecords(List<Map<String, Object?>> records) =>
+      _send('POST', '/sync/push', {'records': records});
+  Future<ApiResult> pullRecords({String since = '', int limit = 500}) =>
+      _send('GET', '/sync/pull?since=${Uri.encodeQueryComponent(since)}&limit=$limit');
+
   Future<ApiResult> publishSnapshot(String weekStart, Map<String, dynamic> snap) =>
       send('POST', '/snapshots', {'weekStart': weekStart, 'payload': snap});
 

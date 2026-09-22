@@ -77,7 +77,7 @@ process.on('exit',()=>srv.kill());
   const post = (path2, body) => fetch(`http://localhost:${PORT}/api${path2}`, {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify(path2 === '/auth/signup'
-      ? Object.assign({ healthConsent: '2026-09-20' }, body) : body)
+      ? Object.assign({ healthConsent: '2026-09-22' }, body) : body)
   });
   await post('/auth/signup', { handle: 'victim', password: 'victim-password-1',
                                displayName: '피해자', pairSecret: 'x' });
@@ -145,7 +145,7 @@ process.on('exit',()=>srv.kill());
     const sdb = open(f);
     const sapi = makeApi(sdb);
     const u = sapi.signUp({ handle: 'legacy', password: 'legacy-password-1', displayName: 'L',
-                              healthConsent: '2026-09-20' });
+                              healthConsent: '2026-09-22' });
     const tok = u.token;
     if (sapi.userForToken(tok)) console.log('    ✓ 정상 토큰은 통과한다');
     else { console.log('    ✗ 정상 토큰이 막힌다'); lockFail++; }
@@ -154,7 +154,7 @@ process.on('exit',()=>srv.kill());
     else { console.log('    ✗ expires_at 없는 토큰이 살아 있다'); lockFail++; }
     // 다시 열면 마이그레이션이 채워 줍니다 (만든 날 + 90일)
     const u2 = sapi.signUp({ handle: 'legacy2', password: 'legacy-password-1', displayName: 'L2',
-                               healthConsent: '2026-09-20' });
+                               healthConsent: '2026-09-22' });
     sdb.exec('UPDATE sessions SET expires_at = NULL');
     const sdb2 = open(f);
     const sapi2 = makeApi(sdb2);

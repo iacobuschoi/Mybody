@@ -111,6 +111,8 @@ class SyncQueue {
       _queue.removeWhere(
           (j) => j.op == 'snapshot' && j.args['weekStart'] == args['weekStart']);
     }
+    /* 기록 전체도 마지막 것 하나만 — 서버는 같은 레코드를 덮어씁니다. */
+    if (op == 'syncState') _queue.removeWhere((j) => j.op == 'syncState');
 
     _queue.add(SyncJob(op, args, DateTime.now().millisecondsSinceEpoch));
 
@@ -119,7 +121,7 @@ class SyncQueue {
     while (_queue.length > _queueMax) {
       var drop = -1;
       for (var k = 0; k < _queue.length - 1; k++) {
-        if (_queue[k].op == 'snapshot') { drop = k; break; }
+        if (_queue[k].op == 'snapshot' || _queue[k].op == 'syncState') { drop = k; break; }
       }
       _queue.removeAt(drop >= 0 ? drop : 0);
     }
@@ -216,5 +218,11 @@ class SyncQueue {
         (x['patch'] as Map?)?.cast<String, Object?>() ?? const {}),
     'snapshot': (a, x) => a.publishSnapshot('${x['weekStart']}',
         (x['payload'] as Map?)?.cast<String, Object?>() ?? const {}),
+    'syncState': (a, x) => a.pushRecords([
+          {
+            'kind': 'state', 'id': 'main', 'updatedAt': '${x['updatedAt']}',
+            'payload': (x['payload'] as Map?)?.cast<String, Object?>() ?? const {},
+          },
+        ]),
   };
 }

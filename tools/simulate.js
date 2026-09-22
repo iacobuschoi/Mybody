@@ -485,7 +485,7 @@ const users = [];
 for (let i = 0; i < N_USERS; i++) {
   const u = makeUser(i);
   // 가입은 이제 아이디 + 비밀번호입니다. handle 은 소문자·영숫자만 허용됩니다.
-  const s = api.signUp({ healthConsent: '2026-09-20',
+  const s = api.signUp({ healthConsent: '2026-09-22',
                          handle: 'sim' + i, password: 'sim-password-' + i,
                          displayName: '사용자' + i });
   if (!s.ok) throw new Error('가입 실패: ' + s.reason);
@@ -509,7 +509,7 @@ for (let week = 0; week < WEEKS; week++) {
         // 탈퇴했다가 돌아온 경우 — 실제 앱에서도 새 계정이 된다.
         // 기기에 남아 있던 측정 기록은 그대로지만 친구 관계는 사라진다.
         const h2 = u.handle + '-again' + week;
-        const s2 = api.signUp({ healthConsent: '2026-09-20',
+        const s2 = api.signUp({ healthConsent: '2026-09-22',
                                 handle: h2, password: 'sim-password-' + u.i,
                                 displayName: '사용자' + u.i });
         if (!s2.ok) throw new Error('재가입 실패: ' + s2.reason);

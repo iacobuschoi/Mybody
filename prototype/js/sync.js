@@ -239,7 +239,7 @@
 
   /* 건강정보 업로드 동의 문구의 판. server/db.js 의 같은 이름과
      값이 맞아야 합니다 — 서버가 이 값을 보고 동의를 판정합니다. */
-  var HEALTH_CONSENT_VERSION = '2026-09-20';
+  var HEALTH_CONSENT_VERSION = '2026-09-22';
 
   function signUp(o) {
     return api('/auth/signup', { method: 'POST', body: {
@@ -340,7 +340,12 @@
       if (a.avatar !== undefined) body.avatar = a.avatar;
       return api('/me', { method: 'PATCH', body: body });
     },
-    snapshot:     function (a) { return api('/snapshots', { method: 'POST', body: { weekStart: a.weekStart, payload: a.payload } }); }
+    snapshot:     function (a) { return api('/snapshots', { method: 'POST', body: { weekStart: a.weekStart, payload: a.payload } }); },
+    /* 기록 전체를 내 계정에 — 앱으로 옮겨 로그인하면 그대로 따라옵니다. */
+    syncState:    function (a) {
+      return api('/sync/push', { method: 'POST', body: { records: [
+        { kind: 'state', id: 'main', updatedAt: a.updatedAt, payload: a.payload } ] } });
+    }
   };
 
   var QUEUE_MAX = 500;
@@ -381,6 +386,12 @@
         }
       }
     }
+    /* 기록 전체도 마지막 것 하나만 — 서버는 같은 레코드를 덮어씁니다. */
+    if (op === 'syncState') {
+      for (var s2 = cfg.queue.length - 1; s2 >= 0; s2--) {
+        if (cfg.queue[s2].op === 'syncState') cfg.queue.splice(s2, 1);
+      }
+    }
 
     cfg.queue.push({ op: op, args: args, at: Date.now() });
 
@@ -389,7 +400,7 @@
     while (cfg.queue.length > QUEUE_MAX) {
       var drop = -1;
       for (var k = 0; k < cfg.queue.length - 1; k++) {
-        if (cfg.queue[k].op === 'snapshot') { drop = k; break; }
+        if (cfg.queue[k].op === 'snapshot' || cfg.queue[k].op === 'syncState') { drop = k; break; }
       }
       cfg.queue.splice(drop >= 0 ? drop : 0, 1);
     }

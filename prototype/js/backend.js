@@ -551,6 +551,11 @@
       var S = global.MB_SYNC;
       if (S && S.enqueue) { try { S.enqueue(op, args); } catch (e) {} }
     }
+    /* 기록 전체를 내 계정에 — 앱으로 옮겨 로그인하면 그대로 따라옵니다.
+       로그인 안 했으면 큐가 조용히 버립니다. */
+    function pushState(state) {
+      push('syncState', { updatedAt: new Date().toISOString(), payload: state });
+    }
 
     return {
       SHARE_FIELDS: SHARE_FIELDS, blankShare: blankShare,
@@ -562,6 +567,7 @@
       listFriends: listFriends, areFriends: areFriends,
       getShare: getShare, setShare: setShare, shareSummary: shareSummary,
       publishSnapshot: publishSnapshot, getFriendSnapshots: getFriendSnapshots,
+      pushState: pushState,
       reset: reset, raw: raw, mirror: mirror,
       _setSession: function (id) { db.session = id; save(); }   // 시뮬레이션용
     };

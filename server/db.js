@@ -269,7 +269,7 @@ function verifyCode(plain, user) {
 /* 건강정보 업로드 동의 문구의 판. 문구가 바뀌면 올립니다 —
    옛 판으로 동의한 사람에게는 다시 물어야 하기 때문입니다.
    화면(modals.js M29)에 적힌 문구와 이 값이 같아야 합니다. */
-const HEALTH_CONSENT_VERSION = '2026-09-20';
+const HEALTH_CONSENT_VERSION = '2026-09-22';
 
 /* 주간 요약 보유 기간. 화면이 보는 26주의 두 배입니다.
    가입 동의 문구(modals.js M29)와 처리방침(privacy.html 7번)에

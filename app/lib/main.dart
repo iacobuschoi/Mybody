@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/api.dart';
+import 'src/cloud.dart';
 import 'src/news_store.dart';
 import 'src/nudge.dart';
 import 'src/publish.dart';
@@ -123,6 +124,9 @@ class _MyBodyAppState extends State<MyBodyApp> {
     _queue = await _makeQueue(api);
     final app = await AppState.boot();
     wirePublishing(app, api, _queue);
+    /* 기록을 내 계정에 — 켤 때 받아 보고, 저장하면 올립니다. */
+    _cloud = CloudSync(app: app, api: api, queue: _queue)..wire();
+    unawaited(_cloud!.pull());
     /* 간식 알림. 못 켜져도 앱은 돕니다. 저장이 바뀌면 다시 계산합니다 —
        먹은 게 늘면 남은 단백질이 줄고, 알림 문구도 바뀌어야 합니다. */
     unawaited(SnackNudge.init().then((_) => SnackNudge.reschedule(app)));
@@ -140,6 +144,7 @@ class _MyBodyAppState extends State<MyBodyApp> {
 
   SyncQueue? _queue;
   Timer? _nudgeTimer;
+  CloudSync? _cloud;
 
   /* 큐는 Api 에 매여 있습니다 — 주소가 바뀌면 보낼 곳도 바뀝니다.
      못 만들어도 앱은 돕니다. 그때는 실패한 일이 그 자리에서 실패로 끝납니다. */
@@ -168,7 +173,12 @@ class _MyBodyAppState extends State<MyBodyApp> {
        담겨 있던 일은 저장소에 남아 있어서 그대로 이어집니다. */
     final q = await _makeQueue(api);
     final app = _app;
-    if (app != null) wirePublishing(app, api, q);
+    if (app != null) {
+      wirePublishing(app, api, q);
+      _cloud?.dispose();
+      _cloud = CloudSync(app: app, api: api, queue: q)..wire();
+      unawaited(_cloud!.pull());
+    }
     if (!mounted) return;
     setState(() { _api = api; _queue = q; });
   }

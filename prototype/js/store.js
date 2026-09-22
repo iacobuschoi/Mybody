@@ -176,6 +176,11 @@
       publishing = true;
       try { publishWeekly(); } catch (e) {} finally { publishing = false; }
     }
+    /* 기록 전체도 내 계정에. 앱으로 옮겨 로그인하면 그대로 따라옵니다. */
+    try {
+      var BK = global.MB_BACKEND;
+      if (BK && BK.pushState) BK.pushState(state);
+    } catch (e) {}
     listeners.forEach(function (f) { try { f(state); } catch (e) {} });
     return lastSaveOk;
   }

@@ -157,7 +157,7 @@ const STATES = {
       // 상대편 계정은 브라우저를 안 거치고 HTTP 로 만듭니다
       let buddy = await post('/auth/signup',
         { handle: 'buddy', password: PW, displayName: '친구', pairSecret: PAIR,
-          healthConsent: '2026-09-20' });
+          healthConsent: '2026-09-22' });
       if (!buddy.token) buddy = await post('/auth/signin', { handle: 'buddy', password: PW });
       const buddyTok = buddy.token;
       const buddyMe = await fetch(api + '/api/me', { headers: { authorization: 'Bearer ' + buddyTok } })

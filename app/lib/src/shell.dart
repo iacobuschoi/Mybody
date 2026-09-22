@@ -198,7 +198,7 @@ class NeedsSignIn extends StatelessWidget {
           Text(
             api.baseUrl.isEmpty
                 ? '먼저 서버 주소를 넣어야 합니다 — 설정에서 넣을 수 있습니다.'
-                : '몸 숫자는 기기에만 있습니다. 로그인해도 서버로 올라가지 않습니다.',
+                : '로그인하면 기록이 내 계정에 저장돼, 기기를 바꿔도 그대로 따라옵니다.',
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.bodySmall
                 ?.copyWith(color: Theme.of(context).hintColor, height: 1.5),
