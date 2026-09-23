@@ -1,0 +1,147 @@
+# =============================================================================
+# 아이폰 앱을 TestFlight 에 올리기 — 애플 개발자 계정이 생긴 뒤에 켜지는 것
+#
+# 필요한 Secrets (다 있어야 돕니다. 하나라도 없으면 첫 단계에서 멈추고 무엇이
+# 빠졌는지 적습니다):
+#   IOS_CERT_P12_BASE64      배포 인증서(.p12)를 base64 로  — 맥의 키체인에서 내보냄
+#   IOS_CERT_PASSWORD        그 .p12 의 비밀번호
+#   IOS_PROFILE_BASE64       App Store 용 프로비저닝 프로파일(.mobileprovision) base64
+#   ASC_KEY_ID               App Store Connect API 키 ID       (Users and Access → Integrations)
+#   ASC_ISSUER_ID            그 키의 Issuer ID
+#   ASC_KEY_P8_BASE64        그 키 파일(.p8) base64
+#   MYBODY_SERVER_URL        (안드로이드와 같음)
+#
+# 판 번호는 안드로이드와 같은 규칙(커밋 수)이라 두 스토어가 같은 번호를 씁니다.
+# 인증서·프로파일은 맥에서 Xcode 가 만든 것을 내보내면 됩니다 — docs/DEPLOY.md 8절.
+# =============================================================================
+name: 아이폰 TestFlight
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '판 번호 (예: v0.2.3) — 기록용'
+        required: true
+
+concurrency:
+  group: ios-release
+  cancel-in-progress: false
+
+env:
+  FLUTTER_VERSION: 3.41.2
+
+jobs:
+  testflight:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secrets 가 다 있는지
+        env:
+          A: ${{ secrets.IOS_CERT_P12_BASE64 }}
+          B: ${{ secrets.IOS_CERT_PASSWORD }}
+          C: ${{ secrets.IOS_PROFILE_BASE64 }}
+          D: ${{ secrets.ASC_KEY_ID }}
+          E: ${{ secrets.ASC_ISSUER_ID }}
+          F: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          missing=""
+          [ -z "$A" ] && missing="$missing IOS_CERT_P12_BASE64"
+          [ -z "$B" ] && missing="$missing IOS_CERT_PASSWORD"
+          [ -z "$C" ] && missing="$missing IOS_PROFILE_BASE64"
+          [ -z "$D" ] && missing="$missing ASC_KEY_ID"
+          [ -z "$E" ] && missing="$missing ASC_ISSUER_ID"
+          [ -z "$F" ] && missing="$missing ASC_KEY_P8_BASE64"
+          if [ -n "$missing" ]; then
+            echo "빠진 Secrets:$missing"
+            echo "저장소 Settings → Secrets and variables → Actions 에 넣고 다시 돌리세요. 만드는 법: docs/DEPLOY.md 8절."
+            exit 1
+          fi
+          echo "다 있습니다."
+
+      - name: Flutter 캐시
+        id: fcache
+        uses: actions/cache@v4
+        with:
+          path: ~/flutter
+          key: flutter-${{ env.FLUTTER_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+      - name: Flutter 받기
+        if: steps.fcache.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$HOME/flutter"
+      - run: |
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          git config --global --add safe.directory "$HOME/flutter"
+
+      # 인증서와 프로파일을 이 기계의 임시 키체인에 넣습니다. 작업이 끝나면 기계째 사라집니다.
+      - name: 서명 재료 넣기
+        env:
+          P12: ${{ secrets.IOS_CERT_P12_BASE64 }}
+          P12_PW: ${{ secrets.IOS_CERT_PASSWORD }}
+          PROFILE: ${{ secrets.IOS_PROFILE_BASE64 }}
+        run: |
+          KC="$RUNNER_TEMP/build.keychain-db"
+          KC_PW="$(uuidgen)"
+          security create-keychain -p "$KC_PW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KC_PW" "$KC"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -P "$P12_PW" -A -t cert -f pkcs12 -k "$KC"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KC_PW" "$KC"
+          security list-keychain -d user -s "$KC"
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$PROFILE" | base64 --decode > "$RUNNER_TEMP/app.mobileprovision"
+          uuid=$(/usr/libexec/PlistBuddy -c 'Print :UUID' /dev/stdin <<< "$(security cms -D -i "$RUNNER_TEMP/app.mobileprovision")")
+          cp "$RUNNER_TEMP/app.mobileprovision" ~/Library/MobileDevice/Provisioning\ Profiles/"$uuid".mobileprovision
+          echo "profile_uuid=$uuid" >> "$GITHUB_ENV"
+          name=$(/usr/libexec/PlistBuddy -c 'Print :Name' /dev/stdin <<< "$(security cms -D -i "$RUNNER_TEMP/app.mobileprovision")")
+          echo "profile_name=$name" >> "$GITHUB_ENV"
+          team=$(/usr/libexec/PlistBuddy -c 'Print :TeamIdentifier:0' /dev/stdin <<< "$(security cms -D -i "$RUNNER_TEMP/app.mobileprovision")")
+          echo "team_id=$team" >> "$GITHUB_ENV"
+
+      - name: 내보내기 설정
+        run: |
+          cat > "$RUNNER_TEMP/export.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>teamID</key><string>${team_id}</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>provisioningProfiles</key><dict>
+              <key>io.github.iacobuschoi.mybody</key><string>${profile_name}</string>
+            </dict>
+            <key>uploadSymbols</key><true/>
+          </dict></plist>
+          PLIST
+
+      - name: 아이폰 앱 만들기 (.ipa)
+        working-directory: app
+        env:
+          SERVER_URL: ${{ secrets.MYBODY_SERVER_URL }}
+        run: |
+          flutter pub get
+          flutter build ipa --release \
+            --build-number=$(git rev-list --count HEAD) \
+            --export-options-plist="$RUNNER_TEMP/export.plist" \
+            --dart-define=SERVER_URL="$SERVER_URL"
+          ls -la build/ios/ipa/
+
+      - name: TestFlight 에 올리기
+        working-directory: app
+        env:
+          KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          P8: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          mkdir -p ~/private_keys
+          echo "$P8" | base64 --decode > ~/private_keys/AuthKey_"$KEY_ID".p8
+          ipa=$(ls build/ios/ipa/*.ipa | head -1)
+          xcrun altool --upload-app --type ios -f "$ipa" --apiKey "$KEY_ID" --apiIssuer "$ISSUER_ID"
+          {
+            echo "### TestFlight 에 올렸습니다 — ${{ github.event.inputs.version }}"
+            echo ""
+            echo "App Store Connect → TestFlight 에서 처리(10~30분)가 끝나면 테스터에게 갑니다."
+          } >> "$GITHUB_STEP_SUMMARY"

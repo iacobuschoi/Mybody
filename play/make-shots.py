@@ -2,7 +2,10 @@
 """
 play/make-shots.py — 폰 화면 캡처를 플레이 스토어 규격(1080×1920, 9:16)으로
 
-  python3 play/make-shots.py 원본폴더 [출력폴더]
+  python3 play/make-shots.py 원본폴더 [출력폴더] [--size 가로x세로]
+
+--size 를 안 주면 1080×1920(플레이, 9:16). 앱스토어는 기기 크기 그대로 받으므로
+아이폰 6.9″면 --size 1320x2868, 6.5″면 --size 1284x2778 처럼 줍니다.
 
 원본은 어떤 크기든 됩니다(에뮬레이터 1080×2400, 웹 780×1688 …). 각 장을
 9:16 캔버스 안에 **통째로 맞춰** 넣고(둥근 모서리 · 그림자), 남는 자리는
@@ -46,17 +49,18 @@ def caption_for(name):
 def convert(src, dst):
     im = Image.open(src).convert('RGB')
     cap = caption_for(os.path.splitext(os.path.basename(src))[0])
-    top = BAND if cap else 60
+    m = int(60 * W / 1080)
+    top = BAND if cap else m
     # 화면 **전체**를 캔버스 안에 맞춥니다(위 띠와 아래 여백을 뺀 자리). 폰 화면은
     # 9:16 보다 길쭉해서(1080×2400) 그대로 넣으면 아래가 잘립니다 — 잘라 내는 대신
     # 조금 줄여 통째로 보여 주고, 둥근 모서리와 옅은 그림자로 폰처럼 세웁니다.
-    box_w, box_h = W - 2 * 60, H - top - 60
+    box_w, box_h = W - 2 * m, H - top - m
     scale = min(box_w / im.width, box_h / im.height)
     nw, nh = int(im.width * scale), int(im.height * scale)
     im = im.resize((nw, nh), Image.LANCZOS)
     canvas = Image.new('RGB', (W, H), BG)
     x, y = (W - nw) // 2, top + (box_h - nh) // 2
-    radius = 48
+    radius = int(48 * W / 1080)
     # 그림자
     from PIL import ImageFilter
     shadow = Image.new('RGBA', (W, H), (0, 0, 0, 0))
@@ -74,21 +78,26 @@ def convert(src, dst):
     if cap:
         d = ImageDraw.Draw(canvas)
         # 긴 설명은 폭에 맞을 때까지 글자를 줄입니다 — 잘리는 것보다 낫습니다.
-        size = 52
+        size = int(52 * W / 1080)
         while True:
             f = ImageFont.truetype(BOLD, size)
             tw = d.textlength(cap, font=f)
-            if tw <= W - 80 or size <= 34:
+            if tw <= W - 2 * m or size <= 34:
                 break
             size -= 2
         d.text(((W - tw) / 2, (BAND - size) / 2 + 10), cap, font=f, fill=INK)
     canvas.save(dst, optimize=True)
 
 def main():
-    if len(sys.argv) < 2:
+    global W, H, BAND
+    args = [a for a in sys.argv[1:]]
+    if '--size' in args:
+        i = args.index('--size'); W, H = (int(v) for v in args[i + 1].split('x')); del args[i:i + 2]
+        BAND = int(200 * W / 1080)
+    if len(args) < 1:
         print(__doc__); sys.exit(1)
-    src_dir = sys.argv[1]
-    out_dir = sys.argv[2] if len(sys.argv) > 2 else os.path.join(ROOT, 'play', '그림', '스크린샷')
+    src_dir = args[0]
+    out_dir = args[1] if len(args) > 1 else os.path.join(ROOT, 'play', '그림', '스크린샷')
     os.makedirs(out_dir, exist_ok=True)
     n = 0
     for name in sorted(os.listdir(src_dir)):

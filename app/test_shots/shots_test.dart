@@ -36,7 +36,12 @@ import 'package:mybody/src/ui/edge.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 import 'package:shared_preferences/shared_preferences.dart';
 
-const _out = 'build/shots';
+/// 어느 폰 크기로 찍을지 — SHOT_SIZE=가로x세로(물리 픽셀). 기본은 안드로이드 흔한 폰.
+///   플레이:   flutter test test_shots/                              → 1080×2400
+///   앱스토어: flutter test test_shots/ --dart-define=SHOT_SIZE=1320x2868   (아이폰 6.9″)
+const _sizeSpec = String.fromEnvironment('SHOT_SIZE', defaultValue: '1080x2400');
+final _physical = Size(double.parse(_sizeSpec.split('x')[0]), double.parse(_sizeSpec.split('x')[1]));
+final _out = _sizeSpec == '1080x2400' ? 'build/shots' : 'build/shots-$_sizeSpec';
 const _shotKey = Key('shot');
 
 /// 시험 환경은 글꼴을 안 싣습니다 — 전부 네모로 나옵니다. 앱이 선언한 글꼴
@@ -105,8 +110,8 @@ void phone(WidgetTester t) {
      스크린샷엔 진짜 그림자가 필요합니다. 시험이 끝날 때는 되돌려야 합니다 —
      틀이 "디버그 변수를 바꿨다" 고 막습니다. 그래서 각 시험 끝에 restore(). */
   debugDisableShadows = false;
-  // 흔한 폰: 1080×2400, 배율 3 → 논리 360×800.
-  t.view.physicalSize = const Size(1080, 2400);
+  // 흔한 폰: 1080×2400, 배율 3 → 논리 360×800. 아이폰 6.9″: 1320×2868 → 논리 440×956.
+  t.view.physicalSize = _physical;
   t.view.devicePixelRatio = 3.0;
   addTearDown(t.view.reset);
 }
