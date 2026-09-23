@@ -33,7 +33,7 @@ CAPTIONS = [
     ('food',     '오늘 먹은 것과 남은 탄단지'),
     ('progress', '체중 · 골격근 · 체지방 추이'),
     ('social',   '친구와 서로 응원합니다'),
-    ('friend',   '친구에겐 원하는 정보만 공유해요'),
+    ('friend',   '친구와의 스트릭 — 원하는 정보만 공유합니다'),
 ]
 
 def caption_for(name):
@@ -73,9 +73,15 @@ def convert(src, dst):
                                              outline=(210, 208, 230), width=3)
     if cap:
         d = ImageDraw.Draw(canvas)
-        f = ImageFont.truetype(BOLD, 52)
-        tw = d.textlength(cap, font=f)
-        d.text(((W - tw) / 2, (BAND - 52) / 2 + 10), cap, font=f, fill=INK)
+        # 긴 설명은 폭에 맞을 때까지 글자를 줄입니다 — 잘리는 것보다 낫습니다.
+        size = 52
+        while True:
+            f = ImageFont.truetype(BOLD, size)
+            tw = d.textlength(cap, font=f)
+            if tw <= W - 80 or size <= 34:
+                break
+            size -= 2
+        d.text(((W - tw) / 2, (BAND - size) / 2 + 10), cap, font=f, fill=INK)
     canvas.save(dst, optimize=True)
 
 def main():
