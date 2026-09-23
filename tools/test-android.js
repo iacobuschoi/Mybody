@@ -137,8 +137,19 @@ const WF = '.github/workflows/apk.yml';
 if (!E(WF)) no('앱 파일을 만드는 설정이 없습니다: ' + WF);
 else {
   const wf = R(WF);
-  if (/--build-number=\$\{\{\s*github\.run_number\s*\}\}/.test(wf))
-    ok('앱마다 번호가 올라갑니다 (안 올리면 폰이 업데이트로 안 받습니다)');
+  /* 판 번호는 **커밋 수**입니다(git rev-list --count). 실행 번호(run_number)는
+     푸시 빌드와 배포 빌드가 서로 다른 번호를 받아서, 플레이에 한 번 올리면
+     다음 배포가 "번호가 작다" 고 거부됐습니다. 커밋 수는 길이 하나입니다 —
+     단, 얕은 클론이면 언제나 1 이라 fetch-depth: 0 이 같이 있어야 합니다. */
+  const countsCommits = /git rev-list --count HEAD/.test(wf);
+  const usesCount = /--build-number=\$\{\{\s*steps\.vc\.outputs\.code\s*\}\}/.test(wf);
+  const fullClone = /fetch-depth:\s*0/.test(wf);
+  if (countsCommits && usesCount && fullClone)
+    ok('앱마다 번호가 올라갑니다 — 커밋 수, 한 갈래 (안 올리면 폰이 업데이트로 안 받습니다)');
+  else if (/--build-number=\$\{\{\s*github\.run_number\s*\}\}/.test(wf))
+    no('빌드 번호가 실행 번호입니다 — 푸시 빌드와 배포 빌드가 다른 번호를 받아 플레이가 거부합니다');
+  else if (countsCommits && usesCount && !fullClone)
+    no('커밋 수를 쓰는데 fetch-depth: 0 이 없습니다 — 얕은 클론이라 번호가 언제나 1 입니다');
   else no('빌드 번호를 안 올립니다 — 만든 앱이 전부 1번이 됩니다');
 
   /* `secrets` 는 step 의 `if:` 문맥에 없습니다. 쓰면 빌드가 시작도 못 합니다. */
