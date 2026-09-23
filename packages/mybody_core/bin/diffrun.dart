@@ -200,6 +200,9 @@ void main(List<String> args) {
         case 'fooddb.search':
           v = fooddb.search(c['q'], c.containsKey('limit') ? c['limit'] : null);
           break;
+        case 'fooddb.similar':
+          v = fooddb.similar(c['q'], c.containsKey('limit') ? c['limit'] : null);
+          break;
         case 'fooddb.scaled':
           v = fooddb.scaled(fooddb.byName(c['name'])!, c['mult']);
           break;

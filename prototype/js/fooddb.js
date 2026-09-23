@@ -517,6 +517,174 @@
     return out.slice(0, limit || 30).map(function (o) { return o.food; });
   }
 
+  /* ---------------------------------------------------------------------------
+   * similar(q, limit) — 정확히 겹치는 게 없을 때 "비슷한 이름"
+   *
+   * search() 는 글자열 포함만 봅니다. '김치찌게' 처럼 한 글자만 틀려도 0건이라
+   * 사용자는 표에 없는 줄 알고 직접 입력합니다. 그래서 이름을 자모로 풀어서
+   *   partial  자모열 포함         '닭가ㅅ' → 닭가슴살  (받침을 치는 중)
+   *   typo     자모 편집거리 1~2   '김치찌게' → 김치찌개
+   *   chosung  초성만              'ㄷㄱㅅㅅ' → 닭가슴살
+   *   qwerty   한/영 전환을 안 함  'ekfrktmatkf' → 닭가슴살
+   * 네 가지로 잡습니다. 점수는 정수만 씁니다 — Dart 이식본과 글자 단위로
+   * 같아야 해서(tools/difftest.js) 부동소수점을 쓰지 않습니다.
+   * search() 의 동작·순서는 건드리지 않습니다. 화면은 search 가 0건일 때만
+   * 이걸 부릅니다.
+   * ------------------------------------------------------------------------ */
+  var CHO = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+  var VOW = ['ㅏ', 'ㅐ', 'ㅑ', 'ㅒ', 'ㅓ', 'ㅔ', 'ㅕ', 'ㅖ', 'ㅗ', 'ㅗㅏ', 'ㅗㅐ', 'ㅗㅣ', 'ㅛ', 'ㅜ', 'ㅜㅓ', 'ㅜㅔ', 'ㅜㅣ', 'ㅠ', 'ㅡ', 'ㅡㅣ', 'ㅣ'];
+  var JONG = ['', 'ㄱ', 'ㄲ', 'ㄱㅅ', 'ㄴ', 'ㄴㅈ', 'ㄴㅎ', 'ㄷ', 'ㄹ', 'ㄹㄱ', 'ㄹㅁ', 'ㄹㅂ', 'ㄹㅅ', 'ㄹㅌ', 'ㄹㅍ', 'ㄹㅎ', 'ㅁ', 'ㅂ', 'ㅂㅅ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+  /* 겹모음·겹받침은 두 글자로 풉니다. 'ㅘ' 를 한 글자로 두면 'ㅗ' 까지 친
+     중간 상태('과' 를 치는 중의 '고')와 이어지지 않습니다. */
+  var COMPAT = {
+    'ㅘ': 'ㅗㅏ', 'ㅙ': 'ㅗㅐ', 'ㅚ': 'ㅗㅣ', 'ㅝ': 'ㅜㅓ', 'ㅞ': 'ㅜㅔ', 'ㅟ': 'ㅜㅣ', 'ㅢ': 'ㅡㅣ',
+    'ㄳ': 'ㄱㅅ', 'ㄵ': 'ㄴㅈ', 'ㄶ': 'ㄴㅎ', 'ㄺ': 'ㄹㄱ', 'ㄻ': 'ㄹㅁ', 'ㄼ': 'ㄹㅂ', 'ㄽ': 'ㄹㅅ',
+    'ㄾ': 'ㄹㅌ', 'ㄿ': 'ㄹㅍ', 'ㅀ': 'ㄹㅎ', 'ㅄ': 'ㅂㅅ'
+  };
+  /* 두벌식 자판. 대문자는 쌍자음·ㅒㅖ 만 다르고 나머지는 소문자와 같습니다. */
+  var QWERTY = {
+    r: 'ㄱ', s: 'ㄴ', e: 'ㄷ', f: 'ㄹ', a: 'ㅁ', q: 'ㅂ', t: 'ㅅ', d: 'ㅇ', w: 'ㅈ', c: 'ㅊ',
+    z: 'ㅋ', x: 'ㅌ', v: 'ㅍ', g: 'ㅎ',
+    k: 'ㅏ', o: 'ㅐ', i: 'ㅑ', j: 'ㅓ', p: 'ㅔ', u: 'ㅕ', h: 'ㅗ', y: 'ㅛ', n: 'ㅜ', b: 'ㅠ', m: 'ㅡ', l: 'ㅣ',
+    R: 'ㄲ', E: 'ㄸ', Q: 'ㅃ', T: 'ㅆ', W: 'ㅉ', O: 'ㅒ', P: 'ㅖ'
+  };
+
+  /* 소문자화하고 공백·괄호·구분 기호를 뺍니다. '삼겹살 구이' 와 '삼겹살구이',
+     '프로틴 바' 와 '프로틴바(일반)' 이 같은 줄에 서게 하려고요. */
+  function normalize(s) {
+    return String(s == null ? '' : s).toLowerCase().replace(/[\s·()\/,.\-+&'"]/g, '');
+  }
+
+  /* 완성형 한 글자 → 초성·중성·종성 자모열. 한글이 아닌 글자는 그대로. */
+  function jamo(s) {
+    var n = normalize(s), out = '';
+    for (var i = 0; i < n.length; i++) {
+      var ch = n.charAt(i), c = n.charCodeAt(i);
+      if (c >= 0xAC00 && c <= 0xD7A3) {
+        var idx = c - 0xAC00;
+        var L = Math.floor(idx / 588), V = Math.floor((idx % 588) / 28), T = idx % 28;
+        out += CHO[L] + VOW[V] + (T > 0 ? JONG[T] : '');
+      } else if (c >= 0x3131 && c <= 0x3163) {
+        out += COMPAT[ch] || ch;
+      } else {
+        out += ch;
+      }
+    }
+    return out;
+  }
+
+  /* 영문 자판 그대로 친 것을 자모열로. 겹모음은 이미 두 키로 쳐지므로 그대로.
+     자판에 없는 글자(공백 포함)는 버립니다. */
+  function qwertyJamo(s) {
+    var t = String(s == null ? '' : s).trim(), out = '';
+    for (var i = 0; i < t.length; i++) {
+      var ch = t.charAt(i);
+      var j = QWERTY[ch] || QWERTY[ch.toLowerCase()];
+      if (j) out += j;
+    }
+    return out;
+  }
+
+  function isChosung(q) {
+    var n = normalize(q);
+    if (n.length < 2) return false;
+    for (var i = 0; i < n.length; i++) if (CHO.indexOf(n.charAt(i)) < 0) return false;
+    return true;
+  }
+  function chosung(text) {
+    var n = normalize(text), out = '';
+    for (var i = 0; i < n.length; i++) {
+      var c = n.charCodeAt(i);
+      out += (c >= 0xAC00 && c <= 0xD7A3) ? CHO[Math.floor((c - 0xAC00) / 588)] : n.charAt(i);
+    }
+    return out;
+  }
+
+  /* a 를 b 의 부분 문자열에 맞추는 편집 거리(Sellers). 첫 행이 0 이라 b 의
+     어디서 시작해도 되고, 마지막 행의 최솟값을 취해 어디서 끝나도 됩니다.
+     인접 두 글자 바꿈은 1 로 칩니다 — 자판에서 제일 흔한 실수라서. */
+  function dist(a, b) {
+    var m = a.length, n = b.length, i, j;
+    if (m === 0) return 0;
+    var p2 = null, p1 = [], cur;
+    for (j = 0; j <= n; j++) p1.push(0);
+    for (i = 1; i <= m; i++) {
+      cur = [i];
+      for (j = 1; j <= n; j++) {
+        var v = p1[j - 1] + (a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1);
+        if (p1[j] + 1 < v) v = p1[j] + 1;
+        if (cur[j - 1] + 1 < v) v = cur[j - 1] + 1;
+        if (i >= 2 && j >= 2 &&
+            a.charCodeAt(i - 1) === b.charCodeAt(j - 2) &&
+            a.charCodeAt(i - 2) === b.charCodeAt(j - 1) &&
+            p2[j - 2] + 1 < v) v = p2[j - 2] + 1;
+        cur.push(v);
+      }
+      p2 = p1; p1 = cur;
+    }
+    var r = p1[0];
+    for (j = 1; j <= n; j++) if (p1[j] < r) r = p1[j];
+    return r;
+  }
+
+  /* 텍스트 하나(이름 또는 별명 토큰)의 점수. 포함이 편집거리보다 위입니다 —
+     치는 중인 글자는 항상 포함으로 잡혀야 목록이 흔들리지 않습니다. */
+  function scoreText(qj, text) {
+    var tj = jamo(text);
+    if (tj.indexOf(qj) >= 0) return { s: 90, why: 'partial' };
+    if (qj.length >= 4) {
+      var d = dist(qj, tj), maxD = Math.floor(qj.length / 4);
+      if (maxD < 1) maxD = 1;
+      if (d <= maxD) return { s: 80 - d * 10, why: 'typo' };
+    }
+    return { s: 0, why: '' };
+  }
+
+  /** 비슷한 이름 — [{name, score, why}] 를 score 내림차순으로, 최대 limit(기본 8) 개 */
+  function similar(q, limit) {
+    var raw = String(q == null ? '' : q).trim();
+    var qn = normalize(raw), qj = jamo(raw);
+    var cands = [{ j: qj, tag: null }];
+    if (/^[A-Za-z]+$/.test(raw)) {
+      var qq = qwertyJamo(raw);
+      if (qq.length >= 2) cands.push({ j: qq, tag: 'qwerty' });
+    }
+    if (qj.length < 2 && cands.length < 2) return [];
+    var cho = isChosung(raw);
+    var out = [], i, k, c, v;
+    for (i = 0; i < FOODS.length; i++) {
+      var x = FOODS[i], best = 0, why = '';
+      var texts = [{ t: x.name, bonus: 2 }];   // 이름이 별명보다 2점 위 — 같은 점수면 이름이 먼저
+      var toks = String(x.alias || '').split(/\s+/);
+      for (k = 0; k < toks.length; k++) if (toks[k]) texts.push({ t: toks[k], bonus: 0 });
+      for (c = 0; c < cands.length; c++) {
+        for (k = 0; k < texts.length; k++) {
+          var r = scoreText(cands[c].j, texts[k].t);
+          if (r.s > 0) {
+            v = r.s + texts[k].bonus;
+            if (v > best) { best = v; why = cands[c].tag ? 'qwerty' : r.why; }
+          }
+        }
+      }
+      if (cho) {
+        for (k = 0; k < texts.length; k++) {
+          if (chosung(texts[k].t).indexOf(qn) >= 0) {
+            v = 85 + texts[k].bonus;
+            if (v > best) { best = v; why = 'chosung'; }
+          }
+        }
+      }
+      if (best >= 50) out.push({ name: x.name, score: best, why: why, len: normalize(x.name).length, i: i });
+    }
+    /* 점수 → 짧은 이름 → 표 순서. 언어 기본 정렬의 안정성에 기대지 않습니다. */
+    out.sort(function (a, b) {
+      if (a.score !== b.score) return b.score - a.score;
+      if (a.len !== b.len) return a.len - b.len;
+      return a.i - b.i;
+    });
+    return out.slice(0, limit || 8).map(function (o) { return { name: o.name, score: o.score, why: o.why }; });
+  }
+
   function byCat(cat) {
     return FOODS.filter(function (x) { return x.cat === cat; });
   }
@@ -540,6 +708,6 @@
 
   global.MB_FOOD = {
     FOODS: FOODS, CATS: CATS, PORTIONS: PORTIONS, CONF_LABEL: CONF_LABEL,
-    search: search, byCat: byCat, byName: byName, scaled: scaled
+    search: search, similar: similar, byCat: byCat, byName: byName, scaled: scaled
   };
 })(typeof window !== 'undefined' ? window : globalThis);

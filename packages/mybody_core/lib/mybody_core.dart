@@ -11,7 +11,7 @@ export 'crosscheck.dart' show run;
 export 'data.dart';
 export 'engine.dart'
     hide snapshot, lerp, modeLookup;
-export 'fooddb.dart' hide search, scaled, byCat, byName;
+export 'fooddb.dart' hide search, similar, scaled, byCat, byName;
 export 'js_date.dart';
 export 'js_num.dart';
 export 'modes.dart' hide fill, select, whyNot, alternativesFor, byId, forDisplay;
@@ -38,6 +38,7 @@ final modeForDisplay = _modes.forDisplay;
 final modeFill = _modes.fill;
 
 final foodSearch = _fooddb.search;
+final foodSimilar = _fooddb.similar;
 final foodByCat = _fooddb.byCat;
 final foodByName = _fooddb.byName;
 final foodScaled = _fooddb.scaled;

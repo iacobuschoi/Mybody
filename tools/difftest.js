@@ -312,8 +312,81 @@ function storeCase(rnd) {
  * 같은 조합이 흔해서 **정렬이 안정적인지**가 결과를 가릅니다. 그래서
  * 남은 칼로리를 넓게 흔들어 후보가 많이 생기는 구간을 밟습니다.
  * -------------------------------------------------------------------------- */
+/* --- 비슷한 이름 찾기용 사례 -----------------------------------------------
+ *
+ * similar 는 자모 포함·자모 편집거리·초성·두벌식 영문 네 경로가 있습니다.
+ * 이름을 그대로 넣으면 포함 경로만 밟고 끝납니다. 그래서 표의 이름을
+ * 일부러 비틉니다 — 한 글자 빼기, 이웃 두 글자 바꾸기, 아무 음절로 치환,
+ * 마지막 음절만 초성으로, 전부 초성으로, 한/영 키를 안 누른 채 친 것.
+ * 편집거리는 자모열 위에서 돌기 때문에 겹모음·겹받침(두 자모)이 낀 이름이
+ * 특히 갈리기 쉬운 자리입니다 — 그 자리를 밟으려고 음절을 무작위로 뽑습니다.
+ * -------------------------------------------------------------------------- */
+const SIM_CHO = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+/* 두벌식 역매핑: 초성·중성·종성 → 키. 겹모음·겹받침은 두 키로 쳐집니다. */
+const SIM_CHOK = ['r', 'R', 's', 'e', 'E', 'f', 'a', 'q', 'Q', 't', 'T', 'd', 'w', 'W', 'c', 'z', 'x', 'v', 'g'];
+const SIM_VOWK = ['k', 'o', 'i', 'O', 'j', 'p', 'u', 'P', 'h', 'hk', 'ho', 'hl', 'y', 'n', 'nj', 'np', 'nl', 'b', 'm', 'ml', 'l'];
+const SIM_JONGK = ['', 'r', 'R', 'rt', 's', 'sw', 'sg', 'e', 'f', 'fr', 'fa', 'fq', 'ft', 'fx', 'fv', 'fg', 'a', 'q', 'qt', 't', 'T', 'd', 'w', 'c', 'z', 'x', 'v', 'g'];
+const SIM_JUNK = 'abcdefghijklmnopqrstuvwxyzXYZ ·()/,.-+&\'"0123456789ㄱㄴㄷㅅㅏㅓㅘㄳ';
+
+function simIsSyl(ch) { const c = ch.charCodeAt(0); return c >= 0xAC00 && c <= 0xD7A3; }
+function simKeys(s) {
+  let out = '';
+  for (const ch of s) {
+    if (simIsSyl(ch)) {
+      const idx = ch.charCodeAt(0) - 0xAC00;
+      out += SIM_CHOK[Math.floor(idx / 588)] + SIM_VOWK[Math.floor((idx % 588) / 28)] + SIM_JONGK[idx % 28];
+    } else if (/[A-Za-z]/.test(ch)) out += ch;
+  }
+  return out;
+}
+function simChosung(ch) { return SIM_CHO[Math.floor((ch.charCodeAt(0) - 0xAC00) / 588)]; }
+
+function similarCase(rnd, F) {
+  const names = F.FOODS.map(x => x.name);
+  const pick = names[(rnd() * names.length) | 0];
+  const chars = Array.from(pick);
+  const r = rnd();
+  let q;
+  if (r < 0.08) {                                          // (a) 그대로
+    q = pick;
+  } else if (r < 0.16) {                                   // (b) 앞 1~3글자
+    q = chars.slice(0, 1 + ((rnd() * 3) | 0)).join('');
+  } else if (r < 0.26) {                                   // (c) 한 글자 삭제
+    if (chars.length > 1) chars.splice((rnd() * chars.length) | 0, 1);
+    q = chars.join('');
+  } else if (r < 0.36) {                                   // (d) 인접 두 글자 교환
+    if (chars.length > 1) {
+      const at = (rnd() * (chars.length - 1)) | 0;
+      const t = chars[at]; chars[at] = chars[at + 1]; chars[at + 1] = t;
+    }
+    q = chars.join('');
+  } else if (r < 0.48) {                                   // (e) 한 글자를 아무 음절로
+    chars[(rnd() * chars.length) | 0] = String.fromCharCode(0xAC00 + ((rnd() * 11172) | 0));
+    q = chars.join('');
+  } else if (r < 0.56) {                                   // (f) 마지막 음절만 초성으로
+    for (let k = chars.length - 1; k >= 0; k--) {
+      if (simIsSyl(chars[k])) { chars[k] = simChosung(chars[k]); break; }
+    }
+    q = chars.join('');
+  } else if (r < 0.64) {                                   // (g) 전부 초성으로
+    q = chars.filter(simIsSyl).map(simChosung).join('');
+  } else if (r < 0.82) {                                   // (h) 두벌식 영문 자판으로 친 것
+    q = simKeys(pick);
+    if (rnd() < 0.25) q = q.slice(0, Math.max(1, q.length - 1 - ((rnd() * 2) | 0)));  // 키를 덜 친 것
+  } else if (r < 0.94) {                                   // (i) 쓰레기
+    const len = 1 + ((rnd() * 7) | 0);
+    q = '';
+    for (let k = 0; k < len; k++) q += SIM_JUNK.charAt((rnd() * SIM_JUNK.length) | 0);
+  } else {                                                 // (j) 빈 것
+    q = ['', ' ', '   ', '\t'][(rnd() * 4) | 0];
+  }
+  if (rnd() < 0.1) q = ' ' + q + ' ';                       // 앞뒤 공백은 trim 으로 지워져야 합니다
+  return { q: q, limit: rnd() < 0.3 ? 1 + ((rnd() * 10) | 0) : undefined };
+}
+
 function foodCase(rnd, module) {
   const F = loadJs('fooddb');
+  if (module === 'fooddb.similar') return similarCase(rnd, F);
   if (module === 'fooddb.search') {
     const names = F.FOODS.map(x => x.name);
     const pick = names[(rnd() * names.length) | 0];
@@ -723,6 +796,7 @@ function jsCaller(module) {
   if (module.indexOf('fooddb.') === 0) {
     const F = loadJs('fooddb');
     if (module === 'fooddb.search') return c => F.search(c.q, c.limit);
+    if (module === 'fooddb.similar') return c => F.similar(c.q, c.limit);
     if (module === 'fooddb.scaled') return c => F.scaled(F.byName(c.name), c.mult);
     throw new Error('모르는 모듈: ' + module);
   }
@@ -884,6 +958,7 @@ const MODULES = [
   { name: 'engine.planDrift',         gen: makePlanCases, cap: 40 },
   { name: 'engine.buildPlan',         gen: makePlanCases, cap: 10 },
   { name: 'fooddb.search',            gen: makePlanCases },
+  { name: 'fooddb.similar',           gen: makePlanCases },
   { name: 'fooddb.scaled',            gen: makePlanCases },
   { name: 'suggest.suggestSnack',     gen: makePlanCases, cap: 300 },
   { name: 'suggest.suggestEatOut',    gen: makePlanCases, cap: 300 },
