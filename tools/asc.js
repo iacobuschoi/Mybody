@@ -35,18 +35,23 @@ const API = 'https://api.appstoreconnect.apple.com';
 
 /* --- 열쇠 --------------------------------------------------------------- */
 function loadKeyPem(env) {
-  const raw = (env.ASC_KEY_P8 || '').trim();
-  if (raw.includes('-----BEGIN')) return raw + '\n';
-  const b64 = (env.ASC_KEY_P8_BASE64 || '').trim();
-  if (b64) {
-    const dec = Buffer.from(b64, 'base64').toString('utf8').trim();
-    if (dec.includes('-----BEGIN')) return dec + '\n';
-    /* base64 를 한 번 더 감쌌거나, PEM 머리 없이 본문만 넣은 경우 */
-    if (raw) return raw + '\n';
-    return '-----BEGIN PRIVATE KEY-----\n' + b64.replace(/\s+/g, '').replace(/(.{64})/g, '$1\n') +
-      '\n-----END PRIVATE KEY-----\n';
+  /* 윈도우 메모장에서 복사하면 앞에 BOM(\uFEFF)·공백·\r 이 붙습니다. 깃허브 Secrets 에
+     붙일 때 머리/꼬리 줄을 빼먹기도 합니다. 어느 쪽이든 본문(base64)만 뽑아 다시
+     감쌉니다. */
+  const clean = x => String(x || '').replace(/^\uFEFF/, '').replace(/\r/g, '').trim();
+  let raw = clean(env.ASC_KEY_P8);
+  const b64 = clean(env.ASC_KEY_P8_BASE64);
+  if (!raw && b64) {
+    const dec = clean(Buffer.from(b64.replace(/\s+/g, ''), 'base64').toString('utf8'));
+    raw = dec.includes('BEGIN') ? dec : b64;
   }
-  throw new Error('ASC_KEY_P8 (PEM) 또는 ASC_KEY_P8_BASE64 가 필요합니다');
+  if (!raw) throw new Error('ASC_KEY_P8 (PEM) 또는 ASC_KEY_P8_BASE64 가 필요합니다');
+  const body = raw.replace(/-----(BEGIN|END)[^-]*-----/g, '').replace(/[^A-Za-z0-9+/=]/g, '');
+  if (body.length < 100) throw new Error('ASC_KEY_P8 에 열쇠 본문이 없습니다 (.p8 파일 내용 전체를 붙여 넣으세요)');
+  const pem = '-----BEGIN PRIVATE KEY-----\n' + body.replace(/(.{64})/g, '$1\n').replace(/\n$/, '') +
+    '\n-----END PRIVATE KEY-----\n';
+  crypto.createPrivateKey(pem);   // 열쇠로 안 읽히면 여기서 바로 멈춥니다
+  return pem;
 }
 
 const b64url = b => Buffer.from(b).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
@@ -202,6 +207,14 @@ function arg(argv, k, d) {
 
 async function main(argv, env) {
   const cmd = argv[0];
+  if (cmd === 'write-key') {
+    /* 워크플로가 altool 용 AuthKey_<id>.p8 을 이걸로 씁니다 — 붙여 넣은 값을 정리해서. */
+    const out = argv[1];
+    if (!out) { console.error('사용법: node tools/asc.js write-key <파일>'); return 2; }
+    fs.writeFileSync(out, loadKeyPem(env), { mode: 0o600 });
+    console.log('API 키 파일을 썼습니다 (열쇠로 읽히는 것 확인)');
+    return 0;
+  }
   if (cmd !== 'prepare' && cmd !== 'list') {
     console.error('사용법: node tools/asc.js prepare --bundle <id> --csr <csr.pem> --out <dir> [--profile <이름>] [--github-env <file>]\n' +
                   '        node tools/asc.js list');
