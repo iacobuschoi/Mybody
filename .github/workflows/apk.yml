@@ -86,6 +86,13 @@ jobs:
           n=$(git rev-list --count HEAD)
           echo "code=$n" >> "$GITHUB_OUTPUT"
           echo "versionCode $n"
+          # 판 이름: 태그(v1.2.3)로 만들 때는 태그에서, 아니면 pubspec.yaml 에서.
+          # v0.2.4 태그가 pubspec 의 0.2.3 으로 나간 적이 있습니다.
+          ref="${GITHUB_REF_NAME:-}"
+          if [[ "$ref" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then name="${BASH_REMATCH[1]}"
+          else name=$(sed -n 's/^version:[[:space:]]*\([0-9.]*\).*/\1/p' app/pubspec.yaml); fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "versionName $name"
 
       # AGP 8.11 / Gradle 8.14 가 도는 자바입니다. 기계 기본값은 그때그때
       # 달라지므로 **손으로 고릅니다.**
@@ -182,6 +189,7 @@ jobs:
         run: |
           flutter build apk --release \
             --build-number=${{ steps.vc.outputs.code }} \
+            --build-name=${{ steps.vc.outputs.name }} \
             --target-platform android-arm,android-arm64 \
             --split-debug-info=build/symbols \
             --dart-define=SERVER_URL="$SERVER_URL"
@@ -197,6 +205,7 @@ jobs:
         run: |
           flutter build appbundle --release \
             --build-number=${{ steps.vc.outputs.code }} \
+            --build-name=${{ steps.vc.outputs.name }} \
             --split-debug-info=build/symbols \
             --dart-define=SERVER_URL="$SERVER_URL"
 

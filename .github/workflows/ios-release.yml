@@ -185,7 +185,10 @@ jobs:
           SERVER_URL: ${{ secrets.MYBODY_SERVER_URL }}
         run: |
           flutter pub get
-          flutter build ipa --release \
+          # 판 이름은 실행할 때 넣은 v1.2.3 에서 — 안 맞으면 pubspec.yaml 그대로.
+          v="${{ github.event.inputs.version }}"; v="${v#v}"
+          if [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then bn="--build-name=$v"; else bn=""; fi
+          flutter build ipa --release $bn \
             --build-number=$(git rev-list --count HEAD) \
             --export-options-plist="$RUNNER_TEMP/export.plist" \
             --dart-define=SERVER_URL="$SERVER_URL"
