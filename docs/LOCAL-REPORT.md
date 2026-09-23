@@ -131,3 +131,34 @@ aab=$(find app/build -path '*outputs/bundle/release/*' -name '*.aab' | head -1)
 - 서버와 에뮬레이터는 켜 둡니다. 심사 기간에는 `node tools/launch.js` 가 계속 떠 있어야 심사자가 로그인됩니다.
 
 **13 끝 · 14 끝.** (스크린샷은 새로 안 찍고 저장소 것을 그대로 썼습니다.)
+
+---
+
+# 덧붙임 — 2026-09-23 19:15 KST (v0.2.4 확인 · 폴더 새로 맞춤)
+
+보고(64c4294) 뒤에 클라우드가 고친 것을 노트북에서 확인했습니다.
+
+- **apk.yml 고쳐졌습니다** — 225행이 `find app/build -path '*outputs/bundle/release/*' -name '*.aab'`.
+- **v0.2.4 AAB 는 제대로 서명됐습니다** — `mybody-v0.2.4-playstore.aab` **32,274,749 B**,
+  `keytool -printcert -jarfile` → Owner `CN=Mybody, O=Mybody, C=KR`,
+  SHA256 **06:D9:45:A3:…:83:DE:11**. v0.2.4 APK 도 apksigner 로 같은 지문 확인.
+- **에뮬레이터** — v0.2.4 APK 를 `adb install -r` 로 덮어 깔고 켰습니다.
+  primaryCpuAbi=arm64-v8a · versionCode **236** · 로그인 상태·기록 그대로 홈이 열림 ·
+  logcat 에 UnsatisfiedLinkError·FATAL 없음.
+- **바탕화면 폴더 새로 맞췄습니다** (`C:\Users\user\Desktop\Mybody-플레이`) —
+  저장소의 새 README.md · 등록정보.md · 앱-콘텐츠.md · 그림/ 으로 덮고,
+  **`mybody-v0.2.4-playstore.aab`** 를 넣었습니다. 어제 임시로 넣었던
+  `mybody-build51-playstore.aab` 와 `서명안된것-쓰지마세요/` 는 치웠습니다.
+  `계정.txt` 는 그대로입니다(playreview · emutest1).
+- 폴더에 **주인이 이미 작업한 흔적**이 있습니다 — `pepk.jar` · `encryption_public_key.pem` ·
+  **`mybody-pepk.zip`**(4,406 B). README 2번(Play 앱 서명 등록)을 진행 중인 것으로 보입니다.
+
+## 하나 안 맞는 것 — v0.2.4 인데 앱 안에는 **0.2.3** 으로 찍힙니다
+
+v0.2.4 태그는 **27dba08** 에 걸렸고, 「판 이름을 태그에서」(9dfdd10)는 **그 뒤** 커밋입니다.
+그래서 이 빌드의 versionName 은 pubspec 값 그대로 **0.2.3** 입니다(versionCode 236 은 정상).
+
+- 플레이는 versionCode 만 보고, 스토어에 보이는 판 번호는 콘솔에서 따로 적으므로 **업로드는 막히지 않습니다.**
+- 다만 앱 설정 맨 아래와 콘솔의 내부 테스트 목록에 "0.2.3" 으로 뜹니다.
+  `등록정보.md`·`앱-콘텐츠.md` 에는 판 번호가 안 적혀 있어서 글과 어긋나지는 않습니다.
+- 신경 쓰이면 9dfdd10 이후로 태그를 다시 끊으면 맞습니다(주인은 그대로 올려도 됩니다).
