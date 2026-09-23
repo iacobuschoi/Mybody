@@ -204,9 +204,10 @@
           ]));
           if (drift.recommendChange) {
             card.appendChild(h('div.btn-row', { style: { marginTop: '8px' } }, [
-              h('button.btn.btn--sm.btn--primary', { text: '계획 다시 세우기',
+              /* 플랜 탭(P07)에는 다시 세우는 기능이 없습니다 — 목표 화면으로. */
+              h('button.btn.btn--sm.btn--primary', { text: '목표·기간 다시 정하기',
                 uid: 'P02-B12', uidLabel: '계획 재조정',
-                onClick: function () { A.go('P07'); } }),
+                onClick: function () { A.go('P05'); } }),
               h('button.btn.btn--sm', { text: '왜?', uid: 'P02-B13', uidLabel: '재조정 이유',
                 onClick: function () { explainDrift(drift, base, plan, projected); } })
             ]));

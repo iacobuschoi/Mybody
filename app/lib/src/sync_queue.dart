@@ -130,6 +130,21 @@ class SyncQueue {
     unawaited(flush());
   }
 
+  /// 못 보낸 일을 **전부 버립니다.** 「이 기기에서 전부 지우기」만 씁니다.
+  ///
+  /// 큐에는 기록 사본(syncState)이 통째로 들어 있을 수 있습니다. 남겨 두면
+  /// 이 기기를 넘겨받은 사람이 로그인하는 순간 **지운 사람의 기록이 그
+  /// 계정으로 올라갑니다.** 보내는 중인 일은 자리가 아니라 그 일 자체로
+  /// 지우므로(위 (가)), 도중에 비워도 엉뚱한 것이 지워지지 않습니다.
+  void clear() {
+    _retry?.cancel();
+    _retry = null;
+    _retryIn = _retryStart;
+    _queue.clear();
+    _save();
+    _emit();
+  }
+
   /// 다시 보내면 될 수도 있는 거절. **큐에서 버리면 안 됩니다.**
   static bool _retryable(int status) => status == 429 || status == 408;
 

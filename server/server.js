@@ -639,6 +639,10 @@ async function handleApi(req, res, url) {
   if (p === '/me' && method === 'GET') return send(res, 200, { ok: true, user: api.me(me), stats: api.stats(me) });
   if (p === '/me' && method === 'PATCH') return send(res, 200, { ok: true, user: api.updateMe(me, await readBody(req)) });
   if (p === '/me' && method === 'DELETE') { api.deleteMe(me); return send(res, 200, { ok: true }); }
+  if (p === '/me/consent' && method === 'POST') {
+    const r = api.consent(me, await readBody(req));
+    return send(res, r.ok ? 200 : 400, r);
+  }
 
   if (p === '/friends' && method === 'GET') return send(res, 200, { ok: true, friends: api.listFriends(me) });
   if (p === '/friends/request' && method === 'POST') {

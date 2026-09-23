@@ -165,4 +165,116 @@ void main() {
     await t.pumpAndSettle();
     expect(done, isTrue);
   });
+
+  /* --- 옛 판으로 동의한 계정에 다시 묻기 -------------------------------------
+   * 판을 올려도 서버가 확인하는 곳은 가입뿐이라, 이미 가입한 사람은 옛 문구
+   * ("주간 요약만 올라간다 · 로그인 없이 써도 된다")에 동의한 채로 기록
+   * 사본이 계속 올라갔습니다. */
+  group('다시 묻기', () {
+    const old = '2026-09-22';
+
+    test('서버가 현재 판을 알려 주고 내 판이 옛 판일 때만 묻는다', () {
+      expect(needsReconsent({'healthConsentVersion': old,
+          'healthConsentCurrent': kHealthConsentVersion}), isTrue);
+      expect(needsReconsent({'healthConsentVersion': kHealthConsentVersion,
+          'healthConsentCurrent': kHealthConsentVersion}), isFalse);
+      /* 옛 서버 — 현재 판을 안 알려 줍니다. 물으면 보낼 곳이 없습니다. */
+      expect(needsReconsent({'healthConsentVersion': old}), isFalse);
+      /* 서버가 이 앱보다 새 판 — 이 앱에는 그 문구가 없습니다. */
+      expect(needsReconsent({'healthConsentVersion': old,
+          'healthConsentCurrent': '2099-01-01'}), isFalse);
+      expect(needsReconsent(null), isFalse);
+    });
+
+    Future<Api> signedIn(http.Client c) async {
+      final api = Api(baseUrl: 'https://x.test', client: c);
+      await api.setToken('tok');
+      return api;
+    }
+
+    Map<String, Object> me(String? v, {bool current = true}) => {
+      'ok': true,
+      'user': {
+        'healthConsentVersion': v,
+        if (current) 'healthConsentCurrent': kHealthConsentVersion,
+      },
+    };
+
+    testWidgets('옛 판이면 새 문구를 보여 주고, 동의하면 새 판을 보내고 앱으로 간다', (t) async {
+      final seen = <String>[];
+      final sent = <String, Object?>{};
+      final api = await signedIn(fake({
+        '/me': me(old),
+        '/me/consent': me(kHealthConsentVersion),
+      }, seen: seen, sentTo: sent));
+      await t.pumpWidget(wrap(ConsentGate(api: api, child: const Text('앱 본체'))));
+      await t.pumpAndSettle();
+
+      expect(find.text('동의 문구가 바뀌었습니다'), findsOneWidget);
+      expect(find.text('앱 본체'), findsNothing);
+      expect(find.textContaining('내 계정에도 저장됩니다'), findsOneWidget);
+      /* 체크 전에는 못 넘어갑니다. */
+      expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '동의하고 계속'))
+          .onPressed, isNull);
+
+      await t.tap(find.text('동의합니다'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('동의하고 계속'));
+      await t.pumpAndSettle();
+
+      expect(seen, contains('POST /me/consent'));
+      expect(sent['healthConsent'], kHealthConsentVersion);
+      expect(find.text('앱 본체'), findsOneWidget);
+    });
+
+    testWidgets('동의하지 않으면 로그아웃하고 로그인 없이 이어 간다', (t) async {
+      final api = await signedIn(fake({'/me': me(old), '/auth/signout': {'ok': true}}));
+      var declined = false;
+      await t.pumpWidget(wrap(ConsentGate(
+          api: api, onDecline: () => declined = true, child: const Text('앱 본체'))));
+      await t.pumpAndSettle();
+      await t.tap(find.text('동의하지 않고 로그인 없이 쓰기'));
+      await t.pumpAndSettle();
+      expect(api.signedIn, isFalse);
+      expect(declined, isTrue, reason: '셸이 「로그인 없이 쓰기」로 넘기게 알려야 합니다');
+    });
+
+    testWidgets('이미 새 판이면 안 묻는다', (t) async {
+      final api = await signedIn(fake({'/me': me(kHealthConsentVersion)}));
+      await t.pumpWidget(wrap(ConsentGate(api: api, child: const Text('앱 본체'))));
+      await t.pumpAndSettle();
+      expect(find.text('앱 본체'), findsOneWidget);
+      expect(find.text('동의 문구가 바뀌었습니다'), findsNothing);
+    });
+
+    testWidgets('서버가 안 닿으면 막지 않는다', (t) async {
+      /* 지하철에서 켰다고 앱이 잠기면 안 됩니다. */
+      final api = await signedIn(fake({}));
+      await t.pumpWidget(wrap(ConsentGate(api: api, child: const Text('앱 본체'))));
+      await t.pumpAndSettle();
+      expect(find.text('앱 본체'), findsOneWidget);
+    });
+
+    testWidgets('옛 서버(현재 판을 안 알려 줌)면 안 묻는다', (t) async {
+      final api = await signedIn(fake({'/me': me(old, current: false)}));
+      await t.pumpWidget(wrap(ConsentGate(api: api, child: const Text('앱 본체'))));
+      await t.pumpAndSettle();
+      expect(find.text('앱 본체'), findsOneWidget);
+    });
+  });
+
+  testWidgets('가입 동의 문구가 실제 동작과 같다 — 기록 전체 동기화, 거부해도 로그인 없이', (t) async {
+    /* 예전 문구: "가장 최근 측정만 · 52주까지만". 동기화가 생긴 뒤로는 기록
+       전체가 계정을 지울 때까지 남습니다. 거부하면 「로그인 없이 쓰기」가
+       있으니 그 길을 말합니다. */
+    await open(t, Api(baseUrl: 'https://x.test',
+        client: fake({'/health': {'ok': true, 'openSignup': true}})));
+    await t.tap(find.text('처음이에요'));
+    await t.pumpAndSettle();
+    expect(find.textContaining('내 계정에도 저장됩니다(동기화)'), findsOneWidget);
+    expect(find.textContaining('로그인 없이 계속 쓸 수 있습니다'), findsOneWidget);
+    expect(find.textContaining('결과지 사진은 올라가지 않습니다'), findsOneWidget);
+    expect(find.textContaining('가장 최근 측정'), findsNothing);
+    expect(find.text('자세히 — 개인정보처리방침'), findsOneWidget);
+  });
 }

@@ -95,9 +95,11 @@ PORT=3000 DB=~/mybody.db ORIGIN=https://mybody.example.com node server/server.js
 - **건강정보 별도 동의** 가 있어야 계정이 만들어집니다. 로그인하면 친구가
   하나도 없어도 주간 요약(체중·골격근량·체지방량·체지방률)이 서버에
   저장되므로, 가입이 곧 업로드 동의가 됩니다. 그래서 계정 동의와 섞지 않고
-  따로 받습니다 — `signUp` 은 `healthConsent` 가 현재 문구 판(`HEALTH_CONSENT_VERSION`)과
-  같을 때만 통과합니다. 동의 시각과 판은 `users.consent_health_at` ·
-  `consent_version` 에 남고, 본인은 `/api/me` 에서 볼 수 있습니다.
+  따로 받습니다 — `signUp` 은 `healthConsent` 가 받아 주는 판(`ACCEPTED_CONSENT_VERSIONS`:
+  현재 판 `HEALTH_CONSENT_VERSION` 과, 이미 깔린 앱이 보내는 옛 판)일 때만 통과하고,
+  **받은 판을 그대로** 적습니다. 동의 시각과 판은 `users.consent_health_at` ·
+  `consent_version` 에 남고, 본인은 `/api/me` 에서 볼 수 있습니다(`healthConsentCurrent` 가
+  서버의 현재 판). 앱은 켤 때 둘이 다르면 새 문구를 보여 주고 `POST /api/me/consent` 로 다시 받습니다.
   문구를 고치면 판을 올리세요 — 옛 판으로 동의한 사람에게 다시 물어야 합니다.
 - 로그인 실패는 아이디별로 15분에 8번까지입니다. 무차별 대입을 막습니다.
 - 세션은 90일 뒤 만료됩니다. 비밀번호를 바꾸면 다른 기기가 전부 로그아웃됩니다 —
@@ -196,6 +198,7 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 | `GET` | `/api/me` | 내 정보 + 기록 수 |
 | `PATCH` | `/api/me` | `{displayName}` |
 | `DELETE` | `/api/me` | 계정 삭제 (친구·공유·스냅샷·기록 연쇄 삭제) |
+| `POST` | `/api/me/consent` | `{healthConsent}` 현재 판으로 건강정보 동의를 다시 받음 → `{user}` |
 | `GET` | `/api/friends` | 친구 · 받은 요청 · 보낸 요청 · 차단 |
 | `POST` | `/api/friends/request` | `{inviteCode}` |
 | `POST` | `/api/friends/accept` | `{userId}` |

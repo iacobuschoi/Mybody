@@ -239,7 +239,7 @@
 
   /* 건강정보 업로드 동의 문구의 판. server/db.js 의 같은 이름과
      값이 맞아야 합니다 — 서버가 이 값을 보고 동의를 판정합니다. */
-  var HEALTH_CONSENT_VERSION = '2026-09-22';
+  var HEALTH_CONSENT_VERSION = '2026-09-23';
 
   function signUp(o) {
     return api('/auth/signup', { method: 'POST', body: {

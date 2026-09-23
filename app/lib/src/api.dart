@@ -194,6 +194,10 @@ class Api extends ChangeNotifier {
   }
 
   Future<ApiResult> me() => _send('GET', '/me');
+
+  /// 옛 판으로 동의한 계정이 새 판에 다시 동의합니다 (account.dart ConsentGate).
+  Future<ApiResult> consent(String version) =>
+      _send('POST', '/me/consent', {'healthConsent': version});
   Future<ApiResult> friends() => _send('GET', '/friends');
 
   /* 세션이 진짜로 끝났는가.

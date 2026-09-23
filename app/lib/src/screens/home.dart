@@ -272,11 +272,16 @@ class _GoalCard extends StatelessWidget {
           ),
           if (drift['muscleWarning'] != null)
             Note(tone: Tone.warn, text: '${drift['muscleWarning']}'),
+          /* 예전엔 플랜 탭으로 갔습니다 — 거기엔 다시 세우는 기능이 없어서,
+             누른 사람은 같은 계획을 한 번 더 읽고 끝났습니다. 다시 세우는
+             길은 목표 화면입니다(저장된 목표로 미리 채워 두고, 기간 고르기로
+             이어집니다). 강도 화면을 바로 열면 안 됩니다 — 그 화면의 저장은
+             목표 → 기간 순서로 쌓였다고 보고 두 번 닫습니다. */
           if (drift['recommendChange'] == true)
             Align(
               alignment: Alignment.centerLeft,
               child: FilledButton.tonal(
-                  onPressed: () => go('plan'), child: const Text('계획 다시 세우기')),
+                  onPressed: () => go('goal'), child: const Text('목표·기간 다시 정하기')),
             ),
         ],
         const Divider(height: 24),

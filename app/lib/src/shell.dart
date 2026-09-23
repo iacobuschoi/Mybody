@@ -122,7 +122,17 @@ class _ShellState extends State<Shell> {
             onSkip: () => app.store.set({'guest': true}),
           );
         }
-        return _shell(context);
+        if (!api.signedIn) return _shell(context);   // 로그인 없이 쓰기
+        /* 옛 판으로 동의한 계정이면 새 문구로 한 번 다시 묻습니다. 토큰을
+           열쇠로 둡니다 — 다른 계정으로 들어오면 그 계정 것을 새로 봅니다.
+           동의하지 않으면 로그아웃하고 「로그인 없이 쓰기」로 이어 갑니다 —
+           기기의 기록은 그대로입니다. */
+        return ConsentGate(
+          key: ValueKey(api.token),
+          api: api,
+          onDecline: () => app.store.set({'guest': true}),
+          child: _shell(context),
+        );
       },
     );
   }

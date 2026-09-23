@@ -1,14 +1,21 @@
 /* =============================================================================
- * account.dart — 서버 주소 · 로그인 · 가입 · 내 계정 (P14)
+ * account.dart — 서버 주소 · 로그인 · 가입 · 건강정보 동의 · 내 계정 (P14)
  *
  * **계정은 기록 동기화 · 사진 판독 · 친구에 씁니다.** 로그인하면 기록 전체
  * (측정 · 프로필 · 목표 · 계획 · 식단)가 내 계정에도 저장됩니다(cloud.dart).
  * 로그인 없이도 숫자를 넣고 계획을 세우는 데는 문제가 없습니다 — 그때 기록은
  * 기기에만 있습니다. 가입 동의 문구는 이 둘을 그대로 말해야 합니다.
+ *
+ * 동의 문구는 동기화가 들어온 뒤에도 한동안 "주간 요약만 올라간다" 였습니다.
+ * 문구는 0.2.5 에서 고쳤고, 판은 2026-09-23 에서 올려 옛 판으로 가입한
+ * 사람에게 한 번 다시 묻습니다([ConsentGate]).
  * ========================================================================== */
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../api.dart';
 import '../theme.dart';
@@ -17,7 +24,184 @@ import '../ui/widgets.dart';
 /// 서버가 받아 주는 건강정보 동의 판. 서버의 `HEALTH_CONSENT_VERSION` 과
 /// **글자까지 같아야** 합니다 — 다르면 가입이 400 으로 거부됩니다.
 /// (server/db.js 의 같은 이름 상수. 웹 앱도 sync.js 에 같은 값을 들고 있습니다.)
-const String kHealthConsentVersion = '2026-09-22';
+///
+/// 문구([HealthConsentPoints])를 고치면 이 값도 올립니다. 옛 판으로 동의한
+/// 사람은 켤 때 [ConsentGate] 가 새 문구로 다시 묻습니다.
+const String kHealthConsentVersion = '2026-09-23';
+
+/// 공개된 개인정보처리방침. 플레이 스토어는 콘솔에 적은 주소와 **앱 안의
+/// 링크** 둘 다를 요구합니다. 저장소의 docs/ 가 GitHub Pages 로 나갑니다.
+const kPrivacyUrl = 'https://iacobuschoi.github.io/Mybody/privacy.html';
+
+/// 앱 없이 계정을 지우는 페이지 (플레이 스토어 요구).
+const kDeleteAccountUrl = 'https://iacobuschoi.github.io/Mybody/delete-account.html';
+
+/* --- 건강정보 동의 문구 ------------------------------------------------------
+ * 가입 카드와 다시 묻는 화면이 **같은 문장**을 씁니다. 두 벌로 두면 한쪽만
+ * 고쳐지고, 그러면 어느 쪽 동의가 무엇에 대한 것인지 모르게 됩니다.
+ *
+ * 내용은 docs/privacy.html 「기기와 내 계정에 저장되는 것」·「로그인한
+ * 경우에만 서버에 저장되는 것」과 같아야 합니다. 친구 기본 공개는
+ * server/db.js blankShare() 와 같아야 합니다(기록 여부 · 이번 주 운동 ·
+ * 오늘 식단 켜짐, 몸 숫자 꺼짐).
+ * -------------------------------------------------------------------------- */
+class HealthConsentPoints extends StatelessWidget {
+  const HealthConsentPoints({super.key, required this.ifRefused});
+
+  /// 「거부하면」 줄. 가입과 다시 묻기에서 결과가 다릅니다.
+  final String ifRefused;
+
+  static const title = '내 기록을 서버(내 계정)에 저장하는 것에 동의가 필요합니다';
+  static const points = [
+    '무엇을 — 측정 기록(체중 · 골격근량 · 체지방량 · 체지방률 등), 프로필(키 · 나이 · '
+        '성별 · 운동 경력), 목표 · 계획 · 식단 · 운동 기록, 앱 설정. 이 기기와 같은 '
+        '내용이 내 계정에도 저장됩니다(동기화). 결과지 사진은 올라가지 않습니다.',
+    '왜 — 기기를 바꿔 로그인해도 기록이 그대로 따라오게 하고, 친구에게 보여 줄 주간 '
+        '요약을 만들기 위해서. 친구에게는 친구마다 켠 항목만 보입니다 — 처음에는 '
+        '운동·식단 스트릭 · 이번 주 운동 일정 · 오늘 식단만 켜져 있고, 몸 숫자는 꺼져 있습니다.',
+    '얼마나 — 계정을 지울 때까지(설정 → 지우기 → 계정 지우기). '
+        '주간 요약은 최근 52주만 두고, 그보다 오래된 것은 서버가 지웁니다.',
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: t.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold)),
+      const SizedBox(height: 8),
+      ...[...points, '거부하면 — $ifRefused'].map((line) => Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text('· $line', style: t.textTheme.bodySmall?.copyWith(height: 1.5)),
+          )),
+      TextButton(
+        style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: const Size(0, 32)),
+        onPressed: () => unawaited(
+            launchUrl(Uri.parse(kPrivacyUrl), mode: LaunchMode.externalApplication)),
+        child: const Text('자세히 — 개인정보처리방침'),
+      ),
+    ]);
+  }
+}
+
+/// 서버가 알려 준 내 동의 판이 옛 판인가.
+///
+/// 서버의 현재 판(`healthConsentCurrent`)이 **이 앱이 가진 문구의 판과 같을
+/// 때만** 묻습니다. 옛 서버는 그 칸이 없고(→ 안 묻습니다), 서버가 이 앱보다
+/// 새 판이면 이 앱에는 그 문구가 없어서 물을 수 없습니다(→ 앱을 업데이트할
+/// 때 묻습니다).
+bool needsReconsent(Map<Object?, Object?>? user) {
+  if (user == null) return false;
+  if (user['healthConsentCurrent'] != kHealthConsentVersion) return false;
+  return user['healthConsentVersion'] != kHealthConsentVersion;
+}
+
+/* --- 다시 묻기 ---------------------------------------------------------------
+ * 판을 올려도 서버가 확인하는 곳은 가입 하나뿐이라, 이미 가입한 사람은
+ * 옛 문구에 동의한 채로 계속 올립니다. 그래서 켤 때 한 번 봅니다.
+ *
+ * **서버가 안 닿으면 막지 않습니다.** 확인하는 동안에도 앱은 그대로 서
+ * 있고, 옛 판이라고 확인된 때만 이 화면으로 바뀝니다. 지하철에서 켰다고
+ * 앱이 잠기면 안 됩니다.
+ * -------------------------------------------------------------------------- */
+class ConsentGate extends StatefulWidget {
+  const ConsentGate({super.key, required this.api, required this.child, this.onDecline});
+  final Api api;
+  final Widget child;
+  /// 동의하지 않고 로그아웃한 뒤 — 셸은 여기서 「로그인 없이 쓰기」로 넘깁니다.
+  /// 기기의 기록은 그대로 남습니다.
+  final VoidCallback? onDecline;
+  @override
+  State<ConsentGate> createState() => _ConsentGateState();
+}
+
+class _ConsentGateState extends State<ConsentGate> {
+  bool _needed = false;
+  bool _checked = false;
+  bool _busy = false;
+  String? _err;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_check());
+  }
+
+  Future<void> _check() async {
+    final r = await widget.api.me();
+    if (!mounted || !r.ok) return;
+    final u = r.body['user'];
+    if (u is Map && needsReconsent(u)) setState(() => _needed = true);
+  }
+
+  Future<void> _agree() async {
+    setState(() { _busy = true; _err = null; });
+    final r = await widget.api.consent(kHealthConsentVersion);
+    if (!mounted) return;
+    if (!r.ok) {
+      setState(() { _busy = false; _err = r.reason; });
+      return;
+    }
+    setState(() { _busy = false; _needed = false; });
+  }
+
+  /* 「로그인 없이 쓰기」를 먼저 남기고 로그아웃합니다. 반대로 하면 그
+     사이에 셸이 로그인 화면을 한 번 그립니다. */
+  Future<void> _decline() async {
+    setState(() => _busy = true);
+    widget.onDecline?.call();
+    await widget.api.signOut();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_needed) return widget.child;
+    final t = Theme.of(context);
+    return Scaffold(
+      appBar: AppBar(title: const Text('동의 문구가 바뀌었습니다'),
+          automaticallyImplyLeading: false),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        Text('기록을 내 계정에 저장(동기화)하게 된 뒤로, 가입할 때 보신 문구가 실제와 '
+            '달랐습니다. 고친 문구를 읽고 다시 동의해 주세요.',
+            style: t.textTheme.bodyMedium?.copyWith(height: 1.5)),
+        const SizedBox(height: 14),
+        MbCard(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const HealthConsentPoints(
+                ifRefused: '로그아웃하고 로그인 없이 계속 쓸 수 있습니다. 그때 기록은 이 '
+                    '기기에만 남고, 사진 판독 · 친구 기능만 못 씁니다. 계정에 이미 저장된 '
+                    '기록까지 지우려면 아래 계정 삭제 페이지를 쓰세요.'),
+            CheckboxListTile(
+              value: _checked,
+              onChanged: (v) => setState(() => _checked = v ?? false),
+              contentPadding: EdgeInsets.zero,
+              controlAffinity: ListTileControlAffinity.leading,
+              title: const Text('동의합니다'),
+            ),
+          ]),
+        ),
+        if (_err != null) ...[
+          const SizedBox(height: 8),
+          Text(_err!, style: TextStyle(color: t.colorScheme.error)),
+        ],
+        const SizedBox(height: 14),
+        FilledButton(
+          onPressed: _checked && !_busy ? _agree : null,
+          child: Text(_busy ? '하는 중…' : '동의하고 계속'),
+        ),
+        const SizedBox(height: 8),
+        OutlinedButton(
+          onPressed: _busy ? null : _decline,
+          child: const Text('동의하지 않고 로그인 없이 쓰기'),
+        ),
+        TextButton(
+          onPressed: () => unawaited(launchUrl(Uri.parse(kDeleteAccountUrl),
+              mode: LaunchMode.externalApplication)),
+          child: const Text('계정 삭제 페이지'),
+        ),
+      ]),
+    );
+  }
+}
 
 /* --- 서버 주소 -------------------------------------------------------------
  * 서버가 주인 노트북이라, 앱이 어디를 봐야 하는지 알려 줘야 합니다.
@@ -344,33 +528,16 @@ class _SignInScreenState extends State<SignInScreen> {
              **문구는 실제로 올라가는 것과 같아야 합니다.** 예전 문구는
              "가장 최근 측정만 · 52주까지만" 이었는데, 동기화가 생긴 뒤로는
              기록 전체가 계정을 지울 때까지 남습니다. 52주는 주간 요약
-             (server/db.js SNAPSHOT_WEEKS)에만 맞는 숫자입니다. */
+             (server/db.js SNAPSHOT_WEEKS)에만 맞는 숫자입니다. 문장은
+             다시 묻는 화면과 같이 쓰도록 [HealthConsentPoints] 에 있습니다. */
           if (signUp) ...[
             const SizedBox(height: 16),
             MbCard(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('내 기록을 서버(내 계정)에 저장하는 것에 동의가 필요합니다',
-                    style: t.textTheme.bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 8),
-                ...[
-                  '무엇을 — 측정 기록(체중 · 골격근량 · 체지방량 · 체지방률 등), '
-                      '프로필(키 · 나이 · 성별), 목표 · 계획 · 식단 · 운동 기록. '
-                      '결과지 사진은 올라가지 않습니다.',
-                  '왜 — 기기를 바꿔 로그인해도 기록이 그대로 따라오게 하고, 친구에게 '
-                      '보여 줄 주간 요약을 만들기 위해서. 친구 화면에 실제로 보이는 것은 '
-                      '친구마다 켠 항목뿐입니다.',
-                  '얼마나 — 계정을 지울 때까지(설정 → 지우기 → 계정 지우기). '
-                      '주간 요약은 최근 52주만 두고, 그보다 오래된 것은 서버가 지웁니다.',
-                  '거부하면 — 계정을 못 만들지만, 로그인 없이 계속 쓸 수 있습니다. '
-                      '그때 기록은 이 기기에만 남고, 측정 · 목표 · 계획 · 식단은 다 되며 '
-                      '사진 판독과 친구 기능만 못 씁니다.',
-                ].map((line) => Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Text('· $line',
-                          style: t.textTheme.bodySmall?.copyWith(height: 1.5)),
-                    )),
-                const SizedBox(height: 4),
+                const HealthConsentPoints(
+                    ifRefused: '계정을 못 만들지만, 로그인 없이 계속 쓸 수 있습니다. '
+                        '그때 기록은 이 기기에만 남고, 측정 · 목표 · 계획 · 식단은 다 되며 '
+                        '사진 판독과 친구 기능만 못 씁니다.'),
                 CheckboxListTile(
                   value: _consent,
                   onChanged: (v) => setState(() => _consent = v ?? false),

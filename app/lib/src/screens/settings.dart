@@ -23,10 +23,6 @@ import '../scope.dart';
 import 'account.dart';
 import '../ui/widgets.dart';
 
-/// 공개된 개인정보처리방침. 플레이 스토어는 콘솔에 적은 주소와 **앱 안의
-/// 링크** 둘 다를 요구합니다. 저장소의 docs/ 가 GitHub Pages 로 나갑니다.
-const kPrivacyUrl = 'https://iacobuschoi.github.io/Mybody/privacy.html';
-
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
   @override
@@ -34,6 +30,8 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
+  bool _wiping = false;
+
   @override
   Widget build(BuildContext context) {
     final app = Scope.of(context);
@@ -153,16 +151,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const SectionTitle('지우기'),
             RichishText(
-              '이 기기의 모든 기록을 지웁니다 — 측정·목표·계획·식단·일정, '
+              '이 기기의 모든 기록을 지우고 로그아웃합니다 — 측정·목표·계획·식단·일정, '
               '그리고 **결과지 사진까지**. 결과지에는 보통 이름과 나이가 함께 '
-              '인쇄돼 있습니다.',
+              '인쇄돼 있습니다. 내 계정에 저장된 기록은 남아, 다시 로그인하면 돌아옵니다.',
               style: t.textTheme.bodySmall?.copyWith(height: 1.5),
             ),
             const SizedBox(height: 10),
             OutlinedButton(
               style: OutlinedButton.styleFrom(foregroundColor: mb(context).bad),
-              onPressed: () => _wipe(context, app),
-              child: const Text('이 기기에서 전부 지우기'),
+              onPressed: _wiping ? null : () => _wipe(context, app),
+              child: Text(_wiping ? '지우는 중…' : '이 기기에서 전부 지우기'),
             ),
             if (api.signedIn) ...[
               const Divider(height: 24),
@@ -379,14 +377,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  /* **지우면 로그아웃까지 합니다.**
+   *
+   * 예전엔 기기 저장만 비웠습니다. 로그인은 그대로라 두 가지가 났습니다 —
+   * 다음에 켜면 동기화가 "막 깐 기기" 로 보고 계정 사본을 통째로 받아 와
+   * 지운 기록이 되살아났고, 그 전에 온보딩을 다시 하면 빈 것에 가까운
+   * 기록이 **계정 사본을 덮어썼습니다.** 지운 사람이 바란 건 둘 다 아닙니다.
+   *
+   * 로그아웃하면 둘 다 없습니다. 계정 사본은 그대로 있다가, 같은 사람이
+   * 다시 로그인하면 돌아옵니다 — 다이얼로그가 그렇게 말합니다. 계정의
+   * 기록까지 지우는 건 아래 「계정 지우기」 입니다.
+   *
+   * 순서: 못 보낸 것부터 보내 봅니다(계정 사본이 이 기기와 같아야 "다시
+   * 로그인하면 돌아옵니다" 가 참입니다) → 로그아웃 → 지우기 → 큐 비우기.
+   * 큐를 비우는 건 이 기기를 넘겨받은 다른 사람이 로그인했을 때 지운
+   * 사람의 기록 사본이 그 계정으로 올라가지 않게 하려는 것입니다. */
   Future<void> _wipe(BuildContext context, app) async {
+    final api = Scope.apiOf(context);
+    final queue = Scope.queueOf(context);
+    final signedIn = api.signedIn;
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('이 기기에서 전부 지울까요?'),
-        content: const Text(
-            '측정·목표·계획·식단·일정과 결과지 사진을 지웁니다. 되돌릴 수 없습니다.\n\n'
-            '백업을 먼저 내보내는 것을 권합니다.'),
+        content: Text(signedIn
+            ? '측정·목표·계획·식단·일정과 결과지 사진을 이 기기에서 지우고 로그아웃합니다. '
+                '되돌릴 수 없습니다.\n\n'
+                '내 계정에 저장된 기록은 남습니다 — 다시 로그인하면 돌아옵니다. '
+                '계정의 기록까지 지우려면 아래 「계정 지우기」를 쓰세요.'
+            : '측정·목표·계획·식단·일정과 결과지 사진을 지웁니다. 되돌릴 수 없습니다.\n\n'
+                '백업을 먼저 내보내는 것을 권합니다.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('그대로 두기')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('전부 지우기')),
@@ -394,9 +414,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
     if (yes != true || !context.mounted) return;
+    setState(() => _wiping = true);
+    if (api.signedIn) {
+      try {
+        await queue?.flush().timeout(const Duration(seconds: 8));
+      } catch (_) {/* 못 보냈으면 못 보낸 것 — 지우기를 막지는 않습니다 */}
+      await api.signOut();
+    }
     app.store.reset();
+    queue?.clear();
+    if (!context.mounted) return;
     toast(context, '지웠습니다');
-    setState(() {});
+    Navigator.of(context).popUntil((r) => r.isFirst);
   }
 
   Future<void> _deleteAccount(BuildContext context, app) async {
@@ -406,8 +435,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('계정을 지울까요?'),
         content: const Text(
-            '친구 관계와 서버에 올라간 주간 요약이 사라집니다. 되돌릴 수 없습니다.\n\n'
-            '이 기기의 측정 기록은 그대로 남습니다 — 그건 "이 기기에서 전부 지우기" 로 지웁니다.'),
+            '친구 관계와 서버에 저장된 내 기록(동기화 사본·주간 요약)이 사라집니다. '
+            '되돌릴 수 없습니다.\n\n'
+            '이 기기의 기록은 그대로 남습니다 — 그건 「이 기기에서 전부 지우기」로 지웁니다.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('그대로 두기')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('계정 지우기')),
@@ -424,6 +454,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     await api.signOut();
     if (!context.mounted) return;
     toast(context, '계정을 지웠습니다');
-    setState(() {});
+    /* 로그아웃됐으니 밑의 셸은 이미 로그인 화면입니다. 설정을 닫아
+       그걸 보여 줍니다 — 안 닫으면 없는 계정의 설정이 계속 떠 있습니다. */
+    Navigator.of(context).popUntil((r) => r.isFirst);
   }
 }

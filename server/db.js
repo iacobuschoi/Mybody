@@ -278,8 +278,19 @@ function verifyCode(plain, user) {
 
 /* 건강정보 업로드 동의 문구의 판. 문구가 바뀌면 올립니다 —
    옛 판으로 동의한 사람에게는 다시 물어야 하기 때문입니다.
-   화면(modals.js M29)에 적힌 문구와 이 값이 같아야 합니다. */
-const HEALTH_CONSENT_VERSION = '2026-09-22';
+   화면(modals.js M29 · 앱 account.dart)에 적힌 문구와 이 값이 같아야 합니다.
+
+   2026-09-23: 기록 전체를 계정에 저장(동기화)하게 된 뒤에도 문구는 "주간
+   요약만 올라간다 · 로그인 없이 써도 된다" 였습니다. 둘 다 사실과 달라
+   고쳐 쓰고 판을 올렸습니다. */
+const HEALTH_CONSENT_VERSION = '2026-09-23';
+
+/* 가입 때 받아 주는 판. **옛 판도 받습니다** — 이미 깔린 앱(0.2.4 까지)은
+   '2026-09-22' 를 보내고, 그걸 거부하면 그 앱으로는 가입이 아예 안 됩니다.
+   대신 받은 판을 **그대로** 적어 둡니다(현재 판으로 적으면 읽지 않은 문구에
+   동의한 것이 됩니다). 새 앱은 켤 때 현재 판과 다르면 다시 묻습니다
+   (/me/consent). */
+const ACCEPTED_CONSENT_VERSIONS = [HEALTH_CONSENT_VERSION, '2026-09-22'];
 
 /* 주간 요약 보유 기간. 화면이 보는 26주의 두 배입니다.
    가입 동의 문구(modals.js M29)와 처리방침(privacy.html 7번)에
@@ -447,7 +458,10 @@ function makeApi(db) {
                   /* 본인이 언제 · 어느 문구에 동의했는지는 본인이 볼 수
                      있어야 합니다 (제35조 열람). */
                   healthConsentAt: u.consent_health_at || null,
-                  healthConsentVersion: u.consent_version || null };
+                  healthConsentVersion: u.consent_version || null,
+                  /* 앱이 "다시 물어야 하나" 를 스스로 정하게 서버의 현재 판을
+                     같이 줍니다. 옛 서버는 이 칸이 없고, 그러면 앱은 묻지 않습니다. */
+                  healthConsentCurrent: HEALTH_CONSENT_VERSION };
   }
 
   return {
@@ -474,7 +488,8 @@ function makeApi(db) {
          친구가 하나도 없어도 주간 요약이 올라가므로, 가입이 곧 업로드
          동의가 됩니다 — 그래서 여기서 막습니다.
          화면이 안 물어보고 보냈으면 그건 화면의 버그입니다. */
-      if (str(healthConsent) !== HEALTH_CONSENT_VERSION) {
+      const consentV = str(healthConsent);
+      if (!ACCEPTED_CONSENT_VERSIONS.includes(consentV)) {
         return { ok: false, reason: '건강정보 업로드에 동의해야 계정을 만들 수 있습니다' };
       }
       if (q.userByHandle.get(h)) return { ok: false, reason: '이미 있는 아이디입니다' };
@@ -483,7 +498,7 @@ function makeApi(db) {
       const uid = id('user');
       q.insertUser.run(uid, h, 'local', (displayName || h).slice(0, 20), inviteCode(), nowISO());
       q.setPassword.run(pw.hash, pw.salt, pw.n, uid);
-      q.setConsent.run(nowISO(), HEALTH_CONSENT_VERSION, uid);
+      q.setConsent.run(nowISO(), consentV, uid);
       /* 복구 코드는 지금 한 번만 원문으로 나갑니다. 서버에는 해시만
          남으므로, 사용자가 이걸 놓치면 우리도 되찾아 줄 수 없습니다.
          화면이 그 사실을 분명히 말해야 합니다. */
@@ -634,6 +649,16 @@ function makeApi(db) {
       return q.userById.get(s.user_id) || null;
     },
     me(uid) { return pub(q.userById.get(uid)); },
+
+    /* 옛 판으로 동의한 사람에게 새 판을 받습니다. 가입 때와 달리 **현재
+       판만** 받습니다 — 이 길은 새 문구를 보여 준 화면만 부릅니다. */
+    consent(uid, { healthConsent } = {}) {
+      if (str(healthConsent) !== HEALTH_CONSENT_VERSION) {
+        return { ok: false, reason: '동의 문구의 판이 서버와 다릅니다 — 앱을 업데이트해 주세요' };
+      }
+      q.setConsent.run(nowISO(), HEALTH_CONSENT_VERSION, uid);
+      return { ok: true, user: pub(q.userById.get(uid)) };
+    },
     updateMe(uid, { displayName, avatar }) {
       if (displayName) {
         const dn = str(displayName).slice(0, 20);
@@ -1102,4 +1127,5 @@ function makeApi(db) {
 
 function safeParse(s) { try { return JSON.parse(s); } catch { return {}; } }
 
-module.exports = { open, makeApi, SHARE_FIELDS, blankShare, nowISO, str, HEALTH_CONSENT_VERSION };
+module.exports = { open, makeApi, SHARE_FIELDS, blankShare, nowISO, str, HEALTH_CONSENT_VERSION,
+                   ACCEPTED_CONSENT_VERSIONS };
