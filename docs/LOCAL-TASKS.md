@@ -353,3 +353,18 @@ v0.2.0 이 나갔습니다: https://github.com/iacobuschoi/Mybody/releases/tag/v
 3. 식단 → 「뭘 먹을까」 → 간식 탭에 프로틴바·단백질 음료가 후보로 나오는지(남은 단백질 20g 이상일 때).
 
 끝나면 "14 끝" + 안 맞는 것. 13번이 아직이면 13 먼저.
+
+## 15. 서버를 오라클 VM 으로 옮기기 (주인이 VM 을 만든 뒤)
+
+`docs/ORACLE.md` 3~5단계를 합니다. 주인에게서 받을 것: **VM 공개 IP** 와 **SSH 개인 키 파일 위치**.
+1·2단계(오라클 계정·VM 만들기)는 주인이 브라우저로 합니다.
+
+1. SSH 로 들어가 `oracle-setup.sh` 실행 → 출력 확인.
+2. **주인에게 "지금 서버 멈춥니다(5분)" 라고 말한 뒤** 노트북 서버 끄기 → `node tools/backup.js --out=%USERPROFILE%\mybody-move`
+   → `config.json` 과 최신 백업을 scp → VM 에서 복원(계정·친구 수가 노트북 `--list` 와 같은지) → `oracle-setup.sh` 다시.
+3. 주인에게 Tailscale 관리 화면에서 노트북 이름을 `laptop` 으로 바꾸게 하고, VM 에서
+   `sudo tailscale up --hostname=desktop-il9c3if` (링크를 주인에게 전달) → `sudo tailscale funnel --bg 8080`.
+4. 확인: 노트북에서 `curl https://desktop-il9c3if.tail0a8f8f.ts.net/health`, 에뮬레이터 앱으로 로그인·친구 목록.
+5. 노트북 자동 시작(`tools/autostart.js` 로 걸어 둔 것이 있으면) 끄기 — 두 곳에서 서버가 돌면 기록이 갈라집니다.
+
+**config.json · 개인 키 · 백업 파일은 절대 커밋하지 말 것.** 끝나면 "15 끝" + VM 셰이프(A1/E2) + 복원한 계정 수.
