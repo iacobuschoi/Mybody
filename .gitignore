@@ -29,3 +29,11 @@ release/
 # 한 벌에 2.8MB 라 저장소에 5.6MB 가 조용히 들어가 있었습니다.
 app/assets/fonts/*.base.ttf
 app/assets/fonts/*.donor.ttf
+
+# 플레이 폴더의 비밀 · 구글이 준 파일은 저장소에 안 들어갑니다
+play/계정.txt
+play/*.jar
+play/*.pem
+play/*.zip
+play/*.aab
+play/encryption-key.txt

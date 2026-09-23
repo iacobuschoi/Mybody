@@ -1,0 +1,5 @@
+# 노트북의 Mybody-플레이 폴더에 「계정.txt」 로 채워 둡니다. 저장소에는 넣지 않습니다.
+심사용 계정 아이디: playreview
+심사용 계정 비밀번호: (node tools/reset-password.js playreview 로 정한 값)
+가입 코드: (~/.mybody-pair 의 내용)
+친구 기능 확인용 두 번째 계정: emutest2 / (비밀번호)

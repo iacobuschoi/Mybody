@@ -307,3 +307,34 @@ v0.2.0 이 나갔습니다: https://github.com/iacobuschoi/Mybody/releases/tag/v
 - [ ] v0.2.2 릴리스 APK(x86_64 조각 없음)를 에뮬레이터에 그냥 `adb install` 로 깔아 켜지는가.
 
 끝나면 "12 끝". 그 뒤로는 우편함을 안 봐도 됩니다 — 고맙습니다.
+
+
+## 13. 플레이 스토어 준비 — 노트북 폴더에 정리 (주인이 출근해서 바로 올리게)
+
+저장소 `play/` 에 글·그림·스크립트를 다 넣어 뒀습니다. 노트북에서 할 일은 **비밀이 드는 것과
+실제 기기가 드는 것**뿐입니다. `git pull` 뒤 서버(`node tools/launch.js`)를 켜고:
+
+1. **GitHub Pages 켜기** — `gh api -X POST repos/iacobuschoi/Mybody/pages -f "source[branch]=claude/body-management-app-prototype-m4mv4k" -f "source[path]=/docs"`
+   (이미 켜져 있으면 409 — 그럼 됨). 몇 분 뒤 `curl -sI https://iacobuschoi.github.io/Mybody/privacy.html`
+   과 `…/delete-account.html` 이 200 인지. 이메일 자리표시자는 **주인이 채움** — 건드리지 말 것.
+2. **바탕화면에 `Mybody-플레이` 폴더** 만들고 저장소 `play/` 전부 복사(README.md · 등록정보.md ·
+   앱-콘텐츠.md · pepk.cmd · 그림/ · make-shots.py).
+3. **AAB** — `gh release download v0.2.3 -p "*.aab" -D <그 폴더>` (릴리스가 아직이면
+   `gh run list -w release.yml` 로 기다림). 받은 뒤 `jarsigner -verify -verbose -certs <aab> | findstr SHA256`
+   (또는 `keytool -printcert -jarfile`)로 지문이 `06d945a3…83de11` 인지 확인.
+4. **심사용 계정** — 앱이나 웹에서 가입 코드로 `playreview` 가입(건강정보 동의 체크, 온보딩까지) →
+   `node tools/reset-password.js playreview` 로 비밀번호 정함 → 폴더에 `계정.txt` 로 저장
+   (형식은 `play/계정.txt.예시`). emutest1 과 친구 맺어 두면 심사자가 친구 기능도 볼 수 있음.
+   **저장소에는 절대 넣지 말 것** (.gitignore 에 있음).
+5. **스크린샷 새로 찍기** — 지금 `그림/스크린샷/` 은 9/21 옛 화면입니다. 에뮬레이터(기록 있는 계정)에서
+   홈 · 인바디 올리기(사진 붙인 상태) · 검수 · 목표 · 플랜 · 식단 · 추이 · 친구 여덟 화면을
+   `adb exec-out screencap -p > 원본\01-home.png` 식으로(파일 이름에 home/upload/review/goal/plan/
+   food/progress/social 이 들어가야 설명 띠가 붙음) → `python play\make-shots.py 원본 <폴더>\그림\스크린샷`
+   (Python + `pip install pillow` 필요; 없으면 설치, 정 안 되면 원본을 그대로 두고 보고에 적기) →
+   나온 8장을 눈으로 확인(위 잘림·글자 겹침 없는지). 마음에 안 드는 장은 빼도 됨(2장 이상이면 됨).
+6. **열쇠 확인** — `keytool -list -v -keystore %USERPROFILE%\mybody-signing-key\mybody.jks -alias mybody`
+   의 SHA256 이 `06d945a3…83de11` 인지. `pepk.cmd` 는 pepk.jar 없이 못 돌리니 파일 검사만
+   (더블클릭하면 "pepk.jar 가 없습니다" 로 멈추는지).
+7. 폴더의 README.md 를 열어 순서대로 되는지 훑고, 안 맞는 곳이 있으면 보고에 적기.
+
+끝나면 "13 끝" + 폴더 경로 + 스크린샷 새로 찍었는지. 우편함은 그 뒤로 안 봐도 됩니다.
