@@ -242,45 +242,42 @@ DB 파일 하나에 전부 들어 있습니다. 사진은 서버가 아니라 �
 
 ---
 
-## 8. 아이폰 — TestFlight 에 올리기
+## 8. 아이폰 — TestFlight 에 올리기 (맥 없이, 폰으로)
 
-애플 개발자 계정(연 ₩129,000)이 승인된 뒤. 빌드는 깃허브의 맥 러너가 하니
-맥은 **인증서를 한 번 만들 때**만 씁니다 (`.github/workflows/ios-release.yml`).
-Secrets 여섯 개를 만드는 순서입니다 — 맥에서 Claude Code 에게 "8절 해" 라고
-해도 됩니다(3번은 형 로그인이 필요).
+애플 개발자 계정(연 ₩129,000)이 승인된 뒤. 빌드도 서명도 깃허브의 맥 러너가
+합니다 — 인증서·프로파일을 애플 API 로 러너가 직접 만들기 때문에(`tools/asc.js`)
+**맥이 없어도 됩니다.** 폰 사파리로 아래 다섯 가지를 하면 끝입니다.
 
-1. **배포 인증서** — Xcode → Settings → Accounts → Apple ID 선택 → Manage
-   Certificates → 「+」 → Apple Distribution. 키체인 접근 → 나의 인증서 →
-   「Apple Distribution: …」 우클릭 → 내보내기 → `.p12`(비밀번호 정함).
-   ```
-   base64 -i cert.p12 | pbcopy      # → IOS_CERT_P12_BASE64
-   ```
-   비밀번호 → `IOS_CERT_PASSWORD`.
-2. **프로비저닝 프로파일** — developer.apple.com → Certificates, Identifiers &
-   Profiles → Identifiers 「+」 → App IDs → Bundle ID `io.github.iacobuschoi.mybody`
-   (기능은 아무것도 안 켬) → Profiles 「+」 → App Store Connect → 그 App ID →
-   1번 인증서 → 이름 `Mybody AppStore` → 내려받기.
-   ```
-   base64 -i Mybody_AppStore.mobileprovision | pbcopy   # → IOS_PROFILE_BASE64
-   ```
-3. **App Store Connect API 키** (형) — appstoreconnect.apple.com → 사용자 및
-   액세스 → 통합 → App Store Connect API → 팀 키 「+」 → 이름 `github`, 액세스
-   **App Manager** → 만들면 **한 번만** 내려받을 수 있는 `.p8`.
-   ```
-   base64 -i AuthKey_XXXXXXXX.p8 | pbcopy   # → ASC_KEY_P8_BASE64
-   ```
-   화면의 **키 ID** → `ASC_KEY_ID`, **Issuer ID** → `ASC_ISSUER_ID`.
-4. **깃허브** — 저장소 Settings → Secrets and variables → Actions → New repository
-   secret 으로 여섯 개 넣기.
-5. **App Store Connect 에 앱 만들기** — `appstore/등록정보.md` 대로. 번들 ID 는 2번 것.
-6. **돌리기** — Actions → 「아이폰 TestFlight」 → Run workflow → 판 번호. 10분쯤 뒤
-   App Store Connect → TestFlight 에 빌드가 나타나고(처리 10~30분), 내부 테스터에게
-   바로 갑니다. 외부 테스터(친구들)는 첫 빌드만 베타 심사(하루 안팎).
+1. **App Store Connect API 키** — appstoreconnect.apple.com → 사용자 및 액세스 →
+   통합 → App Store Connect API → 팀 키 「+」 → 이름 `github`, 액세스 **App Manager**.
+   화면의 **Issuer ID** 와 **키 ID** 를 적고, **한 번만** 내려받을 수 있는 `.p8` 을
+   받습니다. 폰이면 파일 앱에서 그 파일을 열어 내용(`-----BEGIN PRIVATE KEY-----`
+   부터 `-----END PRIVATE KEY-----` 까지)을 그대로 복사합니다.
+2. **깃허브 Secrets** — github.com 저장소 → Settings → Secrets and variables →
+   Actions → New repository secret. 세 개:
+   `ASC_ISSUER_ID`, `ASC_KEY_ID`, `ASC_KEY_P8`(.p8 내용 그대로 붙여넣기).
+   (`MYBODY_SERVER_URL` 은 안드로이드 때 이미 있음.)
+3. **App Store Connect 에 앱 만들기** — 나의 앱 「+」 → iOS, 이름은 `appstore/등록정보.md`
+   후보 중 하나(`MyBody` 는 이미 있음), 기본 언어 한국어, 번들 ID
+   `io.github.iacobuschoi.mybody`, SKU `mybody-ios`. 번들 ID 가 목록에 없으면
+   4번을 먼저 한 번 돌리면 러너가 등록해 줍니다(그 실행은 앱이 없어 올리기에서
+   멈추지만 번들 ID 는 남습니다). 또는 developer.apple.com → Identifiers 에서 직접 등록.
+4. **돌리기** — github.com → Actions → 「아이폰 TestFlight」 → Run workflow → 판 번호.
+   러너가 열쇠·CSR 을 만들고 → 배포 인증서 발급 → 프로파일 생성 → 서명 → 올리기.
+   10분쯤 뒤 App Store Connect → TestFlight 에 빌드가 나타나고(처리 10~30분)
+   내부 테스터에게 바로 갑니다.
+5. **테스터** — App Store Connect → TestFlight → 내부 테스팅 「+」 그룹에 본인 Apple
+   계정 추가 → 아이폰에 TestFlight 앱 설치 → 초대 수락. 외부 테스터(친구들)는 첫
+   빌드만 베타 심사(하루 안팎).
 
-맥에서 먼저 한 번 `cd app && flutter build ipa --release` 가 되는지 보면 서명 문제를
-러너에 올리기 전에 잡습니다.
+실행할 때마다 지난 실행이 만든 인증서를 폐기하고 새로 만듭니다(열쇠가 러너와
+함께 사라지므로). 이미 올라간 빌드에는 영향이 없습니다. 배포 인증서 한도(팀당
+몇 개)에 걸리면 러너가 어디서 무엇을 지우라고 말합니다.
 
----
+**맥에서 만든 인증서를 쓰고 싶으면** (선택) — Xcode → Settings → Accounts → Manage
+Certificates → Apple Distribution → 키체인에서 `.p12` 내보내기, developer.apple.com →
+Profiles 에서 App Store 프로파일 내려받기. `base64 -i 파일 | pbcopy` 로
+`IOS_CERT_P12_BASE64`, `IOS_CERT_PASSWORD`, `IOS_PROFILE_BASE64` 를 넣으면 그쪽을 씁니다.
 
 ## 되돌리기
 
