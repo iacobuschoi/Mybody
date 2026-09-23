@@ -162,3 +162,111 @@ v0.2.4 태그는 **27dba08** 에 걸렸고, 「판 이름을 태그에서」(9df
 - 다만 앱 설정 맨 아래와 콘솔의 내부 테스트 목록에 "0.2.3" 으로 뜹니다.
   `등록정보.md`·`앱-콘텐츠.md` 에는 판 번호가 안 적혀 있어서 글과 어긋나지는 않습니다.
 - 신경 쓰이면 9dfdd10 이후로 태그를 다시 끊으면 맞습니다(주인은 그대로 올려도 됩니다).
+
+---
+
+# 덧붙임 — 2026-09-23 20:10 KST (구글 플레이 콘솔 — **검토 제출까지 끝**)
+
+주인이 콘솔을 직접 누르고 노트북 Claude 가 파일·명령·크롬 조작을 맡아 진행했습니다.
+**내부 테스트 트랙에 v0.2.4(versionCode 236)를 올리고 검토 제출까지 마쳤습니다.**
+
+## 지금 상태
+
+| | |
+|---|---|
+| 앱 | `io.github.iacobuschoi.mybody` · 내부 테스트 트랙 **활성** |
+| 올라간 판 | **236 (0.2.4)** · 내부 테스터에게 제공됨 · 9/23 19:55 |
+| 검토 | **변경사항 8개 제출 완료** — 구글 검토 중 (첫 출시라 몇 시간~며칠) |
+| 앱 서명 키 | 주인 열쇠로 등록됨 — 콘솔 지문 `06:D9:45:A3…83:DE:11` |
+
+## 1. Play 앱 서명 — 구글이 만든 열쇠를 주인 열쇠로 **교체했습니다**
+
+앱을 만들자 구글이 자기 열쇠(`91:BD:05:34:54:5E:EA:11…`)를 먼저 걸어 뒀습니다. 그대로
+AAB 를 올렸으면 플레이 판이 친구들 폰의 APK 와 **다른 앱**이 됐을 겁니다.
+「키 변경 → Java 키 저장소에서 내보내기 및 업로드」로 `mybody-pepk.zip` 을 올려 교체했고,
+교체 뒤 콘솔 지문이 `06:D9:45:A3…83:DE:11` 로 바뀐 것을 확인했습니다.
+
+### ⚠ `play/pepk.cmd` 는 이 노트북에서 **그대로는 안 됩니다** — 고쳐야 합니다
+
+두 군데가 막힙니다.
+
+1. **비밀번호를 물어보는 자리에서 죽습니다.** pepk.jar 가 `System.console()` 을 쓰는데
+   자동 실행(파이프)에서는 null 이라 `NullPointerException`. → `--keystore-pass=` ·
+   `--key-pass=` 플래그로 넘기면 됩니다(`--help` 에 있습니다).
+2. **`RSA/NONE/OAEPWithSHA1AndMGF1Padding` 을 못 찾습니다.** README 는 "자바 21 로
+   다시 해 보라"고 적혀 있는데 **자바 문제가 아닙니다.** pepk.jar 안에 번들된
+   BouncyCastle 이 **서명이 없어서** JCE 가 거부합니다(직접 부르면 `SecurityException`).
+   자바 21.0.6 에서도 똑같이 실패합니다.
+
+**되는 방법** — 서명된 bcprov 를 클래스패스 **맨 앞**에 두고 메인 클래스를 직접 부릅니다.
+이 노트북은 그래들 캐시에 이미 있어서 아무것도 새로 받지 않았습니다:
+
+```
+java -cp "%USERPROFILE%\.gradle\caches\modules-2\files-2.1\org.bouncycastle\bcprov-jdk18on\1.79\<hash>\bcprov-jdk18on-1.79.jar;%~dp0pepk.jar" ^
+  com.google.wireless.android.vending.developer.signing.tools.extern.export.ExportEncryptedPrivateKeyTool ^
+  --keystore="%USERPROFILE%\mybody-signing-key\mybody.jks" --alias=mybody ^
+  --output="%~dp0mybody-pepk.zip" --include-cert --rsa-aes-encryption ^
+  --encryption-key-path="%~dp0encryption_public_key.pem" ^
+  --keystore-pass=<KEY-INFO.txt 의 비밀번호> --key-pass=<같은 값>
+```
+
+나온 zip 안 `certificate.pem` 의 지문이 `06d945a3…83de11` 인지 확인하면 됩니다.
+`pepk.cmd` 를 이렇게 고쳐 주세요(bcprov 경로는 `dir /s /b` 로 찾게).
+
+## 2. AAB — v0.2.4 태그를 **두 번** 달았습니다
+
+- 처음엔 `afb6cb8`(5f920b1 이전)에 달았는데, 릴리스 직후 깃허브 API 가 몇 분간
+  **에셋 목록을 빈 배열로** 돌려줬습니다. `gh release download` 도 `no assets to download`.
+  서명을 확인할 파일이 없어서 릴리스·태그를 지우고 다시 달았습니다.
+  **나중에 보니 파일은 있었습니다 — API 복제 지연이었습니다.** (`gh release upload` 가
+  `ReleaseAsset.name already exists` 로 튕기면서 드러남.) 앞으로 릴리스 직후 에셋이
+  비어 보이면 **몇 분 기다렸다 다시 보세요.**
+- 결과적으로는 잘 됐습니다. 다시 단 태그가 `27dba08`(**5f920b1 포함**)이라
+  AAB 고르기 버그가 고쳐진 코드로 빌드됐습니다. 32MB · versionCode 236 ·
+  `keytool -printcert -jarfile` 지문 `06:D9:45:A3…83:DE:11` 확인.
+- 5f920b1 의 `outputs/bundle/release` 한정 + `META-INF/*.RSA` 검사, **잘 돕니다.**
+  콘솔 업로드도 거부 없이 통과했습니다.
+
+## 3. 방침 페이지 이메일 — 채웠습니다 (08aa365)
+
+`docs/privacy.html` · `docs/delete-account.html` 의 「여기에 연락받을 이메일 주소를
+적어 주세요」 자리를 주인 지시로 `iacobuschoi@gmail.com` mailto 링크로 바꿔 푸시했습니다.
+Pages 두 주소 200 · 반영 확인.
+
+## 4. 콘솔에 넣은 값 — `play/앱-콘텐츠.md` 와 다른 곳
+
+거의 그대로 썼는데 **두 군데가 문서와 다릅니다. 문서를 고쳐 주세요.**
+
+1. **「앱 액세스 권한」이 「로그인 세부정보」로 이름이 바뀌었습니다.** 콘솔이 그렇게 안내합니다.
+2. **가입 코드 문구가 맞지 않습니다.** 지금 서버는 `openSignup: true` 라 코드가 필요 없는데
+   문서에는 "가입 코드 `계정.txt 의 가입 코드` 를 넣으면 됩니다"로 적혀 있습니다.
+   심사자에게는 이렇게 바꿔 냈습니다:
+   > …새로 가입해 보시려면 「처음이에요」를 누르면 되고, **가입 코드는 따로 필요 없습니다.**…
+
+그 밖에 문서에 없어서 그 자리에서 정한 것:
+
+- **데이터 보안 → 계정 생성 방법**: 「사용자 이름 및 비밀번호」 하나만. 복구 코드는
+  로그인 방법이 아니라 「기타 인증」이 아닙니다.
+- **이름(표시 이름)을 「필수」로** 냈습니다. `db.js` 의 `signUp` 이 `displayName || h` 라
+  표시 이름 없이 쓰는 길이 없습니다 — 사용자가 안 내겠다고 고를 수 없으니 필수입니다.
+- **스크린샷은 8장까지**입니다. `play/그림/스크린샷/` 은 9장이라 `01~08`(홈→결과지→검산→
+  목표→계획→식단→추이→친구)만 올렸습니다. `09-friend.png` 는 뺐습니다.
+  문서에 "8장까지"를 분명히 적어 주세요.
+- 스토어 설정 연락처 이메일 = `iacobuschoi@gmail.com` (스토어에 **공개**됩니다).
+
+## 5. 서버
+
+- `git pull`(afb6cb8) → 옛 서버 끄고 `node tools/launch.js` 로 다시 띄웠습니다.
+  `release/` 를 afb6cb8-cde95c 로 새로 만들었고, `https://desktop-il9c3if.tail0a8f8f.ts.net`
+  바깥에서 들어와집니다. 심사용 `playreview` 로 **실제 로그인 테스트 통과**.
+- **자동 시작이 등록돼 있지 않습니다.** 작업 스케줄러·시작 프로그램·레지스트리 Run
+  어디에도 없습니다. **재부팅하면 서버가 안 켜집니다** — 심사 기간에 위험합니다.
+  `node tools/autostart.js --write` 를 주인에게 권하거나, 오라클 VM 이전(15번)을
+  심사 전에 끝내는 쪽이 낫습니다.
+
+## 6. 남은 일
+
+1. 구글 검토 결과 기다리기 (Gmail)
+2. 통과하면 **비공개 테스트** 트랙에 친구들 이메일 → 「내부 테스트에서 버전 추가」 → 참여 링크
+3. 정식 출시는 **테스터 12명 · 14일 연속** 뒤 「프로덕션 액세스 신청」
+4. 위 1·4 의 문서 고침 (`play/pepk.cmd` · `play/README.md` · `play/앱-콘텐츠.md`)
