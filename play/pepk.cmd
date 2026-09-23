@@ -29,19 +29,25 @@ where java >nul 2>nul || (
   pause & exit /b 1
 )
 
-if exist "%PEM%" (
-  echo 공개키 파일로 암호화합니다...
-  java -jar "%JAR%" --keystore="%KS%" --alias=mybody --output="%OUT%" --include-cert --rsa-aes-encryption --encryption-key-path="%PEM%"
-) else if exist "%HEX%" (
-  set /p KEYHEX=<"%HEX%"
-  echo 16진수 키로 암호화합니다...
-  java -jar "%JAR%" --keystore="%KS%" --alias=mybody --output="%OUT%" --include-cert --encryptionkey=%KEYHEX%
-) else (
-  echo 암호화 키가 없습니다. 콘솔 화면의 encryption_public_key.pem 을 이 폴더에 넣거나,
-  echo 화면이 긴 16진수 문자열을 주면 그것을 encryption-key.txt 로 저장하세요.
-  pause & exit /b 1
-)
+rem 배치의 ( ) 블록 안에서는 set 한 변수가 그 블록에서 안 보입니다 — 그래서 goto.
+if exist "%PEM%" goto pem
+if exist "%HEX%" goto hex
+echo 암호화 키가 없습니다. 콘솔 화면의 encryption_public_key.pem 을 이 폴더에 넣거나,
+echo 화면이 긴 16진수 문자열을 주면 그것을 encryption-key.txt 로 저장하세요.
+pause & exit /b 1
 
+:pem
+echo 공개키 파일로 암호화합니다...
+java -jar "%JAR%" --keystore="%KS%" --alias=mybody --output="%OUT%" --include-cert --rsa-aes-encryption --encryption-key-path="%PEM%"
+goto done
+
+:hex
+set /p KEYHEX=<"%HEX%"
+echo 16진수 키로 암호화합니다...
+java -jar "%JAR%" --keystore="%KS%" --alias=mybody --output="%OUT%" --include-cert --encryptionkey=%KEYHEX%
+goto done
+
+:done
 if errorlevel 1 (
   echo.
   echo 실패했습니다. 비밀번호는 KEY-INFO.txt 에 있습니다 ^(저장소 비밀번호 = 키 비밀번호^).
