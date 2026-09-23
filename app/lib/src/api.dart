@@ -220,8 +220,10 @@ extension ApiSocial on Api {
   Future<ApiResult> updateMe(Map<String, dynamic> patch) => send('PATCH', '/me', patch);
   Future<ApiResult> deleteMe() => send('DELETE', '/me');
 
+  /* 서버는 inviteCode 를 읽습니다. 예전에 'code' 로 보내서 앱에서는 친구
+     추가가 한 번도 안 됐습니다(웹은 맞게 보냈음). */
   Future<ApiResult> requestFriend(String inviteCode) =>
-      send('POST', '/friends/request', {'code': inviteCode});
+      send('POST', '/friends/request', {'inviteCode': inviteCode});
   Future<ApiResult> acceptFriend(String userId) =>
       send('POST', '/friends/accept', {'userId': userId});
   Future<ApiResult> declineFriend(String userId) =>

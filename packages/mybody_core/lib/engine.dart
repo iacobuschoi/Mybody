@@ -1694,9 +1694,17 @@ Map<String, Object?>? dietNudge(Map<String, Object?> today, Map<String, Object?>
 /// 주간 체크인 → 재조정 제안
 Map<String, Object?> checkinAdvice(Map<String, Object?>? plan, Map<String, Object?> expected,
     Map<String, Object?> actual, Map<String, Object?>? adherence) {
-  final dExp = _f(expected, 'weightKg') - _f(actual, 'weightKg');
-  final dAct = _f(expected, 'prevWeightKg') - _f(actual, 'weightKg');
-  final gap = dAct - dExp;
+  /* 계획보다 몇 kg 가벼운가 (+ 면 계획보다 더 빠짐). 예전 식은
+     (prev − actual) − (expected − actual) 이라 actual 이 지워져서, 체중을
+     뭘로 넣든 계획 모양만으로 판정이 났습니다. */
+  var gap = _f(expected, 'weightKg') - _f(actual, 'weightKg');
+  /* 증량 계획이면 무거운 쪽이 "빠름" 입니다. */
+  final tr = plan?['trajectory'];
+  if (tr is List && tr.length > 1) {
+    final w0 = jsToNumber((tr.first as Map)['weightKg']);
+    final w1 = jsToNumber((tr.last as Map)['weightKg']);
+    if (w1 > w0 + 0.5) gap = -gap;
+  }
   final suggestions = <Map<String, Object?>>[];
 
   if (adherence != null && _lt(adherence['dietPct'], 70)) {

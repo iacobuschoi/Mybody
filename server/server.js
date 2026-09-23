@@ -643,7 +643,9 @@ async function handleApi(req, res, url) {
   if (p === '/friends' && method === 'GET') return send(res, 200, { ok: true, friends: api.listFriends(me) });
   if (p === '/friends/request' && method === 'POST') {
     const b = await readBody(req);
-    const r = api.sendRequest(me, b.inviteCode);
+    /* 안드로이드 앱 0.2.3 까지는 'code' 로 보냈습니다. 이미 깔린 앱이 서버만
+       다시 띄우면 친구 추가가 되도록 둘 다 받습니다. */
+    const r = api.sendRequest(me, b.inviteCode || b.code);
     /* 친구 요청은 **앱을 안 열면 영영 모르는** 소식이었습니다.
      * 요청을 받은 쪽은 상대가 기다리는 줄도 모르고, 보낸 쪽은 무시당한
      * 줄 압니다. 둘 다 앱을 안 여는 이유가 됩니다.

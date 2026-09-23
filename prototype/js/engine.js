@@ -1434,9 +1434,13 @@
 
   /** 주간 체크인 → 재조정 제안 */
   function checkinAdvice(plan, expected, actual, adherence) {
-    var dExp = expected.weightKg - actual.weightKg;   // 예상 감소량
-    var dAct = expected.prevWeightKg - actual.weightKg;
-    var gap = dAct - dExp;
+    /* 계획보다 몇 kg 가벼운가 (+ 면 계획보다 더 빠짐).
+       예전 식은 (prev − actual) − (expected − actual) 이라 actual 이 지워져서,
+       체중을 뭘로 넣든 계획 모양만으로 판정이 났습니다. */
+    var gap = expected.weightKg - actual.weightKg;
+    /* 증량 계획이면 무거운 쪽이 "빠름" 입니다. */
+    var tr = plan && plan.trajectory;
+    if (tr && tr.length > 1 && tr[tr.length - 1].weightKg > tr[0].weightKg + 0.5) gap = -gap;
     var suggestions = [];
 
     if (adherence && adherence.dietPct < 70) {

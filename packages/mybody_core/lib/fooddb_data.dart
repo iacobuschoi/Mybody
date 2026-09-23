@@ -5185,7 +5185,7 @@ const List<Object?> kFoodDb = [
     'cat': '주류',
     'unit': '반병 180ml',
     'g': 180.0,
-    'kcal': 170.0,
+    'kcal': 200.0,
     'p': 0.0,
     'c': 1.0,
     'f': 0.0,
