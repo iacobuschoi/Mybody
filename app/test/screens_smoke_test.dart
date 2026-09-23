@@ -510,6 +510,42 @@ void main() {
     expect(find.widgetWithText(InputChip, '구내식당 점심 · 650kcal'), findsOneWidget, reason: '담은 것이 보여야 합니다');
   });
 
+  /* 정확히 겹치는 게 없으면 「'김치찌게' 와 비슷한 이름」 — 검색어는 그대로 두고
+     비슷한 행을 보여 주며, 그 행은 검색 결과처럼 눌러 담깁니다. 아무것도
+     안 비슷하면 예전 빈 상태 그대로. */
+  testWidgets('음식 검색 — 정확히 겹치는 게 없으면 비슷한 이름', (t) async {
+    t.view.physicalSize = const Size(1000, 4000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    final app = await seeded();
+    await t.pumpWidget(host(app, FoodSearchScreen(date: app.store.dayKey(), meal: '저녁')));
+    await t.pump(const Duration(milliseconds: 200));
+
+    await t.enterText(find.byType(TextField), '김치찌게');
+    await t.pump();
+    expect(find.text("'김치찌게' 와 비슷한 이름"), findsOneWidget);
+    expect(find.text('김치찌개'), findsOneWidget);
+    expect(find.text('비슷한 이름'), findsWidgets, reason: '왜 나왔는지 작은 표시');
+    expect(find.text('찾는 음식이 없습니다'), findsNothing);
+    expect(find.text('찾는 게 아니면 · 직접 입력'), findsOneWidget);
+    /* 자동 교정 금지 — 검색창은 친 그대로. */
+    expect(t.widget<TextField>(find.byType(TextField)).controller!.text, '김치찌게');
+
+    /* 그 행을 누르면 양 고르기 시트 → 1인분 → 담김. */
+    await t.tap(find.text('김치찌개'));
+    await t.pumpAndSettle();
+    await t.tap(find.textContaining('1인분  ·'));
+    await t.pumpAndSettle();
+    expect(find.widgetWithText(InputChip, '김치찌개 · 280kcal'), findsOneWidget, reason: '비슷한 행도 그대로 담겨야 합니다');
+
+    /* 아무것도 안 비슷하면 빈 상태. */
+    await t.enterText(find.byType(TextField), 'zzzz');
+    await t.pump();
+    expect(find.text('찾는 음식이 없습니다'), findsOneWidget);
+    expect(find.textContaining('비슷한 이름'), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+
   testWidgets('음식 검색', (t) async {
     final app = await seeded();
     await standsUp(t, app, const FoodSearchScreen(date: '2026-06-01'));

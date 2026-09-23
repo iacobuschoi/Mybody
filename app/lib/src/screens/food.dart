@@ -716,12 +716,41 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
     return list;
   }
 
+  /* 정확히 겹치는 게 없을 때의 대안 — 오타·초성·한/영 자판까지 봐서 최대 8개.
+     코어는 이름과 사유만 주므로 표의 행으로 되돌립니다. 분류 필터는 검색
+     결과와 똑같이 겁니다 — 필터를 골라 놓고 다른 분류가 튀어나오면 필터가
+     거짓말이 됩니다. */
+  List<({Map<String, Object?> food, String why})> _similar(String q) {
+    final out = <({Map<String, Object?> food, String why})>[];
+    for (final r in core.foodSimilar(q, 8)) {
+      final f = core.foodByName(r['name']);
+      if (f == null) continue;
+      if (_cat != null && f['cat'] != _cat) continue;
+      out.add((food: f, why: '${r['why']}'));
+    }
+    return out;
+  }
+
+  /// 왜 이 행이 나왔는지 — 짧게. 부분 일치는 표시 없음(검색 결과처럼 보이는
+  /// 게 맞고, 굳이 이유를 달면 오히려 의심스러워 보입니다).
+  static String? _whyLabel(String why) => switch (why) {
+        'typo' => '비슷한 이름',
+        'chosung' => '초성',
+        'qwerty' => '한/영 자판',
+        _ => null,
+      };
+
   @override
   Widget build(BuildContext context) {
     final app = Scope.of(context);
     final t = Theme.of(context);
     final q = _q.text.trim();
     final hits = _hits();
+    /* 검색어가 있는데 결과가 0개일 때만. 검색어는 절대 고치지 않습니다 —
+       "당신이 친 것과 다르다" 는 제목이 말하고, 고르는 건 사람이 합니다. */
+    final similar = q.isNotEmpty && hits.isEmpty
+        ? _similar(q)
+        : const <({Map<String, Object?> food, String why})>[];
     final favs = ((app.state['foodFavorites'] as List?) ?? const []).map((x) => '$x').toList();
     final recents = q.isEmpty && _cat == null ? app.store.recentFoods(6) : const <Map<String, Object?>>[];
     final pickedSum = core.Store.sumItems(_picked);
@@ -817,8 +846,24 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
               label('최근에 먹은 것'),
               for (final f in recents) _FoodRow(food: f, onTap: () => _pick(f)),
             ],
-            label(q.isNotEmpty ? '검색 결과' : (_cat ?? '목록')),
-            if (hits.isEmpty)
+            /* 제목에 검색어를 그대로 인용합니다 — 「'김치찌게' 와 비슷한 이름」.
+               행은 검색 결과와 같은 모양이라 그대로 눌러 담습니다. */
+            label(q.isNotEmpty
+                ? (similar.isNotEmpty ? "'$q' 와 비슷한 이름" : '검색 결과')
+                : (_cat ?? '목록')),
+            if (similar.isNotEmpty) ...[
+              for (final s in similar)
+                _FoodRow(food: s.food, hint: _whyLabel(s.why), onTap: () => _pick(s.food)),
+              const SizedBox(height: 6),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: _custom,
+                  icon: const Icon(LucideIcons.plus, size: 16),
+                  label: const Text('찾는 게 아니면 · 직접 입력'),
+                ),
+              ),
+            ] else if (hits.isEmpty)
               EmptyState(
                 title: '찾는 음식이 없습니다',
                 detail: '비슷한 걸 골라서 양을 조절하는 편이 안 적는 것보다 낫습니다.',
@@ -982,10 +1027,12 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
 }
 
 /// 목록 한 줄 — 이름과 성분은 왼쪽, 칼로리는 오른쪽에 크게. 편차가 큰 것만 표시.
+/// [hint] 는 "비슷한 이름" 구간에서 왜 나왔는지(초성·한/영 자판…) — 아주 작게.
 class _FoodRow extends StatelessWidget {
-  const _FoodRow({required this.food, required this.onTap});
+  const _FoodRow({required this.food, required this.onTap, this.hint});
   final Map<String, Object?> food;
   final VoidCallback onTap;
+  final String? hint;
 
   @override
   Widget build(BuildContext context) {
@@ -1008,6 +1055,10 @@ class _FoodRow extends StatelessWidget {
                       overflow: TextOverflow.ellipsis),
                 ),
                 if (low) ...[const SizedBox(width: 6), const Pill('편차 큼', tone: Tone.warn)],
+                if (hint != null) ...[
+                  const SizedBox(width: 8),
+                  Text(hint!, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+                ],
               ]),
               const SizedBox(height: 2),
               /* 무게와 영양소를 말로 구분합니다. "1개 (50g) · 72kcal · P6.3" 이면

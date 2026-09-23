@@ -424,6 +424,9 @@
           UI.clear(results);
           var list = q ? F().search(q, 40) : (cat ? F().byCat(cat) : F().FOODS.slice(0, 24));
           if (cat && q) list = list.filter(function (x) { return x.cat === cat; });
+          /* 검색어는 있는데 정확히 겹치는 게 없을 때만 비슷한 이름을 끼웁니다.
+             겹치는 게 있을 땐 지금 그대로 — 치는 중인 목록이 흔들리면 안 됩니다. */
+          if (!list.length && q && drawSimilar()) return;
           if (!list.length) {
             results.appendChild(h('div.empty', { uid: 'P19-S01', uidLabel: '결과 없음' }, [
               h('div.empty__t', { text: '찾는 음식이 없습니다' }),
@@ -433,31 +436,75 @@
             ]));
             return;
           }
-          list.forEach(function (food) {
-            results.appendChild(h('div.card', {
-              style: { cursor: 'pointer', padding: '11px 13px' },
-              onClick: function () { openPortion(food); }
-            }, [
-              h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
-                h('div', { style: { flex: '1', minWidth: '0' } }, [
-                  h('div', { style: { fontWeight: '700', fontSize: '14px' }, text: food.name }),
-                  h('div.muted', { style: { fontSize: '11.5px' },
-                    // 무게와 영양소를 말로 구분한다. 예전엔 "1개 (50g) · 72kcal · P6.3"
-                    // 이라 50g 이 단백질처럼 읽혔다.
-                    text: food.unit + ' ' + food.g + 'g · ' + food.kcal + 'kcal · 단백질 ' +
-                          food.p + 'g · 탄수 ' + food.c + 'g · 지방 ' + food.f + 'g' })
-                ]),
-                food.conf === 'low' ? h('span.badge.badge--warn', { text: '편차 큼' })
-                  : (food.conf === 'high' ? h('span.badge.badge--ok', { text: '정확' }) : null)
-              ])
-            ]));
-          });
+          list.forEach(function (food) { results.appendChild(foodRow(food)); });
           if (!q) {
             results.appendChild(h('button.btn.btn--sm.btn--block', { text: '목록에 없어요 · 직접 입력',
               style: { marginTop: '8px' }, uid: 'P19-B02', uidLabel: '직접 입력',
               onClick: function () { openCustom(); } }));
           }
         }
+
+        /* 비슷한 이름 — search 가 0건일 때만.
+           '김치찌게' 처럼 한 글자만 틀려도 search 는 0건이고, 그 자리에
+           "찾는 음식이 없습니다" 가 뜨면 사람은 표에 없는 줄 알고 직접
+           입력합니다. 그래서 그때만 similar 를 물어 같은 모양의 행으로
+           보여 줍니다 — 같은 모양이라야 그대로 눌러 담습니다.
+           검색어는 절대 고치지 않습니다. 대신 제목에 친 그대로 인용해
+           "이건 당신이 친 것과 다르다" 를 분명히 합니다. 분류 칩은 여기도
+           똑같이 겁니다 — 칩을 켠 사람에게 다른 분류가 끼어들면 그건
+           칩이 거짓말하는 겁니다. 그려서 true, 하나도 없으면 false
+           (그러면 기존 빈 상태가 그대로 뜹니다). */
+        function drawSimilar() {
+          var sim = F().similar(q, 8);
+          var rows = [];
+          sim.forEach(function (s) {
+            var food = F().byName(s.name);
+            if (food && (!cat || food.cat === cat)) rows.push({ food: food, why: s.why });
+          });
+          if (!rows.length) return false;
+          /* 왜 나왔는지 아주 작게. partial(치는 중인 글자가 들어 있음)은 표시 없음. */
+          var WHY = { typo: '비슷한 이름', chosung: '초성', qwerty: '한/영 자판' };
+          var box = h('div', { uid: 'P19-L02', uidLabel: '비슷한 이름' }, [
+            h('div.card__sub', { style: { margin: '4px 2px 8px' },
+              text: "'" + q.trim() + "' 와 비슷한 이름" })
+          ]);
+          rows.forEach(function (r, i) {
+            box.appendChild(foodRow(r.food, {
+              uid: 'P19-B12#' + (i + 1), uidLabel: '비슷한 이름 선택', why: WHY[r.why]
+            }));
+          });
+          box.appendChild(h('button.btn.btn--sm.btn--block', { text: '찾는 게 아니면 → 직접 입력',
+            style: { marginTop: '8px' }, uid: 'P19-B02', uidLabel: '직접 입력',
+            onClick: function () { openCustom(); } }));
+          results.appendChild(box);
+          return true;
+        }
+      }
+
+      /* 결과 행 하나. 검색 결과와 비슷한 이름이 같은 행을 씁니다.
+         opts.why 는 이름 옆에 붙는 아주 작은 표시(없으면 안 붙임). */
+      function foodRow(food, opts) {
+        opts = opts || {};
+        return h('div.card', {
+          style: { cursor: 'pointer', padding: '11px 13px' },
+          uid: opts.uid, uidLabel: opts.uidLabel,
+          onClick: function () { openPortion(food); }
+        }, [
+          h('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
+            h('div', { style: { flex: '1', minWidth: '0' } }, [
+              h('div', { style: { fontWeight: '700', fontSize: '14px' }, text: food.name },
+                opts.why ? h('span.muted', { style: { fontSize: '10.5px', fontWeight: '500', marginLeft: '6px' },
+                  text: opts.why }) : null),
+              h('div.muted', { style: { fontSize: '11.5px' },
+                // 무게와 영양소를 말로 구분한다. 예전엔 "1개 (50g) · 72kcal · P6.3"
+                // 이라 50g 이 단백질처럼 읽혔다.
+                text: food.unit + ' ' + food.g + 'g · ' + food.kcal + 'kcal · 단백질 ' +
+                      food.p + 'g · 탄수 ' + food.c + 'g · 지방 ' + food.f + 'g' })
+            ]),
+            food.conf === 'low' ? h('span.badge.badge--warn', { text: '편차 큼' })
+              : (food.conf === 'high' ? h('span.badge.badge--ok', { text: '정확' }) : null)
+          ])
+        ]);
       }
 
       function openPortion(food) {
