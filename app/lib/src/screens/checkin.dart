@@ -3,31 +3,25 @@
  *
  * 한 주에 한 번, 계획이 맞게 가고 있는지 맞춰 봅니다.
  *
- * **이 화면이 묻는 것은 몸무게만이 아닙니다.** 얼마나 지켰는지도 같이
- * 묻습니다 — 안 지킨 주에 "계획이 틀렸다" 고 판단해서 칼로리를 더 깎으면
+ * **이 화면이 보는 것은 몸무게만이 아닙니다.** 얼마나 지켰는지도 같이
+ * 봅니다 — 안 지킨 주에 "계획이 틀렸다" 고 판단해서 칼로리를 더 깎으면
  * 실제로 사람을 굶기게 되기 때문입니다. 순응도가 낮으면 엔진은 계획을
  * 건드리지 말라고 답합니다. 그게 맞는 답입니다.
+ *
+ * 예전에는 그걸 여기서 슬라이더로 물었습니다. 지금은 **안 묻습니다** —
+ * 운동은 홈에서 매일 체크하고 식단은 끼니마다 적으니, 거기서 셉니다
+ * (../adherence.dart, 플랜 탭의 「달성률」 과 같은 숫자). 잘 보이려고
+ * 높게 찍을 일도, 같은 걸 두 번 적을 일도 없습니다. 식단 기록이 3일이
+ * 안 되면 "모른다" 고 두고 체중만으로 봅니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
+import '../adherence.dart';
 import '../scope.dart';
 import '../ui/charts.dart';
 import '../ui/fmt.dart';
 import '../ui/widgets.dart';
-
-/* 식단 준수도 — 상/중/하를 숫자로 바꿔 엔진에 넘깁니다. */
-const _dietLevels = [
-  (key: 'high', label: '상', pct: 90, desc: '거의 계획대로 먹었다'),
-  (key: 'mid', label: '중', pct: 70, desc: '절반 이상은 지켰다'),
-  (key: 'low', label: '하', pct: 45, desc: '거의 못 지켰다'),
-];
-
-const _conditions = [
-  (key: 'good', label: '좋음', desc: '잘 잤고 몸이 가볍다'),
-  (key: 'normal', label: '보통', desc: '평소와 비슷하다'),
-  (key: 'bad', label: '나쁨', desc: '수면 부족 · 피로 누적'),
-];
 
 class CheckinScreen extends StatefulWidget {
   const CheckinScreen({super.key});
@@ -37,19 +31,12 @@ class CheckinScreen extends StatefulWidget {
 
 class _CheckinScreenState extends State<CheckinScreen> {
   final _weight = TextEditingController();
-  final _memo = TextEditingController();
-  double _workoutPct = 70;
-  String _dietKey = 'mid';
-  String _condition = 'normal';
 
   @override
   void dispose() {
     _weight.dispose();
-    _memo.dispose();
     super.dispose();
   }
-
-  int get _dietPct => _dietLevels.firstWhere((d) => d.key == _dietKey).pct;
 
   @override
   Widget build(BuildContext context) {
@@ -57,6 +44,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
     final st = app.state;
     final t = Theme.of(context);
     final c = mb(context);
+    final hint = t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5);
 
     if (st['plan'] == null) {
       return Scaffold(
@@ -79,13 +67,23 @@ class _CheckinScreenState extends State<CheckinScreen> {
         : expected;
     final actual = double.tryParse(_weight.text.trim());
 
+    /* 지난 7일 실행 — 기록에서 셉니다. */
+    final ex = weekExecution(app.store);
+    final workoutPct = ex['workoutPct'];
+    final dietPct = ex['dietPct'];
+    final planned = core.jsToNumber(ex['plannedDays']);
+    final kept = core.jsToNumber(ex['keptDays']);
+    final missed = core.jsToNumber(ex['missedDays']);
+    final logged = core.jsToNumber(ex['loggedDays']);
+    final inBand = core.jsToNumber(ex['inBandDays']);
+
     final advice = actual == null
         ? null
         : core.checkinAdvice(
             plan,
             {'weightKg': expected, 'prevWeightKg': prevW},
             {'weightKg': actual},
-            {'dietPct': _dietPct},
+            dietPct == null ? null : {'dietPct': dietPct},
           );
 
     return Scaffold(
@@ -111,59 +109,42 @@ class _CheckinScreenState extends State<CheckinScreen> {
                 helperMaxLines: 2,
               ),
             ),
-          ]),
-        ),
-
-        MbCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SectionTitle('얼마나 지켰나'),
-            Text(
-              /* 솔직하게 답하는 편이 이득이라는 것을 먼저 말합니다 —
-                 안 그러면 사람은 잘 보이려고 높게 찍고, 그러면 앱이
-                 "계획이 틀렸다" 고 판단해 칼로리를 더 깎습니다. */
-              '낮게 적어도 혼나지 않습니다. 오히려 덜 지킨 주에 칼로리를 더 깎으면 '
-              '굶게 되기 때문에, 앱은 그때 계획을 그대로 두라고 답합니다.',
-              style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5),
-            ),
-            const SizedBox(height: 14),
-            Text('운동 ${n0(_workoutPct)}%', style: t.textTheme.bodySmall),
-            Slider(
-              value: _workoutPct, min: 0, max: 100, divisions: 20,
-              label: '${_workoutPct.round()}%',
-              onChanged: (v) => setState(() => _workoutPct = v),
-            ),
+            const SizedBox(height: 16),
+            Text('지난 7일 실행', style: t.textTheme.bodySmall),
             const SizedBox(height: 6),
-            Text('식단', style: t.textTheme.bodySmall),
-            const SizedBox(height: 6),
-            for (final d in _dietLevels)
-              RadioGroup<String>(
-                groupValue: _dietKey,
-                onChanged: (v) => setState(() => _dietKey = v ?? _dietKey),
-                child: RadioListTile<String>(
-                  contentPadding: EdgeInsets.zero,
-                  dense: true,
-                  value: d.key,
-                  title: Text('${d.label} — ${d.desc}', style: t.textTheme.bodySmall),
+            Row(children: [
+              Expanded(
+                child: Stat(
+                  label: '운동',
+                  value: planned == 0 ? '일정 없음' : '${n0(kept)}/${n0(kept + missed)}일',
+                  delta: workoutPct == null
+                      ? (planned == 0 ? '홈에서 요일을 켜면 셉니다' : '오늘만 남음')
+                      : '${n0(workoutPct)}%',
+                  color: workoutPct == null ? null : (core.jsToNumber(workoutPct) >= 70 ? c.ok : c.warn),
                 ),
               ),
-            const SizedBox(height: 6),
-            Text('컨디션', style: t.textTheme.bodySmall),
-            const SizedBox(height: 6),
-            Wrap(spacing: 8, children: [
-              for (final cd in _conditions)
-                ChoiceChip(
-                  label: Text(cd.label),
-                  selected: _condition == cd.key,
-                  onSelected: (_) => setState(() => _condition = cd.key),
+              Expanded(
+                child: Stat(
+                  label: '식단',
+                  value: logged == 0 ? '기록 없음' : '${n0(inBand)}/${n0(logged)}일',
+                  delta: dietPct == null
+                      ? (core.jsTruthy(ex['hasTarget'])
+                          ? '기록 ${n0(logged)}일 — ${n0(ex['minLoggedDays'])}일은 있어야 봅니다'
+                          : '하루 목표가 없습니다')
+                      : '${n0(dietPct)}% 범위 안',
+                  color: dietPct == null ? null : (core.jsToNumber(dietPct) >= 70 ? c.ok : c.warn),
                 ),
+              ),
             ]),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _memo,
-              maxLines: 2,
-              decoration: const InputDecoration(
-                  labelText: '메모 (선택)', border: OutlineInputBorder()),
-            ),
+            const SizedBox(height: 6),
+            Text(
+                /* 왜 안 묻는지를 한 줄로. 낮게 나와도 혼나지 않는다는 말은
+                   그대로 둡니다 — 덜 지킨 주에 칼로리를 더 깎으면 굶게 되므로
+                   앱은 그때 계획을 그대로 두라고 답합니다. */
+                '홈의 운동 체크와 식단 기록에서 셉니다 (플랜 탭 「달성률」 과 같은 숫자). '
+                '낮아도 혼나지 않습니다 — 덜 지킨 주에 칼로리를 더 깎으면 굶게 되기 때문에, '
+                '앱은 그때 계획을 그대로 두라고 답합니다.',
+                style: hint),
           ]),
         ),
 
@@ -188,25 +169,31 @@ class _CheckinScreenState extends State<CheckinScreen> {
             ]),
           ),
 
-        if (advice != null) _AdviceCard(advice: advice),
+        if (advice != null)
+          _AdviceCard(
+            advice: advice,
+            caveat: dietPct == null && core.jsTruthy(ex['hasTarget'])
+                ? '식단 기록이 ${n0(logged)}일뿐이라 실행 여부는 반영하지 못했습니다. 체중만 보고 낸 제안입니다.'
+                : null,
+          ),
 
         FilledButton(
-          onPressed: actual == null ? null : () => _save(app, actual),
+          onPressed: actual == null ? null : () => _save(app, actual, ex),
           child: const Text('체크인 저장'),
         ),
       ]),
     );
   }
 
-  void _save(app, double actual) {
+  void _save(app, double actual, Map<String, Object?> ex) {
     final list = [...((app.state['checkins'] as List?) ?? const [])];
     list.add({
       'at': DateTime.now().toUtc().toIso8601String(),
       'weightKg': actual,
-      'workoutPct': _workoutPct.round(),
-      'dietPct': _dietPct,
-      'condition': _condition,
-      'memo': _memo.text.trim(),
+      /* 기록에서 센 값입니다. 없으면 null — 0 이 아닙니다. */
+      'workoutPct': ex['workoutPct'],
+      'dietPct': ex['dietPct'],
+      'derived': true,
     });
     app.store.set({'checkins': list});
     if (!app.store.saved()) {
@@ -227,8 +214,9 @@ class _CheckinScreenState extends State<CheckinScreen> {
 }
 
 class _AdviceCard extends StatelessWidget {
-  const _AdviceCard({required this.advice});
+  const _AdviceCard({required this.advice, this.caveat});
   final Map<String, Object?> advice;
+  final String? caveat;
 
   @override
   Widget build(BuildContext context) {
@@ -256,6 +244,8 @@ class _AdviceCard extends StatelessWidget {
               ]),
             );
           }),
+        if (caveat != null)
+          Text(caveat!, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5)),
       ]),
     );
   }

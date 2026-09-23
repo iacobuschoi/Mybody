@@ -15,6 +15,7 @@ import 'package:http/testing.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody/src/api.dart';
 import 'package:mybody/src/screens/account.dart';
+import 'package:mybody/src/screens/adherence.dart';
 import 'package:mybody/src/app_state.dart';
 import 'package:mybody/src/scope.dart';
 import 'package:mybody/src/screens/food.dart';
@@ -121,22 +122,18 @@ void main() {
     await standsUp(t, app, Scaffold(body: HomeScreen(go: noop)));
   });
 
-  /* 원본 홈에 있던 플랜 카드(오늘/이번주/한달)와 「플랜대로 채우기」. */
-  testWidgets('홈 — 플랜 카드 세 탭이 다 서고, 플랜대로 채우기가 이번 주를 채운다', (t) async {
+  /* 홈의 「플랜대로 채우기」. 플랜 카드(오늘/이번주/한달)는 뺐습니다 —
+     같은 내용이 플랜 탭에 있습니다. */
+  testWidgets('홈 — 플랜 카드는 없고, 플랜대로 채우기가 이번 주를 채운다', (t) async {
     t.view.physicalSize = const Size(1000, 5000);
     t.view.devicePixelRatio = 1.0;
     addTearDown(t.view.reset);
     final app = await seeded(withPlan: true);
     await t.pumpWidget(host(app, Scaffold(body: HomeScreen(go: noop))));
     await t.pump(const Duration(milliseconds: 200));
-    expect(find.text('플랜'), findsOneWidget);
+    expect(find.text('플랜'), findsNothing);
+    expect(find.text('전체 플랜 보기'), findsNothing);
     expect(find.text('다음에 할 일'), findsOneWidget);
-    for (final s in ['이번주', '한달', '오늘']) {
-      await t.tap(find.text(s));
-      await t.pump();
-      expect(find.byType(ErrorWidget), findsNothing, reason: '$s 탭');
-      expect(t.takeException(), isNull, reason: '$s 탭');
-    }
 
     final sessions = ((app.state['plan'] as Map)['workout'] as Map)['sessions'] as List;
     final days = (app.schedule.week()['days'] as List).cast<Map<String, Object?>>();
@@ -409,15 +406,9 @@ void main() {
     expect(app.store.logsForDate(today), hasLength(1));
     expect(find.text('지난번과 같이'), findsWidgets);
 
-    /* 달성률은 맨 아래 버튼이 아니라 위에서 고릅니다. */
-    expect(find.widgetWithText(OutlinedButton, '달성률'), findsNothing);
-    final seg = find.byType(SegmentedButton<String>);
-    await t.tap(find.descendant(of: seg, matching: find.text('달성률')));
-    await t.pump(const Duration(milliseconds: 200));
-    expect(find.text('최근 7일'), findsOneWidget);
-    expect(find.byType(ErrorWidget), findsNothing);
-    await t.tap(find.descendant(of: seg, matching: find.text('오늘')));
-    await t.pump(const Duration(milliseconds: 200));
+    /* 달성률은 이 탭에 없습니다 — 플랜 탭으로 갔습니다. */
+    expect(find.text('달성률'), findsNothing);
+    expect(find.byType(SegmentedButton<String>), findsNothing);
     expect(find.text('단백질 남음'), findsOneWidget);
   });
 
@@ -439,23 +430,57 @@ void main() {
     expect(went, 'goal');
   });
 
-  testWidgets('식단 달성률 — 주간·월간이 선다', (t) async {
-    t.view.physicalSize = const Size(1000, 5000);
+  testWidgets('달성률 — 운동·식단, 주간·월간이 선다', (t) async {
+    t.view.physicalSize = const Size(1000, 6000);
     t.view.devicePixelRatio = 1.0;
     addTearDown(t.view.reset);
     final app = await seeded(withPlan: true);
+    final today = app.store.dayKey();
     app.store.addFoodLog({
-      'date': app.store.dayKey(), 'meal': '아침', 'source': 'manual',
+      'date': today, 'meal': '아침', 'source': 'manual',
       'items': [{'name': '계란', 'g': 50, 'kcal': 72, 'p': 6.3, 'c': 0.4, 'f': 5}],
     });
-    await t.pumpWidget(host(app, DietAdherenceScreen(go: noop)));
+    /* 어제 헬스 계획 + 했음, 그저께 계획만 (놓침), 오늘 계획 (열림). */
+    final y1 = app.schedule.shiftKey(today, -1), y2 = app.schedule.shiftKey(today, -2);
+    app.store.setSchedulePlan(y1, 'gym', true);
+    app.store.setScheduleDone(y1, 'gym', true);
+    app.store.setSchedulePlan(y2, 'gym', true);
+    app.store.setSchedulePlan(today, 'gym', true);
+
+    await t.pumpWidget(host(app, AdherenceScreen(go: noop)));
     await t.pump(const Duration(milliseconds: 200));
-    expect(find.text('최근 7일'), findsOneWidget);
+    expect(find.text('운동 · 최근 7일'), findsOneWidget);
+    expect(find.text('식단 · 최근 7일'), findsOneWidget);
+    expect(find.text('계획 3일'), findsOneWidget);
+    expect(find.text('50%'), findsOneWidget, reason: '지킨 1 / (지킨 1 + 놓친 1) — 오늘은 분모에 안 듭니다');
+    expect(find.text('헬스 1/3'), findsOneWidget);
     expect(find.byType(ErrorWidget), findsNothing);
     await t.tap(find.text('월간'));
     await t.pump(const Duration(milliseconds: 200));
-    expect(find.text('최근 30일'), findsWidgets);
+    expect(find.text('운동 · 최근 30일'), findsOneWidget);
+    expect(find.text('식단 · 최근 30일'), findsOneWidget);
     expect(find.byType(ErrorWidget), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('플랜 탭 — 위에서 플랜 / 달성률 을 고른다', (t) async {
+    t.view.physicalSize = const Size(1000, 6000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    final app = await seeded(withPlan: true);
+    await t.pumpWidget(host(app, Scaffold(body: PlanScreen(go: noop))));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(find.text('주차별 궤적'), findsOneWidget);
+    final seg = find.byType(SegmentedButton<String>);
+    await t.tap(find.descendant(of: seg, matching: find.text('달성률')));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(find.text('주차별 궤적'), findsNothing);
+    expect(find.text('운동 · 최근 7일'), findsOneWidget);
+    expect(find.text('식단 · 최근 7일'), findsOneWidget);
+    expect(find.byType(ErrorWidget), findsNothing);
+    await t.tap(find.descendant(of: seg, matching: find.text('플랜')));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(find.text('주차별 궤적'), findsOneWidget);
     expect(t.takeException(), isNull);
   });
 
@@ -472,7 +497,9 @@ void main() {
     /* 목록 줄마다 오른쪽에 kcal 이 큼직하게 — 그걸로 셉니다. */
     expect(find.text('kcal').evaluate().length, greaterThan(0));
 
-    await t.tap(find.text('목록에 없어요 · 직접 입력'));
+    /* 목록이 400개를 넘어 맨 아래 버튼은 멀어졌습니다 — 위(앱바)에서도 갑니다. */
+    expect(find.text('목록에 없어요 · 직접 입력'), findsNothing, reason: '맨 아래 버튼은 아직 화면 밖');
+    await t.tap(find.widgetWithText(TextButton, '직접 입력'));
     await t.pumpAndSettle();
     await t.enterText(find.widgetWithText(TextField, '이름'), '구내식당 점심');
     await t.enterText(find.widgetWithText(TextField, '칼로리 (kcal)'), '650');

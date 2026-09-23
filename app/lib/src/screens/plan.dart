@@ -1,5 +1,5 @@
 /* =============================================================================
- * plan.dart — P07 플랜
+ * plan.dart — P07 플랜 (위에서 플랜 / 달성률 을 고릅니다)
  *
  * 계획 한 벌을 펼쳐 보여 줍니다: 기간과 목표일, 주차별 궤적, 매크로,
  * 운동 분할, 식단 예시, 마일스톤.
@@ -13,25 +13,56 @@ import 'package:flutter/material.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../scope.dart';
+import 'adherence.dart';
 import '../ui/charts.dart';
 import '../ui/fmt.dart';
 import '../ui/symbols.dart';
 import '../ui/widgets.dart';
 
-class PlanScreen extends StatelessWidget {
+class PlanScreen extends StatefulWidget {
   const PlanScreen({super.key, required this.go});
   final void Function(String route, [Object? arg]) go;
+
+  @override
+  State<PlanScreen> createState() => _PlanScreenState();
+}
+
+class _PlanScreenState extends State<PlanScreen> {
+  /// 위에서 고릅니다: 플랜 / 달성률. 달성률은 식단 탭에 있었는데, 운동
+  /// 달성률까지 같이 보려면 "계획 대비" 를 말하는 이 탭이 맞는 자리입니다.
+  String _view = 'plan';
 
   @override
   Widget build(BuildContext context) {
     final app = Scope.of(context);
     final st = app.state;
+    final go = widget.go;
     if (st['plan'] == null) {
       return EmptyState(
         title: '아직 계획이 없습니다',
         detail: '목표를 정하면 주차별 궤적과 식단·운동 처방을 만듭니다.',
         action: FilledButton(onPressed: () => go('goal'), child: const Text('목표 정하기')),
       );
+    }
+
+    final picker = Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: SegmentedButton<String>(
+        showSelectedIcon: false,
+        segments: const [
+          ButtonSegment(value: 'plan', label: Text('플랜')),
+          ButtonSegment(value: 'adherence', label: Text('달성률')),
+        ],
+        selected: {_view},
+        onSelectionChanged: (s) => setState(() => _view = s.first),
+      ),
+    );
+
+    if (_view == 'adherence') {
+      return ListView(padding: const EdgeInsets.all(16), children: [
+        picker,
+        AdherenceBody(go: go),
+      ]);
     }
     final plan = (st['plan'] as Map).cast<String, Object?>();
     final c = mb(context);
@@ -43,6 +74,7 @@ class PlanScreen extends StatelessWidget {
     final goal = (plan['goal'] as Map?)?.cast<String, Object?>();
 
     return ListView(padding: const EdgeInsets.all(16), children: [
+      picker,
       MbCard(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           SectionTitle('${plan['label']} · ${plan['title']}',
