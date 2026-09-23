@@ -210,9 +210,16 @@ jobs:
           echo "path=$apk" >> "$GITHUB_OUTPUT"
           echo "APK  $(du -h "$apk" | cut -f1)"
           { echo ""; echo "APK 크기 **$(du -h "$apk" | cut -f1)** · versionCode **${{ steps.vc.outputs.code }}**"; } >> "$GITHUB_STEP_SUMMARY"
-          aab=$(find app/build -name '*.aab' | head -1)
+          # outputs/bundle/release 아래만 봅니다. 그냥 find 하면 서명 전 중간 파일
+          # (intermediates/…/intermediary-bundle.aab)을 먼저 집을 때가 있어서
+          # v0.2.3 릴리스에 서명 안 된 AAB 가 올라갔습니다.
+          aab=$(find app/build -path '*outputs/bundle/release/*' -name '*.aab' | head -1)
           if [ -z "$aab" ]; then
             echo "app-release.aab 를 못 찾았습니다"; find app/build -name '*.aab'; exit 1
+          fi
+          # 서명이 들어 있는지 — 없으면 플레이 콘솔이 거부합니다.
+          if ! unzip -l "$aab" | grep -qE 'META-INF/[^/]+\.(RSA|EC|DSA)$'; then
+            echo "AAB 에 서명이 없습니다: $aab"; unzip -l "$aab" | grep META-INF || true; exit 1
           fi
           echo "aab=$aab" >> "$GITHUB_OUTPUT"
           echo "AAB  $(du -h "$aab" | cut -f1)"
