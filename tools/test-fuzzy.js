@@ -55,7 +55,7 @@ first('삼겹사', '삼겹살 구이', 'partial', '받침 빠짐');
 first('닭가슴사', '닭가슴살(생)', 'partial', '받침 빠짐');
 first('제육보끔', '제육볶음', 'typo', '받침 빠짐(ㅇ)');
 first('비빔밤', '비빔밥', 'typo', '받침 바뀜');
-first('자장면', '짜장면', 'typo', '된소리 빠짐');
+first('쨔장면', '짜장면', 'typo', '모음 하나 바뀜');  // '자장면' 은 이제 별명이라 search 가 먼저 잡습니다
 
 console.log('\n[3] 모음 바뀜');
 first('순두부찌게', '순두부찌개', 'typo');
@@ -90,14 +90,25 @@ t('영문 별명은 자판 변환 없이 그대로도 잡힌다 ("chicken")',
   F.similar('chicken').length > 0 && F.similar('chicken')[0].why === 'partial',
   JSON.stringify(F.similar('chicken').slice(0, 3)));
 
+console.log('\n[6b] 앞뒤에 붙인 말 · 괄호 순서 · 별명 둘 붙이기');
+first('아이스아메리카노', '아메리카노', 'partial');
+first('소주 1병', '소주', 'partial');
+first('삼겹살 200g', '삼겹살 구이', 'partial');
+first('물냉면', '냉면(물)', 'partial');
+first('크림파스타', '파스타(크림)', 'partial');
+first('돼지고기 김치찌개', '김치찌개', 'partial');
+first('protien bar', '프로틴바(일반) 1개', 'typo');
+first('닭가슴살 샐러드', '샐러드(닭가슴살) 1볼', 'partial');
+t('오타 하나가 "품은 말" 보다 위 — 김치찌게 → 김치찌개', F.similar('김치찌게')[0].name === '김치찌개');
+
 console.log('\n[7] 초성');
 first('ㄱㅊㅉㄱ', '김치찌개', 'chosung');
 first('ㅅㄱㅅ', '삼겹살 구이', 'chosung');
 first('ㅍㄹㅌㅂ', '프로틴바(일반) 1개', 'chosung');
-t('초성은 이름(87)이 별명(85)보다 앞', (() => {
+t('초성은 이름(88)이 별명(85)보다 앞', (() => {
   const r = F.similar('ㅍㄹㅌㅂ');
-  return r[0].score === 87 && r.some(x => x.score === 85) &&
-         r.findIndex(x => x.score === 85) > r.findIndex(x => x.score === 87);
+  return r[0].score === 88 && r.some(x => x.score === 85) &&
+         r.findIndex(x => x.score === 85) > r.findIndex(x => x.score === 88);
 })(), JSON.stringify(F.similar('ㅍㄹㅌㅂ')));
 
 console.log('\n[8] 결과 모양');

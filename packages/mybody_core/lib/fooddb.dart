@@ -170,18 +170,53 @@ int _dist(String a, String b) {
   return best;
 }
 
-/// 이름 하나(또는 별명 토큰 하나)의 점수. 자모열을 통째로 품으면 90,
-/// 아니면 자모 넷마다 오타 하나까지 봐주고 오타 하나에 10점씩 뺍니다.
-({int s, String why}) _scoreText(String qj, String text) {
+/// 텍스트 하나(이름 또는 별명 토큰)의 점수. 층이 겹치지 않게 둡니다:
+///   90     검색어가 텍스트 안에 통째로 (치는 중인 글자는 항상 여기)
+///   70     오타 하나 — "김치찌게" 는 김치찌개가 먼저 와야 합니다
+///   60~65  텍스트가 검색어 안에 통째로 — "아이스아메리카노", "소주 1병" 처럼 앞뒤에
+///          뭘 붙인 경우. 검색어를 많이 덮을수록 위. 오타 하나보다 아래인 것은
+///          "김치찌게" 안의 "김치" 가 김치김밥을 끌어올리지 않게.
+///   60     오타 둘. 셋부터는 거의 다 엉뚱한 것이라 안 봅니다.
+/// [revOnly] 는 이름 조각("치킨", "파스타") — 검색어가 그걸 품을 때만 봅니다.
+({int s, String why}) _scoreText(String qj, String text, bool revOnly) {
   final tj = _jamo(text);
-  if (tj.contains(qj)) return (s: 90, why: 'partial');
-  if (qj.length >= 4) {
+  if (!revOnly && tj.contains(qj)) return (s: 90, why: 'partial');
+  var best = (s: 0, why: '');
+  if (!revOnly && qj.length >= 4) {
     final d = _dist(qj, tj);
     var maxD = qj.length ~/ 4;
     if (maxD < 1) maxD = 1;
-    if (d <= maxD) return (s: 80 - d * 10, why: 'typo');
+    if (maxD > 2) maxD = 2;
+    if (d <= maxD) best = (s: 80 - d * 10, why: 'typo');
   }
-  return (s: 0, why: '');
+  if (tj.length >= 4 && tj.length < qj.length && qj.contains(tj)) {
+    final rv = 60 + (6 * tj.length) ~/ qj.length;
+    if (rv > best.s) best = (s: rv, why: 'partial');
+  }
+  return best;
+}
+
+final _parenName = RegExp(r'^([^(]*)\(([^)]*)\)(.*)$');
+final _nameSplit = RegExp(r'[\s()]+');
+
+/// 한 음식에서 비교할 글자들. 이름·괄호를 앞으로 돌린 이름("크림파스타",
+/// "물냉면")·별명 토큰·이웃한 별명 두 개를 붙인 것("proteinbar"), 그리고
+/// 검색어가 품을 때만 보는 이름 조각. 이름은 +3 — 같은 층이면 이름이 먼저.
+List<({String t, int bonus, bool rev})> _textsOf(String name, String alias) {
+  final out = <({String t, int bonus, bool rev})>[(t: name, bonus: 3, rev: false)];
+  final m = _parenName.firstMatch(name);
+  if (m != null) out.add((t: '${m[2]}${m[1]}${m[3]}', bonus: 3, rev: false));
+  final toks = alias.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+  for (final t in toks) {
+    out.add((t: t, bonus: 0, rev: false));
+  }
+  for (var k = 0; k + 1 < toks.length; k++) {
+    out.add((t: toks[k] + toks[k + 1], bonus: 0, rev: false));
+  }
+  for (final part in name.split(_nameSplit)) {
+    if (part.isNotEmpty) out.add((t: part, bonus: 0, rev: true));
+  }
+  return out;
 }
 
 /// 정확히 겹치는 게 없을 때 비슷한 이름. `[{name, score, why}]` 를 점수 높은
@@ -202,16 +237,12 @@ List<Map<String, Object?>> similar(Object? q, [Object? limit]) {
   for (var i = 0; i < kFoodDb.length; i++) {
     final x = (kFoodDb[i] as Map).cast<String, Object?>();
     final name = '${x['name']}';
-    /* 이름은 별명보다 2점 더 — 같은 점수면 이름이 맞은 쪽이 먼저 보이게. */
-    final texts = <({String t, int bonus})>[(t: name, bonus: 2)];
-    for (final tok in '${x['alias'] ?? ''}'.split(RegExp(r'\s+'))) {
-      if (tok.isNotEmpty) texts.add((t: tok, bonus: 0));
-    }
+    final texts = _textsOf(name, '${x['alias'] ?? ''}');
     var best = 0;
     var why = '';
     for (final c in cands) {
       for (final t in texts) {
-        final r = _scoreText(c.j, t.t);
+        final r = _scoreText(c.j, t.t, t.rev);
         if (r.s > 0) {
           final v = r.s + t.bonus;
           if (v > best) {
@@ -223,7 +254,7 @@ List<Map<String, Object?>> similar(Object? q, [Object? limit]) {
     }
     if (cho) {
       for (final t in texts) {
-        if (_chosung(t.t).contains(qn)) {
+        if (!t.rev && _chosung(t.t).contains(qn)) {
           final v = 85 + t.bonus;
           if (v > best) {
             best = v;

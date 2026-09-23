@@ -159,7 +159,14 @@ const ok = (n, c, d) => {
      /^김치찌개/.test(((await rows())[0] || {}).name || ''));
   await page.locator(u('P19-F02') + ' .chip', { hasText: '밥' }).first().click();
   await page.waitForTimeout(200);
-  ok('밥 칩 → 국찌개는 끼어들지 않고 빈 상태', await count('P19-L02') === 0 && await count('P19-S01') === 1);
+  {
+    /* 밥 칩이 켜져 있으면 밥 분류만 — 김치찌개(국찌개)는 안 끼고, 김치김밥 같은 밥 음식만 남습니다. */
+    const names = (await rows()).map(r => r.name || '');
+    const F = await page.evaluate(() => window.MB_FOOD.FOODS.map(x => [x.name, x.cat]));
+    const cat = Object.fromEntries(F);
+    ok('밥 칩 → 국찌개는 끼어들지 않고 밥 분류만', names.every(n => { const k = Object.keys(cat).find(x => n.indexOf(x) === 0); return !k || cat[k] === '밥'; }) &&
+       !names.some(n => /^김치찌개/.test(n)), names);
+  }
   await page.locator(u('P19-F02') + ' .chip', { hasText: '전체' }).click();
   await page.waitForTimeout(200);
 

@@ -30,7 +30,7 @@ const List<Object?> kFoodDb = [
     'c': 66.0,
     'f': 2.1,
     'conf': 'high',
-    'alias': '',
+    'alias': '현미 현미공기 brown rice',
   },
   {
     'name': '잡곡밥',
@@ -42,7 +42,7 @@ const List<Object?> kFoodDb = [
     'c': 66.0,
     'f': 2.4,
     'conf': 'high',
-    'alias': '',
+    'alias': '잡곡 오곡밥 흑미밥 multigrain rice',
   },
   {
     'name': '반공기',
@@ -54,7 +54,7 @@ const List<Object?> kFoodDb = [
     'c': 34.0,
     'f': 0.3,
     'conf': 'high',
-    'alias': '',
+    'alias': '밥반공기 공기밥반 반그릇 half rice',
   },
   {
     'name': '김밥',
@@ -78,7 +78,7 @@ const List<Object?> kFoodDb = [
     'c': 48.6,
     'f': 17.3,
     'conf': 'mid',
-    'alias': '',
+    'alias': '참치 참김 tuna gimbap',
   },
   {
     'name': '비빔밥',
@@ -90,7 +90,7 @@ const List<Object?> kFoodDb = [
     'c': 84.8,
     'f': 19.4,
     'conf': 'mid',
-    'alias': '',
+    'alias': '비빔 전주비빔밥 bibimbap',
   },
   {
     'name': '김치볶음밥',
@@ -102,7 +102,7 @@ const List<Object?> kFoodDb = [
     'c': 88.0,
     'f': 21.0,
     'conf': 'low',
-    'alias': '',
+    'alias': '김볶밥 김치볶밥 kimchi fried rice',
   },
   {
     'name': '제육덮밥',
@@ -114,7 +114,7 @@ const List<Object?> kFoodDb = [
     'c': 95.0,
     'f': 30.0,
     'conf': 'low',
-    'alias': '',
+    'alias': '제육 제육볶음덮밥 jeyuk',
   },
   {
     'name': '돈까스덮밥',
@@ -138,7 +138,7 @@ const List<Object?> kFoodDb = [
     'c': 79.0,
     'f': 16.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '신라면 진라면 너구리 안성탕면 봉지라면 ramen ramyeon',
   },
   {
     'name': '라면+계란',
@@ -150,7 +150,7 @@ const List<Object?> kFoodDb = [
     'c': 79.0,
     'f': 21.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '계란라면 달걀라면 라면계란 egg ramen',
   },
   {
     'name': '짜장면',
@@ -162,7 +162,7 @@ const List<Object?> kFoodDb = [
     'c': 133.6,
     'f': 20.3,
     'conf': 'low',
-    'alias': '',
+    'alias': '자장면 짜장 중국집 jjajangmyeon',
   },
   {
     'name': '짬뽕',
@@ -174,7 +174,7 @@ const List<Object?> kFoodDb = [
     'c': 98.0,
     'f': 19.0,
     'conf': 'low',
-    'alias': '',
+    'alias': '짬봉 중국집 jjamppong',
   },
   {
     'name': '냉면(물)',
@@ -186,7 +186,7 @@ const List<Object?> kFoodDb = [
     'c': 100.0,
     'f': 8.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '물냉면 물냉 평양냉면 함흥냉면 naengmyeon',
   },
   {
     'name': '칼국수',
@@ -198,7 +198,7 @@ const List<Object?> kFoodDb = [
     'c': 104.3,
     'f': 3.5,
     'conf': 'mid',
-    'alias': '',
+    'alias': '칼국 바지락칼국수 kalguksu',
   },
   {
     'name': '파스타(크림)',
@@ -210,7 +210,7 @@ const List<Object?> kFoodDb = [
     'c': 80.0,
     'f': 40.0,
     'conf': 'low',
-    'alias': '',
+    'alias': '크림파스타 까르보나라 크림스파게티 cream pasta carbonara',
   },
   {
     'name': '파스타(오일)',
@@ -222,7 +222,7 @@ const List<Object?> kFoodDb = [
     'c': 85.0,
     'f': 22.0,
     'conf': 'low',
-    'alias': '',
+    'alias': '오일파스타 알리오올리오 알리올리오 aglio olio',
   },
   {
     'name': '김치찌개',
@@ -234,7 +234,7 @@ const List<Object?> kFoodDb = [
     'c': 12.0,
     'f': 17.0,
     'conf': 'low',
-    'alias': '',
+    'alias': '돼지김치찌개 참치김치찌개 kimchi jjigae',
   },
   {
     'name': '된장찌개',
@@ -246,7 +246,7 @@ const List<Object?> kFoodDb = [
     'c': 12.5,
     'f': 5.5,
     'conf': 'mid',
-    'alias': '',
+    'alias': '된찌 차돌된장찌개 doenjang jjigae',
   },
   {
     'name': '순두부찌개',
@@ -258,7 +258,7 @@ const List<Object?> kFoodDb = [
     'c': 12.0,
     'f': 19.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '순두부 순부찌 해물순두부 sundubu',
   },
   {
     'name': '부대찌개',
@@ -270,7 +270,7 @@ const List<Object?> kFoodDb = [
     'c': 30.0,
     'f': 32.0,
     'conf': 'low',
-    'alias': '',
+    'alias': '부찌 존슨탕 budae jjigae',
   },
   {
     'name': '미역국',
@@ -282,7 +282,7 @@ const List<Object?> kFoodDb = [
     'c': 5.0,
     'f': 5.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '소고기미역국 miyeokguk',
   },
   {
     'name': '된장국',
@@ -294,7 +294,7 @@ const List<Object?> kFoodDb = [
     'c': 6.0,
     'f': 2.5,
     'conf': 'mid',
-    'alias': '',
+    'alias': '시래기된장국 doenjang soup',
   },
   {
     'name': '설렁탕',
@@ -306,7 +306,7 @@ const List<Object?> kFoodDb = [
     'c': 28.0,
     'f': 19.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '설농탕 seolleongtang',
   },
   {
     'name': '순대국밥',
@@ -318,7 +318,7 @@ const List<Object?> kFoodDb = [
     'c': 62.0,
     'f': 32.0,
     'conf': 'low',
-    'alias': '',
+    'alias': '순대국 순댓국 sundae gukbap',
   },
   {
     'name': '갈비탕',
@@ -330,7 +330,7 @@ const List<Object?> kFoodDb = [
     'c': 7.6,
     'f': 10.8,
     'conf': 'mid',
-    'alias': '',
+    'alias': '왕갈비탕 galbitang',
   },
   {
     'name': '삼계탕',
@@ -342,7 +342,7 @@ const List<Object?> kFoodDb = [
     'c': 38.0,
     'f': 45.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '반계탕 samgyetang',
   },
   {
     'name': '닭가슴살(생)',
@@ -366,7 +366,7 @@ const List<Object?> kFoodDb = [
     'c': 1.0,
     'f': 2.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '닭가슴살 닭가슴 훈제닭가슴살 수비드닭가슴살 chicken breast',
   },
   {
     'name': '닭다리살 구이',
@@ -378,7 +378,7 @@ const List<Object?> kFoodDb = [
     'c': 0.0,
     'f': 14.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '닭다리 닭다리살 닭정육 chicken thigh',
   },
   {
     'name': '삼겹살 구이',
@@ -390,7 +390,7 @@ const List<Object?> kFoodDb = [
     'c': 0.0,
     'f': 35.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '삼겹살 삼겹 오겹살 samgyeopsal pork belly',
   },
   {
     'name': '삼겹살 1인분',
@@ -402,7 +402,7 @@ const List<Object?> kFoodDb = [
     'c': 0.0,
     'f': 70.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '삼겹살 삼겹 고기집 samgyeopsal pork belly',
   },
   {
     'name': '목살 구이',
@@ -414,7 +414,7 @@ const List<Object?> kFoodDb = [
     'c': 0.0,
     'f': 17.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '목살 돼지목살 pork neck',
   },
   {
     'name': '소고기 등심',
@@ -426,7 +426,7 @@ const List<Object?> kFoodDb = [
     'c': 0.0,
     'f': 16.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '등심 채끝 스테이크 beef sirloin steak',
   },
   {
     'name': '소고기 우둔(살코기)',
@@ -438,7 +438,7 @@ const List<Object?> kFoodDb = [
     'c': 0.0,
     'f': 4.6,
     'conf': 'high',
-    'alias': '',
+    'alias': '우둔 홍두깨 소고기살코기 lean beef',
   },
   {
     'name': '돼지 뒷다리살',
@@ -450,7 +450,7 @@ const List<Object?> kFoodDb = [
     'c': 0.0,
     'f': 4.4,
     'conf': 'high',
-    'alias': '',
+    'alias': '뒷다리살 후지 돼지고기살코기 pork leg',
   },
   {
     'name': '계란(삶음)',
@@ -462,7 +462,7 @@ const List<Object?> kFoodDb = [
     'c': 0.4,
     'f': 4.8,
     'conf': 'high',
-    'alias': '',
+    'alias': '삶은계란 삶은달걀 달걀 계란 구운계란 boiled egg',
   },
   {
     'name': '계란후라이',
@@ -474,7 +474,7 @@ const List<Object?> kFoodDb = [
     'c': 0.5,
     'f': 9.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '계란프라이 달걀후라이 달걀프라이 에그프라이 fried egg',
   },
   {
     'name': '고등어구이',
@@ -486,7 +486,7 @@ const List<Object?> kFoodDb = [
     'c': 0.0,
     'f': 11.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '고등어 생선구이 mackerel',
   },
   {
     'name': '연어(생)',
@@ -498,7 +498,7 @@ const List<Object?> kFoodDb = [
     'c': 0.0,
     'f': 13.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '연어 연어회 사시미 salmon',
   },
   {
     'name': '두부(부침)',
@@ -510,7 +510,7 @@ const List<Object?> kFoodDb = [
     'c': 3.9,
     'f': 8.1,
     'conf': 'high',
-    'alias': '',
+    'alias': '두부부침 두부구이 부침두부 tofu',
   },
   {
     'name': '두부(연두부)',
@@ -522,7 +522,7 @@ const List<Object?> kFoodDb = [
     'c': 3.0,
     'f': 5.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '연두부 soft tofu',
   },
   {
     'name': '참치캔(기름뺀)',
@@ -534,7 +534,7 @@ const List<Object?> kFoodDb = [
     'c': 2.0,
     'f': 3.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '참치 참치캔 동원참치 tuna',
   },
   {
     'name': '그릭요거트 무가당',
@@ -546,7 +546,7 @@ const List<Object?> kFoodDb = [
     'c': 5.0,
     'f': 6.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '그릭요거트 그릭 요거트 꾸덕요거트 greek yogurt',
   },
   {
     'name': '프로틴 1스쿱',
@@ -618,7 +618,7 @@ const List<Object?> kFoodDb = [
     'c': 0.0,
     'f': 0.9,
     'conf': 'high',
-    'alias': '',
+    'alias': '안심 닭안심살 chicken tenderloin',
   },
   {
     'name': '배추김치',
@@ -630,7 +630,7 @@ const List<Object?> kFoodDb = [
     'c': 1.2,
     'f': 0.25,
     'conf': 'high',
-    'alias': '',
+    'alias': '김치 포기김치 kimchi',
   },
   {
     'name': '시금치나물',
@@ -642,7 +642,7 @@ const List<Object?> kFoodDb = [
     'c': 3.0,
     'f': 2.5,
     'conf': 'mid',
-    'alias': '',
+    'alias': '시금치 시금치무침 spinach',
   },
   {
     'name': '콩나물무침',
@@ -654,7 +654,7 @@ const List<Object?> kFoodDb = [
     'c': 3.0,
     'f': 2.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '콩나물 bean sprouts',
   },
   {
     'name': '브로콜리 데침',
@@ -666,7 +666,7 @@ const List<Object?> kFoodDb = [
     'c': 6.6,
     'f': 0.4,
     'conf': 'high',
-    'alias': '',
+    'alias': '브로콜리 broccoli',
   },
   {
     'name': '샐러드채소',
@@ -678,7 +678,7 @@ const List<Object?> kFoodDb = [
     'c': 3.0,
     'f': 0.2,
     'conf': 'high',
-    'alias': '',
+    'alias': '샐러드 야채샐러드 그린샐러드 채소 salad',
   },
   {
     'name': '계란말이',
@@ -690,7 +690,7 @@ const List<Object?> kFoodDb = [
     'c': 2.0,
     'f': 13.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '달걀말이 계말 egg roll',
   },
   {
     'name': '멸치볶음',
@@ -702,7 +702,7 @@ const List<Object?> kFoodDb = [
     'c': 4.0,
     'f': 4.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '멸치 멸볶',
   },
   {
     'name': '장조림',
@@ -714,7 +714,7 @@ const List<Object?> kFoodDb = [
     'c': 4.0,
     'f': 4.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '소고기장조림 메추리알장조림',
   },
   {
     'name': '어묵볶음',
@@ -726,7 +726,7 @@ const List<Object?> kFoodDb = [
     'c': 16.5,
     'f': 5.1,
     'conf': 'low',
-    'alias': '',
+    'alias': '어묵 오뎅볶음 오뎅 fish cake',
   },
   {
     'name': '고구마(찐)',
@@ -738,7 +738,7 @@ const List<Object?> kFoodDb = [
     'c': 59.0,
     'f': 0.3,
     'conf': 'high',
-    'alias': '',
+    'alias': '고구마 찐고구마 군고구마 sweet potato',
   },
   {
     'name': '감자(찐)',
@@ -750,7 +750,7 @@ const List<Object?> kFoodDb = [
     'c': 27.0,
     'f': 0.2,
     'conf': 'high',
-    'alias': '',
+    'alias': '감자 찐감자 potato',
   },
   {
     'name': '오트밀(건조)',
@@ -774,7 +774,7 @@ const List<Object?> kFoodDb = [
     'c': 25.6,
     'f': 2.1,
     'conf': 'mid',
-    'alias': '',
+    'alias': '식빵 통밀빵 토스트 whole wheat bread',
   },
   {
     'name': '바나나',
@@ -786,7 +786,7 @@ const List<Object?> kFoodDb = [
     'c': 27.0,
     'f': 0.4,
     'conf': 'high',
-    'alias': '',
+    'alias': 'banana',
   },
   {
     'name': '사과',
@@ -798,7 +798,7 @@ const List<Object?> kFoodDb = [
     'c': 28.0,
     'f': 0.3,
     'conf': 'high',
-    'alias': '',
+    'alias': 'apple',
   },
   {
     'name': '아몬드',
@@ -810,7 +810,7 @@ const List<Object?> kFoodDb = [
     'c': 4.4,
     'f': 10.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '견과 almond',
   },
   {
     'name': '땅콩버터',
@@ -822,7 +822,7 @@ const List<Object?> kFoodDb = [
     'c': 3.5,
     'f': 8.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '피넛버터 peanut butter',
   },
   {
     'name': '올리브유',
@@ -834,7 +834,7 @@ const List<Object?> kFoodDb = [
     'c': 0.0,
     'f': 13.5,
     'conf': 'high',
-    'alias': '',
+    'alias': '올리브오일 olive oil',
   },
   {
     'name': '아보카도',
@@ -846,7 +846,7 @@ const List<Object?> kFoodDb = [
     'c': 8.5,
     'f': 14.7,
     'conf': 'high',
-    'alias': '',
+    'alias': 'avocado',
   },
   {
     'name': '편의점 도시락(일반)',
@@ -858,7 +858,7 @@ const List<Object?> kFoodDb = [
     'c': 95.0,
     'f': 25.0,
     'conf': 'low',
-    'alias': '',
+    'alias': '도시락 편도 편의점도시락 cu gs25 세븐일레븐',
   },
   {
     'name': '편의점 닭가슴살',
@@ -870,7 +870,7 @@ const List<Object?> kFoodDb = [
     'c': 2.0,
     'f': 1.8,
     'conf': 'high',
-    'alias': '',
+    'alias': '닭가슴살 허닭 아임닭 chicken breast',
   },
   {
     'name': '삼각김밥',
@@ -882,7 +882,7 @@ const List<Object?> kFoodDb = [
     'c': 38.0,
     'f': 3.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '삼김 주먹밥 onigiri',
   },
   {
     'name': '컵라면(소)',
@@ -894,7 +894,7 @@ const List<Object?> kFoodDb = [
     'c': 45.0,
     'f': 11.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '컵라면 작은컵 cup ramen',
   },
   {
     'name': '서브웨이 15cm(치킨)',
@@ -906,7 +906,7 @@ const List<Object?> kFoodDb = [
     'c': 45.0,
     'f': 7.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '서브웨이 써브웨이 서브웨이치킨 치킨샌드위치 subway',
   },
   {
     'name': '백반(생선구이)',
@@ -918,7 +918,7 @@ const List<Object?> kFoodDb = [
     'c': 85.0,
     'f': 22.0,
     'conf': 'low',
-    'alias': '',
+    'alias': '백반 생선구이정식 가정식',
   },
   {
     'name': '치킨(후라이드) 반마리',
@@ -930,7 +930,7 @@ const List<Object?> kFoodDb = [
     'c': 45.0,
     'f': 62.0,
     'conf': 'low',
-    'alias': '',
+    'alias': '후라이드치킨 후라이드 프라이드치킨 교촌치킨 반반 fried chicken',
   },
   {
     'name': '치킨(양념) 반마리',
@@ -942,7 +942,7 @@ const List<Object?> kFoodDb = [
     'c': 75.0,
     'f': 62.0,
     'conf': 'low',
-    'alias': '',
+    'alias': '양념치킨 교촌치킨 반반 chicken',
   },
   {
     'name': '피자 1조각',
@@ -954,7 +954,7 @@ const List<Object?> kFoodDb = [
     'c': 32.0,
     'f': 12.0,
     'conf': 'low',
-    'alias': '',
+    'alias': '피자 피자한조각 도미노 pizza',
   },
   {
     'name': '햄버거(불고기)',
@@ -966,7 +966,7 @@ const List<Object?> kFoodDb = [
     'c': 55.0,
     'f': 22.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '햄버거 버거 불고기버거 롯데리아 burger hamburger',
   },
   {
     'name': '떡볶이 1인분',
@@ -978,7 +978,7 @@ const List<Object?> kFoodDb = [
     'c': 85.0,
     'f': 11.0,
     'conf': 'low',
-    'alias': '',
+    'alias': '떡볶이 엽떡 분식 tteokbokki',
   },
   {
     'name': '만두(고기) 5개',
@@ -990,7 +990,7 @@ const List<Object?> kFoodDb = [
     'c': 38.0,
     'f': 15.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '만두 고기만두 군만두 물만두 dumpling',
   },
   {
     'name': '족발 1인분',
@@ -1002,7 +1002,7 @@ const List<Object?> kFoodDb = [
     'c': 2.0,
     'f': 34.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '족발 앞다리 jokbal',
   },
   {
     'name': '회(광어) 1인분',
@@ -1014,7 +1014,7 @@ const List<Object?> kFoodDb = [
     'c': 0.0,
     'f': 3.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '광어회 광어 활어회 sashimi',
   },
   {
     'name': '아메리카노',
@@ -1026,7 +1026,7 @@ const List<Object?> kFoodDb = [
     'c': 2.0,
     'f': 0.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '아아 아이스아메리카노 뜨아 커피 블랙커피 americano',
   },
   {
     'name': '라떼',
@@ -1038,7 +1038,7 @@ const List<Object?> kFoodDb = [
     'c': 17.0,
     'f': 8.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '카페라떼 카페라테 라테 우유커피 latte',
   },
   {
     'name': '제로콜라',
@@ -1050,7 +1050,7 @@ const List<Object?> kFoodDb = [
     'c': 0.0,
     'f': 0.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '코카콜라제로 펩시제로 다이어트콜라 zero cola',
   },
   {
     'name': '콜라',
@@ -1062,7 +1062,7 @@ const List<Object?> kFoodDb = [
     'c': 54.0,
     'f': 0.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '코카콜라 펩시 coke cola',
   },
   {
     'name': '맥주',
@@ -1074,7 +1074,7 @@ const List<Object?> kFoodDb = [
     'c': 16.0,
     'f': 0.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '생맥 생맥주 카스 테라 beer',
   },
   {
     'name': '소주',
@@ -1086,7 +1086,7 @@ const List<Object?> kFoodDb = [
     'c': 0.0,
     'f': 0.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '참이슬 처음처럼 소주한병 soju',
   },
   {
     'name': '소주 1잔',
@@ -1098,7 +1098,7 @@ const List<Object?> kFoodDb = [
     'c': 0.0,
     'f': 0.0,
     'conf': 'high',
-    'alias': '',
+    'alias': '소주한잔 soju shot',
   },
   {
     'name': '막걸리',
@@ -1110,7 +1110,7 @@ const List<Object?> kFoodDb = [
     'c': 12.0,
     'f': 0.0,
     'conf': 'mid',
-    'alias': '',
+    'alias': '막걸 탁주 makgeolli',
   },
   {
     'name': '우유',
@@ -1122,7 +1122,7 @@ const List<Object?> kFoodDb = [
     'c': 9.6,
     'f': 6.8,
     'conf': 'high',
-    'alias': '',
+    'alias': '흰우유 서울우유 milk',
   },
   {
     'name': '저지방우유',
@@ -1146,7 +1146,7 @@ const List<Object?> kFoodDb = [
     'c': 4.0,
     'f': 4.5,
     'conf': 'mid',
-    'alias': '',
+    'alias': '두유 무가당두유 베지밀 soy milk',
   },
   {
     'name': '유부초밥 6개',
