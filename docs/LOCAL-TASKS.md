@@ -326,12 +326,9 @@ v0.2.0 이 나갔습니다: https://github.com/iacobuschoi/Mybody/releases/tag/v
    `node tools/reset-password.js playreview` 로 비밀번호 정함 → 폴더에 `계정.txt` 로 저장
    (형식은 `play/계정.txt.예시`). emutest1 과 친구 맺어 두면 심사자가 친구 기능도 볼 수 있음.
    **저장소에는 절대 넣지 말 것** (.gitignore 에 있음).
-5. **스크린샷 새로 찍기** — 지금 `그림/스크린샷/` 은 9/21 옛 화면입니다. 에뮬레이터(기록 있는 계정)에서
-   홈 · 인바디 올리기(사진 붙인 상태) · 검수 · 목표 · 플랜 · 식단 · 추이 · 친구 여덟 화면을
-   `adb exec-out screencap -p > 원본\01-home.png` 식으로(파일 이름에 home/upload/review/goal/plan/
-   food/progress/social 이 들어가야 설명 띠가 붙음) → `python play\make-shots.py 원본 <폴더>\그림\스크린샷`
-   (Python + `pip install pillow` 필요; 없으면 설치, 정 안 되면 원본을 그대로 두고 보고에 적기) →
-   나온 8장을 눈으로 확인(위 잘림·글자 겹침 없는지). 마음에 안 드는 장은 빼도 됨(2장 이상이면 됨).
+5. **스크린샷** — 이미 지금 화면으로 새로 만들어 뒀습니다(`play/그림/스크린샷/` 9장, 앱 위젯을
+   실제 글꼴로 그린 것 — `cd app && flutter test test_shots/` 로 다시 뽑을 수 있음). 에뮬레이터로
+   다시 찍을 필요 없음. 폴더에 복사만.
 6. **열쇠 확인** — `keytool -list -v -keystore %USERPROFILE%\mybody-signing-key\mybody.jks -alias mybody`
    의 SHA256 이 `06d945a3…83de11` 인지. `pepk.cmd` 는 pepk.jar 없이 못 돌리니 파일 검사만
    (더블클릭하면 "pepk.jar 가 없습니다" 로 멈추는지).
