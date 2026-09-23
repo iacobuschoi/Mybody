@@ -1,0 +1,77 @@
+# =============================================================================
+# 아이폰 빌드 — 지금은 **컴파일이 되는지만** 봅니다 (서명 없이)
+#
+# 애플 개발자 계정이 생기기 전에도 잡을 수 있는 것을 잡습니다: 플러그인이
+# iOS 에서 안 붙는지, Info.plist 가 빠졌는지, Xcode 가 새 문법을 거부하는지.
+# 공개 저장소라 macOS 러너가 공짜입니다. 계정이 생기면 여기에 서명과
+# TestFlight 업로드 단계를 붙입니다 (인증서는 Secrets 에).
+# =============================================================================
+name: 아이폰 빌드 확인
+
+on:
+  push:
+    branches: [claude/body-management-app-prototype-m4mv4k]
+    paths:
+      - 'app/**'
+      - 'packages/**'
+      - '.github/workflows/ios.yml'
+      - '!app/**/*.md'
+  workflow_dispatch:
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FLUTTER_VERSION: 3.41.2
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Flutter 캐시
+        id: fcache
+        uses: actions/cache@v4
+        with:
+          path: ~/flutter
+          key: flutter-${{ env.FLUTTER_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Flutter 받기
+        if: steps.fcache.outputs.cache-hit != 'true'
+        run: |
+          git clone --depth 1 --branch "$FLUTTER_VERSION" \
+            https://github.com/flutter/flutter.git "$HOME/flutter"
+
+      - name: Flutter 를 길에 올리기
+        run: |
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          git config --global --add safe.directory "$HOME/flutter"
+
+      - run: flutter --version
+      - run: xcodebuild -version
+
+      - name: 묶음 받기
+        working-directory: app
+        run: flutter pub get
+
+      # 서명 없이 릴리스 빌드. .app 은 나오지만 폰에는 못 깝니다 —
+      # 그건 계정과 인증서가 생긴 뒤의 일입니다.
+      - name: 아이폰 앱 만들기 (서명 없이)
+        working-directory: app
+        run: |
+          flutter build ios --release --no-codesign \
+            --build-number=$(git rev-list --count HEAD) \
+            --dart-define=SERVER_URL="${{ secrets.MYBODY_SERVER_URL }}"
+          ls -la build/ios/iphoneos/
+          du -sh build/ios/iphoneos/Runner.app
+
+      - name: 결과 적기
+        run: |
+          {
+            echo "### 아이폰 앱이 컴파일됩니다"
+            echo ""
+            echo "서명은 아직 없습니다 — 애플 개발자 계정이 생기면 TestFlight 단계를 붙입니다."
+          } >> "$GITHUB_STEP_SUMMARY"
