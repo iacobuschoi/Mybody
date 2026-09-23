@@ -37,3 +37,4 @@ play/*.pem
 play/*.zip
 play/*.aab
 play/encryption-key.txt
+app/test_shots/private/

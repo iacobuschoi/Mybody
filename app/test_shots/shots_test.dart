@@ -8,7 +8,7 @@
  * 장면을 만들 수 있습니다. 결과는 build/shots/ 의 png (1080×2400, 폰 한 화면).
  * 그다음 python3 play/make-shots.py build/shots play/그림/스크린샷.
  * ========================================================================== */
-// ignore_for_file: invalid_use_of_visible_for_testing_member
+// ignore_for_file: invalid_use_of_visible_for_testing_member, depend_on_referenced_packages
 
 import 'dart:convert';
 import 'dart:io';
@@ -20,6 +20,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:image_picker_platform_interface/image_picker_platform_interface.dart';
+import 'package:mybody/src/photos.dart';
 import 'package:mybody/src/api.dart';
 import 'package:mybody/src/app_state.dart';
 import 'package:mybody/src/scope.dart';
@@ -60,6 +62,20 @@ http.Response _json(Object body) => http.Response.bytes(
     headers: {'content-type': 'application/json; charset=utf-8'});
 
 void restore() => debugDisableShadows = true;
+
+/// 사진 고르기를 가짜로: 무엇을 누르든 이 파일을 고른 것으로 칩니다.
+class _FakePicker extends ImagePickerPlatform {
+  _FakePicker(this.path);
+  final String path;
+  @override
+  Future<XFile?> getImageFromSource({
+    required ImageSource source,
+    ImagePickerOptions options = const ImagePickerOptions(),
+  }) async => XFile(path);
+}
+
+/// 주인의 결과지 사진(회원번호는 가림). 저장소에는 안 들어갑니다 — 없으면 사진 없이 찍습니다.
+const _sheet = 'test_shots/private/inbody.jpg';
 
 Future<void> shot(WidgetTester t, String name) async {
   final boundary = t.renderObject<RenderRepaintBoundary>(find.byKey(_shotKey));
@@ -285,9 +301,29 @@ void main() {
     final api = await signedIn(friendsClient());
     await t.pumpWidget(host(app, api, const UploadScreen()));
     await settle(t);
+    if (File(_sheet).existsSync()) {
+      /* 사진을 붙인 상태. 사진 보관소는 임시 폴더에 열고, 고르기는 가짜로.
+         파일 읽기와 그림 풀기는 진짜 비동기라 runAsync 안에서 돌립니다. */
+      final dir = Directory.systemTemp.createTempSync('mybody-shots-');
+      app.photos = FilePhotos.at(dir);
+      app.store.photos = app.photos;
+      ImagePickerPlatform.instance = _FakePicker(_sheet);
+      await t.runAsync(() async {
+        await t.tap(find.text('앨범에서'));
+        await t.pump();
+        await Future<void>.delayed(const Duration(milliseconds: 800));
+        await t.pump();
+        await Future<void>.delayed(const Duration(milliseconds: 800));
+      });
+      await t.pump();
+      expect(find.text('사진에서 읽기'), findsOneWidget);
+    }
     await t.enterText(find.widgetWithText(TextField, '체중'), '86.7');
     await t.enterText(find.widgetWithText(TextField, '골격근량'), '37.9');
     await t.enterText(find.widgetWithText(TextField, '체지방률'), '23.1');
+    await settle(t);
+    // 글자를 넣느라 내려간 목록을 맨 위로 — 사진이 첫 화면에 보여야 합니다.
+    await t.drag(find.byType(ListView), const Offset(0, 1200));
     await settle(t);
     await shot(t, '02-upload');
     restore();

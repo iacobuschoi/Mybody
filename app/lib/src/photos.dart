@@ -12,6 +12,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:mybody_core/mybody_core.dart' as core;
 import 'package:path_provider/path_provider.dart';
 
@@ -21,6 +23,13 @@ class FilePhotos implements core.PhotoHost {
   final Directory _dir;
   /// id → 확장자. 목록을 낼 때 디스크를 훑지 않으려고 들고 있습니다.
   final Map<String, String> _index;
+
+  /// 시험·스크린샷용: 플랫폼 플러그인 없이 아무 폴더에나 엽니다(빈 목록으로).
+  @visibleForTesting
+  static FilePhotos at(Directory dir) {
+    dir.createSync(recursive: true);
+    return FilePhotos._(dir, <String, String>{});
+  }
 
   static Future<FilePhotos> open() async {
     /* 폴더 위치는 플랫폼 플러그인이 알려 줍니다. 그게 대답을 안 하면
