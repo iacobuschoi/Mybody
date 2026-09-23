@@ -24,7 +24,12 @@ import '../scope.dart';
 import '../sheet_history.dart';
 import '../ui/fmt.dart';
 import '../ui/widgets.dart';
+import 'account.dart';
 import 'review.dart';
+
+/// 사진 판독(외부 AI)에 동의한 문구의 판. 문구가 바뀌면 이 값도 바꿔서
+/// 다시 묻습니다 — 본 적 없는 문장에 동의한 사람은 없습니다.
+const String kOcrConsentVersion = '2026-09-23';
 
 /* 0층이 묻는 세 칸. 결과지에서 순서대로 붙어 있는 칸들이라 눈이 위에서
    아래로 한 번만 내려가면 됩니다. */
@@ -115,13 +120,92 @@ class _UploadScreenState extends State<UploadScreen> {
     });
   }
 
+  Future<void> _askSignIn() async {
+    final go = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('사진 판독은 로그인이 필요합니다'),
+        content: const Text(
+          '판독 횟수를 사람마다 세기 때문에 계정으로만 됩니다. '
+          '로그인하지 않아도 사진을 보며 아래 세 칸을 직접 넣으면 똑같이 기록됩니다.',
+          style: TextStyle(fontSize: 13, height: 1.5),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('직접 넣기')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('로그인')),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+    final api = Scope.apiOf(context);
+    final onServerChange = Scope.serverSetterOf(context);
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (ctx) => SignInScreen(
+              api: api,
+              onDone: () => Navigator.of(ctx).pop(),
+              onServerChange: onServerChange,
+            )));
+    if (mounted) setState(() {});
+  }
+
+  Future<bool?> _askOcrConsent() {
+    final t = Theme.of(context);
+    Widget line(String s) => Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Text('· $s', style: t.textTheme.bodySmall?.copyWith(height: 1.5)),
+        );
+    return showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('사진을 외부 AI 로 보내 읽습니다'),
+        content: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('「사진에서 읽기」는 결과지 사진을 Mybody 서버를 거쳐 Anthropic(미국)의 '
+                'AI 서비스 Claude 로 보내 숫자를 읽습니다.',
+                style: t.textTheme.bodyMedium?.copyWith(height: 1.5)),
+            const SizedBox(height: 10),
+            line('보내는 것 — 이 사진 한 장. 결과지에 인쇄된 체성분 수치와 나이 · 키 · 성별 등이 '
+                '함께 담길 수 있습니다.'),
+            line('보내지 않는 것 — 아이디 · 이름 · 다른 기록.'),
+            line('판독이 끝나면 Mybody 서버는 사진을 보관하지 않습니다. Anthropic 쪽 처리는 '
+                'Anthropic 의 개인정보처리방침을 따릅니다.'),
+            line('원하지 않으면 숫자를 직접 넣어도 모든 기능을 쓸 수 있습니다.'),
+          ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('보내지 않기')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('동의하고 읽기')),
+        ],
+      ),
+    );
+  }
+
   /* 2층. **직접 눌러야 돕니다.** 이게 몸 사진이 기기 밖으로 나가는 단
      하나의 길이라, 사진을 넣었다는 이유만으로 보내지 않습니다. */
   Future<void> _read() async {
-    final photos = Scope.of(context).photos;
+    final app = Scope.of(context);
+    final photos = app.photos;
     final api = Scope.apiOf(context);
     final id = _photoId;
     if (photos == null || id == null) return;
+
+    /* 판독은 서버가 사람마다 횟수를 세는 일이라 계정이 있어야 됩니다.
+       「로그인 없이 쓰기」로 들어온 사람에게는 보내 보고 실패시키지 말고
+       여기서 말합니다. 숫자 세 칸은 그대로 손으로 넣을 수 있습니다. */
+    if (!api.signedIn) {
+      await _askSignIn();
+      return;
+    }
+    /* **누구에게 가는지 먼저 말하고, 한 번 따로 묻습니다.** 사진은 서버를
+       거쳐 외부 AI(Anthropic 의 Claude)로 갑니다. 애플 심사 5.1.2(i) 는
+       제3자 AI 로 개인정보를 보낼 때 그 사실을 밝히고 명시적으로 허락받으라고
+       합니다. 결과지에는 보통 나이·키·성별이 같이 인쇄돼 있습니다. */
+    if (app.state['ocrConsent'] != kOcrConsentVersion) {
+      final ok = await _askOcrConsent();
+      if (ok != true || !mounted) return;
+      app.store.set({'ocrConsent': kOcrConsentVersion});
+    }
+
     final payload = photos.payloadOf(id);
     if (payload == null) return;
 
@@ -335,7 +419,7 @@ class _UploadScreenState extends State<UploadScreen> {
            알려 주면 늦습니다. */
         Text(
           '사진은 이 기기에만 남습니다. 「사진에서 읽기」를 누를 때만 서버를 거쳐 '
-          '판독되고, 서버는 그 사진을 보관하지 않습니다.',
+          'Anthropic 의 AI(Claude)로 판독되고, 서버는 그 사진을 보관하지 않습니다.',
           style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5),
         ),
       ]),

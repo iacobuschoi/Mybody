@@ -98,22 +98,28 @@ class _ShellState extends State<Shell> {
   @override
   Widget build(BuildContext context) {
     final api = Scope.apiOf(context);
-    /* **계정이 먼저입니다.** 사진 판독과 친구는 계정으로 되는 일입니다
-       (서버가 판독 횟수를 사람마다 셉니다). 계정 없이 들어가면 첫 판독이
-       "다시 로그인해야 합니다" 로 끝나는데, 그게 이 앱의 첫인상이 됩니다.
-       그래서 로그인/가입을 먼저 세웁니다. 토큰이 생기면 api 가 알리고
-       여기가 다시 그려져 온보딩으로 넘어갑니다. 서버가 안 닿으면 같은
-       화면에서 주소를 고칩니다. */
+    final app = Scope.of(context);
+    /* **계정을 먼저 권하되, 막지는 않습니다.** 사진 판독과 친구는 계정으로
+       되는 일입니다(서버가 판독 횟수를 사람마다 셉니다). 그래서 첫 화면은
+       로그인/가입입니다. 토큰이 생기면 api 가 알리고 여기가 다시 그려져
+       온보딩으로 넘어갑니다. 서버가 안 닿으면 같은 화면에서 주소를 고칩니다.
+
+       그런데 숫자 세 개로 기록하고 계획을 세우는 일은 계정이 필요 없습니다.
+       그걸 가입 뒤에 가두면 애플 심사 5.1.1(v) — "계정 기반 기능이 아니면
+       로그인 없이 쓰게 하라" — 에 걸립니다. 그래서 「로그인 없이 쓰기」가
+       있고, 고르면 `guest` 가 남아 다음부터는 이 화면을 건너뜁니다.
+       기록은 기기에만 있고, 판독·친구는 그 자리에서 로그인을 안내합니다. */
     return ListenableBuilder(
       listenable: api,
       builder: (context, _) {
-        if (!api.signedIn) {
+        if (!api.signedIn && app.state['guest'] != true) {
           return SignInScreen(
             api: api,
             onDone: () {},   // 토큰이 생기는 순간 위에서 다시 그립니다
             onServerChange: Scope.serverSetterOf(context),
-            intro: '처음이면 「처음이에요」로 가입하세요. '
-                '결과지 사진 판독과 친구 기능은 계정으로 됩니다.',
+            intro: '처음이면 「처음이에요」로 가입하세요. 결과지 사진 판독, 친구 기능, '
+                '기기를 바꿔도 기록이 따라오는 것은 계정으로 됩니다.',
+            onSkip: () => app.store.set({'guest': true}),
           );
         }
         return _shell(context);

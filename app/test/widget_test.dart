@@ -63,11 +63,12 @@ void main() {
       await t.pumpWidget(wrap(ServerScreen(onSet: (u) async { saved = u; })));
       /* 안드로이드 9 부터 http 는 기본으로 막힙니다. 받아 주면 저장은 되고
          연결만 조용히 실패해서, 화면에는 "컴퓨터가 꺼져 있을 수 있습니다"
-         가 뜹니다 — 켜져 있는데도요. */
+         가 뜹니다 — 켜져 있는데도요. (아이폰도 ATS 로 같습니다. 문구에는
+         플랫폼 이름을 안 씁니다 — 앱스토어 심사 2.3.10.) */
       await t.enterText(find.byType(TextField), 'http://192.168.0.10:8080');
       await t.tap(find.widgetWithText(FilledButton, '연결'));
       await t.pumpAndSettle();
-      expect(find.textContaining('안드로이드가 http'), findsOneWidget);
+      expect(find.textContaining('http 주소는 폰이 막습니다'), findsOneWidget);
       expect(saved, '');
     });
 

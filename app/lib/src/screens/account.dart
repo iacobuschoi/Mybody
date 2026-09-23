@@ -1,9 +1,10 @@
 /* =============================================================================
  * account.dart — 서버 주소 · 로그인 · 가입 · 내 계정 (P14)
  *
- * **서버는 친구 기능에만 씁니다.** 몸 숫자는 주소를 넣어도, 로그인해도
- * 서버로 안 올라갑니다. 그래서 이 화면들은 앱의 입구가 아니라 곁길입니다 —
- * 인바디를 넣고 계획을 세우는 데는 하나도 필요 없습니다.
+ * **계정은 기록 동기화 · 사진 판독 · 친구에 씁니다.** 로그인하면 기록 전체
+ * (측정 · 프로필 · 목표 · 계획 · 식단)가 내 계정에도 저장됩니다(cloud.dart).
+ * 로그인 없이도 숫자를 넣고 계획을 세우는 데는 문제가 없습니다 — 그때 기록은
+ * 기기에만 있습니다. 가입 동의 문구는 이 둘을 그대로 말해야 합니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -70,7 +71,7 @@ class _ServerScreenState extends State<ServerScreen> {
      * 여기서 막고 이유를 말해 주는 편이 낫습니다. 터널 주소(*.ts.net)는
      * 원래 https 라 실제로 쓰는 데 불편이 없습니다. */
     if (url.startsWith('http://')) {
-      setState(() => _err = '안드로이드가 http 주소를 막습니다 — https 주소를 넣어 주세요');
+      setState(() => _err = 'http 주소는 폰이 막습니다 — https 주소를 넣어 주세요');
       return;
     }
     final parsed = Uri.tryParse(url);
@@ -138,12 +139,14 @@ enum _AuthMode { signIn, signUp, recover }
 
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key, required this.api, required this.onDone,
-                      required this.onServerChange, this.intro});
+                      required this.onServerChange, this.intro, this.onSkip});
   final Api api;
   final VoidCallback onDone;
   final Future<void> Function(String) onServerChange;
   /// 첫 실행처럼 왜 이 화면이 먼저 뜨는지 말해 줘야 할 때 한 줄.
   final String? intro;
+  /// 첫 실행에서만 줍니다 — 있으면 「로그인 없이 쓰기」가 보입니다.
+  final VoidCallback? onSkip;
   @override
   State<SignInScreen> createState() => _SignInScreenState();
 }
@@ -185,7 +188,7 @@ class _SignInScreenState extends State<SignInScreen> {
       return;
     }
     if (_mode == _AuthMode.signUp && !_consent) {
-      setState(() => _err = '몸 숫자를 서버에 올리는 것에 동의해야 계정을 만들 수 있습니다');
+      setState(() => _err = '내 기록을 계정에 저장하는 것에 동의해야 계정을 만들 수 있습니다');
       return;
     }
     setState(() { _busy = true; _err = null; });
@@ -333,27 +336,35 @@ class _SignInScreenState extends State<SignInScreen> {
           ],
 
           /* 건강정보 동의는 **계정 만들기와 따로** 받습니다.
-             체성분은 민감정보입니다. 로그인하면 친구가 하나도 없어도 주간
-             요약이 올라가므로, 가입이 곧 업로드 동의가 됩니다. 다른 것과
-             섞어 받으면 안 읽히고, 안 읽힌 동의는 동의가 아닙니다. */
+             체성분은 민감정보입니다. 로그인하면 기록 전체가 내 계정에
+             동기화되고(cloud.dart), 친구가 하나도 없어도 주간 요약이
+             올라가므로, 가입이 곧 업로드 동의가 됩니다. 다른 것과 섞어
+             받으면 안 읽히고, 안 읽힌 동의는 동의가 아닙니다.
+
+             **문구는 실제로 올라가는 것과 같아야 합니다.** 예전 문구는
+             "가장 최근 측정만 · 52주까지만" 이었는데, 동기화가 생긴 뒤로는
+             기록 전체가 계정을 지울 때까지 남습니다. 52주는 주간 요약
+             (server/db.js SNAPSHOT_WEEKS)에만 맞는 숫자입니다. */
           if (signUp) ...[
             const SizedBox(height: 16),
             MbCard(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('몸에 대한 숫자를 서버에 올리는 것에 동의가 필요합니다',
+                Text('내 기록을 서버(내 계정)에 저장하는 것에 동의가 필요합니다',
                     style: t.textTheme.bodyMedium
                         ?.copyWith(fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
                 ...[
-                  '무엇을 — 가장 최근 측정의 체중 · 골격근량 · 체지방량 · 체지방률과 '
-                      '그 변화량, 목표 달성률, 이번 주 체크인 여부',
-                  '왜 — 친구에게 보여 줄 주간 요약을 만들기 위해서. 친구 화면에 실제로 '
-                      '보이는 것은 친구마다 직접 켠 항목뿐입니다.',
-                  '얼마나 — 최근 52주까지만. 그보다 오래된 주는 서버가 지웁니다. '
-                      '계정을 지우면 남은 것도 같이 지워집니다.',
-                  '거부하면 — 계정을 못 만듭니다. 대신 로그인 없이 그냥 쓰시면 됩니다. '
-                      '측정 · 목표 · 계획 · 식단은 로그인과 상관없이 다 되고, '
-                      '친구 기능만 못 씁니다.',
+                  '무엇을 — 측정 기록(체중 · 골격근량 · 체지방량 · 체지방률 등), '
+                      '프로필(키 · 나이 · 성별), 목표 · 계획 · 식단 · 운동 기록. '
+                      '결과지 사진은 올라가지 않습니다.',
+                  '왜 — 기기를 바꿔 로그인해도 기록이 그대로 따라오게 하고, 친구에게 '
+                      '보여 줄 주간 요약을 만들기 위해서. 친구 화면에 실제로 보이는 것은 '
+                      '친구마다 켠 항목뿐입니다.',
+                  '얼마나 — 계정을 지울 때까지(설정 → 지우기 → 계정 지우기). '
+                      '주간 요약은 최근 52주만 두고, 그보다 오래된 것은 서버가 지웁니다.',
+                  '거부하면 — 계정을 못 만들지만, 로그인 없이 계속 쓸 수 있습니다. '
+                      '그때 기록은 이 기기에만 남고, 측정 · 목표 · 계획 · 식단은 다 되며 '
+                      '사진 판독과 친구 기능만 못 씁니다.',
                 ].map((line) => Padding(
                       padding: const EdgeInsets.only(bottom: 6),
                       child: Text('· $line',
@@ -391,6 +402,25 @@ class _SignInScreenState extends State<SignInScreen> {
               '그것도 없으면 이 서버를 띄운 사람에게 말하면 풀어 줄 수 있습니다.',
               style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5),
             ),
+
+          /* 계정 없이도 앱의 기본은 다 됩니다 — 그 길을 여기서 보여 줍니다.
+             무엇이 안 되는지도 같이 말합니다. 나중에 판독을 누르고서야
+             알게 되면 그게 더 나쁜 첫인상입니다. */
+          if (widget.onSkip != null) ...[
+            const SizedBox(height: 20),
+            const Divider(),
+            const SizedBox(height: 12),
+            OutlinedButton(
+              onPressed: _busy ? null : widget.onSkip,
+              child: const Text('로그인 없이 쓰기'),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '기록은 이 기기에만 저장됩니다. 숫자를 직접 넣어 기록 · 목표 · 계획 · 식단을 '
+              '다 쓸 수 있고, 사진 판독 · 친구 · 기기 옮기기는 나중에 설정에서 로그인하면 됩니다.',
+              style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5),
+            ),
+          ],
         ],
       ),
     );
@@ -398,8 +428,8 @@ class _SignInScreenState extends State<SignInScreen> {
 }
 
 /* --- P14 계정 --------------------------------------------------------------
- * 서버에 있는 내 계정을 보여 줍니다. 몸 숫자는 여기 없습니다 — 그건 기기에만
- * 있고 서버는 모릅니다.
+ * 서버에 있는 내 계정을 보여 줍니다. 몸 숫자는 이 화면에 띄우지 않습니다 —
+ * 동기화 사본은 본인 기기로 내려받는 용도이고, 여기는 계정 이름과 친구 수만.
  * -------------------------------------------------------------------------- */
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key, required this.api, required this.onServerChange});

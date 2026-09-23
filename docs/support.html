@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mybody 지원</title>
+<!--
+  앱스토어 「지원 URL」 입니다. 심사 가이드라인 1.5 는 지원 주소에서 개발자에게
+  연락할 길이 바로 보여야 한다고 합니다 — 저장소 첫 화면만으로는 부족합니다.
+-->
+<style>
+  :root { --ink:#17171f; --muted:#6a6a7a; --line:#e4e4ec; --paper:#fafafb; --card:#ffffff; --accent:#4f46e5; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --ink:#ececf2; --muted:#9c9cae; --line:#2a2a36; --paper:#0f0f14;
+      --card:#17171f; --accent:#a5a0fb; }
+  }
+  :root[data-theme="dark"] { --ink:#ececf2; --muted:#9c9cae; --line:#2a2a36; --paper:#0f0f14;
+      --card:#17171f; --accent:#a5a0fb; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--paper); color:var(--ink);
+         font:16px/1.75 "Noto Sans KR","Apple SD Gothic Neo",system-ui,sans-serif;
+         padding:28px 16px 64px; word-break:keep-all; }
+  main { max-width:44rem; margin:0 auto; }
+  h1 { font-size:1.7rem; margin:0 0 .25rem; letter-spacing:-.02em; }
+  .sub { color:var(--muted); margin:0 0 1.5rem; font-size:.95rem; }
+  h2 { font-size:1.1rem; margin:2rem 0 .5rem; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin:14px 0; }
+  .mail { font-size:1.15rem; font-weight:700; }
+  a { color:var(--accent); }
+  dt { font-weight:700; margin-top:1rem; }
+  dd { margin:.25rem 0 0; color:var(--ink); }
+  footer { margin-top:2.5rem; padding-top:1.25rem; border-top:1px solid var(--line); color:var(--muted); font-size:.87rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Mybody 지원</h1>
+  <p class="sub">인바디 결과지로 체성분을 기록하고 운동·식단 계획을 세우는 앱</p>
+
+  <div class="card">
+    <p style="margin:0 0 .25rem">문의 · 오류 신고 · 계정 삭제 요청</p>
+    <p style="margin:0" class="mail"><a href="mailto:iacobuschoi@gmail.com">iacobuschoi@gmail.com</a></p>
+    <p style="margin:.5rem 0 0; color:var(--muted); font-size:.93rem">개인 개발자가 운영합니다. 보통 이틀 안에 답합니다.
+      오류라면 어떤 화면에서 무엇을 눌렀는지 적어 주세요.</p>
+  </div>
+
+  <h2>자주 묻는 것</h2>
+  <dl>
+    <dt>로그인하지 않고 쓸 수 있나요?</dt>
+    <dd>네. 첫 화면에서 「로그인 없이 쓰기」를 누르면 됩니다. 기록은 그 폰에만 저장되고, 사진 판독·친구·기기
+      옮기기는 나중에 설정에서 로그인하면 됩니다.</dd>
+
+    <dt>결과지 사진은 어디로 가나요?</dt>
+    <dd>사진은 폰에만 저장됩니다. 「사진에서 읽기」를 누를 때만 숫자를 읽으려고 Anthropic 의 AI(Claude)로
+      보내며, 처음 한 번 동의를 받습니다. 판독이 끝나면 서버는 사진을 보관하지 않습니다.
+      자세한 것은 <a href="privacy.html">개인정보처리방침</a>에 있습니다.</dd>
+
+    <dt>비밀번호를 잊었어요</dt>
+    <dd>로그인 화면의 「비밀번호 잊음」에서 가입할 때 받은 복구 코드로 새 비밀번호를 정합니다. 복구 코드도
+      없으면 위 이메일로 아이디를 알려 주세요.</dd>
+
+    <dt>계정을 지우고 싶어요</dt>
+    <dd>앱 오른쪽 위 톱니(설정) → 「지우기」 → 「계정 지우기」. 앱을 이미 지웠다면
+      <a href="delete-account.html">계정 삭제 안내</a>를 보세요.</dd>
+
+    <dt>「서버에 닿지 못했습니다」가 떠요</dt>
+    <dd>서버를 잠시 점검 중일 수 있습니다. 폰 안의 기록과 계산은 그대로 쓸 수 있고, 연결되면 저절로 맞춰집니다.
+      오래 계속되면 알려 주세요.</dd>
+
+    <dt>의료 조언을 주나요?</dt>
+    <dd>아니요. 이 앱은 의료기기가 아니며 진단·치료·예방을 목적으로 하지 않습니다. 수치와 계획은 참고용입니다.</dd>
+  </dl>
+
+  <footer>
+    Mybody · <a href="privacy.html">개인정보처리방침</a> · <a href="delete-account.html">계정 삭제</a> ·
+    <a href="https://github.com/iacobuschoi/Mybody">소스 코드</a>
+  </footer>
+</main>
+</body>
+</html>

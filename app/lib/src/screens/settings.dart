@@ -102,7 +102,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const SectionTitle('계정'),
             Text(
-              api.signedIn ? '로그인되어 있습니다' : '로그인하지 않았습니다',
+              api.signedIn
+                  ? '로그인되어 있습니다'
+                  : '로그인하지 않았습니다 — 지금은 기록이 이 기기에만 저장됩니다. 로그인하면 사진 판독 · '
+                      '친구 · 기기 옮기기가 됩니다.',
               style: t.textTheme.bodySmall?.copyWith(color: t.hintColor),
             ),
             const SizedBox(height: 10),

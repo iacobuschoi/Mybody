@@ -627,6 +627,58 @@ void main() {
     expect(find.byType(OnboardingScreen), findsNothing, reason: '로그인 전에 온보딩이 보이면 안 됩니다');
     expect(find.text('홈'), findsNothing, reason: '로그인 없이 홈이 보이면 안 됩니다');
     expect(find.text('처음이에요'), findsOneWidget, reason: '가입 길이 보여야 합니다');
+    expect(find.text('로그인 없이 쓰기'), findsOneWidget,
+        reason: '계정 없이 쓰는 길이 없으면 애플 심사 5.1.1(v) 에 걸립니다');
+  });
+
+  /* **로그인 없이도 들어갑니다.** 숫자로 기록하고 계획을 세우는 데는 계정이
+     필요 없습니다. 고른 것이 남아서, 다시 켜도 로그인 화면이 안 막습니다. */
+  testWidgets('「로그인 없이 쓰기」는 온보딩으로 가고, 다음에도 안 막는다', (t) async {
+    SharedPreferences.setMockInitialValues({});
+    final app = await AppState.boot();
+    final a = api(signedIn: false);
+    await t.pumpWidget(host(app, const Shell(), api_: a));
+    await t.pump();
+    await t.ensureVisible(find.text('로그인 없이 쓰기'));
+    await t.tap(find.text('로그인 없이 쓰기'));
+    await t.pump();
+    expect(find.byType(SignInScreen), findsNothing);
+    expect(find.byType(OnboardingScreen), findsOneWidget);
+    expect(app.state['guest'], isTrue);
+
+    /* 다시 켠 것처럼 — 같은 저장소로 새로 세웁니다. */
+    final again = await AppState.boot();
+    await t.pumpWidget(host(again, const Shell(), api_: api(signedIn: false)));
+    await t.pump();
+    expect(find.byType(SignInScreen), findsNothing, reason: '한 번 고르면 다음부터 안 막습니다');
+  });
+
+  testWidgets('로그인 없이 쓰는 중에 친구 탭은 로그인을 안내한다', (t) async {
+    final app = await seeded();
+    app.store.set({'guest': true});
+    await t.pumpWidget(host(app, const Shell(), api_: api(signedIn: false)));
+    await t.pump();
+    expect(find.text('홈'), findsWidgets);
+    await t.tap(find.widgetWithText(NavigationDestination, '친구'));
+    await t.pump();
+    expect(find.byType(NeedsSignIn), findsOneWidget);
+    expect(find.byType(ErrorWidget), findsNothing);
+  });
+
+  /* 가입 동의 문구가 실제와 같아야 합니다 — 동기화가 생긴 뒤로 기록 전체가
+     계정에 남는데, 예전 문구는 "가장 최근 측정만 · 52주까지만" 이었습니다. */
+  testWidgets('가입 동의 — 무엇이 얼마나 올라가는지 실제대로 말한다', (t) async {
+    SharedPreferences.setMockInitialValues({});
+    final app = await AppState.boot();
+    await t.pumpWidget(host(app, const Shell(), api_: api(signedIn: false)));
+    await t.pump();
+    await t.tap(find.text('처음이에요'));
+    await t.pump();
+    final all = t.widgetList<Text>(find.byType(Text)).map((w) => w.data ?? '').join('\n');
+    expect(all, contains('계정을 지울 때까지'));
+    expect(all, contains('로그인 없이 계속 쓸 수 있습니다'));
+    expect(all, isNot(contains('가장 최근 측정')));
+    expect(all, isNot(contains('로그인 없이 그냥 쓰시면')));
   });
 
   testWidgets('로그인이 되면 온보딩으로 넘어간다', (t) async {
