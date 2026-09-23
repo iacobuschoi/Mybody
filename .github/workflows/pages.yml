@@ -1,0 +1,49 @@
+# =============================================================================
+# docs/ 를 GitHub Pages 로 — 개인정보처리방침 · 계정 삭제 안내
+#
+# 플레이·앱스토어가 요구하는 "언제나 열리는 공개 주소" 입니다:
+#   https://iacobuschoi.github.io/Mybody/privacy.html
+#   https://iacobuschoi.github.io/Mybody/delete-account.html
+# 저장소 Settings 에서 손으로 켜지 않아도 되게, 첫 실행이 Pages 를 스스로
+# 켭니다(enablement). docs/ 가 바뀔 때마다 다시 올립니다.
+# =============================================================================
+name: 방침 페이지 올리기
+
+on:
+  push:
+    branches: [claude/body-management-app-prototype-m4mv4k]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - id: deployment
+        uses: actions/deploy-pages@v4
+      - run: |
+          echo "### 방침 페이지" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.deployment.outputs.page_url }}privacy.html" >> "$GITHUB_STEP_SUMMARY"
+          echo "${{ steps.deployment.outputs.page_url }}delete-account.html" >> "$GITHUB_STEP_SUMMARY"
