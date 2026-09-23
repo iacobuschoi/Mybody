@@ -17,6 +17,9 @@ on:
       - 'app/**'
       - 'packages/**'
       - '.github/workflows/apk.yml'
+      # 설정 검사(tools/test-android.js)가 이 빌드의 첫 단계입니다 — 그 파일이
+      # 바뀌면 빌드도 돌아야 고친 검사가 맞는지 압니다.
+      - 'tools/test-android.js'
       # 설명서만 고쳤을 때는 다시 안 만듭니다 — app/README.md 가 위의
       # app/** 에 걸려서 실제로 한 번 헛돌았습니다.
       - '!app/**/*.md'
