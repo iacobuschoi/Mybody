@@ -97,8 +97,22 @@ class LineChart extends StatelessWidget {
           child: Wrap(spacing: 12, runSpacing: 4, children: [
             for (final s in live)
               Row(mainAxisSize: MainAxisSize.min, children: [
-                Container(width: 10, height: 2.5,
-                    decoration: BoxDecoration(color: s.color, borderRadius: BorderRadius.circular(2))),
+                /* 점선으로 그리는 선은 범례도 점선으로 — 같은 색 실선이면 「체중」과
+                   「체크인 체중」이 범례에서 구분되지 않았습니다(노트북 확인). */
+                if (s.dashed)
+                  SizedBox(
+                    key: const ValueKey('legend-dashed'),
+                    width: 10,
+                    height: 2.5,
+                    child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                      for (var i = 0; i < 2; i++)
+                        Container(width: 4, height: 2.5,
+                            decoration: BoxDecoration(color: s.color, borderRadius: BorderRadius.circular(2))),
+                    ]),
+                  )
+                else
+                  Container(width: 10, height: 2.5,
+                      decoration: BoxDecoration(color: s.color, borderRadius: BorderRadius.circular(2))),
                 const SizedBox(width: 4),
                 Text(s.label, style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600,
                     color: Theme.of(context).hintColor)),

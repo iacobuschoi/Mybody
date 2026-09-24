@@ -119,8 +119,8 @@ class ProgressScreen extends StatelessWidget {
           ),
           if (checkinPts.isNotEmpty) ...[
             const SizedBox(height: 6),
-            Text('점선은 주간 체크인에 넣은 집 체중계 값입니다. 인바디와 0.5~1kg 다를 수 있어서 '
-                '인바디 선과 잇지 않습니다.',
+            Text('「체크인 체중」(점선)은 주간 체크인에 넣은 집 체중계 값입니다. 한 번뿐이면 점 하나로 '
+                '보입니다. 인바디와 0.5~1kg 다를 수 있어서 인바디 선과 잇지 않습니다.',
                 style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5)),
           ],
         ]),
