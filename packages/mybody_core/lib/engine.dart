@@ -1691,41 +1691,228 @@ Map<String, Object?>? dietNudge(Map<String, Object?> today, Map<String, Object?>
   };
 }
 
-/// 주간 체크인 → 재조정 제안
-Map<String, Object?> checkinAdvice(Map<String, Object?>? plan, Map<String, Object?> expected,
-    Map<String, Object?> actual, Map<String, Object?>? adherence) {
-  /* 계획보다 몇 kg 가벼운가 (+ 면 계획보다 더 빠짐). 예전 식은
-     (prev − actual) − (expected − actual) 이라 actual 이 지워져서, 체중을
-     뭘로 넣든 계획 모양만으로 판정이 났습니다. */
-  var gap = _f(expected, 'weightKg') - _f(actual, 'weightKg');
-  /* 증량 계획이면 무거운 쪽이 "빠름" 입니다. */
-  final tr = plan?['trajectory'];
-  if (tr is List && tr.length > 1) {
-    final w0 = jsToNumber((tr.first as Map)['weightKg']);
-    final w1 = jsToNumber((tr.last as Map)['weightKg']);
-    if (w1 > w0 + 0.5) gap = -gap;
+/* --- 주간 체크인 판정 --------------------------------------------------------
+ * engine.js 의 checkinReview · applyCheckinAdvice · planWeekOf 를 옮긴 것.
+ * 왜 이렇게 판정하는지는 원본 주석에 있습니다 — 요약:
+ *  · 체크인끼리만(가장 이른 주 = 기준점), 변화량을 계획선의 변화량과 견줍니다.
+ *  · ±0.5kg 안이면 onTrack, 한 번 벗어나면 watch, 두 번 연속 같은 쪽이면
+ *    slow/fast 와 apply(칼로리 ±150, 감량인데 느리면 유산소 +40분).
+ *  · 증량 계획이면 방향이 반대. 식단 준수도 70% 미만이면 adherence 가 먼저.
+ *  · 조정을 적용하면 기준점을 다시 잡습니다 — 마지막 조정(plan.adjustments)의
+ *    at 이후 체크인만 봅니다. 안 그러면 쌓인 차이 때문에 매주 150kcal 씩 내려갑니다.
+ * -------------------------------------------------------------------------- */
+const double kCheckinBandKg = 0.5;
+const int kCheckinKcalStep = 150;
+const int kCheckinCardioMin = 40;
+
+/// 계획선에서 그 주에 가장 가까운 점. week 칸이 없으면 자리 번호를 주차로 봅니다.
+Map<String, Object?>? _trajAt(List tr, num wk) {
+  Map<String, Object?>? best;
+  var bestD = double.infinity;
+  for (var i = 0; i < tr.length; i++) {
+    final p = (tr[i] as Map).cast<String, Object?>();
+    final w = p['week'] is num ? p['week'] as num : i;
+    final d = (w - wk).abs();
+    if (d < bestD) {
+      best = p;
+      bestD = d.toDouble();
+    }
   }
+  return best;
+}
+
+final _dateKeyRe = RegExp(r'^(\d{4})-(\d{2})-(\d{2})');
+
+int? _dateKeyUtc(Object? k) {
+  final m = _dateKeyRe.firstMatch(k == null ? '' : '$k');
+  if (m == null) return null;
+  return DateTime.utc(int.parse(m.group(1)!), int.parse(m.group(2)!), int.parse(m.group(3)!))
+      .millisecondsSinceEpoch;
+}
+
+/// 'YYYY-MM-DD' 두 개 사이의 계획 주차 (0부터, 음수는 0).
+int planWeekOf(Object? startKey, Object? dayKey) {
+  final a = _dateKeyUtc(startKey), b = _dateKeyUtc(dayKey);
+  if (a == null || b == null) return 0;
+  final d = jsRound((b - a) / 86400000);
+  return d <= 0 ? 0 : (d / 7).floor();
+}
+
+/// 주간 체크인 판정. readings: [{week, weightKg, at?}] — 오래된 것부터.
+Map<String, Object?> checkinReview(Map<String, Object?>? plan, List? readings,
+    Map<String, Object?>? adherence) {
+  final tr = (plan?['trajectory'] as List?) ?? const [];
   final suggestions = <Map<String, Object?>>[];
+  final out = <String, Object?>{
+    'status': 'early', 'gaining': false, 'devKg': null, 'prevDevKg': null,
+    'weeks': 0, 'baseWeek': null, 'since': null, 'suggestions': suggestions, 'apply': null,
+  };
+  var gaining = false;
+  if (tr.length > 1 &&
+      jsNum((tr.last as Map).cast<String, Object?>(), 'weightKg') >
+          jsNum((tr.first as Map).cast<String, Object?>(), 'weightKg') + 0.5) {
+    gaining = true;
+  }
+  out['gaining'] = gaining;
+
+  /* 마지막 조정 이후만 — 그 전 체크인은 옛 칼로리로 산 주입니다. */
+  final adjs = plan?['adjustments'];
+  final adj = adjs is List && adjs.isNotEmpty ? adjs.last : null;
+  final since = adj is Map && adj['at'] is String && (adj['at'] as String).isNotEmpty
+      ? adj['at'] as String
+      : null;
+  out['since'] = since;
+
+  /* 한 주에 여러 번이면 그 주의 마지막 값. 이상한 값은 건너뜁니다. */
+  final byWeek = <double, double>{};
+  final weeks = <double>[];
+  for (final r in readings ?? const []) {
+    if (r is! Map) continue;
+    if (since != null && r['at'] is String && (r['at'] as String).compareTo(since) < 0) continue;
+    final wk0 = r['week'], w0 = r['weightKg'];
+    if (wk0 is! num || !wk0.isFinite) continue;
+    if (w0 is! num || !w0.isFinite || w0 <= 0) continue;
+    final wk = math.max(0.0, wk0.floorToDouble());
+    if (!byWeek.containsKey(wk)) weeks.add(wk);
+    byWeek[wk] = w0.toDouble();
+  }
+  weeks.sort();
+  out['weeks'] = weeks.length;
+  out['baseWeek'] = weeks.isEmpty ? null : weeks.first;
 
   if (adherence != null && _lt(adherence['dietPct'], 70)) {
+    out['status'] = 'adherence';
     suggestions.add({
       'kind': 'adherence', 'title': '칼로리는 그대로 두고 순응도부터',
       'detail': '식단 준수도가 ${_s(adherence['dietPct'])}%입니다. 계획이 틀린 게 아니라 실행이 덜 된 '
           '상태라 칼로리를 더 줄이면 역효과입니다.',
     });
-    return {'status': 'adherence', 'suggestions': suggestions};
+    return out;
   }
-  if (gap.abs() < 0.15) {
-    suggestions.add({'kind': 'hold', 'title': '계획 유지', 'detail': '예상 범위 안입니다. 바꾸지 마세요.'});
-    return {'status': 'onTrack', 'suggestions': suggestions};
+  if (tr.isEmpty) {
+    suggestions.add({'kind': 'hold', 'title': '계획이 없습니다',
+        'detail': '목표와 계획을 먼저 세우면 체크인을 계획선과 견줘 봅니다.'});
+    return out;
   }
-  if (gap < -0.15) {  // 덜 빠짐
-    suggestions.add({'kind': 'kcal', 'title': '하루 150kcal 줄이기', 'detail': '2주 연속 정체일 때만 적용하세요.'});
-    suggestions.add({'kind': 'cardio', 'title': '유산소 주 1회 추가', 'detail': '칼로리를 더 줄이는 것보다 근육 보존에 유리합니다.'});
-    return {'status': 'slow', 'suggestions': suggestions};
+  if (weeks.length < 2) {
+    suggestions.add(since != null
+        ? {'kind': 'hold', 'title': '조정 뒤 기준을 새로 잡았습니다',
+            'detail': '계획을 바꾼 뒤로는 그때 체크인을 기준으로 다시 봅니다. 다음 주 체크인부터 판정합니다.'}
+        : {
+            'kind': 'hold', 'title': '기준 체중을 잡았습니다',
+            'detail': '첫 체크인은 판정하지 않습니다. 인바디와 집 체중계는 0.5~1kg 다를 수 있어서, '
+                '이 값을 기준으로 다음 주부터 계획선과 견줘 봅니다.',
+          });
+    return out;
   }
-  suggestions.add({'kind': 'kcal', 'title': '하루 150kcal 늘리기', 'detail': '너무 빠르면 근손실 위험이 올라갑니다.'});
-  return {'status': 'fast', 'suggestions': suggestions};
+
+  final base = weeks.first, hb = byWeek[base]!;
+  final eb = jsNum(_trajAt(tr, base)!, 'weightKg');
+  double dev(double wk) {
+    final d = (byWeek[wk]! - hb) - (jsNum(_trajAt(tr, wk)!, 'weightKg') - eb);
+    return r2(gaining ? -d : d);
+  }
+
+  final last = dev(weeks.last);
+  final prev = weeks.length >= 3 ? dev(weeks[weeks.length - 2]) : null;
+  if (!last.isFinite) {
+    suggestions.add({'kind': 'hold', 'title': '판정하지 않습니다', 'detail': '계획선을 읽지 못했습니다.'});
+    return out;
+  }
+  out['devKg'] = last;
+  out['prevDevKg'] = prev;
+
+  int side(double? x) {
+    if (x == null) return 0;
+    return x >= kCheckinBandKg ? 1 : (x <= -kCheckinBandKg ? -1 : 0);
+  }
+
+  final s1 = side(last), s0 = side(prev);
+  if (s1 == 0) {
+    out['status'] = 'onTrack';
+    suggestions.add({'kind': 'hold', 'title': '계획 유지',
+        'detail': '첫 체크인 이후 변화가 계획선과 0.5kg 안에서 맞습니다. 바꾸지 마세요.'});
+    return out;
+  }
+  if (s0 != s1) {
+    out['status'] = 'watch';
+    suggestions.add({
+      'kind': 'watch', 'title': '한 번 더 보고 정합니다',
+      'detail': '체중은 하루에도 ±1kg 흔들려서 한 번 벗어난 것으로는 계획을 바꾸지 않습니다. '
+          '다음 체크인에도 같은 쪽이면 그때 조정을 제안합니다.',
+    });
+    return out;
+  }
+
+  /* 두 번 연속 같은 쪽 — 이때만 조정합니다. */
+  final slow = s1 > 0;
+  final kcal = slow != gaining ? -kCheckinKcalStep : kCheckinKcalStep;
+  final cardio = slow && !gaining ? kCheckinCardioMin : 0;
+  out['status'] = slow ? 'slow' : 'fast';
+  suggestions.add({
+    'kind': 'kcal',
+    'title': '하루 ${kCheckinKcalStep}kcal ${kcal < 0 ? '줄이기' : '늘리기'}',
+    'detail': slow
+        ? (gaining ? '두 번 연속 계획보다 덜 늘었습니다.' : '두 번 연속 계획보다 덜 빠졌습니다.')
+        : (gaining
+            ? '두 번 연속 계획보다 빨리 늘었습니다 — 빨리 늘면 지방도 같이 붙습니다.'
+            : '두 번 연속 계획보다 빨리 빠졌습니다 — 너무 빠르면 근손실 위험이 올라갑니다.'),
+  });
+  if (cardio != 0) {
+    suggestions.add({'kind': 'cardio', 'title': '유산소 주 $kCheckinCardioMin분 추가',
+        'detail': '칼로리만 더 줄이는 것보다 근육을 지키는 데 유리합니다.'});
+  }
+  out['apply'] = {'kcalDelta': kcal, 'cardioMinDelta': cardio};
+  return out;
+}
+
+/// 체크인 제안을 계획에 적용한 **새 계획** (원래 계획은 안 건드림). 적용할 것이 없으면 null.
+/// 돌려주는 것: {plan, kcalDelta, cardioMinDelta, floored}
+Map<String, Object?>? applyCheckinAdvice(Map<String, Object?>? plan, Map<String, Object?>? review,
+    Map<String, Object?>? profile, Object? week, Object? atISO) {
+  if (plan == null || plan['macros'] is! Map || review == null || review['apply'] is! Map) return null;
+  final macros = (plan['macros'] as Map).cast<String, Object?>();
+  final apply = (review['apply'] as Map).cast<String, Object?>();
+  final intake0 = macros['intakeKcal'];
+  if (intake0 is! num || !intake0.isFinite) return null;
+  final intake = intake0.toDouble();
+  final pr = profile ?? const <String, Object?>{};
+  final want = apply['kcalDelta'] is num ? (apply['kcalDelta'] as num).toDouble() : 0.0;
+  final wk = week is num && week.isFinite ? week : 0;
+  final tr = (plan['trajectory'] as List?) ?? const [];
+  final pt = tr.isEmpty ? null : _trajAt(tr, wk);
+  final ffm = pt != null && pt['ffmKg'] is num ? (pt['ffmKg'] as num).toDouble() : null;
+  final floor = kcalFloor(pr, ffm != null ? 370 + 21.6 * ffm : 0);
+  var next = intake + want;
+  if (want < 0) next = math.max(next, math.min(intake, floor));
+  final delta = jsRound(next - intake);
+
+  final m = <String, Object?>{...macros};
+  final newIntake = jsRound(intake + delta);
+  m['intakeKcal'] = newIntake;
+  if (m['carbG'] is num) m['carbG'] = math.max(50, jsRound((m['carbG'] as num) + delta / 4));
+  if (m['deficitKcal'] is num) m['deficitKcal'] = jsRound((m['deficitKcal'] as num) - delta);
+  if (newIntake > 0) {
+    if (m['proteinG'] is num) m['pctProtein'] = jsRound((m['proteinG'] as num) * 4 / newIntake * 100);
+    if (m['carbG'] is num) m['pctCarb'] = jsRound((m['carbG'] as num) * 4 / newIntake * 100);
+    if (m['fatG'] is num) m['pctFat'] = jsRound((m['fatG'] as num) * 9 / newIntake * 100);
+  }
+
+  var cardio = apply['cardioMinDelta'] is num ? apply['cardioMinDelta'] as num : 0;
+  final np = <String, Object?>{...plan, 'macros': m};
+  if (plan['workout'] is Map && cardio != 0) {
+    final w = <String, Object?>{...(plan['workout'] as Map).cast<String, Object?>()};
+    w['cardioMinPerWeek'] = (w['cardioMinPerWeek'] is num ? w['cardioMinPerWeek'] as num : 0) + cardio;
+    np['workout'] = w;
+  } else {
+    cardio = 0;          // 운동 계획이 없으면 더할 곳이 없습니다
+  }
+  np['diet'] = dietFor(m, pr);
+  np['adjustments'] = [
+    ...(plan['adjustments'] is List ? plan['adjustments'] as List : const []),
+    {'at': jsTruthy(atISO) ? atISO : null, 'week': wk, 'status': review['status'], 'kcalDelta': delta, 'cardioMinDelta': cardio},
+  ];
+  return {'plan': np, 'kcalDelta': delta, 'cardioMinDelta': cardio, 'floored': delta != want};
 }
 
 /// JS 의 `a < b` — 한쪽이 없으면 false.

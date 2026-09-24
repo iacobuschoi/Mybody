@@ -168,6 +168,12 @@ void main() {
     t.view.devicePixelRatio = 1.0;
     addTearDown(t.view.reset);
     final app = await seeded();
+    /* 지난주 체크인이 하나 있어야 판정이 납니다 — 첫 체크인은 기준점이라
+       판정 자체가 없고, 그때는 "반영 못 했다" 고 말할 판정도 없습니다. */
+    app.store.set({'checkins': [
+      {'at': DateTime.now().toUtc().subtract(const Duration(days: 8)).toIso8601String(),
+       'weightKg': 86.4},
+    ]});
     await t.pumpWidget(host(app, const CheckinScreen()));
     await t.pump(const Duration(milliseconds: 200));
     expect(find.text('기록 없음'), findsOneWidget);
@@ -177,7 +183,7 @@ void main() {
     expect(find.textContaining('실행 여부는 반영하지 못했습니다'), findsOneWidget);
     await t.tap(find.text('체크인 저장'));
     await t.pump(const Duration(milliseconds: 300));
-    final c = ((app.state['checkins'] as List).single as Map).cast<String, Object?>();
+    final c = ((app.state['checkins'] as List).last as Map).cast<String, Object?>();
     expect(c['workoutPct'], isNull);
     expect(c['dietPct'], isNull);
   });

@@ -268,13 +268,19 @@
         if (draft.weightKg == null) { step = 0; drawStep1(); return; }
 
         var traj = plan.trajectory || [];
-        var elapsed = weeksElapsed(plan.startDate);
-        var wkIdx = Math.max(0, Math.min(Math.round(elapsed), traj.length ? traj[traj.length - 1].week : 0));
+        /* 주차는 엔진과 같은 규칙으로(계획 시작일부터 7일마다, 내림). 예전엔
+           반올림이라 3.5일째부터 다음 주로 넘어갔습니다. */
+        var wkIdx = E.planWeekOf(plan.startDate, S.dayKey());
         var snap = snapshotAt(plan, wkIdx);
         var expected = snap ? snap.weightKg : (traj.length ? traj[0].weightKg : draft.weightKg);
         var actualW = draft.weightKg;
-        var gap = actualW - expected;                    // + = 예상보다 무거움
         var prevW = prevActualWeight(plan);
+
+        /* 판정 — 이번 계획의 체크인 전부(방금 저장한 것 포함). 첫 체크인(또는
+           마지막 조정)을 기준점으로, 그 뒤 변화량을 계획선과 견줍니다.
+           예전엔 이번 주 값 하나를 계획선에 대고 0.15kg 만 달라도 판정했습니다. */
+        var review = E.checkinReview(plan, readingsFor(plan), { dietPct: draft.dietPct });
+        var dev = review.devKg;
 
         /* --- C03 예상 vs 실제 --- */
         var card = h('div.card', { uid: 'P08-C03', uidLabel: '3단계 · 예상 vs 실제 비교' });
@@ -283,13 +289,13 @@
           h('div.card__sub', { text: UI.dateK(plan.startDate) + ' 시작 기준' })
         ]));
         card.appendChild(h('div.stats', [
-          statBox('예상 체중', expected, 'kg'),
+          statBox('계획선', expected, 'kg'),
           statBox('실제 체중', actualW, 'kg'),
-          h('div.stat' + (Math.abs(gap) < 0.15 ? '' : (gap > 0 ? '.stat--fat' : '.stat--muscle')), [
-            h('div.stat__k', { text: '차이' }),
-            h('div', [h('span.stat__v', { text: UI.sign(gap) }), h('span.stat__u', { text: 'kg' })]),
-            h('div.stat__d', { text: Math.abs(gap) < 0.15 ? '예상 범위'
-              : (gap > 0 ? '예상보다 무거움' : '예상보다 가벼움') })
+          h('div.stat' + (dev == null || Math.abs(dev) < 0.5 ? '' : (dev > 0 ? '.stat--fat' : '.stat--muscle')), [
+            h('div.stat__k', { text: '기준 이후 차이' }),
+            h('div', [h('span.stat__v', { text: dev == null ? '—' : UI.sign(dev) }), h('span.stat__u', { text: 'kg' })]),
+            h('div.stat__d', { text: dev == null ? '첫 체크인 — 기준점'
+              : (Math.abs(dev) < 0.5 ? '흔들림 범위(±0.5)' : (dev > 0 ? '계획보다 느림' : '계획보다 빠름')) })
           ])
         ]));
         card.appendChild(h('div.kv', [
@@ -323,22 +329,20 @@
             xTickFmt: function (v) { return Math.round(v) + '주'; }
           })
         ]));
+        card.appendChild(h('div.field__hint', {
+          text: '집 체중계는 인바디와 0.5~1kg 다를 수 있어서, 판정은 계획선과의 거리가 아니라 ' +
+                '첫 체크인 이후의 변화로 합니다.' }));
         body.appendChild(card);
 
         /* --- C04 제안 --- */
-        var advice = E.checkinAdvice(plan,
-          { weightKg: expected, prevWeightKg: prevW != null ? prevW : expected },
-          { weightKg: actualW },
-          { dietPct: draft.dietPct });
-
         var sCard = h('div.card.card--accent', { uid: 'P08-C04', uidLabel: '조정 제안 카드' });
         sCard.appendChild(h('div.card__head', [
           h('div.card__title', { text: '이번 주 제안' }),
-          h('span.badge.' + statusBadgeClass(advice.status), { text: statusLabel(advice.status) })
+          h('span.badge.' + statusBadgeClass(review.status), { text: statusLabel(review.status) })
         ]));
-        sCard.appendChild(h('div.card__sub', { text: statusDesc(advice.status) }));
+        sCard.appendChild(h('div.card__sub', { text: statusDesc(review.status) }));
         sCard.appendChild(h('div', { style: { marginTop: '10px' } },
-          (advice.suggestions || []).map(function (s) {
+          (review.suggestions || []).map(function (s) {
             return h('div.radio-card', { style: { marginBottom: '6px' } }, [
               h('div', [
                 h('div.radio-card__t', { text: s.title }),
@@ -347,18 +351,6 @@
             ]);
           })));
 
-        /* 엔진 판정과 화면의 실측 비교가 어긋날 수 있다 (엔진은 지난 실측치와 계획치를 비교한다).
-           어긋날 때 숨기지 않고 그대로 보여준다. */
-        var mStatus = measuredStatus(plan, expected, actualW);
-        if (advice.status !== 'adherence' && mStatus !== advice.status) {
-          sCard.appendChild(h('div.note.note--warn', { uid: 'P08-S05', uidLabel: '판정 불일치 안내' }, [
-            h('b', { text: '위 비교와 판정이 다릅니다' }),
-            h('div', { text: '이번 주 입력값 기준으로는 "' + statusLabel(mStatus) + '"이지만, ' +
-                             '판정 엔진은 직전 실측치와 계획치를 비교해 "' + statusLabel(advice.status) + '"으로 봅니다. ' +
-                             '둘이 갈릴 때는 이번 주에 아무것도 바꾸지 말고 다음 주 한 번을 더 보세요.' })
-          ]));
-        }
-
         if (draft.condition === 'bad') {
           sCard.appendChild(h('div.note', { uid: 'P08-S04', uidLabel: '컨디션 나쁨 해석 안내',
             text: '컨디션을 "나쁨"으로 적었습니다. 수면이 부족한 주에는 코르티솔·수분 때문에 체중이 0.5~1kg ' +
@@ -366,20 +358,28 @@
         }
 
         sCard.appendChild(h('div.btn-row.btn-row--stack', { style: { marginTop: '12px' } }, [
-          h('button.btn.btn--primary.btn--block', {
+          /* 「제안 적용」은 두 번 연속 같은 쪽으로 벗어났을 때(review.apply)만.
+             한 번 벗어난 것에 계획을 바꾸면 흔들림을 따라가게 됩니다. */
+          review.apply ? h('button.btn.btn--primary.btn--block', {
             text: '제안 적용', uid: 'P08-B03', uidLabel: '제안 적용',
             onClick: function () {
-              global.MB_MODALS.adjust(advice, function () {
-                var delta = applyAdvice(plan, advice);
-                S.setPlan(plan);
-                // 바꿀 수치가 없는 판정(예상 범위·순응도 문제)에서는 갱신했다고 말하지 않는다
-                global.MB_UID.toast(delta !== 0
-                  ? '플랜이 갱신되었습니다' + (plan.macros ? ' · 하루 ' + UI.n0(plan.macros.intakeKcal) + 'kcal' : '')
-                  : '바꿀 수치가 없어 계획을 그대로 두었습니다');
+              global.MB_MODALS.adjust(review, function () {
+                /* 조정 기록의 시각 = 방금 저장한 체크인의 시각. 엔진이 그 체크인을
+                   새 기준점으로 잡아, 다음 주에 같은 차이로 또 줄이라고 하지 않습니다. */
+                var res = E.applyCheckinAdvice(plan, review, S.get().profile || global.MB_DATA.SEED_PROFILE,
+                                               wkIdx, savedAt || new Date().toISOString());
+                if (!res) { global.MB_UID.toast('바꿀 수치가 없어 계획을 그대로 두었습니다'); return; }
+                S.setPlan(res.plan);
+                markApplied();
+                global.MB_UID.toast(res.kcalDelta !== 0
+                  ? '플랜이 갱신되었습니다 · 하루 ' + UI.n0(res.plan.macros.intakeKcal) + 'kcal' +
+                    (res.floored ? ' (하한까지만)' : '')
+                  : (res.cardioMinDelta ? '유산소를 주 ' + res.cardioMinDelta + '분 늘렸습니다 — 칼로리는 하한이라 그대로'
+                                        : '바꿀 수치가 없어 계획을 그대로 두었습니다'));
                 A.refresh();
               });
             }
-          }),
+          }) : null,
           h('button.btn.btn--block', {
             text: '이번엔 유지', uid: 'P08-B04', uidLabel: '이번엔 유지',
             onClick: function () {
@@ -503,6 +503,27 @@
         S.set({ checkins: list });
       }
 
+      /** 판정에 넣을 체크인 — 이번 계획 시작일 이후 것만, 주차는 엔진 규칙으로. */
+      function readingsFor(plan2) {
+        var start = String(plan2.startDate || '');
+        return (S.get().checkins || []).slice().sort(function (a, b) {
+          return String(a.at) < String(b.at) ? -1 : (String(a.at) > String(b.at) ? 1 : 0);
+        }).filter(function (c) {
+          return S.dayKey(c.at) >= start;
+        }).map(function (c) {
+          return { week: E.planWeekOf(plan2.startDate, S.dayKey(c.at)), weightKg: c.weightKg, at: c.at };
+        });
+      }
+
+      /** 방금 저장한 체크인에 "조정함" 을 남깁니다 (지난 체크인 표가 보여 줍니다). */
+      function markApplied() {
+        var list = (S.get().checkins || []).slice();
+        for (var i = 0; i < list.length; i++) {
+          if (list[i].at === savedAt) { list[i] = Object.assign({}, list[i], { applied: true }); }
+        }
+        S.set({ checkins: list });
+      }
+
       /** 실측 점: 플랜 시작 이후의 인바디 + 체크인 기록 (같은 주차는 뒤엣것으로 덮는다) */
       function actualPoints(plan2) {
         var start = plan2.startDate;
@@ -560,36 +581,6 @@
    * 순수 헬퍼
    * ==================================================================== */
 
-  /** 제안 적용 — 칼로리만 ±150kcal 움직이고, 느릴 때는 유산소를 먼저 늘린다 */
-  function applyAdvice(plan, advice) {
-    var delta = advice.status === 'slow' ? -150 : (advice.status === 'fast' ? 150 : 0);
-    var m = plan.macros;
-    if (delta !== 0 && m) {
-      m.intakeKcal = Math.round(m.intakeKcal + delta);
-      m.carbG = Math.max(50, Math.round(m.carbG + delta / 4));
-      if (m.deficitKcal != null) m.deficitKcal = Math.round(m.deficitKcal - delta);
-      if (m.intakeKcal > 0) {
-        m.pctProtein = Math.round(m.proteinG * 4 / m.intakeKcal * 100);
-        m.pctFat = Math.round(m.fatG * 9 / m.intakeKcal * 100);
-        m.pctCarb = Math.max(0, 100 - m.pctProtein - m.pctFat);
-      }
-    }
-    if (advice.status === 'slow' && plan.workout) {
-      plan.workout.cardioMinPerWeek = (plan.workout.cardioMinPerWeek || 0) + 40;
-    }
-    return delta;
-  }
-
-  /** 이번 주 입력값만으로 본 상태 (계획이 감량이면 예상보다 무거울 때 '느림') */
-  function measuredStatus(plan, expected, actualW) {
-    var g = actualW - expected;
-    if (Math.abs(g) < 0.15) return 'onTrack';
-    var traj = plan.trajectory || [];
-    var cutting = traj.length > 1 ? traj[traj.length - 1].weightKg < traj[0].weightKg : true;
-    if (cutting) return g > 0 ? 'slow' : 'fast';
-    return g < 0 ? 'slow' : 'fast';
-  }
-
   function statBox(label, val, unit) {
     return h('div.stat', [
       h('div.stat__k', { text: label }),
@@ -599,8 +590,8 @@
   }
 
   function statusLabel(s) {
-    return ({ onTrack: '예상 범위', slow: '예상보다 느림', fast: '예상보다 빠름',
-              adherence: '실행이 먼저' })[s] || '판정';
+    return ({ early: '기준 잡음', onTrack: '계획대로', watch: '지켜보는 중',
+              slow: '두 번 연속 느림', fast: '두 번 연속 빠름', adherence: '실행이 먼저' })[s] || '판정';
   }
   function statusBadgeClass(s) {
     return ({ onTrack: 'badge--ok', slow: 'badge--warn', fast: 'badge--warn',
@@ -608,9 +599,11 @@
   }
   function statusDesc(s) {
     return ({
-      onTrack: '계획대로 가고 있습니다. 이번 주는 바꿀 이유가 없습니다.',
-      slow: '계획보다 덜 움직였습니다. 다만 1주 결과만으로 바꾸면 과잉 반응입니다.',
-      fast: '계획보다 빠릅니다. 빠른 감량은 근손실 위험을 같이 올립니다.',
+      early: '첫 체크인(또는 조정 직후)이라 판정하지 않습니다. 이 값이 다음 비교의 기준점입니다.',
+      onTrack: '첫 체크인 이후 변화가 계획선과 0.5kg 안입니다. 이번 주는 바꿀 이유가 없습니다.',
+      watch: '한 번 벗어났지만 체중은 하루에도 ±1kg 흔들립니다. 다음 주에도 같은 쪽이면 그때 조정합니다.',
+      slow: '두 번 연속 계획보다 느립니다. 이제는 흔들림이 아니라 추세로 봅니다.',
+      fast: '두 번 연속 계획보다 빠릅니다. 너무 빠르면 근손실(증량이면 지방) 위험이 올라갑니다.',
       adherence: '계획이 틀린 게 아니라 실행이 덜 된 주입니다. 숫자를 건드릴 단계가 아닙니다.'
     })[s] || '';
   }
@@ -633,9 +626,6 @@
   }
   function weeksBetween(aISO, bISO) {
     return (toDate(bISO) - toDate(aISO)) / 604800000;
-  }
-  function weeksElapsed(startISO) {
-    return (new Date().getTime() - toDate(startISO).getTime()) / 604800000;
   }
   function agoText(iso) {
     var d = daysSince(iso);

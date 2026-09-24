@@ -317,7 +317,7 @@
   M.adjust = function (advice, onApply) {
     UI.openModal({
       uid: 'M17', title: '계획을 조정할까요?',
-      sub: ({ onTrack: '예상 범위 안', slow: '예상보다 느림', fast: '예상보다 빠름',
+      sub: ({ onTrack: '계획대로', slow: '두 번 연속 계획보다 느림', fast: '두 번 연속 계획보다 빠름',
               adherence: '순응도 문제' })[advice.status] || '',
       body: advice.suggestions.map(function (s) {
         return h('div.radio-card', { style: { marginBottom: '6px' } }, [

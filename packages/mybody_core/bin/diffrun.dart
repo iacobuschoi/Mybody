@@ -166,9 +166,15 @@ void main(List<String> args) {
           v = engine.dietNudge(_m(c['today'])!, _m(c['target']),
               now: DateTime.parse('${c['nowISO']}'));
           break;
-        case 'engine.checkinAdvice':
-          v = engine.checkinAdvice(
-              _m(c['plan']), _m(c['expected'])!, _m(c['actual'])!, _m(c['adherence']));
+        case 'engine.checkinReview':
+          v = engine.checkinReview(_m(c['plan']), c['readings'] as List?, _m(c['adherence']));
+          break;
+        case 'engine.applyCheckinAdvice':
+          v = engine.applyCheckinAdvice(
+              _m(c['plan']), _m(c['review']), _m(c['profile']), c['week'], c['atISO']);
+          break;
+        case 'engine.planWeekOf':
+          v = engine.planWeekOf(c['a'], c['b']);
           break;
         case 'engine.planDrift':
           /* 원본 engine.js 는 `global.MB_MODES` 가 있으면 byId 를 씁니다.

@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
+import '../checkins.dart';
 import '../scope.dart';
 import '../ui/charts.dart';
 import '../ui/fmt.dart';
@@ -80,7 +81,7 @@ class HomeScreen extends StatelessWidget {
       _WeekCard(go: go),
       /* 플랜 카드(오늘/이번주/한달)는 뺐습니다 — 같은 내용이 플랜 탭에
          있고, 홈에서 한 번 더 보여 줘도 하는 일이 달라지지 않았습니다. */
-      _NextCard(go: go, hasPlan: st['plan'] != null),
+      _NextCard(go: go, hasPlan: st['plan'] != null, doneThisWeek: checkinThisWeek(app.store)),
     ]);
   }
 }
@@ -90,20 +91,30 @@ class HomeScreen extends StatelessWidget {
    이미 있습니다. 같은 일을 하는 버튼이 한 화면에 둘이면 어느 쪽이
    진짜인지 묻게 되니 여기엔 안 둡니다. */
 class _NextCard extends StatelessWidget {
-  const _NextCard({required this.go, required this.hasPlan});
+  const _NextCard({required this.go, required this.hasPlan, this.doneThisWeek});
   final void Function(String route, [Object? arg]) go;
   final bool hasPlan;
+  /// 이번 계획 주에 한 체크인. 했으면 버튼이 그걸 말합니다 — 예전엔 했는지
+  /// 안 했는지 홈 어디에도 안 보여서, 같은 주에 두 번 하거나 잊었습니다.
+  final Map<String, Object?>? doneThisWeek;
   @override
   Widget build(BuildContext context) {
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         const SectionTitle('다음에 할 일'),
         if (hasPlan) ...[
-          OutlinedButton.icon(
-            onPressed: () => go('checkin'),
-            icon: const Icon(LucideIcons.checkCircle2),
-            label: const Text('이번 주 체크인'),
-          ),
+          if (doneThisWeek == null)
+            OutlinedButton.icon(
+              onPressed: () => go('checkin'),
+              icon: const Icon(LucideIcons.circle),
+              label: const Text('이번 주 체크인'),
+            )
+          else
+            OutlinedButton.icon(
+              onPressed: () => go('checkin'),
+              icon: Icon(LucideIcons.checkCircle2, color: mb(context).ok),
+              label: Text('이번 주 체크인 완료 · ${n1(doneThisWeek!['weightKg'])}kg'),
+            ),
           const SizedBox(height: 8),
         ],
         OutlinedButton.icon(

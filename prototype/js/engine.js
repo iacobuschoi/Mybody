@@ -1432,33 +1432,207 @@
              detail: '단백질 ' + Math.round(p) + ' / ' + target.proteinG + 'g' };
   }
 
-  /** 주간 체크인 → 재조정 제안 */
-  function checkinAdvice(plan, expected, actual, adherence) {
-    /* 계획보다 몇 kg 가벼운가 (+ 면 계획보다 더 빠짐).
-       예전 식은 (prev − actual) − (expected − actual) 이라 actual 이 지워져서,
-       체중을 뭘로 넣든 계획 모양만으로 판정이 났습니다. */
-    var gap = expected.weightKg - actual.weightKg;
-    /* 증량 계획이면 무거운 쪽이 "빠름" 입니다. */
-    var tr = plan && plan.trajectory;
-    if (tr && tr.length > 1 && tr[tr.length - 1].weightKg > tr[0].weightKg + 0.5) gap = -gap;
-    var suggestions = [];
+  /* --- 주간 체크인 판정 ----------------------------------------------------
+   * 예전 판정은 이번 주 체중 하나를 계획선에 대 보고 **0.15kg** 만 달라도
+   * "빠르다 · 느리다" 를 냈습니다. 체중은 하루에도 ±1kg 흔들립니다. 계획
+   * 다음 날(0주차) 집 체중계로 86.2 를 넣은 사람이 인바디 86.7 과 0.5kg
+   * 다르다는 이유로 "하루 150kcal 늘리기" 를 받았습니다 — 흔들림에 반응한
+   * 제안입니다.
+   *
+   * 지금 규칙:
+   *  · **체크인끼리만** 견줍니다. 인바디와 집 체중계는 0.5~1kg 다를 수 있어서,
+   *    가장 이른 주의 체크인을 기준점으로 잡고 그 뒤의 **변화량**을 계획선의
+   *    같은 기간 변화량과 비교합니다. 기준점 하나로는 판정하지 않습니다(early).
+   *  · 한 주에 여러 번 넣으면 그 주의 마지막 값을 씁니다.
+   *  · ±0.5kg 안이면 계획대로(onTrack).
+   *  · 벗어나도 한 번이면 지켜봅니다(watch). **두 번 연속 같은 쪽**일 때만
+   *    조정을 제안하고, 그때만 적용할 수 있습니다(apply).
+   *  · 식단을 70% 미만으로 지킨 주는 숫자를 건드리지 않습니다(adherence) — 먼저 봅니다.
+   *  · 증량 계획이면 방향이 반대입니다. 덜 늘면 "느림" 이고 그때는 **더** 먹습니다.
+   *    예전엔 느리면 계획과 상관없이 줄이라고 했습니다.
+   *  · **조정을 적용하면 기준점을 다시 잡습니다.** 차이는 기준점부터 쌓인 값이라,
+   *    안 그러면 조정한 다음 주에도 같은 차이가 남아 있어 또 "줄이기" 가 나오고,
+   *    매주 150kcal 씩 하한까지 내려갑니다. 마지막 조정(plan.adjustments) 이후의
+   *    체크인만 봅니다 — 조정하며 저장한 체크인이 새 기준점입니다.
+   *
+   * readings: [{ week, weightKg, at? }] — 오래된 것부터. 주차는 부르는 쪽이
+   * planWeekOf 로 셉니다(날짜 → 주차는 시간대를 타서 여기서 안 합니다).
+   * devKg · prevDevKg: 기준점 이후 계획보다 **느린** kg (+ 느림, − 빠름).
+   * ------------------------------------------------------------------------ */
+  var CHECKIN_BAND_KG = 0.5;
+  var CHECKIN_KCAL_STEP = 150;
+  var CHECKIN_CARDIO_MIN = 40;
 
-    if (adherence && adherence.dietPct < 70) {
-      suggestions.push({ kind: 'adherence', title: '칼로리는 그대로 두고 순응도부터',
+  /** 계획선에서 그 주에 가장 가까운 점. week 칸이 없으면 자리 번호를 주차로 봅니다. */
+  function trajAt(tr, wk) {
+    var best = null, bestD = Infinity;
+    for (var i = 0; i < tr.length; i++) {
+      var w = typeof tr[i].week === 'number' ? tr[i].week : i;
+      var d = Math.abs(w - wk);
+      if (d < bestD) { best = tr[i]; bestD = d; }
+    }
+    return best;
+  }
+
+  /** 'YYYY-MM-DD' 두 개 사이의 계획 주차 (0부터, 음수는 0). */
+  function planWeekOf(startKey, dayKey) {
+    var a = dateKeyUTC(startKey), b = dateKeyUTC(dayKey);
+    if (a == null || b == null) return 0;
+    var d = Math.round((b - a) / 86400000);
+    return d <= 0 ? 0 : Math.floor(d / 7);
+  }
+  function dateKeyUTC(k) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(k == null ? '' : String(k));
+    return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : null;
+  }
+
+  function checkinReview(plan, readings, adherence) {
+    var tr = (plan && plan.trajectory) || [];
+    var out = { status: 'early', gaining: false, devKg: null, prevDevKg: null,
+                weeks: 0, baseWeek: null, since: null, suggestions: [], apply: null };
+    if (tr.length > 1 && tr[tr.length - 1].weightKg > tr[0].weightKg + 0.5) out.gaining = true;
+
+    /* 마지막 조정 이후만 — 그 전 체크인은 옛 칼로리로 산 주입니다. */
+    var adjs = plan && Array.isArray(plan.adjustments) ? plan.adjustments : [];
+    var adj = adjs.length ? adjs[adjs.length - 1] : null;
+    var since = adj && typeof adj === 'object' && typeof adj.at === 'string' && adj.at ? adj.at : null;
+    out.since = since;
+
+    /* 한 주에 여러 번이면 그 주의 마지막 값. 이상한 값은 건너뜁니다. */
+    var byWeek = {}, weeks = [];
+    (readings || []).forEach(function (r) {
+      if (!r) return;
+      if (since && typeof r.at === 'string' && r.at < since) return;
+      var wk = r.week, w = r.weightKg;
+      if (typeof wk !== 'number' || !isFinite(wk)) return;
+      if (typeof w !== 'number' || !isFinite(w) || w <= 0) return;
+      wk = Math.max(0, Math.floor(wk));
+      if (byWeek[wk] == null) weeks.push(wk);
+      byWeek[wk] = w;
+    });
+    weeks.sort(function (a, b) { return a - b; });
+    out.weeks = weeks.length;
+    out.baseWeek = weeks.length ? weeks[0] : null;
+
+    if (adherence && typeof adherence.dietPct === 'number' && adherence.dietPct < 70) {
+      out.status = 'adherence';
+      out.suggestions.push({ kind: 'adherence', title: '칼로리는 그대로 두고 순응도부터',
         detail: '식단 준수도가 ' + adherence.dietPct + '%입니다. 계획이 틀린 게 아니라 실행이 덜 된 상태라 칼로리를 더 줄이면 역효과입니다.' });
-      return { status: 'adherence', suggestions: suggestions };
+      return out;
     }
-    if (Math.abs(gap) < 0.15) {
-      suggestions.push({ kind: 'hold', title: '계획 유지', detail: '예상 범위 안입니다. 바꾸지 마세요.' });
-      return { status: 'onTrack', suggestions: suggestions };
+    if (!tr.length) {
+      out.suggestions.push({ kind: 'hold', title: '계획이 없습니다',
+        detail: '목표와 계획을 먼저 세우면 체크인을 계획선과 견줘 봅니다.' });
+      return out;
     }
-    if (gap < -0.15) {  // 덜 빠짐
-      suggestions.push({ kind: 'kcal', title: '하루 150kcal 줄이기', detail: '2주 연속 정체일 때만 적용하세요.' });
-      suggestions.push({ kind: 'cardio', title: '유산소 주 1회 추가', detail: '칼로리를 더 줄이는 것보다 근육 보존에 유리합니다.' });
-      return { status: 'slow', suggestions: suggestions };
+    if (weeks.length < 2) {
+      out.suggestions.push(since
+        ? { kind: 'hold', title: '조정 뒤 기준을 새로 잡았습니다',
+            detail: '계획을 바꾼 뒤로는 그때 체크인을 기준으로 다시 봅니다. 다음 주 체크인부터 판정합니다.' }
+        : { kind: 'hold', title: '기준 체중을 잡았습니다',
+            detail: '첫 체크인은 판정하지 않습니다. 인바디와 집 체중계는 0.5~1kg 다를 수 있어서, ' +
+                    '이 값을 기준으로 다음 주부터 계획선과 견줘 봅니다.' });
+      return out;
     }
-    suggestions.push({ kind: 'kcal', title: '하루 150kcal 늘리기', detail: '너무 빠르면 근손실 위험이 올라갑니다.' });
-    return { status: 'fast', suggestions: suggestions };
+
+    var base = weeks[0], hb = byWeek[base], eb = trajAt(tr, base).weightKg;
+    function dev(wk) {
+      var d = (byWeek[wk] - hb) - (trajAt(tr, wk).weightKg - eb);
+      return r2(out.gaining ? -d : d);
+    }
+    var last = dev(weeks[weeks.length - 1]);
+    var prev = weeks.length >= 3 ? dev(weeks[weeks.length - 2]) : null;
+    if (!isFinite(last)) {
+      out.suggestions.push({ kind: 'hold', title: '판정하지 않습니다',
+        detail: '계획선을 읽지 못했습니다.' });
+      return out;
+    }
+    out.devKg = last;
+    out.prevDevKg = prev;
+
+    function side(x) {
+      if (x == null) return 0;
+      return x >= CHECKIN_BAND_KG ? 1 : (x <= -CHECKIN_BAND_KG ? -1 : 0);
+    }
+    var s1 = side(last), s0 = side(prev);
+    if (s1 === 0) {
+      out.status = 'onTrack';
+      out.suggestions.push({ kind: 'hold', title: '계획 유지',
+        detail: '첫 체크인 이후 변화가 계획선과 0.5kg 안에서 맞습니다. 바꾸지 마세요.' });
+      return out;
+    }
+    if (s0 !== s1) {
+      out.status = 'watch';
+      out.suggestions.push({ kind: 'watch', title: '한 번 더 보고 정합니다',
+        detail: '체중은 하루에도 ±1kg 흔들려서 한 번 벗어난 것으로는 계획을 바꾸지 않습니다. ' +
+                '다음 체크인에도 같은 쪽이면 그때 조정을 제안합니다.' });
+      return out;
+    }
+
+    /* 두 번 연속 같은 쪽 — 이때만 조정합니다. */
+    var slow = s1 > 0;
+    var kcal = slow !== out.gaining ? -CHECKIN_KCAL_STEP : CHECKIN_KCAL_STEP;
+    var cardio = slow && !out.gaining ? CHECKIN_CARDIO_MIN : 0;
+    out.status = slow ? 'slow' : 'fast';
+    out.suggestions.push({ kind: 'kcal',
+      title: '하루 ' + CHECKIN_KCAL_STEP + 'kcal ' + (kcal < 0 ? '줄이기' : '늘리기'),
+      detail: slow
+        ? (out.gaining ? '두 번 연속 계획보다 덜 늘었습니다.' : '두 번 연속 계획보다 덜 빠졌습니다.')
+        : (out.gaining ? '두 번 연속 계획보다 빨리 늘었습니다 — 빨리 늘면 지방도 같이 붙습니다.'
+                       : '두 번 연속 계획보다 빨리 빠졌습니다 — 너무 빠르면 근손실 위험이 올라갑니다.') });
+    if (cardio) {
+      out.suggestions.push({ kind: 'cardio', title: '유산소 주 ' + CHECKIN_CARDIO_MIN + '분 추가',
+        detail: '칼로리만 더 줄이는 것보다 근육을 지키는 데 유리합니다.' });
+    }
+    out.apply = { kcalDelta: kcal, cardioMinDelta: cardio };
+    return out;
+  }
+
+  /**
+   * 체크인 제안을 계획에 적용한 **새 계획**. 원래 계획은 안 건드립니다.
+   * 칼로리만 ±150 움직이고(탄수로 맞춤), 하한(kcalFloor) 밑으로는 안 내립니다.
+   * 식단 예시(diet)는 새 칼로리로 다시 만들고, 무엇을 언제 바꿨는지 adjustments 에 남깁니다.
+   * 적용할 것이 없으면 null.
+   */
+  function applyCheckinAdvice(plan, review, profile, week, atISO) {
+    if (!plan || !plan.macros || !review || !review.apply || typeof review.apply !== 'object') return null;
+    var intake = plan.macros.intakeKcal;
+    if (typeof intake !== 'number' || !isFinite(intake)) return null;
+    var pr = profile || {};
+    var want = typeof review.apply.kcalDelta === 'number' ? review.apply.kcalDelta : 0;
+    var wk = typeof week === 'number' && isFinite(week) ? week : 0;
+    var tr = plan.trajectory || [];
+    var pt = tr.length ? trajAt(tr, wk) : null;
+    var ffm = pt && typeof pt.ffmKg === 'number' ? pt.ffmKg : null;
+    var floor = kcalFloor(pr, ffm != null ? 370 + 21.6 * ffm : 0);
+    var next = intake + want;
+    if (want < 0) next = Math.max(next, Math.min(intake, floor));
+    var delta = Math.round(next - intake);
+
+    var m = Object.assign({}, plan.macros);
+    m.intakeKcal = Math.round(intake + delta);
+    if (typeof m.carbG === 'number') m.carbG = Math.max(50, Math.round(m.carbG + delta / 4));
+    if (typeof m.deficitKcal === 'number') m.deficitKcal = Math.round(m.deficitKcal - delta);
+    if (m.intakeKcal > 0) {
+      if (typeof m.proteinG === 'number') m.pctProtein = Math.round(m.proteinG * 4 / m.intakeKcal * 100);
+      if (typeof m.carbG === 'number') m.pctCarb = Math.round(m.carbG * 4 / m.intakeKcal * 100);
+      if (typeof m.fatG === 'number') m.pctFat = Math.round(m.fatG * 9 / m.intakeKcal * 100);
+    }
+
+    var cardio = typeof review.apply.cardioMinDelta === 'number' ? review.apply.cardioMinDelta : 0;
+    var np = Object.assign({}, plan, { macros: m });
+    if (plan.workout && cardio) {
+      var w = Object.assign({}, plan.workout);
+      w.cardioMinPerWeek = (typeof w.cardioMinPerWeek === 'number' ? w.cardioMinPerWeek : 0) + cardio;
+      np.workout = w;
+    } else {
+      cardio = 0;          // 운동 계획이 없으면 더할 곳이 없습니다
+    }
+    np.diet = dietFor(m, pr);
+    np.adjustments = (Array.isArray(plan.adjustments) ? plan.adjustments : []).concat([{
+      at: atISO || null, week: wk, status: review.status, kcalDelta: delta, cardioMinDelta: cardio
+    }]);
+    return { plan: np, kcalDelta: delta, cardioMinDelta: cardio, floored: delta !== want };
   }
 
   /* --- 유틸 -------------------------------------------------------------- */
@@ -1500,7 +1674,8 @@
     PAL: PAL, MUSCLE_BASE: MUSCLE_BASE, LEVEL_SPEC: LEVEL_SPEC,
     CUT_RANGE: CUT_RANGE, BULK_RANGE: BULK_RANGE, paramsAt: paramsAt,
     derive: derive, validateScan: validateScan, classifyGoal: classifyGoal, compareLevels: compareLevels,
-    buildPlan: buildPlan, checkinAdvice: checkinAdvice, planDrift: planDrift,
+    buildPlan: buildPlan, checkinReview: checkinReview, applyCheckinAdvice: applyCheckinAdvice,
+    planWeekOf: planWeekOf, planDrift: planDrift,
     ffmiOf: ffmiOf, ffmiCeiling: ffmiCeiling, ffmiFactor: ffmiFactor,
     dietAdherence: dietAdherence, dietNudge: dietNudge,
     macrosFor: macrosFor, workoutFor: workoutFor, dietFor: dietFor, resolveTraining: resolveTraining,

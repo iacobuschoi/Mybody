@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
+import '../checkins.dart';
 import '../scope.dart';
 import '../ui/charts.dart';
 import '../ui/fmt.dart';
@@ -43,6 +44,15 @@ class ProgressScreen extends StatelessWidget {
     final times = [
       for (final s in scans)
         (DateTime.tryParse('${s['measuredAt']}')?.millisecondsSinceEpoch ?? 0) / 86400000.0
+    ];
+
+    /* 주간 체크인 체중 — 집 체중계 값이라 인바디 선과 따로 점선으로 둡니다.
+       예전엔 체크인을 저장해도 여기 안 나왔습니다. */
+    final checkinPts = [
+      for (final c in checkinsOf(app.state))
+        if (c['weightKg'] is num && DateTime.tryParse('${c['at']}') != null)
+          Pt(DateTime.parse('${c['at']}').millisecondsSinceEpoch / 86400000.0,
+              core.jsToNumber(c['weightKg'])),
     ];
 
     final goal = app.state['goal'] == null
@@ -94,6 +104,9 @@ class ProgressScreen extends StatelessWidget {
               Series(label: '체지방', color: c.fat,
                   points: [for (var i = 0; i < derived.length; i++)
                     Pt(times[i], core.jsToNumber(derived[i]['bfmKg']))]),
+              if (checkinPts.isNotEmpty)
+                Series(label: '체크인 체중', color: c.weight, dashed: true, width: 1.2,
+                    points: checkinPts),
             ],
             goals: [
               if (goal != null)
@@ -104,6 +117,12 @@ class ProgressScreen extends StatelessWidget {
             xTickFmt: (v) => dateShort(
                 DateTime.fromMillisecondsSinceEpoch((v * 86400000).round()).toIso8601String()),
           ),
+          if (checkinPts.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text('점선은 주간 체크인에 넣은 집 체중계 값입니다. 인바디와 0.5~1kg 다를 수 있어서 '
+                '인바디 선과 잇지 않습니다.',
+                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5)),
+          ],
         ]),
       ),
 
