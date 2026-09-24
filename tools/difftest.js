@@ -798,6 +798,25 @@ function makePlanCases(n, seed, module) {
       });
       continue;
     }
+    if (module === 'engine.durationOptions') {
+      const modes = realModeDefs();
+      /* 기간: 보통 4~104주. 가끔 범위 밖 · 소수 · 글자 · 없음 — 접히거나 12주로 떨어져야 합니다. */
+      const oddWeeks = [2, 0, -5, 500, 12.5, 'abc', null, undefined, NaN, 8];
+      const weeks = rnd() > 0.15 ? Math.round(4 + rnd() * 100) : oddWeeks[(rnd() * oddWeeks.length) | 0];
+      /* 모드: 진짜 것 · 없음 · 폭이 0 이거나 아주 좁은 가짜 — 세 강도가 한 점에 모여
+         합쳐지는 길과 "하나뿐입니다" 경고를 밟습니다. */
+      const md = rnd();
+      const v = Math.round(rnd() * 100) / 100;
+      const modeDef = md > 0.45 ? modes[(rnd() * modes.length) | 0]
+        : (md > 0.3 ? { id: 'narrow', nameKo: '시험모드', aMin: v, aMax: rnd() > 0.5 ? v : Math.min(1, v + 0.03) }
+                    : null);
+      out.push({
+        scan: scan, profile: profile, weeks: weeks,
+        todayISO: rnd() > 0.5 ? '2026-03-15' : '2026-12-28T00:00:00',
+        modeDef: modeDef
+      });
+      continue;
+    }
     out.push(c);  /* bestAt · scanCurve · simulate* 는 통째로 씁니다 */
     void goalInfo;
   }
@@ -958,6 +977,8 @@ function jsCaller(module) {
       return c => m.scanCurve(c.cur, c.goal, c.profile, m.classifyGoal(c.cur, c.goal), c.con);
     case 'engine.compareLevels':
       return c => m.compareLevels(c.scan, c.profile, c.goal, c.startDateISO, c.deadlineWeeks, c.modeDef);
+    case 'engine.durationOptions':
+      return c => m.durationOptions(c.scan, c.profile, c.weeks, c.todayISO, c.modeDef);
     case 'engine.macrosFor':      return c => m.macrosFor(c.sim, c.cur, c.profile);
     case 'engine.workoutFor':     return c => m.workoutFor(c.sim, c.cur, c.profile, c.scan, c.goalInfo);
     case 'engine.dietFor':        return c => m.dietFor(c.macros, c.profile);
@@ -1066,6 +1087,7 @@ const MODULES = [
   { name: 'engine.bestAt',            gen: makePlanCases, cap: 300 },
   { name: 'engine.scanCurve',         gen: makePlanCases, cap: 12 },
   { name: 'engine.compareLevels',     gen: makePlanCases, cap: 10 },
+  { name: 'engine.durationOptions',   gen: makePlanCases, cap: 200 },
   { name: 'engine.macrosFor',         gen: makePlanCases, cap: 200 },
   { name: 'engine.workoutFor',        gen: makePlanCases, cap: 200 },
   { name: 'engine.dietFor',           gen: makePlanCases, cap: 200 },

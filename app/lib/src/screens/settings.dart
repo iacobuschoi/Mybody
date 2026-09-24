@@ -22,6 +22,8 @@ import '../api.dart';
 import '../scope.dart';
 import '../update.dart';
 import 'account.dart';
+import 'gym_settings.dart';
+import 'sync_settings.dart';
 import '../ui/widgets.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -90,6 +92,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 setState(() {});
               },
             ),
+            /* 운동 알림 — 헬스 가기로 한 날 저녁까지 기록이 없으면 집에서 15분. */
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('운동 알림'),
+              subtitle: Text('헬스를 하기로 한 날 저녁 8시 반, 아직 안 갔으면 집에서 15분 맨몸 운동을 권합니다.',
+                  style: t.textTheme.labelSmall),
+              value: settings['workoutReminder'] != false,
+              onChanged: (on) {
+                app.store.set({'settings': {...settings, 'workoutReminder': on}});
+                setState(() {});
+              },
+            ),
             /* 간식 알림 — 서버가 아니라 폰이 직접 예약합니다. */
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
@@ -104,6 +118,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
           ]),
         ),
+
+        /* 운동 환경 — 있는 기구 · 기구 수 · 익숙한 종목. 운동 기록 화면이 여기에 맞춰 종목을 바꿉니다. */
+        const GymSettingsCard(),
 
         /* 서버 카드는 뺐습니다. 주소는 앱에 박혀 있어서 사람이 볼 일이
            없고, "주소가 없습니다 — 친구 기능이 꺼져 있습니다" 같은 줄은
@@ -156,6 +173,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ]),
           ]),
         ),
+
+        /* 동기화 — 두 기기의 기록을 합치는 것. 상태와 「지금 동기화」 는 여기서. */
+        SyncSettingsCard(cloud: Scope.cloudOf(context), api: api),
 
         /* 백업 카드는 뺐습니다 — 기록이 내 계정에 저장되고 새 기기에서
            로그인하면 따라옵니다. 내보내기·가져오기는 맨 아래 작은 글씨로

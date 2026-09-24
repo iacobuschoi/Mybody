@@ -143,6 +143,10 @@ void main(List<String> args) {
           v = engine.compareLevels(_m(c['scan'])!, _m(c['profile'])!, _m(c['goal'])!,
               c['startDateISO'], c['deadlineWeeks'], _m(c['modeDef']));
           break;
+        case 'engine.durationOptions':
+          v = engine.durationOptions(_m(c['scan'])!, _m(c['profile'])!, c['weeks'],
+              c['todayISO'], _m(c['modeDef']));
+          break;
         case 'engine.macrosFor':
           v = engine.macrosFor(_m(c['sim'])!, _m(c['cur'])!, _m(c['profile'])!);
           break;

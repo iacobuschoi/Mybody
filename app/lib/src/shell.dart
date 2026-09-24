@@ -12,7 +12,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
-import 'nudge.dart' show notificationRoute, tappedMealReminder;
+import 'nudge.dart' show notificationRoute, tappedMealReminder, parseWorkoutPayload;
 import 'scope.dart';
 import 'ui/symbols.dart';
 import 'screens/food.dart';
@@ -28,6 +28,7 @@ import 'screens/account.dart';
 import 'screens/checkin.dart';
 import 'screens/onboarding.dart';
 import 'screens/scandetail.dart';
+import 'screens/workout_session.dart';
 
 class Shell extends StatefulWidget {
   const Shell({super.key});
@@ -57,6 +58,15 @@ class _ShellState extends State<Shell> {
     final r = notificationRoute.value;
     if (r == null || !mounted) return;
     notificationRoute.value = null;
+    /* 저녁 운동 알림('workout:bodyweight:날짜')은 그 날의 맨몸 운동 화면으로 — 홈 위에 띄워서
+       저장하고 나오면 홈의 브리핑이 바로 바뀝니다. */
+    final w = parseWorkoutPayload(r);
+    if (w != null) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      _go('home');
+      _go('workout', (dateKey: w.dateKey, type: w.type));
+      return;
+    }
     if (r == 'food' || r.startsWith('food:')) {
       /* 끼니 알림이면 그 끼니를 식단 화면의 기본값으로(10시 5분에 적어도 아침). */
       if (r.startsWith('food:')) tappedMealReminder = (meal: r.substring(5), at: DateTime.now());
@@ -97,6 +107,12 @@ class _ShellState extends State<Shell> {
             .push(MaterialPageRoute(builder: (_) => ScanDetailScreen(scanId: arg)));
       case 'checkin':
         Navigator.of(context).push(MaterialPageRoute(builder: (_) => const CheckinScreen()));
+      /* 운동 기록 화면 — 홈 브리핑 · 이번 주 카드 · 알림이 같은 길로 옵니다.
+         arg 는 (dateKey, type) 레코드이거나 {'date','type'} 맵(브리핑이 쓰는 꼴). */
+      case 'workout':
+        final (dateKey, type) = _workoutArg(arg);
+        Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => WorkoutSessionScreen(dateKey: dateKey, type: type)));
       case 'settings':
         Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
       case 'signin':
@@ -122,6 +138,16 @@ class _ShellState extends State<Shell> {
                   onServerChange: Scope.serverSetterOf(context),
                 )));
     }
+  }
+
+  (String, String) _workoutArg(Object? arg) {
+    if (arg is ({String dateKey, String type})) return (arg.dateKey, arg.type);
+    if (arg is Map) {
+      final d = arg['date'] ?? arg['dateKey'];
+      final t = arg['type'];
+      return ('${d ?? Scope.of(context).store.dayKey()}', '${t ?? 'gym'}');
+    }
+    return (Scope.of(context).store.dayKey(), 'gym');
   }
 
   @override

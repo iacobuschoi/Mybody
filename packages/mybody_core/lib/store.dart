@@ -109,6 +109,13 @@ class Store {
         },
         'onboarded': false,
         'disclaimerAccepted': false,
+        /* 지운 것의 묘비 — {id: 지운 시각}. 동기화가 "저쪽에 없는 것" 을
+           "여기서 지운 것" 과 구분하는 유일한 단서입니다. 이게 없으면 한 기기에서
+           지운 측정이 다른 기기에서 되살아납니다. 90일 지나면 버립니다. */
+        'tombstones': {
+          'scans': <String, Object?>{},
+          'foodLogs': <String, Object?>{},
+        },
       };
 
   /* --- 읽기 ---------------------------------------------------------------
@@ -316,6 +323,7 @@ class Store {
       }
     }
     _state['scans'] = list.where((s) => (s as Map)['id'] != id).toList();
+    _tombstone('scans', id);
     if (gone != null && jsTruthy(gone['photoId']) && photos != null) {
       final stillUsed =
           (_state['scans'] as List).any((s) => (s as Map)['photoId'] == gone!['photoId']);
@@ -450,7 +458,39 @@ class Store {
   void removeFoodLog(Object? id) {
     _state['foodLogs'] =
         (_state['foodLogs'] as List? ?? const []).where((x) => (x as Map)['id'] != id).toList();
+    _tombstone('foodLogs', id);
     save();
+  }
+
+  /* --- 묘비 ---------------------------------------------------------------- */
+
+  /// 묘비를 남길 수 있는 칸. 동기화(merge)가 같은 이름으로 읽습니다.
+  static const List<String> tombstoneBuckets = ['scans', 'foodLogs'];
+  /// 이보다 오래된 묘비는 버립니다. 그 사이에 한 번도 동기화 안 된 기기의
+  /// 옛 복사본은 되살아날 수 있지만, 영원히 들고 있으면 백업 파일이 지운
+  /// 것으로만 자랍니다.
+  static const int tombstoneDays = 90;
+
+  /// "id 를 지웠다" 를 시각과 함께 적습니다. 지금 여기에 없던 id 라도 적습니다 —
+  /// 지우라는 뜻은 같고, 다른 기기에는 있을 수 있습니다.
+  void _tombstone(String bucket, Object? id) {
+    if (id == null || '$id'.isEmpty || !tombstoneBuckets.contains(bucket)) return;
+    /* 새 Map 에 옮겨 적습니다. 저장된 Map 을 cast 한 채로 고치면, 그 Map 이
+       좁은 타입(Map<String, String> 같은 것)으로 만들어졌을 때 쓰는 자리에서
+       터집니다 — 백업을 들인 것과 코드로 만든 것이 다르게 굴면 안 됩니다. */
+    final all = <String, Object?>{...?_mapOrNull(_state['tombstones'])};
+    final m = <String, Object?>{...?_mapOrNull(all[bucket])};
+    final now = _now().toUtc();
+    m['$id'] = now.toIso8601String();
+    /* 쓸 때마다 오래된 것을 덜어 냅니다. 읽지 못하는 시각도 버립니다 —
+       비교할 수 없는 묘비는 동기화에 쓸 수 없습니다. */
+    final cutoff = now.subtract(const Duration(days: tombstoneDays));
+    m.removeWhere((k, v) {
+      final t = v is String ? DateTime.tryParse(v) : null;
+      return t == null || t.isBefore(cutoff);
+    });
+    all[bucket] = m;
+    _state['tombstones'] = all;
   }
 
   List<Map<String, Object?>> logsForDate([Object? date]) {
@@ -585,25 +625,41 @@ class Store {
 
   static const List<String> schedTypes = ['gym', 'cardio'];
 
+  /// 그 날의 {plan, done, log}. 전부 복사본입니다 — 돌려준 것을 고쳐도
+  /// 저장된 것은 안 바뀝니다. log 는 {type: {...}} 이고 **있을 때만** 칸이
+  /// 있습니다 — 웹(원본 store.js)은 이 칸을 모르고, 차이 검사가 그 답과
+  /// 견주므로 없는 것을 빈 Map 으로 만들어 내지 않습니다. 읽는 쪽은
+  /// `_mapOrNull(day['log'])` 처럼 없을 수 있다고 보고 읽습니다.
   Map<String, Object?> scheduleDay([Object? date]) {
     final sch = (_state['schedule'] as Map?) ?? <String, Object?>{};
     final e = _mapOrNull(sch[dayKey(date)]);
+    final log = _deepCopy(_mapOrNull(e?['log']));
     return {
       'plan': [...(e?['plan'] as List? ?? const [])],
       'done': {...?_mapOrNull(e?['done'])},
+      if (log.isNotEmpty) 'log': log,
     };
+  }
+
+  /// 고치는 쪽이 쓰는 그 날의 기록 칸 — 없으면 만들어 붙입니다.
+  Map<String, Object?> _logsOf(Map<String, Object?> e) {
+    final logs = _mapOrNull(e['log']) ?? <String, Object?>{};
+    e['log'] = logs;
+    return logs;
   }
 
   void _writeDay(String k, Map<String, Object?> e) {
     final sch = ((_state['schedule'] as Map?) ?? <String, Object?>{}).cast<String, Object?>();
     final plan = (e['plan'] as List? ?? const []);
     final done = _mapOrNull(e['done']) ?? const <String, Object?>{};
-    /* 둘 다 비면 그 날 칸을 지웁니다 — 안 그러면 넘긴 날마다 빈 칸이 쌓여서
-       백업 파일이 계속 커집니다. */
-    if (plan.isEmpty && done.isEmpty) {
+    final log = _mapOrNull(e['log']) ?? const <String, Object?>{};
+    /* 셋 다 비면 그 날 칸을 지웁니다 — 안 그러면 넘긴 날마다 빈 칸이 쌓여서
+       백업 파일이 계속 커집니다. log 는 있을 때만 적습니다 — 웹(원본)이
+       모르는 칸을 날마다 빈 채로 만들 이유가 없습니다. */
+    if (plan.isEmpty && done.isEmpty && log.isEmpty) {
       sch.remove(k);
     } else {
-      sch[k] = {'plan': plan, 'done': done};
+      sch[k] = {'plan': plan, 'done': done, if (log.isNotEmpty) 'log': log};
     }
     _state['schedule'] = sch;
     save();
@@ -622,8 +678,10 @@ class Store {
       plan.removeAt(i);
       /* 계획을 지우면 그 날의 체크도 같이 지웁니다. "안 하기로 한 운동을
          했다" 는 상태는 화면에 그릴 자리가 없고, 다시 계획을 켰을 때 예전
-         체크가 살아나면 안 갔는데 간 것이 됩니다. */
+         체크가 살아나면 안 갔는데 간 것이 됩니다. 기록(log)은 체크에
+         딸린 것이라 같이 갑니다 — 체크 없는 기록은 그릴 자리가 없습니다. */
       done.remove(type);
+      _logsOf(e).remove(type);
     }
     _writeDay(k, e);
     return scheduleDay(k);
@@ -646,6 +704,39 @@ class Store {
       done[type] = _now().toUtc().toIso8601String();
     } else {
       done.remove(type);
+      /* 체크를 풀면 그 운동의 기록도 지웁니다. "안 했는데 무엇을 했는지는
+         남아 있다" 는 상태는 모순이고, 다시 체크하면 옛 기록이 살아나
+         오늘 한 것처럼 보입니다. */
+      _logsOf(e).remove(type);
+    }
+    _writeDay(k, e);
+    return scheduleDay(k);
+  }
+
+  /// 그 날 그 운동을 **무엇을 얼마나 했는지** 적습니다 — 종목 · 시간 · kcal 같은
+  /// 것. 모양은 화면이 정하고 여기서는 JSON 으로 적히는 복사본만 둡니다.
+  ///
+  /// 적으면 체크(done)도 같이 됩니다 — 기록이 있는데 안 했을 수는 없습니다.
+  /// 이미 체크돼 있으면 그 시각은 그대로 둡니다 (기록이 체크보다 늦게 오는
+  /// 것이 보통입니다). null 이면 기록만 지우고 체크는 남깁니다.
+  /// 아직 오지 않은 날은 setScheduleDone 과 같은 이유로 거절합니다.
+  Map<String, Object?>? setScheduleLog(Object? date, Object? type, Map<String, Object?>? log) {
+    if (!schedTypes.contains(type)) return null;
+    final k = dayKey(date);
+    if (k.compareTo(dayKey()) > 0) return scheduleDay(k);
+    final e = scheduleDay(k);
+    final plan = e['plan'] as List;
+    final done = e['done'] as Map;
+    final logs = _logsOf(e);
+    if (log == null) {
+      logs.remove(type);
+    } else {
+      if (!plan.contains(type)) plan.add(type);
+      final nowIso = _now().toUtc().toIso8601String();
+      if (!jsTruthy(done[type])) done[type] = nowIso;
+      final row = _deepCopy(log);
+      if (!jsTruthy(row['at'])) row['at'] = nowIso;    // 언제 적었는지 — 동기화가 씁니다
+      logs[type as String] = row;
     }
     _writeDay(k, e);
     return scheduleDay(k);
@@ -854,6 +945,13 @@ DateTime? jsParseLocal(Object? x) {
 
 Map<String, Object?>? _mapOrNull(Object? x) =>
     x == null ? null : (x as Map).cast<String, Object?>();
+
+/// JSON 으로 적히는 깊은 복사본. JSON 이 못 담는 값(DateTime 같은 것)은
+/// 글자로 바꿉니다 — 백업 파일에 그대로 적혀야 하는 값이라 던지지 않습니다.
+Map<String, Object?> _deepCopy(Map<String, Object?>? x) {
+  if (x == null || x.isEmpty) return <String, Object?>{};
+  return (jsonDecode(jsonEncode(x, toEncodable: (o) => '$o')) as Map).cast<String, Object?>();
+}
 
 String _s(Object? x) {
   if (x == null) return 'null';

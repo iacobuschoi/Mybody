@@ -9,12 +9,13 @@ import 'package:flutter/widgets.dart';
 
 import 'api.dart';
 import 'app_state.dart';
+import 'cloud.dart';
 import 'sync_queue.dart';
 import 'update.dart';
 
 class Scope extends InheritedNotifier<AppState> {
   const Scope({super.key, required AppState state, required this.api,
-      this.queue, this.update, required this.onServerChange, required super.child})
+      this.queue, this.update, this.cloud, required this.onServerChange, required super.child})
       : super(notifier: state);
 
   final Api api;
@@ -24,6 +25,9 @@ class Scope extends InheritedNotifier<AppState> {
 
   /// 새 판 · 서버와 안 맞는 판 안내. 없으면(시험 등) 안내도 없습니다.
   final UpdateCheck? update;
+
+  /// 내 계정과 기록을 맞추는 동기화. 설정 화면이 상태를 보여 주고 「지금 동기화」를 누릅니다.
+  final CloudSync? cloud;
 
   /// 서버 주소를 바꾸면 Api 를 새로 만들어야 합니다 (토큰도 같이 다시 읽습니다).
   final Future<void> Function(String) onServerChange;
@@ -39,6 +43,9 @@ class Scope extends InheritedNotifier<AppState> {
 
   static UpdateCheck? updateOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<Scope>()?.update;
+
+  static CloudSync? cloudOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<Scope>()?.cloud;
 
   static Future<void> Function(String) serverSetterOf(BuildContext context) =>
       context.dependOnInheritedWidgetOfExactType<Scope>()!.onServerChange;

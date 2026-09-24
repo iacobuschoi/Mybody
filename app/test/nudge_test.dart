@@ -2,6 +2,7 @@
  * nudge_test.dart — 간식 단백질 알림은 언제, 무슨 말로 우는가
  * ========================================================================== */
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mybody/src/briefing.dart' show mealNow;
 import 'package:mybody/src/nudge.dart';
 import 'package:mybody/src/screens/food.dart' show guessMeal;
 
@@ -95,6 +96,20 @@ void main() {
       final r = planMealReminders(now: DateTime(2026, 9, 24, 10, 30),
           loggedToday: {guessMeal(DateTime(2026, 9, 24, 10, 30))});
       expect(r.where((x) => x.at.day == 24).map((x) => x.meal), ['점심', '저녁']);
+    });
+
+    /* 홈 브리핑(mealNow)과 같은 경계 — 브리핑이 밤 9시 반에 「저녁 기록」 을 누르라 하는데
+       식단 탭이 간식으로 열리면, 적은 저녁이 간식으로 저장됩니다. */
+    test('식단 탭의 끼니는 브리핑과 같은 경계 — 15~17시 간식, 17시부터는 밤에도 저녁', () {
+      expect(guessMeal(DateTime(2026, 9, 24, 14, 59)), '점심');
+      expect(guessMeal(DateTime(2026, 9, 24, 15, 0)), '간식');
+      expect(guessMeal(DateTime(2026, 9, 24, 16, 59)), '간식');
+      expect(guessMeal(DateTime(2026, 9, 24, 17, 0)), '저녁');
+      expect(guessMeal(DateTime(2026, 9, 24, 21, 30)), '저녁');
+      expect(guessMeal(DateTime(2026, 9, 24, 23, 59)), '저녁');
+      for (var h = 0; h < 24; h++) {
+        expect(guessMeal(DateTime(2026, 9, 24, h, 30)), mealNow(h), reason: '$h시');
+      }
     });
   });
 }

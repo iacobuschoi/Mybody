@@ -1378,6 +1378,231 @@ Map<String, Object?> compareLevels(
   };
 }
 
+/* --- 8b. 기간으로 목표 정하기 ------------------------------------------------ */
+
+/// 추천의 체지방률 기준 — 이보다 높으면 감량을, 아니면 증량을 먼저 권합니다.
+/// 화면의 추천 목표(남 15% · 여 24%)와 같은 숫자입니다. 여기 두는 이유는 화면마다
+/// 따로 적으면 언젠가 한쪽만 바뀌기 때문입니다.
+num pbfRecommendThreshold(Object? sex) => sex == 'male' ? 15 : 24;
+
+/// 이 앱이 도와주는 체지방률 하한 — 목표 화면(goal.dart)이 그 밑의 목표를 거절하는
+/// 기준과 같은 숫자(남 8% · 여 15%)입니다. 시뮬레이션이 멈추는 필수지방(5%/12%)과는
+/// 다른 숫자입니다: 필수지방은 "이 밑으로는 살 수 없다", 하한은 "이 앱은 여기까지만
+/// 도와준다" 입니다. 성별을 모르면 목표 화면과 같이 여성 쪽(더 높은 하한)을 씁니다.
+int pbfFloorPct(Object? sex) => sex == 'male' ? 8 : 15;
+
+/// 기간을 정했을 때 하 · 중 · 상이 뜻하는 공격성. 왜 이 값들인지는 engine.js 참고 —
+/// 난이도 띠(a < 0.34 · < 0.7 · 그 위)의 안쪽 점이고, 모드가 있으면 [aMin, aMax] 로 접습니다.
+const Map<String, double> kDurationLevelA = {'low': 0.2, 'mid': 0.5, 'high': 0.8};
+
+/// 기간 카드 한 장을 만들 강도 — 감량은 하 · 중 · 상 셋, 증량은 한 장(세 이름을 다 답니다).
+class _DurationPick {
+  final String key, label;
+  final List<String> levels;
+  final double a;
+  const _DurationPick(this.key, this.label, this.levels, this.a);
+}
+
+/// 시뮬레이션이 W 주 전에 멈췄을 때 붙이는 말. engine.js 의 durationStopNote.
+String? _durationStopNote(String dirKey, int? stoppedAt, Map<String, Object?> sim) {
+  if (stoppedAt == null) return null;
+  if (dirKey == 'cut' && sim['fatFloorReached'] == true) {
+    return stoppedAt == 0
+        ? '이미 체지방 하한이라 더 줄일 수 없습니다'
+        : '체지방 하한에 $stoppedAt주째 닿습니다 — 그 뒤는 유지';
+  }
+  return stoppedAt == 0
+      ? '이 측정값으로는 계산이 되지 않습니다'
+      : '$stoppedAt주째 이후는 계산하지 않습니다 — 그 뒤는 유지';
+}
+
+/// 「기간으로 목표 정하기」 — W 주 안에 어디까지 갈 수 있는지를 감량 하 · 중 · 상 세 장과
+/// 증량 한 장으로. 목표를 아주 멀리 두고 simulateSimultaneous 를 돌려 W 주째의 점을
+/// 읽습니다. 그 전에 멈추면(체지방률 하한 · 필수지방) 마지막 점을 쓰고 멈춘 주를 stoppedAt
+/// 에 적습니다. 인바디 오차 안의 변화만 남는 카드는 내지 않습니다 — 그 목표는 뒤에서
+/// 유지 계획이 됩니다. engine.js 참고. 이상한 입력에는 던지지 않고 options 를 비워서 돌려줍니다.
+Map<String, Object?> durationOptions(
+    Map<String, Object?> scan, Map<String, Object?> profile, Object? weeks,
+    Object? todayISO, Map<String, Object?>? modeDef) {
+  /* `typeof weeks === 'number' && isFinite(weeks)` — 문자열 "12" 도 숫자가 아닙니다. */
+  final int W = weeks is num && weeks.isFinite
+      ? math.max(4, math.min(104, jsRound(weeks))).toInt()
+      : 12;
+  Map<String, Object?> empty(String why) =>
+      {'weeks': W, 'options': <Object?>[], 'recommended': null, 'warnings': [why]};
+  final cur = derive(scan, profile);
+  bool pos(String k) {
+    final v = _f(cur, k);
+    return v.isFinite && v > 0;
+  }
+  if (!(pos('weightKg') && pos('smmKg') && pos('bfmKg') && pos('ffmKg') && pos('smmToFfm'))) {
+    return empty('측정값을 읽지 못해 기간으로 목표를 정할 수 없습니다.');
+  }
+  final start = jsTruthy(todayISO) ? jsParseDate(todayISO) : DateTime.now();
+  final con = modeDef == null
+      ? null
+      : <String, Object?>{
+          'aMin': modeDef['aMin'], 'aMax': modeDef['aMax'],
+          'strategy': modeDef['strategy'],
+          'proteinPerFfmMin': modeDef['proteinPerFfmMin'],
+          'proteinPerFfmMax': modeDef['proteinPerFfmMax'],
+        };
+  // scanCurve 와 같은 범위로 접습니다.
+  final lo = (con != null && con['aMin'] != null) ? jsToNumber(con['aMin']) : 0.0;
+  var hi = (con != null && con['aMax'] != null) ? jsToNumber(con['aMax']) : 1.0;
+  if (hi <= lo) hi = math.min(1.0, lo + 0.05);
+  final levels = kLevelSpec.reversed.toList();          // 하 → 중 → 상
+  final levelA = <String, double>{
+    for (final l in levels) l.key: math.max(lo, math.min(hi, kDurationLevelA[l.key]!)),
+  };
+  final oneA = levelA['low'] == levelA['mid'] && levelA['mid'] == levelA['high'];
+
+  final warnings = <String>[];
+  if (W < 8) warnings.add('8주 미만은 인바디 오차보다 작은 변화만 기대할 수 있습니다');
+
+  final options = <Map<String, Object?>>[];
+  final floorPct = pbfFloorPct(profile['sex']);
+  final atFloor = '이미 체지방률 하한($floorPct%)이라 더 줄일 수 없습니다';
+  for (final dir in const [['cut', '감량'], ['bulk', '증량']]) {
+    final dirKey = dir[0], dirLabel = dir[1];
+    // 감량은 근육을 지키면서, 증량은 둘 다 올리면서 — 목표는 W 주 안에 닿지 않을 만큼 멉니다.
+    final curBfm = _f(cur, 'bfmKg'), curSmm = _f(cur, 'smmKg');
+    final goalBfm = dirKey == 'cut' ? math.max(1.0, curBfm - 40) : curBfm + 40;
+    final goalSmm = dirKey == 'cut' ? curSmm : curSmm + 40;
+    final goal = <String, Object?>{
+      'bfmKg': goalBfm, 'smmKg': goalSmm,
+      'weightKg': goalSmm / _f(cur, 'smmToFfm') + goalBfm,
+    };
+    final goalInfo = classifyGoal(cur, goal);
+    /* 감량은 하 · 중 · 상 세 장, 증량은 한 장입니다. 증량에서 a 는 근성장 속도를 건드리지
+       못하고(잉여와 따라붙는 지방만 늘립니다) 어느 a 든 같은 주에 닿으므로, compareLevels 는
+       동률인 계획 중 가장 여유로운 a 하나로 세 강도를 접습니다. 여기서 세 장을 내면 카드의
+       kcal 과 Δ지방이 실제로 받게 될 계획과 어긋납니다 — 차이 없는 구분입니다. 그래서 그
+       계획과 같은 a(범위의 아래 끝)로 한 장만 내고, 세 강도 이름을 다 답니다. */
+    final picks = dirKey == 'bulk'
+        ? [_DurationPick('mid', '증량', const ['low', 'mid', 'high'], lo)]
+        : [for (final l in levels) _DurationPick(l.key, l.label, [l.key], levelA[l.key]!)];
+    final kept = <Map<String, Object?>>[];
+    var floored = 0;   // 체지방률 하한에 잘린 장 수
+    for (final lv in picks) {
+      final a = lv.a;
+      final sim = simulateSimultaneous(cur, goal, profile, a, goalInfo, con);
+      final traj = _traj(sim);
+      final last = traj.length - 1;
+      var end = math.min(W, last);
+      int? stoppedAt = last < W ? last : null;
+      String? note = _durationStopNote(dirKey, stoppedAt, sim);
+      if (dirKey == 'cut') {
+        /* 이 앱의 체지방률 하한. 시뮬레이션은 필수지방(5%/12%)에서만 멈추므로 그 위의
+           하한(8%/15%)은 카드가 태연히 지나쳤습니다 — 목표 화면이 거절하는 목표를 여기서
+           권한 셈입니다. 하한 밑으로 처음 내려가는 주의 직전에서 자릅니다. 판정은 목표
+           화면과 같은 식(체지방 / 체중 × 100)을 카드가 넘기는 바로 그 숫자에 겁니다 —
+           궤적의 pbfPct 는 따로 반올림한 값이라 경계에서 어긋날 수 있습니다. */
+        for (var wk = 0; wk <= end; wk++) {
+          if (_f(traj[wk], 'bfmKg') / _f(traj[wk], 'weightKg') * 100 < floorPct) {
+            end = math.max(0, wk - 1);
+            stoppedAt = end;
+            note = end == 0 ? atFloor : '체지방률 하한($floorPct%)에 $end주째 닿습니다 — 그 뒤는 유지';
+            floored++;
+            break;
+          }
+        }
+      }
+      final pt = traj[end];
+      final macros = macrosFor(sim, cur, profile);
+      final training = resolveTraining(profile, sim['params'] as Map<String, Object?>, goalInfo);
+      final opt = <String, Object?>{
+        'id': '$dirKey-${lv.key}',
+        'direction': dirKey, 'directionLabel': dirLabel,
+        'level': lv.key, 'label': lv.label, 'levels': List<String>.of(lv.levels),
+        'a': a,
+        'goal': {
+          'weightKg': pt['weightKg'], 'smmKg': pt['smmKg'],
+          'bfmKg': pt['bfmKg'], 'pbfPct': pt['pbfPct'],
+        },
+        'delta': {
+          'weightKg': r1(_f(pt, 'weightKg') - _f(cur, 'weightKg')),
+          'smmKg': r1(_f(pt, 'smmKg') - _f(cur, 'smmKg')),
+          'bfmKg': r1(_f(pt, 'bfmKg') - _f(cur, 'bfmKg')),
+          'pbfPct': r1(_f(pt, 'pbfPct') - _f(cur, 'pbfPct')),
+        },
+        'intakeKcal': macros['intakeKcal'], 'proteinG': macros['proteinG'],
+        'daysPerWeek': training['days'], 'sessionMinutes': training['sessionMin'],
+        'trajectory': traj.sublist(0, end + 1),
+        'stoppedAt': stoppedAt,
+        'note': note,
+      };
+      /* 인바디 오차 안의 변화는 카드로 내지 않습니다. 이 목표를 그대로 넘기면 compareLevels
+         의 classifyGoal 이 '유지' 로 읽어 유지 계획을 만듭니다 — 감량 카드를 골랐는데 유지
+         계획이 나오는 셈입니다. 방향이 뒤집혀 읽히는 것(감량 카드인데 근육이 더 크게 움직여
+         '증량')도 같은 이유로 뺍니다. 리컴프는 양쪽 다 그 방향을 품고 있어 둡니다. */
+      final og = opt['goal'] as Map<String, Object?>;
+      final type = classifyGoal(cur, og)['type'];
+      final agrees = dirKey == 'cut'
+          ? (type == 'cut' || type == 'recomp')
+          : (type == 'bulk' || type == 'recomp');
+      if (!agrees) continue;
+      /* 같은 곳에 닿는 강도는 한 장으로 — 먼저 온(더 여유로운) 쪽에 이름을 보탭니다. */
+      Map<String, Object?>? same;
+      for (final k in kept) {
+        final g = k['goal'] as Map<String, Object?>;
+        if ((_f(g, 'weightKg') - _f(og, 'weightKg')).abs() <= 0.05 &&
+            (_f(g, 'smmKg') - _f(og, 'smmKg')).abs() <= 0.05 &&
+            (_f(g, 'bfmKg') - _f(og, 'bfmKg')).abs() <= 0.05) {
+          same = k;
+          break;
+        }
+      }
+      if (same != null) {
+        same['label'] = '${same['label']}·${lv.label}';
+        (same['levels'] as List<String>).add(lv.key);
+      } else {
+        kept.add(opt);
+      }
+    }
+    if (kept.isEmpty) {
+      /* 방향이 통째로 비면 왜 비었는지 한 줄. 전부 하한에서 잘려 빈 것이면 오차 이야기가
+         아니라 하한 이야기입니다. */
+      warnings.add(floored == picks.length
+          ? atFloor
+          : '$W주 안에는 $dirLabel 변화가 인바디 오차보다 작습니다');
+    } else if (dirKey == 'cut' && kept.length == 1 &&
+        (kept[0]['levels'] as List<String>).length == picks.length && modeDef != null) {
+      /* 세 강도가 정말 한 장으로 합쳐진 때만 — 오차 안이라 빠져서 한 장 남은 것과는 다릅니다.
+         증량은 한 장이 설계라 말하지 않습니다. */
+      warnings.add('「${_s(modeDef['nameKo'])}」 안에서는 $dirLabel 강도가 '
+          '${oneA ? '하나뿐입니다 (공격성 ${_s(levelA['low'])}).' : '셋 다 같은 결과라 하나로 보여 줍니다.'}');
+    }
+    options.addAll(kept);
+  }
+
+  /* 추천: 체지방률이 기준 위면 감량 · 아니면 증량, 강도는 중 (합쳐졌으면 합친 카드).
+     중이 오차 안이라 빠졌으면 그 방향의 남은 첫 장, 방향이 통째로 비었으면 남은 첫 장. */
+  final wantDir = _f(cur, 'pbfPct') > pbfRecommendThreshold(profile['sex']) ? 'cut' : 'bulk';
+  String? recommended;
+  for (final o in options) {
+    if (o['direction'] == wantDir && (o['levels'] as List<String>).contains('mid')) {
+      recommended = o['id'] as String;
+      break;
+    }
+  }
+  if (recommended == null) {
+    for (final o in options) {
+      if (o['direction'] == wantDir) {
+        recommended = o['id'] as String;
+        break;
+      }
+    }
+  }
+  if (recommended == null && options.isNotEmpty) recommended = options[0]['id'] as String;
+
+  return {
+    'weeks': W, 'startDate': toISODate(start), 'targetDate': addWeeks(start, W),
+    'current': cur, 'mode': modeDef,
+    'options': options, 'recommended': recommended, 'warnings': warnings,
+  };
+}
+
 /* --- 9. 매크로 / 운동 / 식단 ------------------------------------------------ */
 
 const Map<String, Map<String, Object?>> kSplits = {

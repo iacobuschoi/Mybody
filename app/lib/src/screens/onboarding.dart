@@ -39,6 +39,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   int _sessionMin = 60;
   int _meals = 3;
   bool _accepted = false;
+  /* 기록을 내 계정에 동기화할지. 기본은 켬 — 기기를 바꾸거나 두 기기를
+     같이 쓰는 사람이 대부분이고, 끄는 길은 설정에도 있습니다. */
+  bool _cloudSync = true;
 
   @override
   void dispose() {
@@ -110,7 +113,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       return;
     }
     final app = Scope.of(context);
+    final settings = ((app.state['settings'] as Map?) ?? const {}).cast<String, Object?>();
     app.store.set({
+      /* 동기화 스위치는 설정 칸에 — 설정 화면의 같은 스위치(sync_settings.dart)와
+         cloud.dart 가 이 칸을 봅니다. 다른 설정은 그대로 둡니다. */
+      'settings': {...settings, 'cloudSync': _cloudSync},
       'profile': {
         'sex': _sex,
         'heightCm': double.tryParse(_height.text.trim()),
@@ -257,7 +264,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               /* 둘 다 실제 동작 그대로여야 합니다 — 동기화는 cloud.dart,
                  친구 공개 기본값은 server/db.js 의 blankShare(). */
               '측정 기록·목표·계획·식단은 이 기기에 저장되고, 로그인했다면 **내 계정**에도 '
-                  '저장됩니다 — 기기를 바꿔 로그인하면 그대로 따라옵니다. 결과지 사진은 '
+                  '저장됩니다 — 기기를 바꿔 로그인하면 그대로 따라오고, 두 기기를 같이 쓰면 '
+                  '합쳐집니다(아래 스위치로 끌 수 있습니다). 결과지 사진은 '
                   '기기에만 남고, 「사진에서 읽기」를 누를 때만 판독을 위해 보냅니다.',
               '친구에게 무엇이 보일지는 친구마다 따로 정합니다. 기본으로 보이는 것은 운동·식단 '
                   '스트릭, 이번 주 운동 일정, 오늘 식단(칼로리·탄단지)뿐이고, 체중·골격근량·체지방 같은 '
@@ -275,6 +283,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           value: _accepted,
           onChanged: (v) => setState(() => _accepted = v ?? false),
           title: const Text('읽었고 이해했습니다'),
+        ),
+        /* 설정 화면의 같은 스위치(sync_settings.dart)와 한 칸(settings.cloudSync)을
+           씁니다. 여기서 끄면 로그인해도 올리지도 받지도 않습니다. 동의 칸
+           아래에 둡니다 — 고지를 읽고 나서 고르는 것이고, 작은 화면에서
+           동의 칸이 단추 밑으로 밀리지 않게. */
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          value: _cloudSync,
+          onChanged: (v) => setState(() => _cloudSync = v),
+          title: const Text('기록을 내 계정에 동기화'),
+          subtitle: Text('기기를 바꾸거나 두 기기를 같이 써도 기록이 합쳐집니다. 사진은 안 올라갑니다.',
+              style: Theme.of(context).textTheme.labelSmall),
         ),
       ]);
 }

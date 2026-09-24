@@ -12,6 +12,21 @@
  * **같은 계획이 되는 강도는 한 장으로 합칩니다.** 모드의 속도 하한에 붙거나
  * 근육이 기간을 정하는 목표에서는 상 · 중 · 하가 공격성 · 기간 · 식단까지 똑같은
  * 계획이 됩니다. 똑같은 카드 세 장은 고를 것이 있는 척을 합니다(웹 P06 과 같은 규칙).
+ *
+ * **26주(여섯 달)를 넘는 계획은 시작 전에 한 번 더 묻습니다.** 긴 계획은 첫 두
+ * 달의 열의로 시작해서 다음 두 달에 사라집니다. 막지는 않습니다 — 「그대로
+ * 가기」가 늘 열려 있습니다. 대신 기간을 먼저 정하고 그 안에 되는 몸을 고르는
+ * 길(duration.dart)이 있다고 말하고, 그쪽을 고르면 목표 화면으로 돌아갑니다.
+ * 기간 화면에서 온 목표는 이미 기간을 골랐으니 다시 묻지 않습니다.
+ *
+ * **막힌(blocked) 계획은 저장하지 않습니다.** 필수지방 아래로 내려가거나 근육 상한을
+ * 넘는 목표는 카드에 빨간 판정이 붙는데, 예전에는 그 카드가 추천이면 그대로 골라져
+ * 있어서 「시작하기」 한 번에 저장됐습니다. 처음 골라 두는 카드도, 시작 단추도 막힌
+ * 카드를 거릅니다 — 고를 수 있는 카드가 없으면 단추가 닫힙니다.
+ *
+ * **기간 화면에서 온 목표는 고른 주수에 가장 가까운 카드를 먼저 골라 둡니다.** 그쪽에서
+ * "12주" 를 고르고 왔는데 추천이 18주 카드면 고른 것과 다른 계획이 골라져 있는 셈입니다.
+ * 마감 ±1주 안에 카드가 여럿이면 그 옵션의 공격성(a)이 가장 가까운 카드입니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
@@ -22,12 +37,39 @@ import '../ui/fmt.dart';
 import '../ui/symbols.dart';
 import '../ui/widgets.dart';
 
+/// 강도 표(compareLevels 의 답)를 만드는 자리. 앱은 엔진을 쓰고, 시험은 손으로
+/// 만든 표를 넣어 고르는 규칙만 따로 봅니다(기간 판의 DurationCompute 와 같은 이유).
+typedef IntensityCompute = Map<String, Object?> Function(Map<String, Object?> goal);
+
 class IntensityScreen extends StatefulWidget {
-  const IntensityScreen({super.key, required this.goal, this.modeId});
+  const IntensityScreen({
+    super.key,
+    required this.goal,
+    this.modeId,
+    this.fromDuration = false,
+    this.preferA,
+    this.compute,
+  });
   final Map<String, Object?> goal;
   /// 앱이 고른 모드이거나 사용자가 직접 고른 모드. 이 모드의 속도 상한과
   /// 단백질 하한이 계획에 그대로 걸립니다 — 그게 모드를 두는 이유입니다.
   final String? modeId;
+
+  /// 기간 화면(duration.dart)에서 기간을 이미 골라 온 목표. 여섯 달 규칙을
+  /// 다시 묻지 않습니다. 목표 표 안에 표시를 넣지 않고 여기 두는 이유는,
+  /// 저장되는 목표에 화면 사정이 섞이면 안 되기 때문입니다.
+  final bool fromDuration;
+
+  /// 기간 화면에서 고른 옵션의 공격성(a). 마감 ±1주 안에 카드가 여럿이면 이 값에
+  /// 가장 가까운 카드를 먼저 골라 둡니다 — 같은 주수라도 식단이 다른 카드가 있습니다.
+  final double? preferA;
+
+  /// 강도 표를 만드는 자리. 없으면 엔진(compareLevels).
+  final IntensityCompute? compute;
+
+  /// 「기간으로 정하기」를 고르면 이 값을 들고 뒤로 갑니다. 목표 화면은
+  /// 이걸 받으면 기간 모드로 바뀝니다.
+  static const String pickDuration = 'pickDuration';
 
   @override
   State<IntensityScreen> createState() => _IntensityScreenState();
@@ -50,15 +92,23 @@ class _IntensityScreenState extends State<IntensityScreen> {
     }
     final profile = app.profile ?? core.kSeedProfile;
     final modeDef = widget.modeId == null ? null : core.modeById(widget.modeId);
-    final cmp = core.compareLevels(
-      scans.last, profile, widget.goal,
-      app.store.dayKey(),
-      widget.goal['deadlineWeeks'],
-      modeDef,
-    );
+    final compute = widget.compute;
+    final cmp = compute != null
+        ? compute(widget.goal)
+        : core.compareLevels(
+            scans.last, profile, widget.goal,
+            app.store.dayKey(),
+            widget.goal['deadlineWeeks'],
+            modeDef,
+          );
     setState(() {
       _cmp = cmp;
-      _level = '${cmp['recommended'] ?? 'mid'}';
+      _level = initialLevel(
+        resultsOf(cmp),
+        cmp['recommended'],
+        deadlineWeeks: widget.fromDuration ? widget.goal['deadlineWeeks'] : null,
+        preferA: widget.preferA,
+      );
       _busy = false;
     });
   }
@@ -91,14 +141,36 @@ class _IntensityScreenState extends State<IntensityScreen> {
       );
     }
 
-    final results = (cmp['results'] as List).cast<Map<String, Object?>>();
+    final results = resultsOf(cmp);
     final groups = levelGroups(results, cmp['recommended']);
     final c = mb(context);
+    final t = Theme.of(context);
+    final small = t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5);
+    final noneOpen = results.isNotEmpty && results.every(isBlocked);
+    /* 기간 화면에서 온 목표인데 고른 주수 ±1주 안에 카드가 없으면 그렇다고 말합니다 —
+       "12주로 골랐는데 왜 15주짜리가 골라져 있지" 를 화면이 먼저 답해야 합니다. */
+    final offDeadline = widget.fromDuration &&
+        results.isNotEmpty &&
+        closestToDeadline(results, widget.goal['deadlineWeeks']) != null &&
+        !results.any((r) => isNearDeadline(r, widget.goal['deadlineWeeks']));
 
     return Scaffold(
       appBar: AppBar(title: const Text('기간 고르기')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         _NotesCard(cmp: cmp),
+        if (noneOpen)
+          const Note(
+            key: Key('all-blocked'),
+            tone: Tone.bad,
+            text: '고를 수 있는 계획이 없습니다 — 세 강도 모두 필수지방 아래이거나 근육 상한 '
+                '너머입니다. 목표를 조금 올리거나 낮추면 계산이 됩니다.',
+          ),
+        if (offDeadline)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text('기간으로 고른 계획입니다 — 카드의 기간이 고른 주수와 조금 다를 수 있습니다',
+                key: const Key('duration-note'), style: small),
+          ),
 
         for (final g in groups) _LevelCard(
           r: g.rep,
@@ -118,7 +190,7 @@ class _IntensityScreenState extends State<IntensityScreen> {
                       '기간 · 식단 · 운동이 같습니다.'
                   : '같은 계획이 되는 강도는 한 장으로 합쳤습니다. 이 목표에서는 '
                       '${groups.firstWhere((g) => g.levels.length > 1).subject} 같은 계획입니다.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).hintColor, height: 1.5),
+              style: small,
             ),
           ),
 
@@ -132,13 +204,13 @@ class _IntensityScreenState extends State<IntensityScreen> {
                   label: '체지방',
                   color: c.fat,
                   dots: false,
-                  points: _pts(_selected(results), 'bfmKg'),
+                  points: _pts(_shown(results), 'bfmKg'),
                 ),
                 Series(
                   label: '골격근',
                   color: c.muscle,
                   dots: false,
-                  points: _pts(_selected(results), 'smmKg'),
+                  points: _pts(_shown(results), 'smmKg'),
                 ),
               ],
               goals: [
@@ -151,15 +223,24 @@ class _IntensityScreenState extends State<IntensityScreen> {
         ),
 
         FilledButton(
-          onPressed: _level == null ? null : () => _commit(cmp),
+          onPressed: _level == null ? null : () => _start(cmp),
           child: const Text('이 계획으로 시작하기'),
         ),
       ]),
     );
   }
 
-  Map<String, Object?> _selected(List<Map<String, Object?>> results) =>
-      results.firstWhere((r) => r['level'] == _level, orElse: () => results.first);
+  /// 고른 카드. 아무것도 안 골랐으면(고를 수 있는 카드가 없을 때) null.
+  Map<String, Object?>? _selected(List<Map<String, Object?>> results) {
+    for (final r in results) {
+      if (r['level'] == _level) return r;
+    }
+    return null;
+  }
+
+  /// 궤적 그래프가 그릴 카드 — 고른 것이 없어도 그래프는 비워 두지 않습니다.
+  Map<String, Object?> _shown(List<Map<String, Object?>> results) =>
+      _selected(results) ?? results.first;
 
   static List<Pt> _pts(Map<String, Object?> r, String key) {
     final traj = ((r['sim'] as Map)['trajectory'] as List).cast<Map<String, Object?>>();
@@ -169,7 +250,35 @@ class _IntensityScreenState extends State<IntensityScreen> {
     ];
   }
 
+  /// 시작 전 여섯 달 규칙. 긴 계획이면 묻고, 「기간으로 정하기」면 답을 들고
+  /// 목표 화면으로 돌아갑니다 — 기간 판은 그쪽이 엽니다. 막힌 카드는 묻기 전에
+  /// 거릅니다 — 물어 놓고 「그대로 가기」에서 거절하면 두 번 말하는 셈입니다.
+  Future<void> _start(Map<String, Object?> cmp) async {
+    final results = resultsOf(cmp);
+    final sel = _selected(results);
+    if (sel == null || isBlocked(sel)) {
+      toast(context, sel == null ? kNoOpenLevelMessage : blockedMessage(sel));
+      return;
+    }
+    final weeks = sel['weeks'];
+    if (!widget.fromDuration && isLongGoal(weeks)) {
+      final choice = await showLongGoalDialog(context, weeks);
+      if (!mounted || choice == null) return;
+      if (choice == LongGoalChoice.pickDuration) {
+        Navigator.of(context).pop(IntensityScreen.pickDuration);
+        return;
+      }
+    }
+    _commit(cmp);
+  }
+
   void _commit(Map<String, Object?> cmp) {
+    /* _start 가 이미 걸렀지만 여기서 한 번 더 — 저장하는 자리가 마지막 문입니다. */
+    final sel = _selected(resultsOf(cmp));
+    if (sel == null || isBlocked(sel)) {
+      toast(context, sel == null ? kNoOpenLevelMessage : blockedMessage(sel));
+      return;
+    }
     final app = Scope.of(context);
     final scans = app.store.sortedScans();
     final profile = app.profile ?? core.kSeedProfile;
@@ -189,6 +298,130 @@ class _IntensityScreenState extends State<IntensityScreen> {
       ..pop();
     toast(context, '계획을 세웠습니다');
   }
+}
+
+/// 여섯 달. 이보다 긴 계획은 시작 전에 한 번 더 묻습니다.
+const int kLongGoalWeeks = 26;
+
+/// 26주가 여섯 달입니다(26 / 4.345 = 5.98). 27 · 28주는 달로 반올림하면 도로 6개월이라
+/// "26주를 넘어서 묻는데 약 6개월" 이 되므로, 그때는 「6개월을 넘깁니다」 로 말합니다.
+const int kLongGoalMonths = 6;
+
+bool isLongGoal(Object? weeks) =>
+    weeks != null && core.jsToNumber(weeks) > kLongGoalWeeks;
+
+/// 마감 근처로 치는 폭 — 고른 주수 ±1주.
+const int kDeadlineSlackWeeks = 1;
+
+/// 막힌 카드를 시작하려 할 때의 말(고를 수 있는 카드가 하나도 없을 때).
+const String kNoOpenLevelMessage = '고를 수 있는 계획이 없습니다 — 목표를 조금 올리세요';
+
+/// compareLevels 의 results. 없으면 빈 목록(impossible 일 때도 이 모양입니다).
+List<Map<String, Object?>> resultsOf(Map<String, Object?> cmp) => [
+      for (final r in (cmp['results'] as List?) ?? const [])
+        if (r is Map) r.cast<String, Object?>(),
+    ];
+
+/// 엔진이 막은 카드 — 필수지방 아래이거나 근육 상한 너머. 고르지도, 저장하지도 않습니다.
+bool isBlocked(Map<String, Object?> r) =>
+    (r['feasibility'] is Map) && (r['feasibility'] as Map)['verdict'] == 'blocked';
+
+/// 막힌 카드를 시작하려 할 때의 말. 막히는 이유는 둘(필수지방 아래 · 근육 상한 너머)이고,
+/// 거의 언제나 앞의 것입니다 — 근육 상한은 목표 화면이 먼저 거르니까요.
+String blockedMessage(Map<String, Object?> r) {
+  final feas = r['feasibility'];
+  final why = feas is Map ? '${feas['message'] ?? ''}' : '';
+  if (why.contains('골격근') || why.contains('상한')) {
+    return '이 계획은 목표 골격근량이 약물 없이 닿는 상한을 넘어서 만들 수 없습니다 — 근육 목표를 조금 낮추세요';
+  }
+  return '이 계획은 필수지방 아래로 내려가서 만들 수 없습니다 — 목표를 조금 올리세요';
+}
+
+/// 그 카드의 기간이 고른 주수 ±1주 안인가.
+bool isNearDeadline(Map<String, Object?> r, Object? deadlineWeeks) {
+  final dl = core.jsToNumber(deadlineWeeks);
+  return dl.isFinite && dl > 0 &&
+      (core.jsToNumber(r['weeks']) - dl).abs() <= kDeadlineSlackWeeks;
+}
+
+/// 고른 주수에 가장 가까운 카드. 같은 거리면 더 긴(여유로운) 쪽, 그것도 같으면 a 가
+/// 작은 쪽. 마감 ±1주 안에 카드가 있고 [preferA] 가 있으면, 그 안에서 a 가 가장
+/// 가까운 카드입니다 — 기간 화면이 보여 준 식단과 같은 카드를 고르려는 것입니다.
+/// 마감이 없거나(0 · null) 카드가 없으면 null.
+Map<String, Object?>? closestToDeadline(
+    List<Map<String, Object?>> results, Object? deadlineWeeks, {double? preferA}) {
+  final dl = core.jsToNumber(deadlineWeeks);
+  if (results.isEmpty || !dl.isFinite || dl <= 0) return null;
+  double w(Map<String, Object?> r) => core.jsToNumber(r['weeks']);
+  double a(Map<String, Object?> r) => core.jsToNumber(r['a']);
+  final near = [for (final r in results) if (isNearDeadline(r, dl)) r];
+  final byA = near.isNotEmpty && preferA != null;
+  final pool = byA ? near : results;
+  double score(Map<String, Object?> r) => byA ? (a(r) - preferA).abs() : (w(r) - dl).abs();
+  Map<String, Object?>? best;
+  for (final r in pool) {
+    if (best == null) {
+      best = r;
+      continue;
+    }
+    final d = score(r) - score(best);
+    final tie = d.abs() < 1e-9;
+    if (d < -1e-9 || (tie && (w(r) > w(best) || (w(r) == w(best) && a(r) < a(best))))) {
+      best = r;
+    }
+  }
+  return best;
+}
+
+/// 처음 골라 둘 강도. 막힌 카드는 고르지 않습니다 — 고를 수 있는 카드가 없으면 null
+/// (시작 단추가 닫힙니다). [deadlineWeeks] 가 있으면(기간 화면에서 온 목표) 추천이
+/// 아니라 그 주수에 가장 가까운 카드([closestToDeadline]), 아니면 추천, 추천이 막혔으면
+/// 첫 번째 열린 카드.
+String? initialLevel(List<Map<String, Object?>> results, Object? recommended,
+    {Object? deadlineWeeks, double? preferA}) {
+  final open = [for (final r in results) if (!isBlocked(r)) r];
+  if (open.isEmpty) return null;
+  final near = closestToDeadline(open, deadlineWeeks, preferA: preferA);
+  if (near != null) return '${near['level']}';
+  for (final r in open) {
+    if (recommended != null && r['level'] == recommended) return '${r['level']}';
+  }
+  return '${open.first['level']}';
+}
+
+enum LongGoalChoice { proceed, pickDuration }
+
+/// 긴 계획 앞의 물음. 닫으면(null) 아무것도 하지 않습니다 — 저장도, 이동도.
+Future<LongGoalChoice?> showLongGoalDialog(BuildContext context, Object? weeks) {
+  final w = core.jsToNumber(weeks);
+  return showDialog<LongGoalChoice>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('장기 목표는 동기를 잃기 쉬워요!'),
+      content: Text('이 계획은 ${longGoalSpan(w)}. '
+          '기간별로 가능한 계획을 추천해 드릴까요?'),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(ctx).pop(LongGoalChoice.proceed),
+          child: const Text('그대로 가기'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(ctx).pop(LongGoalChoice.pickDuration),
+          child: const Text('기간으로 정하기'),
+        ),
+      ],
+    ),
+  );
+}
+
+/// 물음 속 기간 — '30주(약 7개월)입니다' 또는, 달로 반올림하면 도로 6개월이 되는
+/// 27 · 28주에는 '27주로 6개월을 넘깁니다'. 제목이 "장기" 라는데 본문이 "약 6개월" 이면
+/// 여섯 달 규칙과 어긋나 보입니다.
+String longGoalSpan(num weeks) {
+  final months = (weeks / 4.345).round();
+  return months <= kLongGoalMonths
+      ? '${n0(weeks)}주로 $kLongGoalMonths개월을 넘깁니다'
+      : '${n0(weeks)}주(약 $months개월)입니다';
 }
 
 /// 같은 계획이 되는 강도 묶음. [rep] 은 추천이 들어 있으면 추천, 아니면 첫 강도.

@@ -884,6 +884,196 @@
   }
 
   /* ---------------------------------------------------------------------- */
+  /* 5b. 기간으로 목표 정하기                                                  */
+  /* ---------------------------------------------------------------------- */
+
+  /* 추천의 체지방률 기준 — 이보다 높으면 감량을, 아니면 증량을 먼저 권합니다.
+     화면의 추천 목표(남 15% · 여 24%)와 같은 숫자입니다. 여기 두는 이유는 화면마다
+     따로 적으면 언젠가 한쪽만 바뀌기 때문입니다. */
+  function pbfRecommendThreshold(sex) { return sex === 'male' ? 15 : 24; }
+
+  /* 이 앱이 도와주는 체지방률 하한 — 목표 화면(goal.dart)이 그 밑의 목표를 거절하는
+     기준과 같은 숫자(남 8% · 여 15%)입니다. 시뮬레이션이 멈추는 필수지방(5%/12%)과는
+     다른 숫자입니다: 필수지방은 "이 밑으로는 살 수 없다", 하한은 "이 앱은 여기까지만
+     도와준다" 입니다. 성별을 모르면 목표 화면과 같이 여성 쪽(더 높은 하한)을 씁니다. */
+  function pbfFloorPct(sex) { return sex === 'male' ? 8 : 15; }
+
+  /* 기간을 정했을 때 하 · 중 · 상이 뜻하는 공격성.
+     compareLevels 는 목표에 닿는 기간으로 a 를 역산하지만, 여기서는 목표가 아니라
+     기간이 정해져 있어 역산할 것이 없습니다. 그래서 난이도 띠(a < 0.34 낮음 · < 0.7
+     보통 · 그 위 높음)의 안쪽 점을 고정해 둡니다. 모드가 있으면 scanCurve 와 같은
+     [aMin, aMax] 안으로 접습니다 — 좁은 모드일수록 셋이 같은 값에 모이고, 같은
+     결과는 한 장으로 합칩니다. */
+  var DURATION_LEVEL_A = { low: 0.2, mid: 0.5, high: 0.8 };
+
+  /* 시뮬레이션이 W 주 전에 멈췄을 때 붙이는 말. 감량이 필수지방 하한에 닿은 것이
+     보통이고, 나머지(증량인데 하한 · −40kg 에 닿음)는 드물어 한 문장으로 묶습니다. */
+  function durationStopNote(dirKey, stoppedAt, sim) {
+    if (stoppedAt === null) return null;
+    if (dirKey === 'cut' && sim.fatFloorReached) {
+      return stoppedAt === 0 ? '이미 체지방 하한이라 더 줄일 수 없습니다'
+                             : '체지방 하한에 ' + stoppedAt + '주째 닿습니다 — 그 뒤는 유지';
+    }
+    return stoppedAt === 0 ? '이 측정값으로는 계산이 되지 않습니다'
+                           : stoppedAt + '주째 이후는 계산하지 않습니다 — 그 뒤는 유지';
+  }
+
+  /**
+   * 「기간으로 목표 정하기」 — W 주 안에 어디까지 갈 수 있는지를 감량 하 · 중 · 상 세 장과
+   * 증량 한 장으로 보여 줍니다. 목표를 아주 멀리(체지방 ∓40kg · 근육 +40kg) 두고
+   * simulateSimultaneous 를 돌려 W 주째의 점을 읽습니다. 그 전에 멈추면(체지방률 하한 ·
+   * 필수지방) 마지막 점을 쓰고 멈춘 주를 stoppedAt 에 적습니다. 인바디 오차 안의
+   * 변화만 남는 카드는 내지 않습니다 — 그 목표는 뒤에서 유지 계획이 됩니다.
+   * 이상한 입력에는 던지지 않고 options 를 비워서 돌려줍니다.
+   */
+  function durationOptions(scan, profile, weeks, todayISO, modeDef) {
+    var W = (typeof weeks === 'number' && isFinite(weeks))
+      ? Math.max(4, Math.min(104, Math.round(weeks))) : 12;
+    function empty(why) { return { weeks: W, options: [], recommended: null, warnings: [why] }; }
+    if (!scan || typeof scan !== 'object' || !profile || typeof profile !== 'object') {
+      return empty('측정값을 읽지 못해 기간으로 목표를 정할 수 없습니다.');
+    }
+    var cur = derive(scan, profile);
+    function pos(x) { return typeof x === 'number' && isFinite(x) && x > 0; }
+    if (!(pos(cur.weightKg) && pos(cur.smmKg) && pos(cur.bfmKg) && pos(cur.ffmKg) && pos(cur.smmToFfm))) {
+      return empty('측정값을 읽지 못해 기간으로 목표를 정할 수 없습니다.');
+    }
+    var start = todayISO ? new Date(todayISO) : new Date();
+    var con = modeDef ? {
+      aMin: modeDef.aMin, aMax: modeDef.aMax, strategy: modeDef.strategy,
+      proteinPerFfmMin: modeDef.proteinPerFfmMin, proteinPerFfmMax: modeDef.proteinPerFfmMax
+    } : null;
+    // scanCurve 와 같은 범위로 접습니다.
+    var lo = con && con.aMin != null ? con.aMin : 0;
+    var hi = con && con.aMax != null ? con.aMax : 1;
+    if (hi <= lo) hi = Math.min(1, lo + 0.05);
+    var levels = LEVEL_SPEC.slice().reverse();          // 하 → 중 → 상
+    var levelA = {};
+    levels.forEach(function (l) { levelA[l.key] = Math.max(lo, Math.min(hi, DURATION_LEVEL_A[l.key])); });
+    var oneA = levelA.low === levelA.mid && levelA.mid === levelA.high;
+
+    var warnings = [];
+    if (W < 8) warnings.push('8주 미만은 인바디 오차보다 작은 변화만 기대할 수 있습니다');
+
+    var options = [];
+    var floorPct = pbfFloorPct(profile.sex);
+    var atFloor = '이미 체지방률 하한(' + floorPct + '%)이라 더 줄일 수 없습니다';
+    [{ key: 'cut', label: '감량' }, { key: 'bulk', label: '증량' }].forEach(function (dir) {
+      // 감량은 근육을 지키면서, 증량은 둘 다 올리면서 — 목표는 W 주 안에 닿지 않을 만큼 멉니다.
+      var goal = dir.key === 'cut'
+        ? { bfmKg: Math.max(1, cur.bfmKg - 40), smmKg: cur.smmKg }
+        : { bfmKg: cur.bfmKg + 40, smmKg: cur.smmKg + 40 };
+      goal.weightKg = goal.smmKg / cur.smmToFfm + goal.bfmKg;
+      var goalInfo = classifyGoal(cur, goal);
+      /* 감량은 하 · 중 · 상 세 장, 증량은 한 장입니다. 증량에서 a 는 근성장 속도를 건드리지
+         못하고(잉여와 따라붙는 지방만 늘립니다) 어느 a 든 같은 주에 닿으므로, compareLevels 는
+         동률인 계획 중 가장 여유로운 a 하나로 세 강도를 접습니다. 여기서 세 장을 내면 카드의
+         kcal 과 Δ지방이 실제로 받게 될 계획과 어긋납니다 — 차이 없는 구분입니다. 그래서 그
+         계획과 같은 a(범위의 아래 끝)로 한 장만 내고, 세 강도 이름을 다 답니다. */
+      var picks = dir.key === 'bulk'
+        ? [{ key: 'mid', label: '증량', levels: ['low', 'mid', 'high'], a: lo }]
+        : levels.map(function (l) { return { key: l.key, label: l.label, levels: [l.key], a: levelA[l.key] }; });
+      var kept = [];
+      var floored = 0;   // 체지방률 하한에 잘린 장 수
+      picks.forEach(function (lv) {
+        var a = lv.a;
+        var sim = simulateSimultaneous(cur, goal, profile, a, goalInfo, con);
+        var traj = sim.trajectory;
+        var last = traj.length - 1;
+        var end = Math.min(W, last);
+        var stoppedAt = last < W ? last : null;
+        var note = durationStopNote(dir.key, stoppedAt, sim);
+        if (dir.key === 'cut') {
+          /* 이 앱의 체지방률 하한. 시뮬레이션은 필수지방(5%/12%)에서만 멈추므로 그 위의
+             하한(8%/15%)은 카드가 태연히 지나쳤습니다 — 목표 화면이 거절하는 목표를 여기서
+             권한 셈입니다. 하한 밑으로 처음 내려가는 주의 직전에서 자릅니다. 판정은 목표
+             화면과 같은 식(체지방 / 체중 × 100)을 카드가 넘기는 바로 그 숫자에 겁니다 —
+             궤적의 pbfPct 는 따로 반올림한 값이라 경계에서 어긋날 수 있습니다. */
+          for (var wk = 0; wk <= end; wk++) {
+            if (traj[wk].bfmKg / traj[wk].weightKg * 100 < floorPct) {
+              end = Math.max(0, wk - 1);
+              stoppedAt = end;
+              note = end === 0 ? atFloor
+                : '체지방률 하한(' + floorPct + '%)에 ' + end + '주째 닿습니다 — 그 뒤는 유지';
+              floored++;
+              break;
+            }
+          }
+        }
+        var pt = traj[end];
+        var macros = macrosFor(sim, cur, profile);
+        var training = resolveTraining(profile, sim.params, goalInfo);
+        var opt = {
+          id: dir.key + '-' + lv.key,
+          direction: dir.key, directionLabel: dir.label,
+          level: lv.key, label: lv.label, levels: lv.levels.slice(),
+          a: a,
+          goal: { weightKg: pt.weightKg, smmKg: pt.smmKg, bfmKg: pt.bfmKg, pbfPct: pt.pbfPct },
+          delta: {
+            weightKg: r1(pt.weightKg - cur.weightKg),
+            smmKg: r1(pt.smmKg - cur.smmKg),
+            bfmKg: r1(pt.bfmKg - cur.bfmKg),
+            pbfPct: r1(pt.pbfPct - cur.pbfPct)
+          },
+          intakeKcal: macros.intakeKcal, proteinG: macros.proteinG,
+          daysPerWeek: training.days, sessionMinutes: training.sessionMin,
+          trajectory: traj.slice(0, end + 1),
+          stoppedAt: stoppedAt,
+          note: note
+        };
+        /* 인바디 오차 안의 변화는 카드로 내지 않습니다. 이 목표를 그대로 넘기면 compareLevels
+           의 classifyGoal 이 '유지' 로 읽어 유지 계획을 만듭니다 — 감량 카드를 골랐는데 유지
+           계획이 나오는 셈입니다. 방향이 뒤집혀 읽히는 것(감량 카드인데 근육이 더 크게 움직여
+           '증량')도 같은 이유로 뺍니다. 리컴프는 양쪽 다 그 방향을 품고 있어 둡니다. */
+        var type = classifyGoal(cur, opt.goal).type;
+        var agrees = dir.key === 'cut' ? (type === 'cut' || type === 'recomp')
+                                       : (type === 'bulk' || type === 'recomp');
+        if (!agrees) return;
+        /* 같은 곳에 닿는 강도는 한 장으로 — 먼저 온(더 여유로운) 쪽에 이름을 보탭니다. */
+        var same = null;
+        for (var i = 0; i < kept.length && !same; i++) {
+          var g = kept[i].goal;
+          if (Math.abs(g.weightKg - opt.goal.weightKg) <= 0.05 &&
+              Math.abs(g.smmKg - opt.goal.smmKg) <= 0.05 &&
+              Math.abs(g.bfmKg - opt.goal.bfmKg) <= 0.05) same = kept[i];
+        }
+        if (same) { same.label += '·' + lv.label; same.levels.push(lv.key); }
+        else kept.push(opt);
+      });
+      if (!kept.length) {
+        /* 방향이 통째로 비면 왜 비었는지 한 줄. 전부 하한에서 잘려 빈 것이면 오차 이야기가
+           아니라 하한 이야기입니다. */
+        warnings.push(floored === picks.length ? atFloor
+          : W + '주 안에는 ' + dir.label + ' 변화가 인바디 오차보다 작습니다');
+      } else if (dir.key === 'cut' && kept.length === 1 && kept[0].levels.length === picks.length && modeDef) {
+        /* 세 강도가 정말 한 장으로 합쳐진 때만 — 오차 안이라 빠져서 한 장 남은 것과는 다릅니다.
+           증량은 한 장이 설계라 말하지 않습니다. */
+        warnings.push('「' + modeDef.nameKo + '」 안에서는 ' + dir.label + ' 강도가 ' +
+          (oneA ? '하나뿐입니다 (공격성 ' + levelA.low + ').' : '셋 다 같은 결과라 하나로 보여 줍니다.'));
+      }
+      kept.forEach(function (o) { options.push(o); });
+    });
+
+    /* 추천: 체지방률이 기준 위면 감량 · 아니면 증량, 강도는 중 (합쳐졌으면 합친 카드).
+       중이 오차 안이라 빠졌으면 그 방향의 남은 첫 장, 방향이 통째로 비었으면 남은 첫 장. */
+    var wantDir = cur.pbfPct > pbfRecommendThreshold(profile.sex) ? 'cut' : 'bulk';
+    var recommended = null;
+    options.forEach(function (o) {
+      if (recommended === null && o.direction === wantDir && o.levels.indexOf('mid') >= 0) recommended = o.id;
+    });
+    options.forEach(function (o) {
+      if (recommended === null && o.direction === wantDir) recommended = o.id;
+    });
+    if (recommended === null && options.length) recommended = options[0].id;
+
+    return {
+      weeks: W, startDate: toISODate(start), targetDate: addWeeks(start, W),
+      current: cur, mode: modeDef || null,
+      options: options, recommended: recommended, warnings: warnings
+    };
+  }
+
+  /* ---------------------------------------------------------------------- */
   /* 6. 매크로 / 운동 / 식단                                                  */
   /* ---------------------------------------------------------------------- */
 
@@ -1948,6 +2138,9 @@
     PAL: PAL, MUSCLE_BASE: MUSCLE_BASE, LEVEL_SPEC: LEVEL_SPEC,
     CUT_RANGE: CUT_RANGE, BULK_RANGE: BULK_RANGE, paramsAt: paramsAt,
     derive: derive, validateScan: validateScan, classifyGoal: classifyGoal, compareLevels: compareLevels,
+    durationOptions: durationOptions, pbfRecommendThreshold: pbfRecommendThreshold,
+    pbfFloorPct: pbfFloorPct,
+    DURATION_LEVEL_A: DURATION_LEVEL_A,
     buildPlan: buildPlan, checkinReview: checkinReview, applyCheckinAdvice: applyCheckinAdvice,
     planWeekOf: planWeekOf, planDayOf: planDayOf, planWeightAt: planWeightAt, planDrift: planDrift,
     ffmiOf: ffmiOf, ffmiCeiling: ffmiCeiling, ffmiFactor: ffmiFactor,

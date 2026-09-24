@@ -176,11 +176,9 @@
       publishing = true;
       try { publishWeekly(); } catch (e) {} finally { publishing = false; }
     }
-    /* 기록 전체도 내 계정에. 앱으로 옮겨 로그인하면 그대로 따라옵니다. */
-    try {
-      var BK = global.MB_BACKEND;
-      if (BK && BK.pushState) BK.pushState(state);
-    } catch (e) {}
+    /* 기록 전체를 계정에 올리던 것은 껐습니다 — 이 웹은 이제 시험용이고, 앱(0.2.9)은
+       기기끼리 칸마다 합치는데 웹은 받지 않고 통째로만 올려서, 웹에서 한 번 저장하면
+       폰에서 지운 체크가 되살아나고 프로필 · 목표가 옛것으로 돌아갔습니다. */
     listeners.forEach(function (f) { try { f(state); } catch (e) {} });
     return lastSaveOk;
   }

@@ -136,10 +136,18 @@ class Stat extends StatelessWidget {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       Text(label, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
       const SizedBox(height: 2),
+      /* 값은 칸이 좁으면 줄여서라도 한 줄에 — 360px 폰에서 네 칸짜리 줄('2026. 12. 24.' 같은 날짜)이
+         옆 칸을 넘어 잘렸습니다. 글자를 조금 줄이는 쪽이 잘라 먹는 쪽보다 낫습니다. */
       Row(crossAxisAlignment: CrossAxisAlignment.baseline, textBaseline: TextBaseline.alphabetic,
         children: [
-          Text(value, style: t.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w700, color: color, fontFeatures: const [FontFeature.tabularFigures()])),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(value, maxLines: 1, style: t.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700, color: color, fontFeatures: const [FontFeature.tabularFigures()])),
+            ),
+          ),
           if (unit != null)
             Padding(
               padding: const EdgeInsets.only(left: 2),

@@ -10,6 +10,11 @@
  *
  * 그 자리에 숫자를 찍으면 사람은 그걸 믿고 행동을 바꿉니다. 별표를 달고
  * 흐리게 두는 편이 정직합니다.
+ *
+ * **그래프는 셋으로 나눕니다** — 체중 · 골격근 · 체지방률. 한 장에 체중(80대)과
+ * 골격근(30대)을 같이 그리면 y축이 50kg 을 덮어서 1kg 변화가 선의 떨림으로
+ * 보입니다. 체지방은 kg 대신 %로 그립니다 — 체중이 같이 빠질 때 kg 은 줄어도
+ * 비율은 그대로일 수 있고, 사람이 궁금한 것은 뒤쪽입니다. kg 은 위 카드에 남습니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -89,58 +94,43 @@ class ProgressScreen extends StatelessWidget {
           ]),
         ),
 
-      MbCard(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const SectionTitle('체중 · 골격근 · 체지방'),
-          LineChart(
-            height: 180,
-            series: [
-              Series(label: '체중', color: c.weight,
-                  points: [for (var i = 0; i < derived.length; i++)
-                    Pt(times[i], core.jsToNumber(derived[i]['weightKg']))]),
-              Series(label: '골격근', color: c.muscle,
-                  points: [for (var i = 0; i < derived.length; i++)
-                    Pt(times[i], core.jsToNumber(derived[i]['smmKg']))]),
-              Series(label: '체지방', color: c.fat,
-                  points: [for (var i = 0; i < derived.length; i++)
-                    Pt(times[i], core.jsToNumber(derived[i]['bfmKg']))]),
-              if (checkinPts.isNotEmpty)
-                Series(label: '체크인 체중', color: c.weight, dashed: true, width: 1.2,
-                    points: checkinPts),
-            ],
-            goals: [
-              if (goal != null)
-                GoalLine(y: core.jsToNumber(goal['bfmKg']), color: c.fat, label: '목표 지방'),
-              if (goal != null)
-                GoalLine(y: core.jsToNumber(goal['smmKg']), color: c.muscle, label: '목표 근육'),
-            ],
-            xTickFmt: (v) => dateShort(
-                DateTime.fromMillisecondsSinceEpoch((v * 86400000).round()).toIso8601String()),
-          ),
-          if (checkinPts.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text('「체크인 체중」(점선)은 주간 체크인에 넣은 집 체중계 값입니다. 한 번뿐이면 점 하나로 '
+      _TrendCard(
+        title: '체중', unit: 'kg', color: c.weight, times: times,
+        values: [for (final d in derived) core.jsToNumber(d['weightKg'])],
+        floor: core.jsToNumber(noise['weight']),
+        /* 주간 체크인 체중 — 집 체중계 값이라 인바디 선과 따로 점선으로. */
+        extra: checkinPts.isEmpty
+            ? null
+            : Series(label: '체크인 체중', color: c.weight, dashed: true, width: 1.2,
+                points: checkinPts),
+        goal: goal == null || !core.jsTruthy(goal['weightKg'])
+            ? null
+            : GoalLine(y: core.jsToNumber(goal['weightKg']), color: c.weight, label: '목표'),
+        note: checkinPts.isEmpty
+            ? null
+            : '「체크인 체중」(점선)은 주간 체크인에 넣은 집 체중계 값입니다. 한 번뿐이면 점 하나로 '
                 '보입니다. 인바디와 0.5~1kg 다를 수 있어서 인바디 선과 잇지 않습니다.',
-                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5)),
-          ],
-        ]),
       ),
 
-      MbCard(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const SectionTitle('체지방률'),
-          LineChart(
-            height: 130,
-            legend: false,
-            series: [
-              Series(label: '체지방률', color: c.fat,
-                  points: [for (var i = 0; i < derived.length; i++)
-                    Pt(times[i], core.jsToNumber(derived[i]['pbfPct']))]),
-            ],
-            xTickFmt: (v) => dateShort(
-                DateTime.fromMillisecondsSinceEpoch((v * 86400000).round()).toIso8601String()),
-          ),
-        ]),
+      _TrendCard(
+        title: '골격근', unit: 'kg', color: c.muscle, times: times,
+        values: [for (final d in derived) core.jsToNumber(d['smmKg'])],
+        floor: core.jsToNumber(noise['smm']),
+        goal: goal == null || !core.jsTruthy(goal['smmKg'])
+            ? null
+            : GoalLine(y: core.jsToNumber(goal['smmKg']), color: c.muscle, label: '목표'),
+      ),
+
+      _TrendCard(
+        title: '체지방률', unit: '%', color: c.fat, times: times,
+        values: [for (final d in derived) core.jsToNumber(d['pbfPct'])],
+        /* %의 오차 폭은 따로 없습니다 — 지방 ±1.0kg 을 지금 체중으로 나눈 값,
+           같은 규칙의 다른 단위입니다. */
+        floor: core.jsToNumber(noise['bfm']) / core.jsToNumber(last['weightKg']) * 100,
+        /* 목표 체지방률은 목표 지방(kg) ÷ 목표 체중 — 목표 화면은 kg 으로만 받습니다. */
+        goal: _goalPbf(goal) == null
+            ? null
+            : GoalLine(y: _goalPbf(goal)!, color: c.fat, label: '목표'),
       ),
 
       MbCard(
@@ -157,6 +147,69 @@ class ProgressScreen extends StatelessWidget {
         ]),
       ),
     ]);
+  }
+}
+
+/// 목표 체지방률(%) — 목표에 지방 kg 과 체중이 둘 다 있을 때만.
+double? _goalPbf(Map<String, Object?>? goal) {
+  if (goal == null) return null;
+  final w = core.jsToNumber(goal['weightKg']);
+  final f = core.jsToNumber(goal['bfmKg']);
+  if (!(w > 0) || !(f >= 0)) return null;
+  return f / w * 100;
+}
+
+String _dateTick(double v) =>
+    dateShort(DateTime.fromMillisecondsSinceEpoch((v * 86400000).round()).toIso8601String());
+
+/// 그래프 한 장. 제목 옆에 처음 → 지금과 그 차이 — 차이가 오차 안이면 별표(*).
+/// 위 카드와 같은 규칙입니다. 그래프의 기울기만 보고 "빠졌다" 고 읽는 것을 막습니다.
+class _TrendCard extends StatelessWidget {
+  const _TrendCard({
+    required this.title, required this.unit, required this.color,
+    required this.times, required this.values, required this.floor,
+    this.extra, this.goal, this.note,
+  });
+  final String title, unit;
+  final Color color;
+  final List<double> times, values;
+  final double floor;
+  final Series? extra;
+  final GoalLine? goal;
+  final String? note;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final first = values.first, last = values.last;
+    final d = last - first;
+    final under = d.abs() < floor;
+    final trailing = values.length < 2
+        ? '${n1(last)} $unit'
+        : '${n1(first)} → ${n1(last)} $unit · ${signed(d)}${under ? '*' : ''}';
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SectionTitle(title,
+            trailing: Text(trailing,
+                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+        LineChart(
+          height: 150,
+          /* 범례는 선이 둘일 때만 — 하나뿐이면 제목이 범례입니다. */
+          legend: extra != null,
+          series: [
+            Series(label: title, color: color,
+                points: [for (var i = 0; i < values.length; i++) Pt(times[i], values[i])]),
+            if (extra != null) extra!,
+          ],
+          goals: [if (goal != null) goal!],
+          xTickFmt: _dateTick,
+        ),
+        if (note != null) ...[
+          const SizedBox(height: 6),
+          Text(note!, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5)),
+        ],
+      ]),
+    );
   }
 }
 

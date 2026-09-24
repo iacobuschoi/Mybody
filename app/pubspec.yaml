@@ -1,7 +1,7 @@
 name: mybody
 description: "인바디 결과지를 읽어 목표까지의 계획을 세우고, 오차보다 작은 변화를 성과로 세지 않습니다."
 publish_to: none
-version: 0.2.8
+version: 0.2.9
 
 environment:
   sdk: ^3.11.0

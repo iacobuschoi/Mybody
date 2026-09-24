@@ -18,6 +18,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
+import '../briefing.dart';
 import '../checkins.dart';
 import '../scope.dart';
 import '../ui/charts.dart';
@@ -44,11 +45,10 @@ class HomeScreen extends StatelessWidget {
     if (scans.isEmpty) {
       return ListView(padding: _pad, children: [
         const UpdateBanner(),
-        EmptyState(
-          title: '인바디 결과지를 올려주세요',
-          detail: '사진 한 장이면 현재 상태를 읽고 계획을 만듭니다.',
-          action: FilledButton(onPressed: () => go('upload'), child: const Text('인바디 올리기')),
-        ),
+        /* 브리핑이 "인바디부터" 를 말하고 올리기 버튼을 듭니다. 예전의 빈
+           화면 안내는 뺐습니다 — 같은 말을 두 카드가 하면 어느 쪽 버튼이
+           진짜인지 묻게 됩니다. */
+        BriefingCard(go: go),
         /* 인바디가 없어도 운동 일정은 쓸 수 있습니다 — 체중을 모른다고
            월요일에 헬스 가기로 못 정할 이유가 없습니다. */
         _WeekCard(go: go),
@@ -64,6 +64,10 @@ class HomeScreen extends StatelessWidget {
       /* 맨 위에 둡니다 — 서버와 안 맞는 판이면 아래 무엇보다 먼저 알아야
          로그인 · 동기화가 왜 안 되는지 헤매지 않습니다. */
       const UpdateBanner(),
+      /* 그다음이 브리핑 — 오늘 무엇을 하는 날인지 · 어떻게 먹을지 · 지금
+         당장 무엇을 할지. 숫자(최신 인바디)보다 할 일이 먼저입니다. 숫자는
+         읽는 것이고 할 일은 하는 것이라, 앱을 연 사람이 찾는 쪽은 뒤쪽입니다. */
+      BriefingCard(go: go),
       _SummaryCard(d: d, pd: pd, scan: scan, onTap: () => go('scan', scan['id'])),
       if (st['goal'] != null && st['plan'] != null && !app.store.planMatchesGoal())
         Note(
@@ -71,18 +75,9 @@ class HomeScreen extends StatelessWidget {
           title: '목표가 바뀌었습니다.',
           text: '플랜을 다시 만들어야 아래 숫자가 맞습니다.',
         ),
-      if (st['goal'] != null && st['plan'] != null)
-        _GoalCard(go: go)
-      else
-        MbCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SectionTitle('목표를 정하면 계획이 나옵니다'),
-            Text('언제까지 어디로 갈지 정하면, 주차별 궤적과 식단·운동 처방을 만듭니다.',
-                style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: 12),
-            FilledButton(onPressed: () => go('goal'), child: const Text('목표 정하기')),
-          ]),
-        ),
+      /* 계획이 없을 때의 「목표 정하기」 카드는 뺐습니다 — 브리핑이 같은
+         말을 하고 같은 버튼을 듭니다. */
+      if (st['goal'] != null && st['plan'] != null) _GoalCard(go: go),
       _WeekCard(go: go),
       /* 플랜 카드(오늘/이번주/한달)는 뺐습니다 — 같은 내용이 플랜 탭에
          있고, 홈에서 한 번 더 보여 줘도 하는 일이 달라지지 않았습니다. */
@@ -91,10 +86,101 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
+/* --- 오늘 브리핑 ------------------------------------------------------------
+   홈의 첫 카드. 무엇을 말할지는 전부 briefing.dart 가 정하고, 여기는 그리기만
+   합니다 — 규칙이 위젯 안에 있으면 아침 8시와 밤 9시 반을 시험으로 세워 볼
+   수 없습니다.
+
+   버튼은 주 버튼 하나(FilledButton)에 보조 둘까지(tonal). 360px 폭에서 셋이
+   한 줄에 안 들어가면 Wrap 이 다음 줄로 내립니다 — 잘리지 않습니다. */
+class BriefingCard extends StatelessWidget {
+  const BriefingCard({super.key, required this.go, this.now});
+  final void Function(String route, [Object? arg]) go;
+
+  /// 시험용 시계. 없으면 저장소의 시계 — 그게 "오늘" 의 기준입니다.
+  final DateTime? now;
+
+  static IconData _icon(String key) => switch (key) {
+        'cardio' => LucideIcons.footprints,
+        'food' => LucideIcons.utensils,
+        'checkin' => LucideIcons.clipboardCheck,
+        'rest' => LucideIcons.coffee,
+        'done' => LucideIcons.checkCircle2,
+        'scan' => LucideIcons.imagePlus,
+        _ => LucideIcons.dumbbell,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final app = Scope.of(context);
+    final b = buildBriefing(app, now: now);
+    final t = Theme.of(context);
+    final c = mb(context);
+
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Expanded(
+            child: Text(b.headline,
+                style: t.textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800, letterSpacing: -0.4, height: 1.25)),
+          ),
+          /* 폭죽은 글자가 아니라 아이콘입니다 — 이모지는 글꼴에 없습니다. */
+          if (b.allDone)
+            Padding(
+              padding: const EdgeInsets.only(left: 8, top: 2),
+              child: Icon(LucideIcons.partyPopper, color: c.ok, size: 22),
+            ),
+        ]),
+        if (b.sub != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(b.sub!,
+                style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
+          ),
+        if (b.celebrate != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Pill(b.celebrate!, tone: Tone.ok),
+          ),
+        const SizedBox(height: 12),
+        for (final l in b.lines)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Icon(_icon(l.icon), size: 18, color: l.done ? c.ok : t.hintColor),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(l.text,
+                    style: t.textTheme.bodyMedium?.copyWith(
+                        height: 1.4, color: l.done ? t.hintColor : null)),
+              ),
+            ]),
+          ),
+        if (b.primary != null || b.secondary.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            if (b.primary != null)
+              FilledButton(
+                  onPressed: () => go(b.primary!.route, b.primary!.arg),
+                  child: Text(b.primary!.label)),
+            for (final a in b.secondary)
+              FilledButton.tonal(onPressed: () => go(a.route, a.arg), child: Text(a.label)),
+          ]),
+        ],
+      ]),
+    );
+  }
+}
+
 /* --- 다음에 할 일 --------------------------------------------------------
    원본에는 「인바디 새로 올리기」도 있는데, 앱은 그 자리에 떠 있는 버튼이
    이미 있습니다. 같은 일을 하는 버튼이 한 화면에 둘이면 어느 쪽이
-   진짜인지 묻게 되니 여기엔 안 둡니다. */
+   진짜인지 묻게 되니 여기엔 안 둡니다. 「이번 주 체크인」 도 같은 이유로
+   브리핑으로 올라갔습니다 — 여기는 **한 뒤에** 그 사실만 말합니다. */
 class _NextCard extends StatelessWidget {
   const _NextCard({required this.go, required this.hasPlan, this.doneThisWeek});
   final void Function(String route, [Object? arg]) go;
@@ -107,19 +193,12 @@ class _NextCard extends StatelessWidget {
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         const SectionTitle('다음에 할 일'),
-        if (hasPlan) ...[
-          if (doneThisWeek == null)
-            OutlinedButton.icon(
-              onPressed: () => go('checkin'),
-              icon: const Icon(LucideIcons.circle),
-              label: const Text('이번 주 체크인'),
-            )
-          else
-            OutlinedButton.icon(
-              onPressed: () => go('checkin'),
-              icon: Icon(LucideIcons.checkCircle2, color: mb(context).ok),
-              label: Text('이번 주 체크인 완료 · ${n1(doneThisWeek!['weightKg'])}kg'),
-            ),
+        if (hasPlan && doneThisWeek != null) ...[
+          OutlinedButton.icon(
+            onPressed: () => go('checkin'),
+            icon: Icon(LucideIcons.checkCircle2, color: mb(context).ok),
+            label: Text('이번 주 체크인 완료 · ${n1(doneThisWeek!['weightKg'])}kg'),
+          ),
           const SizedBox(height: 8),
         ],
         OutlinedButton.icon(
@@ -374,6 +453,13 @@ class _WeekCard extends StatelessWidget {
     for (final d in days) {
       if (d['isToday'] == true) today = d;
     }
+    /* 오늘 할 것이 무엇인지는 맨 위 브리핑이 말합니다. 여기는 오늘 칸에서
+       바로 운동 화면으로 가는 길과, 작게 「그냥 체크만」 — 다 했으면
+       아무것도 안 그립니다(브리핑이 완료를 말합니다). */
+    final td = today;
+    final left = td == null
+        ? const <Object?>[]
+        : (td['plan'] as List).where((ty) => !core.jsTruthy((td['done'] as Map)[ty])).toList();
 
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -385,13 +471,15 @@ class _WeekCard extends StatelessWidget {
         Row(children: [
           for (final d in days) Expanded(child: _DayCell(day: d)),
         ]),
-        const SizedBox(height: 12),
-        if (today == null || (today['plan'] as List).isEmpty)
-          Text('오늘은 정해 둔 운동이 없습니다. 칸을 눌러서 정하세요.',
+        if (td != null && left.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _TodayRow(day: td, left: left, go: go),
+        ] else if (planned == 0) ...[
+          const SizedBox(height: 12),
+          Text('칸을 눌러서 운동할 날을 정하세요.',
               style: Theme.of(context).textTheme.bodySmall
-                  ?.copyWith(color: Theme.of(context).hintColor))
-        else
-          _TodayRow(day: today),
+                  ?.copyWith(color: Theme.of(context).hintColor)),
+        ],
         ..._fillFromPlan(context, app, days),
         ..._cardioNote(context, app, days),
         _StreakRow(),
@@ -578,40 +666,54 @@ Future<void> _openDay(BuildContext context, app, String key) async {
   );
 }
 
+/// 일정 종목 id → 이름('헬스' · '유산소'). 코어 barrel 이 labelOf 를 내보내지 않아 여기서 찾습니다.
+String _schedLabel(Object? id) =>
+    core.kSchedTypes.firstWhere((x) => x['id'] == id, orElse: () => const {})['label'] ?? '$id';
+
+/// 오늘 아직 안 한 운동 — 종목마다 운동 화면으로 가는 버튼과, 작게 「그냥 체크만」.
+///
+/// 브리핑의 주 버튼(「운동 시작」)과 같은 화면으로 가지만 글자는 다르게 둡니다 —
+/// 같은 글자의 버튼이 한 화면에 둘이면 어느 쪽이 진짜인지 묻게 됩니다.
+/// 여기 것은 오늘 칸(헬 · 유) 바로 밑이라 종목 이름으로 부릅니다.
 class _TodayRow extends StatelessWidget {
-  const _TodayRow({required this.day});
+  const _TodayRow({required this.day, required this.left, required this.go});
   final Map<String, Object?> day;
+  final List<Object?> left;
+  final void Function(String route, [Object? arg]) go;
 
   @override
   Widget build(BuildContext context) {
     final app = Scope.of(context);
-    final plan = (day['plan'] as List);
-    final done = (day['done'] as Map);
-    final left = plan.where((t) => !core.jsTruthy(done[t])).toList();
-    if (left.isEmpty) {
-      return Note(
-          tone: Tone.ok,
-          text: '오늘 할 것 다 했습니다 — '
-              '${plan.map((t) => core.kSchedTypes.firstWhere((x) => x['id'] == t)['label']).join(' · ')}');
-    }
-    return Wrap(spacing: 8, children: [
-      for (final t in left)
-        FilledButton.icon(
-          icon: Icon(schedIcon(t), size: 18),
-          onPressed: () {
-            app.store.setScheduleDone(day['key'], t, true);
-            /* **저장이 실패했는데 "체크했습니다" 라고 하지 않습니다.** */
-            if (!app.store.saved()) {
-              toast(context, '기기에 저장하지 못했습니다 — 설정에서 사진을 지워 보세요');
-              return;
-            }
-            final ty = core.kSchedTypes.firstWhere((x) => x['id'] == t);
-            toast(context, '${ty['label']} 체크했습니다');
-          },
-          label: Text(
-              '${core.kSchedTypes.firstWhere((x) => x['id'] == t)['label']} 했어요'),
-        ),
-    ]);
+    final key = '${day['key']}';
+    return Wrap(spacing: 8, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          for (final t in left)
+            OutlinedButton.icon(
+              icon: Icon(schedIcon(t), size: 18),
+              onPressed: () => go('workout', {'date': key, 'type': t}),
+              label: Text('${_schedLabel(t)} 하러 가기'),
+            ),
+          /* 화면 없이 체크만 — 갔다 왔는데 적기는 귀찮은 날. 남은 것이 둘이면
+             어느 쪽인지 물어야 하니 날짜 시트를 엽니다(종목별 체크가 거기 있습니다).
+             안 한 것까지 한꺼번에 체크하면 기록이 아니라 소원입니다. */
+          TextButton(
+            onPressed: () {
+              if (left.length != 1) {
+                _openDay(context, app, key);
+                return;
+              }
+              final t = left.single;
+              app.store.setScheduleDone(key, t, true);
+              /* **저장이 실패했는데 "체크했습니다" 라고 하지 않습니다.** */
+              if (!app.store.saved()) {
+                toast(context, '기기에 저장하지 못했습니다 — 설정에서 사진을 지워 보세요');
+                return;
+              }
+              toast(context, '${_schedLabel(t)} 체크했습니다');
+            },
+            child: const Text('그냥 체크만'),
+          ),
+        ]);
   }
 }
 
