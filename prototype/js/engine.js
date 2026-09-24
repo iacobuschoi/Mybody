@@ -656,7 +656,13 @@
     var force = con && con.strategy && con.strategy !== 'auto' ? con.strategy : null;
     var sim = simulateSimultaneous(cur, goal, profile, a, goalInfo, con);
     if (force === 'simultaneous') { sim.alternative = null; return sim; }
-    if (goalInfo.type !== 'recomp' && force !== 'split') { sim.alternative = null; return sim; }
+    /* 증량 목표도 분할과 견줍니다. 지방 목표가 빠듯하면(지금 체지방 그대로 · 조금 줄이기)
+       동시 진행은 잉여를 거의 못 써서 유지 칼로리로만 근육을 붙이는데, 경력이 있으면
+       매우 느립니다(53세 · 중급 · 근육 +1kg · 지방 −0.2kg: 64주 — 분할이면 26주).
+       지방 여유가 넉넉한 보통의 증량은 분할이 유지 2주만큼 늘 느려서 그대로입니다. */
+    if (goalInfo.type !== 'recomp' && goalInfo.type !== 'bulk' && force !== 'split') {
+      sim.alternative = null; return sim;
+    }
     var split = simulateSplit(cur, goal, profile, a, goalInfo, con);
     if (force === 'split' && split.reached) { split.alternative = null; return split; }
     var best, alt;

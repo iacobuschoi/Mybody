@@ -47,6 +47,24 @@ void main() {
     }
   });
 
+  test('지방 목표가 빠듯한 증량은 분할(증량 → 미니컷)과 견줘 빠른 쪽 — 경력자가 1년 넘게 걸리지 않게', () {
+    /* 동시 진행은 유지 칼로리로만 근육을 붙여 중급 64주 · 숙련 148주였습니다. */
+    for (final e in {'intermediate': 30, 'advanced': 50}.entries) {
+      final c = compareLevels({...scan}, {...profile, 'trainingAge': e.key},
+          {'weightKg': 79.6, 'smmKg': 38.3, 'bfmKg': 11.9}, '2026-09-24', null, null);
+      final hi = (c['results'] as List).first as Map;
+      expect(hi['weeks'] as num, lessThanOrEqualTo(e.value), reason: e.key);
+      expect((hi['sim'] as Map)['strategy'], 'split', reason: e.key);
+    }
+  });
+
+  test('지방 여유가 넉넉한 증량은 그대로 동시 진행', () {
+    final c = run(38.3, 14.1);
+    for (final r in (c['results'] as List).cast<Map>()) {
+      expect((r['sim'] as Map)['strategy'], 'simultaneous');
+    }
+  });
+
   test('증량은 체지방을 목표 위로 올리기 전에 멈춘다 — 끝의 체지방이 목표 + 0.05 안', () {
     final c = run(38.3, 12.6);
     for (final r in (c['results'] as List).cast<Map>()) {

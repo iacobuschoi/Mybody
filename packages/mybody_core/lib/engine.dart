@@ -805,7 +805,9 @@ Map<String, Object?> bestAt(
     sim['alternative'] = null;
     return sim;
   }
-  if (goalInfo['type'] != 'recomp' && force != 'split') {
+  /* 증량 목표도 분할과 견줍니다 — 지방 목표가 빠듯하면 동시 진행은 유지 칼로리로만 근육을
+     붙여 매우 느립니다. 지방 여유가 넉넉하면 분할이 늘 2주 느려서 그대로. engine.js 참고. */
+  if (goalInfo['type'] != 'recomp' && goalInfo['type'] != 'bulk' && force != 'split') {
     sim['alternative'] = null;
     return sim;
   }
