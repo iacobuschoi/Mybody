@@ -37,11 +37,17 @@ List<Map<String, Object?>> checkinsInPlan(core.Store store, Map<String, Object?>
   ];
 }
 
-/// 판정에 넣을 값 — [{week, weightKg, at}]. 체중이 없는 체크인도 그대로 넘기고
-/// 코어가 건너뜁니다(어떤 것을 버리는지는 한 곳에서만 정합니다).
+/// 판정에 넣을 값 — [{week, day, weightKg, at}]. day 는 계획 시작일로부터 며칠째인지 —
+/// 코어가 계획선을 그날 자리에서 읽습니다(주 단위로 자르면 요일 차이가 가짜 차이가 됩니다).
+/// 체중이 없는 체크인도 그대로 넘기고 코어가 건너뜁니다(버리는 규칙은 한 곳에서만).
 List<Map<String, Object?>> readingsFor(core.Store store, Map<String, Object?> plan) => [
       for (final c in checkinsInPlan(store, plan))
-        {'week': planWeekAt(store, plan, c['at']), 'weightKg': c['weightKg'], 'at': c['at']},
+        {
+          'week': planWeekAt(store, plan, c['at']),
+          'day': core.planDayOf(plan['startDate'], store.dayKey(c['at'])),
+          'weightKg': c['weightKg'],
+          'at': c['at'],
+        },
     ];
 
 /// 이번 계획 주에 한 체크인 (없으면 null). 여러 번이면 마지막 것.
@@ -64,6 +70,33 @@ String checkinStatusLabel(Object? status) => switch ('$status') {
       'watch' => '지켜보는 중',
       'slow' => '느립니다',
       'fast' => '빠릅니다',
+      'heavy' => '무겁습니다',
+      'light' => '가볍습니다',
       'adherence' => '실행이 덜 됐습니다',
       _ => '',
     };
+
+/// 넣은 체중이 말이 되는가 — 862 처럼 소수점을 빠뜨린 값이 기준점으로 한 번
+/// 들어가면 그 뒤 판정이 전부 틀어집니다. 마지막 체크인(없으면 최근 인바디)에서
+/// 15% 넘게 다르면 막고 이유를 말합니다. 괜찮으면 null.
+String? checkinWeightProblem(core.Store store, double? w) {
+  if (w == null) return null;
+  if (w < 20 || w > 300) return '20~300kg 사이로 넣어 주세요';
+  final list = checkinsOf(store.get());
+  double? ref;
+  for (final c in list.reversed) {
+    if (c['weightKg'] is num) {
+      ref = (c['weightKg'] as num).toDouble();
+      break;
+    }
+  }
+  if (ref == null) {
+    final scans = store.sortedScans();
+    if (scans.isNotEmpty) ref = core.jsToNumber(scans.last['weightKg']);
+  }
+  if (ref == null || !(ref > 0)) return null;
+  if ((w - ref).abs() / ref > 0.15) {
+    return '지난 기록(${core.toFixed(ref, 1)}kg)과 15% 넘게 다릅니다 — 숫자를 확인해 주세요';
+  }
+  return null;
+}

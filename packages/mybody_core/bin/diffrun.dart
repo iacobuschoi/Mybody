@@ -176,6 +176,12 @@ void main(List<String> args) {
         case 'engine.planWeekOf':
           v = engine.planWeekOf(c['a'], c['b']);
           break;
+        case 'engine.planDayOf':
+          v = engine.planDayOf(c['a'], c['b']);
+          break;
+        case 'engine.planWeightAt':
+          v = engine.planWeightAt(_m(c['plan']), c['day']);
+          break;
         case 'engine.planDrift':
           /* 원본 engine.js 는 `global.MB_MODES` 가 있으면 byId 를 씁니다.
              옮긴 쪽은 그 연결을 함수로 꽂습니다 (앱에서도 시작할 때 꽂습니다). */

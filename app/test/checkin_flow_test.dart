@@ -102,11 +102,11 @@ void main() {
   testWidgets('두 번 연속 느리면 제안을 적용할 수 있고, 계획의 하루 칼로리가 바뀐다', (t) async {
     final app = await seeded(weeksAgo: 3);
     final now = DateTime.now();
-    /* 0주 기준 → 1주 0.6 느림 → 2주 0.7 느림 → 오늘(3주) 0.8 느림. */
+    /* 0 · 1주는 계획선 위(기준 두 번) → 2주 0.6 무거움 → 오늘(3주) 0.8 무거움. */
     app.store.set({'checkins': [
       {'at': _iso(now.subtract(const Duration(days: 21))), 'weightKg': _planW(app, 0)},
-      {'at': _iso(now.subtract(const Duration(days: 14))), 'weightKg': _planW(app, 1) + 0.6},
-      {'at': _iso(now.subtract(const Duration(days: 7))), 'weightKg': _planW(app, 2) + 0.7},
+      {'at': _iso(now.subtract(const Duration(days: 14))), 'weightKg': _planW(app, 1)},
+      {'at': _iso(now.subtract(const Duration(days: 7))), 'weightKg': _planW(app, 2) + 0.6},
     ]});
     final before = core.jsToNumber((app.state['plan'] as Map)['macros']['intakeKcal']);
     await open(t, app, const CheckinScreen());
@@ -116,6 +116,9 @@ void main() {
     await t.pump();
     expect(find.text('느립니다'), findsOneWidget);
     expect(find.text('하루 150kcal 줄이기'), findsOneWidget);
+    /* 누르기 전에 실제로 바뀌는 숫자를 보여 줍니다. */
+    expect(find.textContaining('kcal', findRichText: true), findsWidgets);
+    expect(find.textContaining('적용하면', findRichText: true), findsOneWidget);
 
     await t.tap(find.text('저장하고 제안 적용'));
     await t.pumpAndSettle();
@@ -142,8 +145,8 @@ void main() {
     final now = DateTime.now();
     app.store.set({'checkins': [
       {'at': _iso(now.subtract(const Duration(days: 21))), 'weightKg': _planW(app, 0)},
-      {'at': _iso(now.subtract(const Duration(days: 14))), 'weightKg': _planW(app, 1) + 0.6},
-      {'at': _iso(now.subtract(const Duration(days: 7))), 'weightKg': _planW(app, 2) + 0.7},
+      {'at': _iso(now.subtract(const Duration(days: 14))), 'weightKg': _planW(app, 1)},
+      {'at': _iso(now.subtract(const Duration(days: 7))), 'weightKg': _planW(app, 2) + 0.6},
     ]});
     final before = core.jsToNumber((app.state['plan'] as Map)['macros']['intakeKcal']);
     await open(t, app, const CheckinScreen());
@@ -189,5 +192,39 @@ void main() {
     expect(find.textContaining('점선은 주간 체크인'), findsOneWidget);
     expect(find.text('체크인 체중'), findsOneWidget);
     expect(t.takeException(), isNull);
+  });
+
+  testWidgets('소수점을 빠뜨린 값(862)은 막고 이유를 말한다 — 기준점이 되면 판정이 다 틀어져서', (t) async {
+    final app = await seeded();
+    await open(t, app, const CheckinScreen());
+    await t.enterText(find.byType(TextField), '862');
+    await t.pump();
+    expect(find.textContaining('20~300kg'), findsOneWidget);
+    expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '체크인 저장')).onPressed, isNull);
+    /* 범위 안이어도 지난 기록(인바디 86.7)에서 15% 넘게 다르면 막습니다. */
+    await t.enterText(find.byType(TextField), '100.2');
+    await t.pump();
+    expect(find.textContaining('15% 넘게 다릅니다'), findsOneWidget);
+    expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '체크인 저장')).onPressed, isNull);
+    await t.enterText(find.byType(TextField), '86.2');
+    await t.pump();
+    expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '체크인 저장')).onPressed, isNotNull);
+  });
+
+  testWidgets('지난 체크인을 지울 수 있다', (t) async {
+    final app = await seeded(weeksAgo: 1);
+    app.store.set({'checkins': [
+      {'at': _iso(DateTime.now().subtract(const Duration(days: 6))), 'weightKg': 86.1},
+      {'at': _iso(DateTime.now().subtract(const Duration(days: 1))), 'weightKg': 85.9},
+    ]});
+    await open(t, app, const CheckinScreen());
+    await t.tap(find.byTooltip('지우기').first);
+    await t.pumpAndSettle();
+    expect(find.text('이 체크인을 지울까요?'), findsOneWidget);
+    await t.tap(find.widgetWithText(FilledButton, '지우기'));
+    await t.pumpAndSettle();
+    final left = (app.state['checkins'] as List).cast<Map>();
+    expect(left, hasLength(1));
+    expect(left.single['weightKg'], 86.1, reason: '목록은 최신부터 — 맨 위(85.9)를 지웠습니다');
   });
 }

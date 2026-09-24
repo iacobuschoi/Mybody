@@ -545,7 +545,7 @@ function logCase(rnd, module) {
  */
 function checkinCase(rnd, module) {
   const pick = (arr) => arr[(rnd() * arr.length) | 0];
-  if (module === 'engine.planWeekOf') {
+  if (module === 'engine.planWeekOf' || module === 'engine.planDayOf') {
     const key = () => {
       const y = 2025 + ((rnd() * 3) | 0), m = 1 + ((rnd() * 12) | 0), d = 1 + ((rnd() * 31) | 0);
       return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
@@ -554,15 +554,29 @@ function checkinCase(rnd, module) {
     return { a: rnd() > 0.1 ? key() : pick(odd), b: rnd() > 0.1 ? key() : pick(odd) };
   }
   const n = 2 + ((rnd() * 30) | 0);
-  const kind = rnd();
-  const rate = kind < 0.5 ? -(0.1 + rnd() * 0.8) : (kind < 0.8 ? 0.05 + rnd() * 0.4 : 0);
+  /* 계획선: 감량 · 증량 · 유지, 또는 감량 → 유지 → 증량 처럼 단계가 바뀌는 것.
+     단계(phase) 칸이 없는 계획도 섞습니다(그때는 기울기로 방향을 정해야 합니다). */
   const w0 = 50 + rnd() * 60;
-  const useWeek = rnd() > 0.1;
-  const tr = Array.from({ length: n }, (_, i) => {
-    const p = { weightKg: Math.round((w0 + rate * i) * 10) / 10,
-                ffmKg: Math.round((w0 * 0.75 + rate * 0.2 * i) * 10) / 10 };
-    if (useWeek) p.week = i;
-    return p;
+  const segs = [];
+  let left = n;
+  while (left > 0) {
+    const len = Math.min(left, 1 + ((rnd() * 12) | 0));
+    const ph = pick(['cut', 'cut', 'bulk', 'maintain']);
+    const rate = ph === 'cut' ? -(0.1 + rnd() * 0.8) : (ph === 'bulk' ? 0.05 + rnd() * 0.4 : (rnd() - 0.5) * 0.2);
+    segs.push({ len: len, ph: ph, rate: rate });
+    left -= len;
+  }
+  const usePhase = rnd() > 0.2, useWeek = rnd() > 0.1;
+  const tr = [];
+  let cw = w0;
+  segs.forEach(sg => {
+    for (let k = 0; k < sg.len; k++) {
+      const p = { weightKg: Math.round(cw * 10) / 10, ffmKg: Math.round(cw * 0.75 * 10) / 10 };
+      if (useWeek) p.week = tr.length;
+      if (usePhase) p.phase = sg.ph;
+      tr.push(p);
+      cw += sg.rate;
+    }
   });
   const plan = rnd() > 0.04 ? { trajectory: rnd() > 0.04 ? tr : [] } : null;
   /* 조정한 적이 있는 계획 — 그 뒤 체크인만 봐야 합니다. 이상한 조정 기록도 섞습니다. */
@@ -574,26 +588,38 @@ function checkinCase(rnd, module) {
     ]);
   }
 
+  /* 체크인: 계획선 근처에서 흔들리고, 체중계 차이(offset)와 추세 어긋남(drift)이 있고,
+     요일이 들쭉날쭉합니다(day 가 7의 배수가 아님). */
+  const lineAt = (x) => {
+    if (!tr.length) return w0;
+    const i = Math.min(tr.length - 1, Math.floor(x)), j = Math.min(tr.length - 1, i + 1);
+    return tr[i].weightKg + (tr[j].weightKg - tr[i].weightKg) * (x - Math.floor(x));
+  };
   const readings = [];
-  const count = (rnd() * 7) | 0;
-  const offset = (rnd() - 0.5) * 2;               // 집 체중계와 인바디의 차이
-  const drift = (rnd() - 0.5) * 0.8;              // 계획보다 주마다 이만큼 어긋남
-  let wk = (rnd() * 3) | 0;
+  const count = (rnd() * 8) | 0;
+  const offset = (rnd() - 0.5) * 2;
+  const drift = (rnd() - 0.5) * 0.8;
+  let day = (rnd() * 10) | 0;
   for (let i = 0; i < count; i++) {
-    if (i > 0) wk += rnd() > 0.2 ? 1 : 0;         // 가끔 같은 주에 두 번
-    if (rnd() > 0.9) wk += 2;
-    const exp = w0 + rate * wk;
-    let r = { week: wk, weightKg: Math.round((exp + offset + drift * i + (rnd() - 0.5) * 0.9) * 10) / 10 };
+    if (i > 0) day += rnd() > 0.15 ? 5 + ((rnd() * 5) | 0) : ((rnd() * 3) | 0);
+    if (rnd() > 0.9) day += 10;
+    let r = { week: Math.floor(day / 7), day: day,
+              weightKg: Math.round((lineAt(day / 7) + offset + drift * i + (rnd() - 0.5) * 0.9) * 10) / 10 };
+    if (rnd() > 0.85) delete r.day;
     if (rnd() > 0.2) r.at = '2026-10-' + String(1 + i * 3).padStart(2, '0') + 'T00:00:00.000Z';
     const q = rnd();
     if (q > 0.97) r = null;
-    else if (q > 0.94) r.week = pick(['3', null, wk + 0.4, -2, NaN]);
-    else if (q > 0.91) r.weightKg = pick([0, null, '80', -5, Infinity]);
+    else if (q > 0.94) r.week = pick(['3', null, r.week + 0.4, -2, NaN]);
+    else if (q > 0.92) r.day = pick(['3', null, -4, NaN, 2.5]);
+    else if (q > 0.89) r.weightKg = pick([0, null, '80', -5, Infinity]);
     readings.push(r);
   }
   const adherence = rnd() > 0.7 ? { dietPct: Math.round(rnd() * 120) }
     : pick([null, {}, { dietPct: null }, { dietPct: '50' }, null, null]);
   if (module === 'engine.checkinReview') return { plan: plan, readings: readings, adherence: adherence };
+  if (module === 'engine.planWeightAt') {
+    return { plan: plan, day: rnd() > 0.1 ? Math.round(rnd() * (n + 3) * 7 * 10) / 10 : pick([null, 'x', -3, NaN]) };
+  }
 
   /* engine.applyCheckinAdvice — 판정은 원본으로 미리 내 두고, 가끔 손으로 만든 것. */
   const E = loadJs('engine');
@@ -607,12 +633,14 @@ function checkinCase(rnd, module) {
     if (rnd() > 0.1) {
       p2.workout = { daysPerWeek: 4 };
       if (rnd() > 0.2) p2.workout.cardioMinPerWeek = Math.round(rnd() * 150);
+      if (rnd() > 0.3) p2.workout.cardioPlan = pick(['Z2 저강도 45분 × 3회',
+        'Z2 저강도 40분 × 2회 + 추가 유산소 주 40분 (체크인 조정)', '']);
     }
     if (rnd() > 0.7 && !p2.adjustments) p2.adjustments = [{ at: '2026-09-01T00:00:00.000Z', kcalDelta: -150 }];
   }
   let review = E.checkinReview(plan, readings, adherence);
   const r2 = rnd();
-  if (r2 > 0.85) review = { status: 'slow', apply: { kcalDelta: pick([-150, 150, 0, -3000]), cardioMinDelta: pick([40, 0]) } };
+  if (r2 > 0.85) review = { status: 'slow', apply: { kcalDelta: pick([-150, 150, 0, -3000]), cardioMinDelta: pick([40, 0, 12.5]) } };
   else if (r2 > 0.8) review = pick([null, { status: 'onTrack', apply: null }]);
   return {
     plan: p2, review: review,
@@ -643,7 +671,8 @@ function makePlanCases(n, seed, module) {
     return out;
   }
   if (module === 'engine.checkinReview' || module === 'engine.applyCheckinAdvice' ||
-      module === 'engine.planWeekOf') {
+      module === 'engine.planWeekOf' || module === 'engine.planDayOf' ||
+      module === 'engine.planWeightAt') {
     while (out.length < n) out.push(checkinCase(rnd, module));
     return out;
   }
@@ -937,6 +966,8 @@ function jsCaller(module) {
     case 'engine.applyCheckinAdvice':
       return c => m.applyCheckinAdvice(c.plan, c.review, c.profile, c.week, c.atISO);
     case 'engine.planWeekOf':     return c => m.planWeekOf(c.a, c.b);
+    case 'engine.planDayOf':      return c => m.planDayOf(c.a, c.b);
+    case 'engine.planWeightAt':   return c => m.planWeightAt(c.plan, c.day);
     case 'engine.planDrift':      return c => m.planDrift(c.plan, c.scans, c.profile);
     case 'engine.buildPlan':      return c => m.buildPlan(c.comparison, c.level, c.scan, c.profile);
     default: throw new Error('모르는 모듈: ' + module);
@@ -1042,6 +1073,8 @@ const MODULES = [
   { name: 'engine.checkinReview',     gen: makePlanCases },
   { name: 'engine.applyCheckinAdvice', gen: makePlanCases, cap: 300 },
   { name: 'engine.planWeekOf',        gen: makePlanCases },
+  { name: 'engine.planDayOf',         gen: makePlanCases },
+  { name: 'engine.planWeightAt',      gen: makePlanCases },
   { name: 'modes.select',             gen: makePlanCases },
   { name: 'engine.planDrift',         gen: makePlanCases, cap: 40 },
   { name: 'engine.buildPlan',         gen: makePlanCases, cap: 10 },

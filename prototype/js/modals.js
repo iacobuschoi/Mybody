@@ -314,17 +314,21 @@
   };
 
   /* M17 재조정 제안 */
-  M.adjust = function (advice, onApply) {
+  /* preview: 적용하면 실제로 바뀌는 숫자 한 줄(하한에 막히면 −150 이 아닐 수 있음).
+     제안 제목만 보여 주면 "150kcal 줄이기" 에 동의했는데 44kcal 만 줄어듭니다. */
+  M.adjust = function (advice, onApply, preview) {
     UI.openModal({
       uid: 'M17', title: '계획을 조정할까요?',
       sub: ({ onTrack: '계획대로', slow: '두 번 연속 계획보다 느림', fast: '두 번 연속 계획보다 빠름',
+              heavy: '두 번 연속 계획보다 무거움', light: '두 번 연속 계획보다 가벼움',
               adherence: '순응도 문제' })[advice.status] || '',
       body: advice.suggestions.map(function (s) {
         return h('div.radio-card', { style: { marginBottom: '6px' } }, [
           h('div', [h('div.radio-card__t', { text: s.title }),
                     h('div.radio-card__d', { text: s.detail })])
         ]);
-      }),
+      }).concat(preview ? [h('div.note', { style: { marginTop: '8px' },
+        text: '실제로 바뀌는 것 — ' + preview })] : []),
       actions: [
         { label: '이번엔 유지', kind: 'ghost' },
         { label: '적용', kind: 'primary', onClick: onApply }

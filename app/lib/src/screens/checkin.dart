@@ -27,6 +27,7 @@
  * 하루 칼로리(plan.macros)가 바뀌어 식단 탭 목표 · 플랜 탭에 바로 반영됩니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../adherence.dart';
@@ -51,21 +52,6 @@ class _CheckinScreenState extends State<CheckinScreen> {
     super.dispose();
   }
 
-  /// 계획선에서 그 주에 가장 가까운 점의 체중 (코어의 판정과 같은 방식).
-  static double _expectedAt(List<Map<String, Object?>> traj, int wk) {
-    double? best;
-    var bestD = double.infinity;
-    for (var i = 0; i < traj.length; i++) {
-      final w = traj[i]['week'] is num ? traj[i]['week'] as num : i;
-      final d = (w - wk).abs().toDouble();
-      if (d < bestD) {
-        bestD = d;
-        best = core.jsToNumber(traj[i]['weightKg']);
-      }
-    }
-    return best ?? double.nan;
-  }
-
   @override
   Widget build(BuildContext context) {
     final app = Scope.of(context);
@@ -87,9 +73,14 @@ class _CheckinScreenState extends State<CheckinScreen> {
     final plan = (st['plan'] as Map).cast<String, Object?>();
     final traj = ((plan['trajectory'] as List?) ?? const []).cast<Map<String, Object?>>();
     final startDate = '${plan['startDate']}';
-    final weeksIn = core.planWeekOf(startDate, app.store.dayKey());
-    final expected = traj.isEmpty ? double.nan : _expectedAt(traj, weeksIn);
-    final actual = double.tryParse(_weight.text.trim());
+    final todayDay = core.planDayOf(startDate, app.store.dayKey());
+    final weeksIn = (todayDay / 7).floor();
+    /* 계획선은 판정과 같은 자리(오늘)에서 읽습니다. */
+    final expected = core.planWeightAt(plan, todayDay) ?? double.nan;
+    final typed = double.tryParse(_weight.text.trim());
+    /* 소수점을 빠뜨린 862 같은 값은 기준점으로 들어가면 그 뒤 판정이 다 틀어집니다. */
+    final problem = checkinWeightProblem(app.store, typed);
+    final actual = problem == null ? typed : null;
 
     /* 지난 7일 실행 — 기록에서 셉니다. */
     final ex = weekExecution(app.store);
@@ -109,9 +100,20 @@ class _CheckinScreenState extends State<CheckinScreen> {
         ? null
         : core.checkinReview(
             plan,
-            [...past, {'week': weeksIn, 'weightKg': actual, 'at': DateTime.now().toUtc().toIso8601String()}],
+            [
+              ...past,
+              {'week': weeksIn, 'day': todayDay, 'weightKg': actual,
+               'at': DateTime.now().toUtc().toIso8601String()},
+            ],
             dietPct == null ? null : {'dietPct': dietPct},
           );
+    /* 적용하면 실제로 무엇이 바뀌는지 — 하한에 막히면 −150 이 아닐 수 있고,
+       운동 계획이 없으면 유산소는 안 더해집니다. 버튼을 누르기 전에 보여 줍니다. */
+    final preview = review != null && review['apply'] is Map
+        ? core.applyCheckinAdvice(plan, review, app.profile ?? core.kSeedProfile, weeksIn, 'preview')
+        : null;
+    final canApply = preview != null &&
+        (core.jsToNumber(preview['kcalDelta']) != 0 || core.jsToNumber(preview['cardioMinDelta']) != 0);
 
     return Scaffold(
       appBar: AppBar(title: const Text('주간 체크인')),
@@ -121,7 +123,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
             SectionTitle('계획 ${n0(weeksIn)}주차',
                 trailing: Text('시작 ${dateK(startDate)}',
                     style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
-            Text('계획상 이번 주 체중은 ${n1(expected)}kg 입니다.',
+            Text('계획상 오늘 체중은 ${n1(expected)}kg 입니다.',
                 style: t.textTheme.bodySmall),
             if (thisWeek != null) ...[
               const SizedBox(height: 8),
@@ -135,12 +137,14 @@ class _CheckinScreenState extends State<CheckinScreen> {
               controller: _weight,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: '지금 체중',
                 suffixText: 'kg',
-                border: OutlineInputBorder(),
+                border: const OutlineInputBorder(),
                 helperText: '아침 공복, 화장실 다녀와서 잰 값이 가장 덜 흔들립니다',
                 helperMaxLines: 2,
+                errorText: problem,
+                errorMaxLines: 2,
               ),
             ),
             const SizedBox(height: 16),
@@ -207,7 +211,8 @@ class _CheckinScreenState extends State<CheckinScreen> {
               ),
               const SizedBox(height: 6),
               Text('점은 집 체중계로 넣은 체크인입니다. 인바디와 0.5~1kg 다를 수 있어서, '
-                  '판정은 계획선과의 거리가 아니라 첫 체크인 이후의 변화로 합니다.',
+                  '판정은 계획선과의 거리가 아니라 기준 체크인 이후 계획선과의 차이가 얼마나 '
+                  '움직였는지로 합니다.',
                   style: hint),
             ]),
           ),
@@ -215,6 +220,8 @@ class _CheckinScreenState extends State<CheckinScreen> {
         if (review != null)
           _AdviceCard(
             review: review,
+            preview: preview,
+            before: plan,
             caveat: dietPct == null &&
                     core.jsTruthy(ex['hasTarget']) &&
                     review['status'] != 'early'
@@ -222,7 +229,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
                 : null,
           ),
 
-        if (review != null && review['apply'] is Map) ...[
+        if (review != null && canApply) ...[
           FilledButton(
             onPressed: () => _saveAndApply(app, actual!, ex, review, weeksIn),
             child: const Text('저장하고 제안 적용'),
@@ -239,7 +246,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
           ),
 
         const SizedBox(height: 12),
-        _PastCard(list: checkinsOf(st)),
+        _PastCard(list: checkinsOf(st), onDelete: (c) => _delete(app, c)),
       ]),
     );
   }
@@ -268,6 +275,35 @@ class _CheckinScreenState extends State<CheckinScreen> {
     }
     Navigator.of(context).pop();
     toast(context, '체크인을 저장했습니다');
+  }
+
+  /* 잘못 넣은 체크인을 지웁니다. 예전엔 지울 길이 없어서 한 번 잘못 넣은 값이
+     기준점으로 남아 그 뒤 판정을 계속 틀었습니다. 계획을 조정한 체크인을 지워도
+     조정은 그대로 남습니다 — 그렇다고 말합니다. */
+  Future<void> _delete(app, Map<String, Object?> c) async {
+    final plan = app.state['plan'];
+    final adjs = plan is Map && plan['adjustments'] is List ? plan['adjustments'] as List : const [];
+    final tied = adjs.any((a) => a is Map && a['at'] == c['at']);
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('이 체크인을 지울까요?'),
+        content: Text('${dateShort(c['at'])} · ${n1(c['weightKg'])}kg'
+            '${tied ? '\n\n이 체크인으로 계획을 조정했습니다. 지워도 바뀐 계획은 그대로 남습니다.' : ''}'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('지우기')),
+        ],
+      ),
+    );
+    if (yes != true || !mounted) return;
+    final list = [
+      for (final x in (app.state['checkins'] as List?) ?? const [])
+        if (!(x is Map && x['at'] == c['at'])) x,
+    ];
+    app.store.set({'checkins': list});
+    toast(context, '지웠습니다');
+    setState(() {});
   }
 
   /* 「제안 적용」 — 두 번 연속 같은 쪽으로 벗어났을 때만 나옵니다.
@@ -307,7 +343,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
           '다음 체크인부터는 오늘 값을 새 기준으로 다시 봅니다.',
         ].join('\n')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('그대로 두기')),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('적용')),
         ],
       ),
@@ -329,8 +365,11 @@ class _CheckinScreenState extends State<CheckinScreen> {
 }
 
 class _AdviceCard extends StatelessWidget {
-  const _AdviceCard({required this.review, this.caveat});
+  const _AdviceCard({required this.review, this.preview, required this.before, this.caveat});
   final Map<String, Object?> review;
+  /// applyCheckinAdvice 의 결과 — 적용하면 실제로 바뀌는 숫자.
+  final Map<String, Object?>? preview;
+  final Map<String, Object?> before;
   final String? caveat;
 
   @override
@@ -339,17 +378,38 @@ class _AdviceCard extends StatelessWidget {
     final status = '${review['status']}';
     final tone = switch (status) {
       'onTrack' => Tone.ok,
-      'slow' || 'fast' => Tone.warn,
+      'slow' || 'fast' || 'heavy' || 'light' => Tone.warn,
       _ => Tone.none,
     };
+    /* 기준이 무엇인지 그대로 말합니다 — 조정 뒤에는 "첫 체크인" 이 아닙니다. */
+    final baseCount = core.jsToNumber(review['baseCount']);
+    final baseName = review['since'] != null
+        ? '조정한 날 이후의 기준'
+        : (baseCount > 1 ? '앞선 체크인 ${n0(baseCount)}번의 평균' : '첫 체크인');
     final dev = review['devKg'];
-    /* 기준점 이후 계획보다 얼마나 — devKg 는 + 가 느림입니다. */
     final devText = dev is num && status != 'adherence'
         ? (dev.abs() < 0.05
-            ? '첫 체크인 이후 계획선과 거의 같습니다.'
-            : '첫 체크인 이후 계획보다 ${n1(dev.abs())}kg ${dev > 0 ? '느립니다' : '빠릅니다'} '
+            ? '$baseName 대비 계획선과의 차이가 그대로입니다.'
+            : '$baseName 대비 계획선보다 ${n1(dev.abs())}kg ${dev > 0 ? '무겁습니다' : '가볍습니다'} '
                 '(±0.5kg 까지는 흔들림으로 봅니다).')
         : null;
+
+    String? previewText;
+    final pv = preview;
+    if (pv != null) {
+      final m0 = (before['macros'] as Map?) ?? const {};
+      final m1 = ((pv['plan'] as Map)['macros'] as Map?) ?? const {};
+      final kcal = core.jsToNumber(pv['kcalDelta']);
+      final cardio = core.jsToNumber(pv['cardioMinDelta']);
+      final w0 = before['workout'] is Map ? (before['workout'] as Map)['cardioMinPerWeek'] : null;
+      previewText = [
+        if (kcal != 0) '하루 ${n0(m0['intakeKcal'])} → ${n0(m1['intakeKcal'])}kcal',
+        if (cardio != 0) '유산소 주 ${n0(w0 ?? 0)} → ${n0(core.jsToNumber(w0 ?? 0) + cardio)}분',
+        if (pv['floored'] == true)
+          kcal == 0 ? '칼로리는 이미 하루 하한이라 더 줄이지 않습니다' : '하한 때문에 ${n0(kcal.abs())}kcal 만 줄입니다',
+      ].join(' · ');
+    }
+
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         SectionTitle('이번 주 제안', trailing: Pill(checkinStatusLabel(status), tone: tone)),
@@ -371,6 +431,11 @@ class _AdviceCard extends StatelessWidget {
               ]),
             );
           }),
+        if (previewText != null && previewText.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Note(title: '적용하면', text: ' $previewText'),
+          ),
         if (caveat != null)
           Text(caveat!, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5)),
       ]),
@@ -381,8 +446,9 @@ class _AdviceCard extends StatelessWidget {
 /* --- 지난 체크인 ---------------------------------------------------------------
    예전엔 저장하고 나면 어디에도 안 보였습니다. 최근 다섯 개를 판정과 함께. */
 class _PastCard extends StatelessWidget {
-  const _PastCard({required this.list});
+  const _PastCard({required this.list, required this.onDelete});
   final List<Map<String, Object?>> list;
+  final void Function(Map<String, Object?>) onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -415,6 +481,12 @@ class _PastCard extends StatelessWidget {
                     textAlign: TextAlign.right,
                     style: t.textTheme.labelSmall?.copyWith(color: t.hintColor),
                   ),
+                ),
+                IconButton(
+                  tooltip: '지우기',
+                  visualDensity: VisualDensity.compact,
+                  icon: Icon(LucideIcons.trash2, size: 16, color: t.hintColor),
+                  onPressed: () => onDelete(c),
                 ),
               ]),
             ),
