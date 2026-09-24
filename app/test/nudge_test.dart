@@ -34,4 +34,44 @@ void main() {
     final n = planSnackNudge(remainP: 42, remainKcal: 0, remainC: 0, remainF: 0, now: morning)!;
     expect(n.body, contains('단백질 42g 남았어요'));
   });
+
+  group('끼니 기록 알림 — 10시 아침 · 13시 점심 · 19시 저녁', () {
+    test('아침 9시, 아직 아무것도 안 적었으면 오늘 세 번부터 14일치', () {
+      final r = planMealReminders(now: DateTime(2026, 9, 24, 9, 0));
+      expect(r, hasLength(kMealDays * 3));
+      expect([for (final x in r.take(3)) x.at], [
+        DateTime(2026, 9, 24, 10), DateTime(2026, 9, 24, 13), DateTime(2026, 9, 24, 19),
+      ]);
+      expect([for (final x in r.take(3)) x.title],
+          ['아침 메뉴를 기록해주세요!', '점심 메뉴를 기록해주세요!', '저녁 메뉴를 기록해주세요!']);
+      expect(r.last.at, DateTime(2026, 10, 7, 19));
+    });
+
+    test('이미 지난 시각은 오늘 빼고, 내일부터는 그대로', () {
+      final r = planMealReminders(now: DateTime(2026, 9, 24, 13, 0));
+      expect(r.first.at, DateTime(2026, 9, 24, 19), reason: '13시 정각은 이미 지난 것으로 봅니다');
+      expect(r[1].at, DateTime(2026, 9, 25, 10));
+    });
+
+    test('오늘 이미 적은 끼니는 안 울린다 — 오늘만', () {
+      final r = planMealReminders(now: DateTime(2026, 9, 24, 8, 0), loggedToday: {'아침', '간식'});
+      expect(r.where((x) => x.at.day == 24).map((x) => x.meal), ['점심', '저녁']);
+      expect(r.where((x) => x.at.day == 25).map((x) => x.meal), ['아침', '점심', '저녁']);
+    });
+
+    test('밤에는 오늘 것이 없고, 달이 바뀌어도 다음 날 10시', () {
+      final r = planMealReminders(now: DateTime(2026, 9, 30, 20, 0));
+      expect(r.first.at, DateTime(2026, 10, 1, 10));
+      expect(r, hasLength((kMealDays - 1) * 3));
+    });
+
+    test('알림 번호는 겹치지 않고, 간식(7) · 운동 독촉(1000~) 과도 안 겹친다', () {
+      final r = planMealReminders(now: DateTime(2026, 9, 24, 0, 0));
+      final ids = [for (final x in r) x.id];
+      expect(ids.toSet(), hasLength(ids.length));
+      expect(ids.every((id) => id >= kMealIdBase && id < kMealIdBase + kMealDays * 3), isTrue);
+      expect(ids.contains(7), isFalse);
+      expect(kMealIdBase + kMealDays * 3 <= 1000, isTrue);
+    });
+  });
 }

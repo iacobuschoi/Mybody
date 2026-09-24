@@ -583,6 +583,25 @@ void main() {
     await standsUp(t, app, const SettingsScreen());
   });
 
+  /* 끼니 기록 알림 — 기본은 켜짐, 끄면 settings.mealReminder=false 로 남습니다
+     (MealReminder.reschedule 가 이 값을 보고 걸어 둔 알림을 지웁니다). */
+  testWidgets('설정 — 끼니 기록 알림 스위치(10 · 13 · 19시), 기본 켜짐', (t) async {
+    t.view.physicalSize = const Size(1000, 4000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    final app = await seeded();
+    await t.pumpWidget(host(app, const SettingsScreen()));
+    await t.pump(const Duration(milliseconds: 200));
+    final tile = find.widgetWithText(SwitchListTile, '끼니 기록 알림');
+    expect(tile, findsOneWidget);
+    expect(find.textContaining('10시 아침 · 13시 점심 · 19시 저녁'), findsOneWidget);
+    expect(t.widget<SwitchListTile>(tile).value, isTrue);
+    await t.tap(tile);
+    await t.pump();
+    expect((app.state['settings'] as Map)['mealReminder'], isFalse);
+    expect(t.widget<SwitchListTile>(tile).value, isFalse);
+  });
+
   testWidgets('친구 — 로그인 안 함', (t) async {
     final app = await seeded();
     await t.pumpWidget(host(app, Scaffold(body: SocialScreen(go: noop)),

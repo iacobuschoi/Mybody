@@ -134,13 +134,18 @@ class _MyBodyAppState extends State<MyBodyApp> {
        먹은 게 늘면 남은 단백질이 줄고, 알림 문구도 바뀌어야 합니다. */
     unawaited(SnackNudge.init().then((_) async {
       await SnackNudge.reschedule(app);
+      /* 끼니 기록 알림 — 10 · 13 · 19시. 오늘 적은 끼니는 빼고 다시 겁니다. */
+      await MealReminder.reschedule(app);
       /* 친구가 보낸 운동 독촉 — 켤 때 가져와서 알림 하나. 로그인할 때도. */
       await _fetchPokes(app, api);
       api.addListener(() { if (api.signedIn) unawaited(_fetchPokes(app, api)); });
     }));
     app.addListener(() {
       _nudgeTimer?.cancel();
-      _nudgeTimer = Timer(const Duration(seconds: 2), () => SnackNudge.reschedule(app));
+      _nudgeTimer = Timer(const Duration(seconds: 2), () async {
+        await SnackNudge.reschedule(app);
+        await MealReminder.reschedule(app);
+      });
     });
     if (!mounted) return;
     setState(() {

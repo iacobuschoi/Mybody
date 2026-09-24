@@ -77,6 +77,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 setState(() {});
               },
             ),
+            /* 끼니 기록 알림 — 서버가 아니라 폰이 직접 예약합니다. */
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('끼니 기록 알림'),
+              subtitle: Text('10시 아침 · 13시 점심 · 19시 저녁. 그 끼니를 이미 적었으면 안 울립니다.',
+                  style: t.textTheme.labelSmall),
+              value: settings['mealReminder'] != false,
+              onChanged: (on) {
+                app.store.set({'settings': {...settings, 'mealReminder': on}});
+                setState(() {});
+              },
+            ),
             /* 간식 알림 — 서버가 아니라 폰이 직접 예약합니다. */
             SwitchListTile(
               contentPadding: EdgeInsets.zero,

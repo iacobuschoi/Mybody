@@ -12,6 +12,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
+import 'nudge.dart' show notificationRoute;
 import 'scope.dart';
 import 'ui/symbols.dart';
 import 'screens/food.dart';
@@ -36,6 +37,28 @@ class Shell extends StatefulWidget {
 
 class _ShellState extends State<Shell> {
   int _tab = 0;
+
+  /* 알림을 누르면 그 알림이 가리키는 곳으로(끼니 · 간식 알림은 식단 탭).
+     알림으로 앱이 새로 켜졌으면 셸이 뜨기 전에 값이 와 있을 수 있어 처음에도 봅니다. */
+  @override
+  void initState() {
+    super.initState();
+    notificationRoute.addListener(_onRoute);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _onRoute());
+  }
+
+  @override
+  void dispose() {
+    notificationRoute.removeListener(_onRoute);
+    super.dispose();
+  }
+
+  void _onRoute() {
+    final r = notificationRoute.value;
+    if (r == null || !mounted) return;
+    notificationRoute.value = null;
+    if (r == 'food') _go('food');
+  }
 
   static const _tabs = [
     (icon: LucideIcons.home, on: LucideIcons.home, label: '홈'),
