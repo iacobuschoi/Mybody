@@ -559,7 +559,8 @@ v0.2.0 이 나갔습니다: https://github.com/iacobuschoi/Mybody/releases/tag/v
 TestFlight 설치본에는 일부러 안 띄웠습니다. 0.2.10: 새로 켤 때는 늘 묻고(돌아올 때 30분), TestFlight 도
 자기 칸(`--testflight`)을 봅니다. **서버가 `latest.testflight` 를 내보내야 해서 서버를 다시 띄웁니다.**
 
-**시작 조건:** 태그 `v0.2.10` 과 Releases v0.2.10 의 AAB. N = 아래에 적힌 빌드 번호(태그에서 세지 마세요).
+**시작 조건(충족됨):** 태그 `v0.2.10` = 43560a1, https://github.com/iacobuschoi/Mybody/releases/tag/v0.2.10 —
+`mybody-v0.2.10-playstore.aab` (SHA-256 c5e8d126…829df) · APK 2e926890…5362. **N = 279** (0.2.10). TestFlight 업로드 성공(279).
 로그인 · 비밀번호 화면이면 멈추고 보고.
 
 1. **서버** — `git pull` → 작업 스케줄러 「Mybody 서버」 끝냈다 다시 실행(20초 끊김) →
