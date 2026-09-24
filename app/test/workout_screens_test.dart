@@ -17,6 +17,7 @@ import 'package:mybody/src/scope.dart';
 import 'package:mybody/src/screens/gym_settings.dart';
 import 'package:mybody/src/screens/workout_session.dart';
 import 'package:mybody/src/theme.dart';
+import 'package:mybody/src/ui/confetti.dart';
 import 'package:mybody/src/ui/fmt.dart';
 import 'package:mybody/src/ui/widgets.dart';
 import 'package:mybody/src/workout/exercises.dart';
@@ -125,13 +126,18 @@ void main() {
       for (final e in tailored) {
         expect(find.text('${e['name']}'), findsWidgets, reason: '종목 ${e['name']} 이 화면에 없습니다');
       }
-      final sets = core.jsToNumber(tailored.first['sets']).round();
-      expect(find.text('세트 완료 (0/$sets)'), findsWidgets);
+      /* 진행은 머리글의 '0/N 세트' 하나로 읽습니다 — 줄마다 있던 '세트 완료 (0/3)'
+         버튼은 없어졌고(주인이 "못생겼다" 고 했습니다) 줄에는 작은 「세트」 단추뿐입니다. */
+      final total = tailored.fold<int>(0, (a, e) => a + core.jsToNumber(e['sets']).round());
+      final first = '${tailored.first['name']}';
+      expect(find.text('0/$total 세트'), findsOneWidget);
+      expect(setButton(first), findsOneWidget);
       expect(find.text('건너뛰기'), findsNothing);
+      expect(find.byTooltip('한 세트 빼기'), findsNothing, reason: '뺄 세트가 없으면 「−」 도 없습니다');
 
-      await t.tap(find.text('세트 완료 (0/$sets)').first);
+      await t.tap(setButton(first));
       await t.pump();
-      expect(find.text('세트 완료 (1/$sets)'), findsOneWidget);
+      expect(find.text('1/$total 세트'), findsOneWidget);
       expect(find.text('건너뛰기'), findsOneWidget, reason: '세트를 마치면 휴식 카운트다운이 뜹니다');
       expect(find.text('일시정지'), findsOneWidget, reason: '시작을 안 눌렀어도 세트를 누르면 시간이 갑니다');
 
@@ -144,8 +150,14 @@ void main() {
       /* 한 세트 빼기 */
       await t.tap(find.byTooltip('한 세트 빼기').first);
       await t.pump();
-      expect(find.text('세트 완료 (0/$sets)'), findsWidgets);
-      expect(find.text('세트 완료 (1/$sets)'), findsNothing);
+      expect(find.text('0/$total 세트'), findsOneWidget);
+      expect(find.text('1/$total 세트'), findsNothing);
+      expect(find.byTooltip('한 세트 빼기'), findsNothing);
+
+      /* 줄 어디를 눌러도 한 세트 — 단추만 표적이면 땀 난 손에는 너무 작습니다. */
+      await t.tap(exerciseRow(first));
+      await t.pump();
+      expect(find.text('1/$total 세트'), findsOneWidget);
     });
 
     testWidgets('종료 → 저장하면 분 · kcal · 세트가 그 날 기록에 남고 체크된다', (t) async {
@@ -160,7 +172,7 @@ void main() {
       expect(find.text('40:00'), findsOneWidget, reason: '경과는 시계로 잽니다');
 
       /* 첫 종목 한 세트 */
-      await t.tap(find.textContaining('세트 완료 (0/').first);
+      await t.tap(anySetButton().first);
       await t.pump();
 
       await t.tap(find.text('종료'));
@@ -168,7 +180,9 @@ void main() {
       final weight = latestWeightKg(app)!;
       final expectKcal =
           workoutKcal(weightKg: weight, duration: const Duration(minutes: 40), kind: 'gym').round();
-      expect(find.descendant(of: find.byType(Stat), matching: find.text('40')), findsOneWidget);
+      /* 시계로 쟀으면 잰 시간이 그대로 — 입력칸은 없습니다. */
+      expect(find.descendant(of: find.byType(Stat), matching: find.text('40:00')), findsOneWidget);
+      expect(find.widgetWithText(TextField, '운동 시간'), findsNothing, reason: '쟀는데 또 묻지 않습니다');
       expect(find.descendant(of: find.byType(Stat), matching: find.text(n0(expectKcal))), findsOneWidget);
 
       await t.tap(find.text('저장'));
@@ -177,20 +191,95 @@ void main() {
       final log = logOf(app, day, 'gym');
       expect(log['kind'], 'gym');
       expect(log['minutes'], 40);
+      expect(log['seconds'], 2400);
       expect(core.jsToNumber(log['kcal']), greaterThan(0));
       expect(log['kcal'], expectKcal);
       expect(log['sets'], 1);
       expect((log['exercises'] as List), hasLength(1));
       expect(core.jsTruthy((app.store.scheduleDay(day)['done'] as Map)['gym']), isTrue, reason: '기록하면 그 날이 체크됩니다');
-      expect(find.byType(WorkoutSessionScreen), findsNothing, reason: '저장하면 닫힙니다');
-      expect(find.textContaining('헬스 40분'), findsOneWidget, reason: '수고했다는 토스트');
+      /* 스낵바가 아니라 폭죽 — 헬스도 맨몸 운동과 같은 축하를 받습니다. */
+      expect(find.textContaining('kcal 소모했어요! 축하합니다'), findsOneWidget);
+      expect(find.textContaining('헬스 40:00'), findsOneWidget);
+      expect(find.byType(Confetti), findsOneWidget);
+      await t.tap(find.text('닫기'));
+      await t.pumpAndSettle();
+      expect(find.byType(WorkoutSessionScreen), findsNothing, reason: '축하를 닫으면 화면도 닫힙니다');
+    });
+
+    testWidgets('9초만 재고 종료해도 잰 값으로 저장된다 — 1분 미만이라고 다시 묻지 않는다', (t) async {
+      final app = await seeded();
+      final day = gymDay(app);
+      await open(t, app, WorkoutSessionScreen(dateKey: day, type: 'gym'));
+      await t.tap(find.text('시작'));
+      await t.pump();
+      now = now.add(const Duration(seconds: 9));
+      await t.pump(const Duration(seconds: 1));
+      await t.tap(find.text('종료'));
+      await t.pumpAndSettle();
+      expect(find.descendant(of: find.byType(Stat), matching: find.text('00:09')), findsOneWidget);
+      expect(find.widgetWithText(TextField, '운동 시간'), findsNothing);
+      final save = t.widget<FilledButton>(find.widgetWithText(FilledButton, '저장'));
+      expect(save.onPressed, isNotNull, reason: '9초도 잰 값입니다');
+      await t.tap(find.text('저장'));
+      await t.pumpAndSettle();
+      final log = logOf(app, day, 'gym');
+      expect(log['seconds'], 9);
+      expect(log['minutes'], 1, reason: '기록의 분은 1 아래로 안 내려갑니다');
+      await t.tap(find.text('닫기'));
+      await t.pumpAndSettle();
+    });
+
+    testWidgets('시작을 안 눌렀으면 분을 넣는 칸이 나온다', (t) async {
+      final app = await seeded();
+      final day = gymDay(app);
+      await open(t, app, WorkoutSessionScreen(dateKey: day, type: 'gym'));
+      await t.tap(find.text('종료'));
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(TextField, '운동 시간'), findsOneWidget);
+      expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '저장')).onPressed, isNull);
+      await t.enterText(find.widgetWithText(TextField, '운동 시간'), '35');
+      await t.pump();
+      await t.tap(find.text('저장'));
+      await t.pumpAndSettle();
+      final log = logOf(app, day, 'gym');
+      expect(log['minutes'], 35);
+      expect(log['seconds'], 2100);
+      expect(find.textContaining('헬스 35분'), findsOneWidget);
+      await t.tap(find.text('닫기'));
+      await t.pumpAndSettle();
+    });
+
+    testWidgets('세트를 누르고 같은 초에 종료해도 갇히지 않는다 — 0초면 분 칸이 나온다', (t) async {
+      final app = await seeded();
+      final day = gymDay(app);
+      await open(t, app, WorkoutSessionScreen(dateKey: day, type: 'gym'));
+      /* 세트를 누르면 시계가 알아서 켜집니다 — 시계를 안 움직인 채 바로 종료. */
+      await t.tap(anySetButton().first);
+      await t.pump();
+      expect(find.text('일시정지'), findsOneWidget);
+      await t.tap(find.text('종료'));
+      await t.pumpAndSettle();
+      expect(find.widgetWithText(TextField, '운동 시간'), findsOneWidget, reason: '0초는 잰 시간이 아닙니다');
+      expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '저장')).onPressed, isNull);
+      await t.enterText(find.widgetWithText(TextField, '운동 시간'), '20');
+      await t.pump();
+      await t.tap(find.text('저장'));
+      await t.pumpAndSettle();
+      final log = logOf(app, day, 'gym');
+      expect(log['minutes'], 20);
+      expect(log['seconds'], 1200);
+      expect(log['sets'], 1);
+      expect(find.textContaining('헬스 20분'), findsOneWidget);
+      await t.tap(find.text('닫기'));
+      await t.pumpAndSettle();
     });
 
     testWidgets('플랜이 없어도 전신 기본 종목이 나온다', (t) async {
       final app = await seeded(withPlan: false);
       await open(t, app, WorkoutSessionScreen(dateKey: _todayKey, type: 'gym'));
       expect(find.text('오늘 플랜에 없는 날 — 전신 기본 종목'), findsOneWidget);
-      expect(find.textContaining('세트 완료 (0/'), findsWidgets);
+      expect(anySetButton(), findsWidgets);
+      expect(find.textContaining(RegExp(r'^0/\d+ 세트$')), findsOneWidget, reason: '아직 한 세트도 안 했습니다');
     });
   });
 
@@ -219,14 +308,18 @@ void main() {
       final log = logOf(app, _todayKey, 'cardio');
       expect(log['kind'], 'run');
       expect(log['minutes'], 30);
+      expect(log['seconds'], 1800);
       expect(log['km'], 5.0);
       expect(log['kcal'], expectKcal.round());
       expect(core.jsTruthy((app.store.scheduleDay(_todayKey)['done'] as Map)['cardio']), isTrue);
+      expect(find.textContaining('kcal 소모했어요! 축하합니다'), findsOneWidget);
+      expect(find.textContaining('달리기 30분 · 5.0km'), findsOneWidget);
+      await t.tap(find.text('닫기'));
+      await t.pumpAndSettle();
       expect(find.byType(WorkoutSessionScreen), findsNothing);
-      expect(find.textContaining('달리기 30분'), findsOneWidget);
     });
 
-    testWidgets('시계로 잰 시간이 종료 시트에 미리 들어간다', (t) async {
+    testWidgets('시계로 잰 시간은 그대로 쓴다 — 종료 시트에 시간 칸이 없다', (t) async {
       final app = await seeded();
       await open(t, app, WorkoutSessionScreen(dateKey: _todayKey, type: 'cardio'));
       await t.tap(find.text('시작'));
@@ -235,8 +328,27 @@ void main() {
       await t.pump(const Duration(seconds: 1));
       await t.tap(find.text('종료'));
       await t.pumpAndSettle();
-      final field = t.widget<TextField>(find.widgetWithText(TextField, '시간'));
-      expect(field.controller!.text, '26', reason: '25분 40초는 26분으로 반올림');
+      expect(find.widgetWithText(TextField, '시간'), findsNothing, reason: '쟀는데 또 묻지 않습니다');
+      expect(find.descendant(of: find.byType(Stat), matching: find.text('25:40')), findsOneWidget);
+      expect(find.widgetWithText(TextField, '거리'), findsOneWidget, reason: '거리는 시계가 모릅니다');
+      await t.tap(find.text('저장'));
+      await t.pumpAndSettle();
+      final log = logOf(app, _todayKey, 'cardio');
+      expect(log['seconds'], 25 * 60 + 40);
+      expect(log['minutes'], 26, reason: '25분 40초는 26분으로 반올림');
+      expect(log['km'], isNull);
+      expect(find.textContaining('걷기 25:40'), findsOneWidget);
+      await t.tap(find.text('닫기'));
+      await t.pumpAndSettle();
+    });
+
+    testWidgets('시계를 켜면 「시간을 직접 넣기」 는 사라진다 — 종료 시트에 분 칸이 없으니까', (t) async {
+      final app = await seeded();
+      await open(t, app, WorkoutSessionScreen(dateKey: _todayKey, type: 'cardio'));
+      expect(find.text('시간을 직접 넣기'), findsOneWidget);
+      await t.tap(find.text('시작'));
+      await t.pump();
+      expect(find.text('시간을 직접 넣기'), findsNothing);
     });
   });
 
@@ -445,6 +557,15 @@ void main() {
     });
   });
 }
+
+/// 종목 줄과 그 줄의 「세트」 단추. 화면이 종목 이름의 slug 로 키를 답니다 —
+/// 글자('세트')는 줄마다 같아서 글자로는 어느 줄인지 못 고릅니다.
+Finder exerciseRow(String name) => find.byKey(ValueKey('ex-${slugOf(name)}'));
+Finder setButton(String name) => find.byKey(ValueKey('set-${slugOf(name)}'));
+
+/// 아무 종목의 「세트」 단추 — 어떤 종목이 나왔는지는 상관없을 때.
+Finder anySetButton() => find.byWidgetPredicate(
+    (w) => w.key is ValueKey<String> && (w.key as ValueKey<String>).value.startsWith('set-'));
 
 /// 화면을 push 로 여는 자리. 저장하면 여기로 돌아옵니다.
 class _Launch extends StatelessWidget {

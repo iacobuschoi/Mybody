@@ -24,6 +24,7 @@ import '../pokes.dart';
 import '../scope.dart';
 import '../shell.dart';
 import '../ui/fmt.dart';
+import '../ui/symbols.dart';
 import '../ui/widgets.dart';
 import 'news.dart';
 
@@ -336,6 +337,12 @@ class _FriendRow extends StatelessWidget {
     final snap = (person['snapshot'] as Map?)?.cast<String, dynamic>();
     final planned = snap?['plannedDays'];
     final kept = snap?['keptDays'];
+    /* 오늘 할 일 — 상세의 오늘 카드와 **같은 함수**로 만듭니다. 목록에서
+       "헬스 했네" 하고 들어갔는데 상세가 다른 말을 하면 어느 쪽을 믿어야
+       할지 모릅니다. 공유한 것이 없으면 줄 자체가 없습니다. */
+    final items = snap == null
+        ? const <TodayItem>[]
+        : friendTodayItems(snap, Scope.of(context).store.dayKey());
 
     return Row(children: [
       Avatar(displayName: '${person['displayName']}', id: '${person['id']}',
@@ -344,6 +351,7 @@ class _FriendRow extends StatelessWidget {
       Expanded(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('${person['displayName']}', style: t.textTheme.titleSmall),
+          if (items.isNotEmpty) _TodayStrip(items: items),
           /* 친구가 **안 한 것**은 말하지 않습니다. 공유가 꺼져 있거나
              아직 안 올린 것도 "안 했다" 가 아닙니다. */
           Text(
@@ -473,8 +481,8 @@ const _shareFields = [
   ('planProgress', '목표 진행률'),
 ];
 
-/// 친구 한 사람. **친구에 대한 것**이 먼저입니다 — 스트릭, 오늘 식단,
-/// 이번 주 운동. 내가 뭘 보여 주는지는 아래에 접어 둡니다.
+/// 친구 한 사람. **친구에 대한 것**이 먼저입니다 — 스트릭, 오늘 할 일,
+/// 오늘 식단, 이번 주 운동. 내가 뭘 보여 주는지는 아래에 접어 둡니다.
 class FriendDetailScreen extends StatefulWidget {
   const FriendDetailScreen({super.key, required this.person});
   final Map<String, dynamic> person;
@@ -569,6 +577,7 @@ class _FriendDetailScreenState extends State<FriendDetailScreen> {
       appBar: AppBar(title: Text('${widget.person['displayName']}')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
         _FriendHeader(person: widget.person, snap: snap, streaks: streaks),
+        _FriendTodayCard(snap: snap),
         _FriendDietCard(today: today),
         _FriendWeekCard(snap: snap, week: week),
         if (_hasBody(snap)) _FriendBodyCard(snap: snap),
@@ -743,6 +752,223 @@ class _StreakTile extends StatelessWidget {
   }
 }
 
+/* --- 오늘 할 일 — 친구 상세와 친구 목록이 같은 줄을 봅니다 ------------------
+ *
+ * 주인이 v0.2.9 를 써 보고 말했습니다: "친구 탭에도 친구의 오늘 할 일
+ * 대시보드를 보여 주고, 한 것은 했다고 표시되게." 이번 주 띠(요일별 점)는
+ * 한 주를 한눈에 보는 그림이지 오늘의 목록이 아니라서, "오늘 헬스 갔나" 를
+ * 읽으려면 점을 세어야 했습니다. 그래서 오늘 것만 줄로 폅니다.
+ *
+ * 여기서 **새로 나가는 정보는 하나도 없습니다.** 스냅샷은 이미 서버가 그
+ * 친구의 공유 스위치로 걸러서 보낸 것이고(server/db.js friendSnapshots —
+ * 허용 안 된 키는 응답에 존재하지 않습니다), 이 함수는 그 안에 든 것을 줄로
+ * 펼 뿐입니다. week 가 없으면 운동 줄이 없고, today 가 없으면 식단 줄이
+ * 없고, checkedIn 이 없으면 체크인 줄이 없습니다. **안 보낸 것을 "안 했다"
+ * 로 그리지 않습니다** — 빈 동그라미는 "보냈는데 아직" 에만 붙습니다.
+ * -------------------------------------------------------------------------- */
+
+/// 오늘 할 일 한 줄. id 는 'gym' · 'cardio' · 'diet' · 'checkin'.
+typedef TodayItem = ({String id, String label, bool done, String? detail});
+
+List<TodayItem> friendTodayItems(Map<String, dynamic> snap, String todayKey) {
+  final out = <TodayItem>[];
+
+  /* 운동 — 이번 주 요일별 계획에서 오늘 칸만. 종목 순서는 kSchedTypes
+     (헬스 다음 유산소) 그대로라, 계획 목록이 어떤 순서로 왔든 화면은 같습니다. */
+  final day = friendTodayDay(snap, todayKey);
+  if (day != null) {
+    final plan = (day['plan'] as List?) ?? const [];
+    final done = (day['done'] as List?) ?? const [];
+    for (final ty in core.kSchedTypes) {
+      final id = ty['id']!;
+      if (!plan.contains(id)) continue;
+      out.add((id: id, label: ty['label']!, done: done.contains(id), detail: null));
+    }
+  }
+
+  /* 식단 — today 는 친구 기기가 마지막으로 올린 **그 사람의 오늘**입니다.
+     어제 올리고 오늘 아직 앱을 안 열었으면 date 가 어제라, 그걸 그대로
+     그리면 어제 먹은 1800kcal 이 오늘 한 일로 둔갑합니다. 날짜가 다르면
+     "아직" 으로 둡니다 — 오늘 것은 아직 안 올라온 것이니까요. (date 가 없는
+     옛 꾸러미는 logged 를 그대로 믿습니다.) */
+  final today = (snap['today'] as Map?)?.cast<String, dynamic>();
+  if (today != null) {
+    final sameDay = today['date'] == null || '${today['date']}' == todayKey;
+    final logged = sameDay && core.jsTruthy(today['logged']);
+    out.add((
+      id: 'diet',
+      label: '식단 기록',
+      done: logged,
+      detail: logged && today['kcal'] != null ? '${n0(today['kcal'])} kcal' : null,
+    ));
+  }
+
+  /* 이번 주 체크인 — 주 단위지만 오늘 할 일에 넣습니다. 이번 주에 아직이면
+     오늘 하면 되는 일이고, 했으면 이번 주는 끝난 일이라 체크가 남습니다. */
+  if (snap['checkedIn'] != null) {
+    out.add((
+      id: 'checkin',
+      label: '이번 주 체크인',
+      done: core.jsTruthy(snap['checkedIn']),
+      detail: null,
+    ));
+  }
+  return out;
+}
+
+/// 이번 주 요일별 목록에서 오늘 칸. 일정을 공유하지 않으면(week 없음) null,
+/// 공유는 하는데 오늘 칸이 없어도(지난주에 올린 스냅샷) null — 둘 다
+/// "오늘 것은 모른다" 입니다. 쉬는 날(계획이 빈 칸)과는 다릅니다.
+Map<String, dynamic>? friendTodayDay(Map<String, dynamic> snap, String todayKey) {
+  final days = ((snap['week'] as Map?)?['days'] as List?) ?? const [];
+  for (final d in days) {
+    if (d is Map && '${d['key']}' == todayKey) return d.cast<String, dynamic>();
+  }
+  return null;
+}
+
+/// 오늘 줄 하나의 종목 아이콘 — 운동은 종목대로, 식단은 포크, 체크인은 클립보드.
+IconData _todayIcon(String id) => switch (id) {
+      'diet' => LucideIcons.utensils,
+      'checkin' => LucideIcons.clipboardCheck,
+      _ => schedIcon(id),
+    };
+
+/* 오늘 — 친구가 오늘 하기로 한 것과 한 것. 한 줄에 하나, 한 것은 초록 체크,
+   아직인 것은 빈 동그라미. 이번 주 띠는 그대로 두고 그 위에 얹습니다 —
+   띠는 한 주의 그림이고, 이건 오늘의 목록입니다. */
+class _FriendTodayCard extends StatelessWidget {
+  const _FriendTodayCard({required this.snap});
+  final Map<String, dynamic> snap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final hint = t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5);
+    final todayKey = Scope.of(context).store.dayKey();
+    final items = friendTodayItems(snap, todayKey);
+    final weekShared = snap['week'] is Map;
+    final shared = weekShared || snap['today'] != null || snap['checkedIn'] != null;
+    final hasWorkout = items.any((i) => core.kSchedTypes.any((ty) => ty['id'] == i.id));
+    final done = items.where((i) => i.done).length;
+    final title = t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700);
+
+    /* 아무것도 공유 안 하는 친구 — 제목 옆에 작게, 한 줄짜리 카드. 바로 밑의
+       식단·일정 카드가 각자 "공유하지 않습니다" 를 이미 말하고 있어서, 여기까지
+       제목 밑에 한 줄을 더 달면 화면이 "안 보여 줌" 으로 도배됩니다. 접힌 공유
+       설정이 그만큼 아래로 밀리는 것도 싫습니다 — 그게 이 화면에서 켜고 끄는
+       자리니까요. */
+    if (!shared) {
+      return MbCard(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        child: Row(children: [
+          Text('오늘', style: title),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text('이 친구가 오늘 할 일을 공유하지 않습니다.',
+                textAlign: TextAlign.right, style: hint),
+          ),
+        ]),
+      );
+    }
+
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SectionTitle('오늘',
+            trailing: items.isEmpty
+                ? null
+                : Text('$done/${items.length} 완료',
+                    style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+        /* 일정은 공유하는데 오늘 칸이 비었으면 — 쉬는 날입니다. 줄 하나로
+           조용히. 오늘 칸 자체가 없으면(지난주에 올린 스냅샷) 쉬는 날이라고
+           단정하지 않습니다 — 아직 안 올라온 것입니다. */
+        if (weekShared && !hasWorkout)
+          Text(
+              friendTodayDay(snap, todayKey) == null
+                  ? '오늘 계획은 아직 안 올라왔어요'
+                  : '오늘은 운동 계획이 없어요',
+              style: hint),
+        for (final it in items) _TodayLine(item: it),
+      ]),
+    );
+  }
+}
+
+/* 줄 하나 — 체크(했음) 또는 빈 동그라미(아직), 이름, 오른쪽에 작은 덧말. */
+class _TodayLine extends StatelessWidget {
+  const _TodayLine({required this.item});
+  final TodayItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final c = mb(context);
+    final color = item.done ? c.ok : t.hintColor;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Row(children: [
+        Icon(item.done ? LucideIcons.checkCircle2 : LucideIcons.circle, size: 18, color: color),
+        const SizedBox(width: 10),
+        Icon(_todayIcon(item.id), size: 16, color: t.hintColor),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(item.label,
+              style: t.textTheme.bodyMedium
+                  ?.copyWith(fontWeight: item.done ? FontWeight.w600 : FontWeight.w400)),
+        ),
+        if (item.detail != null)
+          Text(item.detail!, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+      ]),
+    );
+  }
+}
+
+/* 친구 목록의 오늘 한 줄 — 상세의 오늘 카드를 아이콘으로 줄인 것.
+   종목 아이콘 · 체크(했음)/빈 동그라미(아직) · 짧은 이름. 좁은 폰에서 넷이
+   한 줄에 안 들어가면 다음 줄로 흘립니다 — 잘라 먹는 것보다 낫습니다. */
+class _TodayStrip extends StatelessWidget {
+  const _TodayStrip({required this.items});
+  final List<TodayItem> items;
+
+  /// 목록에선 짧게 — '식단 기록' 은 '식단', '이번 주 체크인' 은 '체크인'.
+  static String _short(TodayItem it) => switch (it.id) {
+        'diet' => '식단',
+        'checkin' => '체크인',
+        _ => it.label,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final c = mb(context);
+    final small = t.textTheme.labelSmall?.copyWith(color: t.hintColor);
+    return Padding(
+      padding: const EdgeInsets.only(top: 2, bottom: 2),
+      child: Wrap(crossAxisAlignment: WrapCrossAlignment.center, runSpacing: 2, children: [
+        for (var i = 0; i < items.length; i++)
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            if (i > 0) Text(' · ', style: small),
+            Icon(_todayIcon(items[i].id), size: 13, color: items[i].done ? c.ok : t.hintColor),
+            const SizedBox(width: 2),
+            Icon(items[i].done ? LucideIcons.checkCircle2 : LucideIcons.circle,
+                size: 12, color: items[i].done ? c.ok : t.hintColor),
+            const SizedBox(width: 2),
+            /* 이름 칸은 오른쪽의 「이번 주 기록」 · 독촉 단추에 밀려 360px 폰에서 70px 남짓까지
+               좁아집니다. 글자가 줄어들 수 있어야 한 줄이 칸을 넘치지 않습니다. */
+            Flexible(
+              child: Text(_short(items[i]),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: small?.copyWith(
+                      color: items[i].done ? c.ok : t.hintColor,
+                      fontWeight: items[i].done ? FontWeight.w600 : FontWeight.w400)),
+            ),
+          ]),
+      ]),
+    );
+  }
+}
+
 /* 오늘 식단 — 먹은 것 / 목표. 친구가 **안 한 것**은 말하지 않습니다:
    공유를 껐거나 아직 안 적은 것은 "안 먹었다" 가 아닙니다. */
 class _FriendDietCard extends StatelessWidget {
@@ -848,11 +1074,12 @@ class _FriendWeekCard extends StatelessWidget {
     final open = core.jsToNumber(snap['openDays'] ?? 0);
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        /* 하기로 한 날이 없으면 오른쪽은 비웁니다. 예전엔 '정한 날 없음' 을
+           달았는데, 바로 위 오늘 카드가 이미 "오늘은 운동 계획이 없어요" 라고
+           말합니다 — 같은 말을 두 번 하면 잔소리가 됩니다. */
         SectionTitle('이번 주 운동',
             trailing: Text(
-                planned != null
-                    ? '${n0(snap['keptDays'])}/${n0(planned)}일 완료'
-                    : (week == null ? '' : '정한 날 없음'),
+                planned != null ? '${n0(snap['keptDays'])}/${n0(planned)}일 완료' : '',
                 style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
         if (week == null || days.isEmpty)
           Text('이 친구가 운동 일정을 공유하지 않습니다.', style: hint)

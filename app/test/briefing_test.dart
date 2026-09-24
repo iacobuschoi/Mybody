@@ -188,6 +188,18 @@ void main() {
     expect(b.primary?.arg, {'date': key, 'type': 'bodyweight'});
   });
 
+  test('유산소 회당 분 — 적어 둔 날이 하루뿐이어도 주 분량을 통째로 주지 않는다', () {
+    /* 주 96분(a=0.2)을 유산소 한 날에 다 몰면 96분 — 엔진 처방은 "40분 × 2회" 입니다. */
+    expect(cardioSessionMinutes(96, 1), 48);
+    expect(cardioSessionMinutes(96, 2), 48);
+    /* 날을 더 적어 두면 그만큼 나눕니다. */
+    expect(cardioSessionMinutes(96, 4), 24);
+    /* 120분부터 3회, 180분부터 6회(Z2 4 + HIIT 2). */
+    expect(cardioSessionMinutes(150, 1), 50);
+    expect(cardioSessionMinutes(240, 1), 40);
+    expect(cardioSessionMinutes(0, 1), isNull);
+  });
+
   test('유산소 — 헬스가 주 버튼이면 보조, 헬스를 마쳤으면 주 버튼', () async {
     final app = await seeded();
     final (dow, label) = gymDay(app);

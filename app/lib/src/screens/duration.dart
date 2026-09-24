@@ -7,13 +7,20 @@
  * 하면 사람은 너무 먼 숫자를 고르고, 그 계획은 두 달을 못 넘깁니다.
  * "12주면 여기까지" 를 보고 고르는 편이 지키는 계획이 됩니다.
  *
- * 숫자를 늘어놓지 않습니다. 카드마다 지금 → 그때 막대 두 줄(체지방 · 골격근)
- * 이 먼저이고, 숫자는 그 밑에 작게 둡니다. 옵션들의 체지방 궤적은 차트 한
- * 장에 겹쳐서 어느 것이 얼마나 다른지 눈으로 비교하게 합니다.
+ * 숫자를 늘어놓지 않습니다. 카드마다 체지방 · 골격근 두 줄이고, 줄에서 가장 큰
+ * 숫자는 **변화량**('−2.9 kg', 방향의 색)입니다. 지금 → 그때는 그 옆에 작게,
+ * 막대 두 줄은 그 밑에. 0.2.9 를 폰에서 써 본 첫 반응이 "텍스트를 줄이고 체지방 ·
+ * 골격근 변화를 확실히 보이게" 였습니다 — 숫자 여섯 개를 작은 두 줄에 늘어놓으니
+ * 정작 봐야 할 변화가 그 사이에 묻혔습니다. 옵션들의 체지방 궤적은 차트 한 장에
+ * 겹쳐서 어느 것이 얼마나 다른지 눈으로 비교하게 합니다.
  *
- * 고르고 나면 기존 흐름(IntensityScreen → compareLevels → buildPlan → 저장)을
- * 그대로 탑니다 — 목표 세 숫자와 마감 주수만 넘깁니다. 계획을 만드는 길이
- * 둘이 되면 둘 중 하나는 반드시 뒤처집니다.
+ * 고르면 **여기서 바로 계획을 세웁니다** (compareLevels → buildPlan → 저장). 예전에는
+ * 고른 뒤 강도 화면(intensity.dart)을 한 번 더 밀어 12 · 18 · 23주 카드를 다시
+ * 고르게 했는데, "이미 앞에서 기간 골랐는데 또 기간을 고를 필요 없어" 가 맞는
+ * 말입니다. 강도 화면이 그때 하던 일은 고른 주수 ±1주 안에서 이 옵션과 같은
+ * 공격성의 카드를 골라 두는 것(initialLevel)뿐이라, 그 고르기만 가져와 사람 없이
+ * 돌립니다. 계산은 강도 화면의 _commit 과 같은 식입니다 — 계획을 만드는 길이
+ * 둘이어도 계산이 둘이면 둘 중 하나는 반드시 뒤처집니다.
  * ========================================================================== */
 import 'dart:math' as math;
 
@@ -58,13 +65,14 @@ class DurationScreen extends StatelessWidget {
   }
 }
 
-/// 기간 고르기 → 옵션 보기 → 하나 고르기. 목록(ListView) 안에 한 덩이로 들어갑니다.
+/// 기간 고르기 → 옵션 보기 → 하나 고르기 → 계획 저장. 목록(ListView) 안에 한 덩이로 들어갑니다.
 class DurationPanel extends StatefulWidget {
   const DurationPanel({super.key, this.compute, this.initialWeeks = kDurationDefault, this.onPick});
   final DurationCompute? compute;
   final int initialWeeks;
 
-  /// 고른 목표를 받을 곳. 없으면 [IntensityScreen] 을 밀어 올립니다.
+  /// 고른 목표를 받을 곳(시험이 목표 표만 받아 볼 때). 없으면 여기서 바로 계획을
+  /// 세워 저장하고, 이 판이 선 화면을 닫습니다.
   final void Function(Map<String, Object?> goal)? onPick;
 
   @override
@@ -117,11 +125,15 @@ class _DurationPanelState extends State<DurationPanel> {
     final selected = _find(options, _selectedId);
     final t = Theme.of(context);
     final c = mb(context);
+    final hint = t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5);
 
     /* 막대의 자는 모든 카드가 같이 씁니다 — 카드마다 따로 재면 "더 긴 막대 =
        더 많이" 가 카드 사이에서 안 통합니다. */
     final fatMax = _maxOf(cur, options, 'bfmKg');
     final smmMax = _maxOf(cur, options, 'smmKg');
+    /* 운동 횟수는 카드마다가 아니라 위에 한 번 — 모든 카드가 같은 값일 때만. 다르면
+       (null) 카드가 각자 적습니다. 왜 늘 같은지는 [trainingLine] 에. */
+    final training = trainingLine(options, profile);
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       _WeeksCard(weeks: _weeks, onChanged: (w) => setState(() => _weeks = w)),
@@ -144,8 +156,13 @@ class _DurationPanelState extends State<DurationPanel> {
         ),
         Padding(
           padding: const EdgeInsets.only(left: 2, bottom: 8),
-          child: Text('카드의 막대는 연한 줄이 지금, 진한 줄이 그때입니다. 눌러서 고릅니다.',
-              style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            if (training != null)
+              Text(training, key: const Key('training-line'), style: hint),
+            /* 막대 읽는 법은 이 한마디면 됩니다 — 긴 문장은 카드보다 먼저 읽히면서
+               정작 카드를 화면 아래로 밀었습니다. */
+            Text('연한 줄 지금 · 진한 줄 그때', style: hint),
+          ]),
         ),
         for (final g in groupByDirection(options)) ...[
           _DirectionHeader(label: g.label, color: g.direction == 'bulk' ? c.muscle : c.fat),
@@ -158,13 +175,14 @@ class _DurationPanelState extends State<DurationPanel> {
               smmMax: smmMax,
               selected: o['id'] == _selectedId,
               recommended: recommended != null && o['id'] == recommended,
+              showDays: training == null,
               onTap: () => setState(() => _selectedId = '${o['id']}'),
             ),
         ],
       ],
       FilledButton(
         onPressed: selected == null ? null : () => _go(res, selected),
-        child: const Text('이 목표로 기간 고르기'),
+        child: const Text('이 계획으로 시작하기'),
       ),
     ]);
   }
@@ -215,12 +233,12 @@ class _DurationPanelState extends State<DurationPanel> {
 
   void _go(Map<String, Object?> res, Map<String, Object?> o) {
     final g = (o['goal'] as Map).cast<String, Object?>();
-    /* 옵션의 공격성도 넘깁니다 — 강도 화면이 마감 ±1주 안의 카드 중 이 값에 가장
-       가까운 것을 골라 둡니다. 여기서 본 식단과 같은 카드여야 합니다. */
+    /* 옵션의 공격성도 — 마감 ±1주 안의 카드 중 이 값에 가장 가까운 것을 고릅니다.
+       여기서 본 식단과 같은 카드여야 합니다. */
     final a = o['a'];
     /* 마감은 엔진이 실제로 계산한 주수로 — 엔진이 값을 다듬었으면 그쪽이
        맞습니다. 세 숫자는 엔진이 준 그대로 넘깁니다(반올림하면 셋이 서로
-       어긋납니다). */
+       어긋납니다). 화면 사정(공격성)은 표에 안 섞습니다 — 저장되는 목표입니다. */
     final weeks = res['weeks'] == null ? _weeks : core.jsToNumber(res['weeks']).round();
     final goal = <String, Object?>{
       'weightKg': core.jsToNumber(g['weightKg']),
@@ -233,10 +251,93 @@ class _DurationPanelState extends State<DurationPanel> {
       onPick(goal);
       return;
     }
-    Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => IntensityScreen(
-            goal: goal, fromDuration: true, preferA: a is num ? a.toDouble() : null)));
+    _start(goal, weeks, a is num ? a.toDouble() : null);
   }
+
+  /* 계획을 세우고 저장하는 자리. 강도 화면의 _commit 과 같은 순서입니다 — compareLevels
+     로 세 강도를 세우고, 고른 주수 ±1주 안에서 이 옵션과 같은 공격성의 카드(없으면
+     가장 가까운 카드)를 골라(initialLevel) buildPlan. 이 판은 기간을 두고 몸을 찾고
+     compareLevels 는 몸을 두고 기간을 찾아서, 같은 몸이라도 카드의 주수가 고른 주수와
+     한두 주 어긋날 수 있습니다 — 그래서 ±1주입니다. 막힌 카드는 initialLevel 이 안
+     고르지만, 저장하는 자리가 마지막 문이라 한 번 더 거릅니다. */
+  void _start(Map<String, Object?> goal, int weeks, double? preferA) {
+    final app = Scope.of(context);
+    final scans = app.store.sortedScans();
+    if (scans.isEmpty) return; // build 가 먼저 막습니다 — 측정 없이는 카드도 없습니다
+    final profile = app.profile ?? core.kSeedProfile;
+    final cmp = core.compareLevels(scans.last, profile, goal, app.store.dayKey(), weeks, null);
+    if (cmp['impossible'] == true) {
+      /* 이 판이 그 주수 안에 닿는다고 계산한 몸이라 실제로는 안 옵니다만, 오면 엔진의
+         말(왜 못 가는지)을 그대로 — 우리 말로 바꾸면 이유가 빠집니다. */
+      final w = (cmp['warnings'] as List?) ?? const [];
+      toast(context, w.isEmpty ? kNoOpenLevelMessage : '${w.first}');
+      return;
+    }
+    final results = resultsOf(cmp);
+    final level =
+        initialLevel(results, cmp['recommended'], deadlineWeeks: weeks, preferA: preferA);
+    Map<String, Object?>? sel;
+    for (final r in results) {
+      if (level != null && r['level'] == level) sel = r;
+    }
+    if (sel == null || isBlocked(sel)) {
+      toast(context, sel == null ? kNoOpenLevelMessage : blockedMessage(sel));
+      return;
+    }
+    final plan = core.buildPlan(cmp, level, scans.last, profile);
+    if (plan == null) {
+      toast(context, '계획을 만들지 못했습니다');
+      return;
+    }
+    app.store.setGoal(goal);
+    app.store.setPlan(plan);
+    if (!app.store.saved()) {
+      toast(context, '기기에 저장하지 못했습니다 — 계획이 남지 않습니다');
+      return;
+    }
+    /* 이 판은 목표 화면(또는 혼자 선 DurationScreen) 안에 있으니 한 번 pop 이면 그
+       화면이 닫히고 셸로 돌아갑니다. 강도 화면은 목표 화면 위에 밀려 있어서 두 번이었습니다. */
+    Navigator.of(context).pop();
+    toast(context, '계획을 세웠습니다');
+  }
+}
+
+/// 카드 위에 한 번 두는 운동 처방 — '운동 주 4회 · 회당 60분 — 내 몸 정보에서 정한 값입니다'.
+/// 모든 카드가 같은 횟수일 때만 그 줄이고, 카드마다 다르면 null(그때는 카드가 각자 적습니다).
+///
+/// 0.2.9 폰 시험에서 "왜 다 주 4회지?" 를 들었습니다. 엔진의 resolveTraining 은 어느
+/// 강도든 profile.daysPerWeek — 내 몸 정보에서 "주에 며칠 운동할 수 있는지" 로 받은
+/// 값 — 를 그대로 쓰므로(운동 처방은 식단 공격성이 아니라 낼 수 있는 시간이 정합니다)
+/// 카드마다 같은 숫자가 찍히고, 같은 숫자를 네 번 보면 카드가 그걸로 갈리는 줄 읽힙니다.
+/// 그래서 카드에서 빼고 위에 한 번만, 어디서 온 값인지와 함께 둡니다. 내 몸 정보에 횟수가
+/// 없으면 엔진이 강도마다 다르게 잡으므로(params.days) 그때는 카드마다 다를 수 있습니다.
+///
+/// 회당 시간도 같은 규칙 — 내 몸 정보에 있으면 모든 카드가 같고, 없으면 강도마다 달라서
+/// 같을 때만 붙입니다. 출처("내 몸 정보에서 정한 값")는 정말 거기서 왔을 때만 말합니다.
+String? trainingLine(List<Map<String, Object?>> options, Map<String, Object?> profile) {
+  if (options.isEmpty) return null;
+  /* 모든 카드가 같은 값을 들고 있을 때만 그 값. 하나라도 없거나 다르면 null.
+     엔진은 숫자로 주지만 손으로 만든 표나 옛 저장본은 "4" 일 수 있어 숫자로 읽습니다. */
+  double? shared(String key) {
+    double? v;
+    for (final o in options) {
+      if (o[key] == null) return null;
+      final n = core.jsToNumber(o[key]);
+      if (!n.isFinite) return null;
+      if (v == null) {
+        v = n;
+      } else if (v != n) {
+        return null;
+      }
+    }
+    return v;
+  }
+
+  final days = shared('daysPerWeek');
+  if (days == null) return null;
+  final minutes = shared('sessionMinutes');
+  final from = core.jsTruthy(profile['daysPerWeek']) ? ' — 내 몸 정보에서 정한 값입니다' : '';
+  return '운동 주 ${n0(days)}회${minutes == null ? '' : ' · 회당 ${n0(minutes)}분'}$from';
 }
 
 /// 차트 범례 — '감량 중'. 엔진이 방향 이름 그대로 한 장('증량')으로 준 카드는
@@ -375,6 +476,8 @@ class _DirectionHeader extends StatelessWidget {
   }
 }
 
+/// 옵션 한 장. 제목 줄(강도 · 추천 · 체중), 체지방 줄, 골격근 줄, 식단 한 줄 — 그게
+/// 전부입니다. 줄마다 변화량이 주인공이고 나머지는 작습니다.
 class _OptionCard extends StatelessWidget {
   const _OptionCard({
     super.key,
@@ -384,12 +487,17 @@ class _OptionCard extends StatelessWidget {
     required this.smmMax,
     required this.selected,
     required this.recommended,
+    required this.showDays,
     required this.onTap,
   });
   final Map<String, Object?> o;
   final Map<String, Object?> cur;
   final double fatMax, smmMax;
   final bool selected, recommended;
+
+  /// 운동 횟수를 이 카드에 적을지. 보통은 위의 한 줄([trainingLine])이 대신하고,
+  /// 카드마다 횟수가 다를 때만 카드가 각자 적습니다.
+  final bool showDays;
   final VoidCallback onTap;
 
   @override
@@ -404,6 +512,16 @@ class _OptionCard extends StatelessWidget {
         (stoppedAt == null ? null : '${n0(stoppedAt)}주째에 멈춥니다 — 그 뒤로는 더 못 갑니다.');
     final small = t.textTheme.labelSmall?.copyWith(
         color: t.hintColor, height: 1.5, fontFeatures: const [FontFeature.tabularFigures()]);
+
+    final fatNow = core.jsToNumber(cur['bfmKg']), fatThen = core.jsToNumber(goal['bfmKg']);
+    final smmNow = core.jsToNumber(cur['smmKg']), smmThen = core.jsToNumber(goal['smmKg']);
+    /* 변화량은 엔진이 r1 로 다듬어 보낸 값(delta)을 그대로 — 화면에서 다시 빼면 그때 −
+       지금이 카드의 세 숫자와 0.1 어긋나 보일 수 있습니다. 없을 때만 여기서 뺍니다. */
+    double changeOf(String key, double now, double then) =>
+        delta[key] == null ? then - now : core.jsToNumber(delta[key]);
+    /* 체지방률은 엔진이 궤적에서 준 값. 없으면 목표 화면과 같은 식(체지방 / 체중)으로. */
+    final weightThen = core.jsToNumber(goal['weightKg']);
+    final pbfThen = goal['pbfPct'] ?? (weightThen > 0 ? fatThen / weightThen * 100 : null);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -428,30 +546,30 @@ class _OptionCard extends StatelessWidget {
               const SizedBox(width: 8),
               if (recommended) const Pill('추천', tone: Tone.ok),
               const Spacer(),
-              Text('체중 ${n1(cur['weightKg'])} → ${n1(goal['weightKg'])}kg', style: small),
+              Text('체중 ${n1(cur['weightKg'])} → ${n1(weightThen)}', style: small),
             ]),
             const SizedBox(height: 10),
             _NowThen(
                 label: '체지방',
-                now: core.jsToNumber(cur['bfmKg']),
-                then: core.jsToNumber(goal['bfmKg']),
+                now: fatNow,
+                then: fatThen,
+                change: changeOf('bfmKg', fatNow, fatThen),
                 max: fatMax,
-                color: c.fat),
-            const SizedBox(height: 6),
+                color: c.fat,
+                extra: '${n1(cur['pbfPct'])} → ${n1(pbfThen)}%'),
+            const SizedBox(height: 10),
             _NowThen(
                 label: '골격근',
-                now: core.jsToNumber(cur['smmKg']),
-                then: core.jsToNumber(goal['smmKg']),
+                now: smmNow,
+                then: smmThen,
+                change: changeOf('smmKg', smmNow, smmThen),
                 max: smmMax,
                 color: c.muscle),
-            const SizedBox(height: 8),
+            const SizedBox(height: 10),
+            /* 식단은 한 줄. 운동 횟수는 위의 한 줄이 맡고, 카드마다 다를 때만 여기에. */
             Text(
-                'Δ체지방 ${signed(delta['bfmKg'])}kg · Δ근육 ${signed(delta['smmKg'])}kg · '
-                '체지방률 ${n1(cur['pbfPct'])}→${n1(goal['pbfPct'])}%',
-                style: small),
-            Text(
-                '하루 ${n0(o['intakeKcal'])} kcal · 단백질 ${n0(o['proteinG'])} g · '
-                '주 ${n0(o['daysPerWeek'])}회',
+                '하루 ${n0(o['intakeKcal'])} kcal · 단백질 ${n0(o['proteinG'])} g'
+                '${showDays ? ' · 주 ${n0(o['daysPerWeek'])}회' : ''}',
                 style: small),
             if (noteText != null) ...[
               const SizedBox(height: 6),
@@ -470,18 +588,26 @@ class _OptionCard extends StatelessWidget {
   }
 }
 
-/// 지금 → 그때 막대 두 줄. 연한 줄이 지금, 진한 줄이 그때입니다.
+/// 한 줄 — 이름표, **변화량**(줄에서 가장 큰 숫자, 방향의 색), 작은 지금 → 그때, 그 밑에
+/// 막대 두 줄(연한 줄이 지금, 진한 줄이 그때). 막대가 줄 너비를 다 쓰는 이유는 카드
+/// 사이의 "더 긴 막대 = 더 많이" 비교가 그림의 요점이라서 — 숫자 칸에 자리를 내주면
+/// 막대가 짧아져 그 차이가 안 보입니다.
 class _NowThen extends StatelessWidget {
   const _NowThen({
     required this.label,
     required this.now,
     required this.then,
+    required this.change,
     required this.max,
     required this.color,
+    this.extra,
   });
   final String label;
-  final double now, then, max;
+  final double now, then, change, max;
   final Color color;
+
+  /// 작은 글 뒤에 덧붙일 것 — 체지방 줄의 체지방률('23.1 → 19.9%').
+  final String? extra;
 
   double _frac(double v) =>
       (max > 0 && v.isFinite) ? (v / max).clamp(0.0, 1.0).toDouble() : 0.0;
@@ -489,6 +615,7 @@ class _NowThen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
+    const tabular = [FontFeature.tabularFigures()];
     Widget bar(double f, Color fill) => Container(
           height: 6,
           decoration: BoxDecoration(
@@ -501,25 +628,36 @@ class _NowThen extends StatelessWidget {
                 decoration: BoxDecoration(color: fill, borderRadius: BorderRadius.circular(3))),
           ),
         );
-    return Row(children: [
-      SizedBox(
-          width: 40,
-          child: Text(label, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
-      Expanded(
-        child: Column(children: [
-          bar(_frac(now), color.withValues(alpha: 0.35)),
-          const SizedBox(height: 3),
-          bar(_frac(then), color),
-        ]),
+    final detail = '${n1(now)} → ${n1(then)}${extra == null ? '' : ' · $extra'}';
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.baseline,
+        textBaseline: TextBaseline.alphabetic,
+        children: [
+          Text(label, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+          const SizedBox(width: 8),
+          Text('${signed(change)} kg',
+              style: t.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w800, color: color, fontFeatures: tabular)),
+          const SizedBox(width: 10),
+          /* 좁은 폰에서는 줄여서라도 한 줄에 — 변화량 옆에서 두 줄로 꺾이면 무엇의
+             지금 → 그때인지 흐려집니다(Stat 과 같은 이유). */
+          Expanded(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(detail,
+                  maxLines: 1,
+                  style: t.textTheme.labelSmall
+                      ?.copyWith(color: t.hintColor, fontFeatures: tabular)),
+            ),
+          ),
+        ],
       ),
-      const SizedBox(width: 8),
-      SizedBox(
-        width: 96,
-        child: Text('${n1(now)} → ${n1(then)}',
-            textAlign: TextAlign.right,
-            style: t.textTheme.labelSmall?.copyWith(
-                fontFeatures: const [FontFeature.tabularFigures()])),
-      ),
+      const SizedBox(height: 5),
+      bar(_frac(now), color.withValues(alpha: 0.35)),
+      const SizedBox(height: 3),
+      bar(_frac(then), color),
     ]);
   }
 }

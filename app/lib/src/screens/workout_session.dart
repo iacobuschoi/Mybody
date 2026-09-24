@@ -6,12 +6,17 @@
  * 썼는지. 이 화면은 그걸 남깁니다. 다만 헬스장에서 쓰는 화면이라 규칙이
  * 있습니다:
  *
- *   · 글자는 적게, 버튼은 크게. 땀 난 손으로, 한 손으로 누릅니다.
+ *   · 종목 목록이 주인공입니다. 줄 어디를 눌러도 한 세트가 올라가므로 표적은
+ *     여전히 크고(땀 난 손, 한 손), 시계와 시작 · 종료는 위에 한 줄로 작게 둡니다.
+ *     0.2.9 는 64px 시계 밑에 큰 버튼 둘, 줄마다 폭 가득한 보라색 「세트 완료」
+ *     버튼이었고 주인이 실기기에서 "UI 너무 못생겼어" 라고 했습니다 — 헬스장에서
+ *     보는 건 종목 이름이지 버튼이 아닙니다.
  *   · 시간은 시계가 잽니다. 화면이 다시 그려지든 말든 `_startedAt` 과 쌓인
  *     시간으로 계산하고, 주기 타이머는 숫자를 다시 그리는 용도뿐입니다.
  *     시계는 [WorkoutSessionScreen.clock] 으로 뚫어 두어 시험이 세울 수 있습니다.
  *   · 시작을 잊는 사람이 많습니다. 세트를 누르면 시간이 알아서 갑니다.
- *     끝낼 때 분을 고칠 수 있게 두어, 기록이 0분으로 남지 않습니다.
+ *     시계를 켰으면 잰 시간(초)이 기록이고 종료 시트는 다시 묻지 않습니다 —
+ *     분 칸은 시계를 안 켠 사람(이미 하고 온 사람)에게만 보입니다.
  *   · 아직 오지 않은 날은 저장을 막습니다(코어도 거부합니다) — 내일 할 운동을
  *     오늘 적는 건 기록이 아니라 소원입니다.
  *
@@ -23,11 +28,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../app_state.dart';
 import '../scope.dart';
+import '../ui/confetti.dart';
 import '../ui/fmt.dart';
 import '../ui/widgets.dart';
 import '../workout/bodyweight.dart';
@@ -193,7 +200,9 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
   bool get _running => _startedAt != null;
   Duration get _elapsed =>
       _accumulated + (_startedAt == null ? Duration.zero : _now().difference(_startedAt!));
-  int get _elapsedMinutes => (_elapsed.inSeconds / 60).round();
+  int get _elapsedSeconds => _elapsed.inSeconds;
+  /// 시계를 한 번이라도 켰는가. 켰으면 잰 시간이 답이고, 종료 시트는 다시 묻지 않습니다.
+  bool get _timed => _firstStartedAt != null;
   bool get _resting => _restEndsAt != null && _restEndsAt!.isAfter(_now());
   Duration get _restLeft => _resting ? _restEndsAt!.difference(_now()) : Duration.zero;
 
@@ -371,17 +380,27 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
               )
             : ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: [
                 if (future) _futureNote(),
+                /* 머리글 — 세션 이름, 몇 세트 했는지, 그 밑에 얇은 진행 막대. 종목이
+                   대여섯이면 스크롤하는 동안 전체가 안 보이므로 여기서 한눈에 잡습니다. */
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(children: [
-                    Expanded(
-                      child: Text(
-                        session == null ? '오늘 플랜에 없는 날 — 전신 기본 종목' : '${session['label']}',
-                        style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Row(children: [
+                      Expanded(
+                        child: Text(
+                          session == null ? '오늘 플랜에 없는 날 — 전신 기본 종목' : '${session['label']}',
+                          style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                        ),
                       ),
+                      Text('$doneSets/$totalSets 세트',
+                          style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+                    ]),
+                    const SizedBox(height: 6),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(3),
+                      child: LinearProgressIndicator(
+                          value: totalSets == 0 ? 0 : doneSets / totalSets, minHeight: 4),
                     ),
-                    Text('$doneSets/$totalSets 세트',
-                        style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
                   ]),
                 ),
                 for (final e in list)
@@ -397,34 +416,48 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     final list = _gym ?? const <_Ex>[];
     final doneSets = list.fold<int>(0, (a, e) => a + e.done);
     final weight = latestWeightKg(app);
-    final minutesCtl = TextEditingController(text: _elapsedMinutes > 0 ? '$_elapsedMinutes' : '');
+    /* 시계를 켰으면 잰 시간이 답입니다 — 초 단위 그대로 쓰고 다시 묻지 않습니다.
+       처음엔 잰 분을 입력칸에 미리 넣어 줬는데, 1분 미만이면 칸이 비어서
+       "측정했는데 또 넣으라 한다" 가 됐습니다. 칸은 시계를 안 켠 사람(이미
+       하고 온 사람)에게만 보입니다. */
+    /* 세트를 누르고 같은 초에 「종료」 를 누르면 잰 시간이 0초입니다 — 그대로면 분 칸도
+       없이 「저장」 만 꺼진 채 갇힙니다. 0초는 "안 쟀다" 로 보고 분 칸을 냅니다. */
+    final timed = _timed && _elapsedSeconds > 0;
+    final minutesCtl = TextEditingController();
 
-    final minutes = await showModalBottomSheet<int>(
+    final seconds = await showModalBottomSheet<int>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
-        final m = int.tryParse(minutesCtl.text.trim()) ?? 0;
-        final kcal = m > 0
-            ? workoutKcal(weightKg: weight ?? kFallbackWeightKg, duration: Duration(minutes: m), kind: 'gym')
+        final sec = timed ? _elapsedSeconds : (int.tryParse(minutesCtl.text.trim()) ?? 0) * 60;
+        final kcal = sec > 0
+            ? workoutKcal(weightKg: weight ?? kFallbackWeightKg, duration: Duration(seconds: sec), kind: 'gym')
             : 0.0;
         return _Sheet(children: [
           Text('오늘 헬스', style: Theme.of(ctx).textTheme.titleMedium),
           const SizedBox(height: 12),
           Row(children: [
-            Expanded(child: Stat(label: '경과', value: '$m', unit: '분')),
+            Expanded(
+                child: Stat(
+                    label: '운동 시간',
+                    value: timed ? clockText(Duration(seconds: sec)) : '${sec ~/ 60}',
+                    unit: timed ? null : '분')),
             Expanded(child: Stat(label: '완료 세트', value: '$doneSets')),
             Expanded(child: Stat(label: '추정', value: n0(kcal), unit: 'kcal')),
           ]),
-          const SizedBox(height: 14),
-          TextField(
-            controller: minutesCtl,
-            keyboardType: TextInputType.number,
-            onChanged: (_) => setSheet(() {}),
-            decoration: const InputDecoration(
-                labelText: '운동 시간', suffixText: '분', border: OutlineInputBorder(),
-                helperText: '시작을 안 눌렀으면 여기에 넣으세요'),
-          ),
+          if (!timed) ...[
+            const SizedBox(height: 14),
+            TextField(
+              controller: minutesCtl,
+              keyboardType: TextInputType.number,
+              autofocus: true,
+              onChanged: (_) => setSheet(() {}),
+              decoration: const InputDecoration(
+                  labelText: '운동 시간', suffixText: '분', border: OutlineInputBorder(),
+                  helperText: '시작을 안 눌렀으니 몇 분 했는지 넣어 주세요'),
+            ),
+          ],
           if (weight == null) ...[
             const SizedBox(height: 8),
             Text('측정이 없어 체중 ${n0(kFallbackWeightKg)}kg 기준으로 계산했습니다.',
@@ -435,26 +468,27 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
           SizedBox(
             height: 52,
             child: FilledButton(
-              onPressed: m > 0 && !future ? () => Navigator.pop(ctx, m) : null,
+              onPressed: sec > 0 && !future ? () => Navigator.pop(ctx, sec) : null,
               child: const Text('저장'),
             ),
           ),
         ]);
       }),
     );
-    if (minutes == null || !mounted) {
+    if (seconds == null || !mounted) {
       /* 창을 그냥 닫았으면 시계를 도로 돌립니다 — 실수로 누른 「종료」가 시간을 멈춰 두면 안 됩니다. */
-      if (minutes == null && wasRunning && mounted) _start();
+      if (seconds == null && wasRunning && mounted) _start();
       return;
     }
 
     final kcal = workoutKcal(
-            weightKg: weight ?? kFallbackWeightKg, duration: Duration(minutes: minutes), kind: 'gym')
+            weightKg: weight ?? kFallbackWeightKg, duration: Duration(seconds: seconds), kind: 'gym')
         .round();
     final ok = _saveLog(app, 'gym', {
       'kind': 'gym',
       'startedAt': (_firstStartedAt ?? _now()).toUtc().toIso8601String(),
-      'minutes': minutes,
+      'minutes': minutesOfSeconds(seconds),
+      'seconds': seconds,
       'kcal': kcal,
       'sets': doneSets,
       'exercises': [
@@ -463,8 +497,8 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
       ],
     });
     if (!ok || !mounted) return;
-    toast(context, '헬스 $minutes분 · 약 $kcal kcal 소모! 수고했어요');
-    Navigator.of(context).pop();
+    await _celebrate(kcal, detail: '헬스 ${timeText(seconds, timed: timed)} · 완료 세트 $doneSets');
+    if (mounted) Navigator.of(context).pop();
   }
 
   /* --- 유산소 -------------------------------------------------------------- */
@@ -483,15 +517,24 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
       Expanded(
         child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: [
           if (future) _futureNote(),
-          Text('끝나면 「종료」 — 걷기 · 달리기 · 자전거 중 고르고 거리를 적으면 kcal 을 셉니다.',
+          /* 한 줄로 — 종류(걷기 · 달리기 · 자전거)와 거리는 종료 시트가 물으니 여기서
+             미리 설명하지 않습니다. 360px 폰에서 두 줄로 접히던 문장이었습니다. */
+          Text('끝나면 「종료」 — 종류와 거리는 그때 적습니다.',
               style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
-          const SizedBox(height: 12),
-          /* 이미 하고 온 사람 — 시계 없이 분만 넣습니다. */
-          OutlinedButton.icon(
-            onPressed: () => _finishCardio(app, future),
-            icon: const Icon(LucideIcons.timer, size: 18),
-            label: const Text('시간을 직접 넣기'),
-          ),
+          const SizedBox(height: 10),
+          /* 이미 하고 온 사람 — 시계 없이 분만 넣습니다. 목록 폭을 다 채우는 버튼은
+             무거워서(헬스 화면에서 주인이 그렇게 봤습니다) 글 밑에 작게 둡니다.
+             시계를 켠 뒤에는 숨깁니다 — 종료 시트가 잰 시간을 쓰고 분 칸이 없으니,
+             이 단추는 약속("직접 넣기")을 못 지킵니다. */
+          if (!_timed)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () => _finishCardio(app, future),
+                icon: const Icon(LucideIcons.timer, size: 18),
+                label: const Text('시간을 직접 넣기'),
+              ),
+            ),
         ]),
       ),
     ]);
@@ -501,24 +544,35 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     final wasRunning = _running;
     _pause();
     final weight = latestWeightKg(app);
-    final minutesCtl = TextEditingController(text: _elapsedMinutes > 0 ? '$_elapsedMinutes' : '');
+    /* 헬스와 같은 규칙 — 시계를 켰으면 잰 시간(초)이 답이고, 「시간을 직접 넣기」로 온
+       사람에게만 분 칸이 보입니다. 0초는 "안 쟀다" — 헬스와 같은 규칙. */
+    final timed = _timed && _elapsedSeconds > 0;
+    final minutesCtl = TextEditingController();
     final kmCtl = TextEditingController();
     var kind = kCardioKinds.first;
 
-    final r = await showModalBottomSheet<({String kind, int minutes, double? km})>(
+    final r = await showModalBottomSheet<({String kind, int seconds, double? km})>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
-        final m = int.tryParse(minutesCtl.text.trim()) ?? 0;
+        final sec = timed ? _elapsedSeconds : (int.tryParse(minutesCtl.text.trim()) ?? 0) * 60;
         final km = double.tryParse(kmCtl.text.trim());
-        final kcal = m > 0
+        final kcal = sec > 0
             ? workoutKcal(
                 weightKg: weight ?? kFallbackWeightKg,
-                duration: Duration(minutes: m),
+                duration: Duration(seconds: sec),
                 kind: kind,
                 km: km != null && km > 0 ? km : null)
             : 0.0;
+        final kmField = TextField(
+          controller: kmCtl,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          onChanged: (_) => setSheet(() {}),
+          decoration: const InputDecoration(
+              labelText: '거리', suffixText: 'km', border: OutlineInputBorder(),
+              helperText: '몰라도 됩니다'),
+        );
         return _Sheet(children: [
           Text('오늘 유산소', style: Theme.of(ctx).textTheme.titleMedium),
           const SizedBox(height: 12),
@@ -531,30 +585,28 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
               ),
           ]),
           const SizedBox(height: 14),
-          Row(children: [
-            Expanded(
-              child: TextField(
-                controller: minutesCtl,
-                keyboardType: TextInputType.number,
-                onChanged: (_) => setSheet(() {}),
-                decoration: const InputDecoration(
-                    labelText: '시간', suffixText: '분', border: OutlineInputBorder()),
+          if (timed)
+            Row(children: [
+              Expanded(child: Stat(label: '시간', value: clockText(Duration(seconds: sec)))),
+              Expanded(child: Stat(label: '추정', value: n0(kcal), unit: 'kcal')),
+            ])
+          else
+            Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: minutesCtl,
+                  keyboardType: TextInputType.number,
+                  autofocus: true,
+                  onChanged: (_) => setSheet(() {}),
+                  decoration: const InputDecoration(
+                      labelText: '시간', suffixText: '분', border: OutlineInputBorder()),
+                ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: TextField(
-                controller: kmCtl,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                onChanged: (_) => setSheet(() {}),
-                decoration: const InputDecoration(
-                    labelText: '거리', suffixText: 'km', border: OutlineInputBorder(),
-                    helperText: '몰라도 됩니다'),
-              ),
-            ),
-          ]),
+              const SizedBox(width: 10),
+              Expanded(child: Stat(label: '추정', value: n0(kcal), unit: 'kcal')),
+            ]),
           const SizedBox(height: 12),
-          Stat(label: '추정', value: n0(kcal), unit: 'kcal'),
+          kmField,
           if (weight == null)
             Text('측정이 없어 체중 ${n0(kFallbackWeightKg)}kg 기준으로 계산했습니다.',
                 style: Theme.of(ctx).textTheme.labelSmall?.copyWith(color: Theme.of(ctx).hintColor)),
@@ -563,8 +615,8 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
           SizedBox(
             height: 52,
             child: FilledButton(
-              onPressed: m > 0 && !future
-                  ? () => Navigator.pop(ctx, (kind: kind, minutes: m, km: km != null && km > 0 ? km : null))
+              onPressed: sec > 0 && !future
+                  ? () => Navigator.pop(ctx, (kind: kind, seconds: sec, km: km != null && km > 0 ? km : null))
                   : null,
               child: const Text('저장'),
             ),
@@ -579,20 +631,23 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
 
     final kcal = workoutKcal(
             weightKg: weight ?? kFallbackWeightKg,
-            duration: Duration(minutes: r.minutes),
+            duration: Duration(seconds: r.seconds),
             kind: r.kind,
             km: r.km)
         .round();
     final ok = _saveLog(app, 'cardio', {
       'kind': r.kind,
       'startedAt': (_firstStartedAt ?? _now()).toUtc().toIso8601String(),
-      'minutes': r.minutes,
+      'minutes': minutesOfSeconds(r.seconds),
+      'seconds': r.seconds,
       'km': r.km,
       'kcal': kcal,
     });
     if (!ok || !mounted) return;
-    toast(context, '${cardioKindLabel(r.kind)} ${r.minutes}분 · 약 $kcal kcal 소모! 수고했어요');
-    Navigator.of(context).pop();
+    await _celebrate(kcal,
+        detail: '${cardioKindLabel(r.kind)} ${timeText(r.seconds, timed: timed)}'
+            '${r.km == null ? '' : ' · ${n1(r.km)}km'}');
+    if (mounted) Navigator.of(context).pop();
   }
 
   /* --- 집에서 맨몸 ---------------------------------------------------------- */
@@ -712,52 +767,113 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
       ],
     });
     if (!ok || !mounted) return;
-    await _celebrate(kcal);
+    await _celebrate(kcal, detail: '${r['title'] ?? '맨몸 운동'} · $done/${exercises.length} 종목');
     if (mounted) Navigator.of(context).pop();
   }
 
-  /// 화면 가득한 축하. 헬스를 못 간 날 집에서 15분을 채운 사람에게 주는 것 —
-  /// 토스트 한 줄로는 모자랍니다.
-  Future<void> _celebrate(int kcal) {
+  /// 화면 가득한 축하 — 폭죽이 쏟아지고 폰이 세 번 울립니다. 운동을 마친 사람에게
+  /// 검은 스낵바 한 줄은 모자랍니다(주인이 실기기에서 보고 "못생겼다" 고 했습니다).
+  /// 헬스 · 유산소 · 맨몸 모두 여기로 옵니다. [detail] 은 무엇을 얼마나 했는지 한 줄.
+  Future<void> _celebrate(int kcal, {String? detail}) {
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) {
-        final t = Theme.of(ctx);
-        final c = mb(ctx);
-        return Dialog.fullscreen(
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(28),
-              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                /* 이모지는 안 씁니다 — 앱에 넣은 글꼴에 없어서 구글에서 받아 오려 합니다(ui/symbols.dart). */
-                Icon(LucideIcons.partyPopper, size: 84, color: c.ok),
-                const SizedBox(height: 24),
-                Text('약 $kcal kcal 소모했어요! 축하합니다',
+      builder: (ctx) => CelebrationScreen(kcal: kcal, detail: detail),
+    );
+  }
+}
+
+/// 초 → 기록의 분. 1분 미만도 1분 — 기록의 분은 "했다" 의 단위지 정밀도가 아닙니다
+/// (정밀한 값은 seconds 에 따로 남습니다).
+int minutesOfSeconds(int seconds) {
+  final m = (seconds / 60).round();
+  return m < 1 ? 1 : m;
+}
+
+/// 사람에게 보여 주는 시간. 시계로 쟀으면 'mm:ss', 손으로 넣었으면 'N분'.
+String timeText(int seconds, {required bool timed}) =>
+    timed ? clockText(Duration(seconds: seconds)) : '${minutesOfSeconds(seconds)}분';
+
+/// 축하 화면. 폭죽은 입력을 막지 않고 「닫기」 위로 떨어집니다.
+class CelebrationScreen extends StatefulWidget {
+  const CelebrationScreen({super.key, required this.kcal, this.detail});
+  final int kcal;
+  final String? detail;
+
+  @override
+  State<CelebrationScreen> createState() => _CelebrationScreenState();
+}
+
+class _CelebrationScreenState extends State<CelebrationScreen> {
+  @override
+  void initState() {
+    super.initState();
+    /* 진동 세 번 — 폭죽 터지는 박자. 기기가 못 하면 조용히 넘어갑니다. */
+    unawaited(_buzz());
+  }
+
+  Future<void> _buzz() async {
+    try {
+      await HapticFeedback.heavyImpact();
+      await Future<void>.delayed(const Duration(milliseconds: 140));
+      await HapticFeedback.mediumImpact();
+      await Future<void>.delayed(const Duration(milliseconds: 140));
+      await HapticFeedback.heavyImpact();
+    } catch (_) {}
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final c = mb(context);
+    return Dialog.fullscreen(
+      child: Stack(children: [
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+              /* 이모지는 안 씁니다 — 앱에 넣은 글꼴에 없어서 구글에서 받아 오려 합니다(ui/symbols.dart). */
+              Icon(LucideIcons.partyPopper, size: 84, color: c.ok),
+              const SizedBox(height: 24),
+              Text('약 ${widget.kcal} kcal 소모했어요! 축하합니다',
+                  textAlign: TextAlign.center,
+                  style: t.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 12),
+              Text('오늘 계획을 지켰습니다 — 내일도 만나요',
+                  textAlign: TextAlign.center,
+                  style: t.textTheme.bodyLarge?.copyWith(color: t.hintColor)),
+              if (widget.detail != null) ...[
+                const SizedBox(height: 8),
+                Text(widget.detail!,
                     textAlign: TextAlign.center,
-                    style: t.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
-                const SizedBox(height: 12),
-                Text('오늘 계획을 지켰습니다 — 내일도 만나요',
-                    textAlign: TextAlign.center,
-                    style: t.textTheme.bodyLarge?.copyWith(color: t.hintColor)),
-                const SizedBox(height: 36),
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: FilledButton(onPressed: () => Navigator.pop(ctx), child: const Text('닫기')),
-                ),
-              ]),
-            ),
+                    style: t.textTheme.bodyMedium?.copyWith(color: t.hintColor)),
+              ],
+              const SizedBox(height: 36),
+              SizedBox(
+                width: double.infinity,
+                height: 56,
+                child: FilledButton(
+                    onPressed: () => Navigator.pop(context), child: const Text('닫기')),
+              ),
+            ]),
           ),
-        );
-      },
+        ),
+        const Positioned.fill(child: Confetti()),
+      ]),
     );
   }
 }
 
 /* --- 조각들 ------------------------------------------------------------------ */
 
-/// 큰 시계와 버튼 셋. 글자보다 버튼이 큽니다 — 한 손, 땀 난 손.
+/// 시계 카드 한 줄 — 왼쪽에 시간과 짧은 상태, 오른쪽에 시작(일시정지) · 종료.
+///
+/// 0.2.9 는 64px 시계 밑에 '시작을 누르면 시간이 갑니다' 한 문장, 그 밑에 56px
+/// 알약 버튼 둘이 나란히 — 화면 위 3분의 1이 시계였습니다. 시계는 보는 것이지
+/// 누르는 것이 아니고, 헬스장에서 실제로 누르는 건 종목 줄이라 그쪽에 자리를
+/// 넘깁니다. 버튼의 글자('시작' · '계속' · '일시정지' · '종료')는 남깁니다 —
+/// 아이콘만 있으면 ▶ 가 시작인지 계속인지 다시 물어보게 되고, 시험도 이 글자로
+/// 누릅니다. 상태는 두 글자씩('시작 전' · '운동 중' · '일시정지'), 문장은 안 씁니다.
 class _TimerPanel extends StatelessWidget {
   const _TimerPanel({
     required this.elapsed,
@@ -775,53 +891,75 @@ class _TimerPanel extends StatelessWidget {
   final VoidCallback onPause;
   final VoidCallback onFinish;
 
+  /* 기본 여백(16 · 24)이면 360px 폰에서 '일시정지' 와 '종료' 가 시계를 밀어냅니다. */
+  static const _tight = ButtonStyle(
+      padding: WidgetStatePropertyAll(EdgeInsets.fromLTRB(14, 0, 16, 0)));
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
+    final c = mb(context);
+    final status = running ? '운동 중' : (started ? '일시정지' : '시작 전');
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-      child: Column(children: [
-        Text(clockText(elapsed),
-            style: t.textTheme.displayLarge?.copyWith(
-                fontSize: 64,
-                fontWeight: FontWeight.w700,
-                fontFeatures: const [FontFeature.tabularFigures()])),
-        Text(running ? '운동 중' : (started ? '일시정지' : '시작을 누르면 시간이 갑니다'),
-            style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-        const SizedBox(height: 12),
-        Row(children: [
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: MbCard(
+        padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+        child: Row(children: [
           Expanded(
-            child: SizedBox(
-              height: 56,
-              child: running
-                  ? FilledButton.tonalIcon(
-                      onPressed: onPause,
-                      icon: const Icon(LucideIcons.pause),
-                      label: const Text('일시정지', style: TextStyle(fontSize: 17)))
-                  : FilledButton.icon(
-                      onPressed: onStart,
-                      icon: const Icon(LucideIcons.play),
-                      label: Text(started ? '계속' : '시작', style: const TextStyle(fontSize: 17))),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                /* 폭이 모자라면(좁은 폰에 큰 글꼴) 시계가 줄어듭니다 — 버튼이 잘리는 것보다 낫습니다. */
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(clockText(elapsed),
+                      style: t.textTheme.headlineMedium?.copyWith(
+                          fontSize: 34,
+                          height: 1.1,
+                          fontWeight: FontWeight.w800,
+                          fontFeatures: const [FontFeature.tabularFigures()])),
+                ),
+                Text(status,
+                    style: t.textTheme.labelSmall?.copyWith(color: running ? c.ok : t.hintColor)),
+              ],
             ),
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: SizedBox(
-              height: 56,
-              child: OutlinedButton.icon(
-                onPressed: onFinish,
-                icon: const Icon(LucideIcons.square),
-                label: const Text('종료', style: TextStyle(fontSize: 17)),
-              ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 48,
+            child: running
+                ? FilledButton.tonalIcon(
+                    onPressed: onPause,
+                    style: _tight,
+                    icon: const Icon(LucideIcons.pause, size: 18),
+                    label: const Text('일시정지'))
+                : FilledButton.icon(
+                    onPressed: onStart,
+                    style: _tight,
+                    icon: const Icon(LucideIcons.play, size: 18),
+                    label: Text(started ? '계속' : '시작')),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 48,
+            child: OutlinedButton.icon(
+              onPressed: onFinish,
+              style: _tight,
+              icon: const Icon(LucideIcons.square, size: 18),
+              label: const Text('종료'),
             ),
           ),
         ]),
-      ]),
+      ),
     );
   }
 }
 
-/// 세트 사이 휴식. 큰 숫자 하나와 건너뛰기 — 폰을 보는 시간은 이 정도면 됩니다.
+/// 세트 사이 휴식. 숫자 하나와 건너뛰기 — 폰을 보는 시간은 이 정도면 됩니다.
+/// 시계 카드(모서리 14)와 같은 모양에 강조색 바탕이라 "지금은 쉬는 중" 이 한눈에
+/// 구분되고, 숫자는 시계보다 한 단계 작게 — 휴식이 운동 시간보다 크게 보이면 안 됩니다.
 class _RestBanner extends StatelessWidget {
   const _RestBanner({required this.left, required this.totalSec, required this.onSkip});
   final Duration left;
@@ -835,29 +973,42 @@ class _RestBanner extends StatelessWidget {
     final progress = totalSec <= 0 ? 0.0 : (1 - left.inSeconds / totalSec).clamp(0.0, 1.0);
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      padding: const EdgeInsets.fromLTRB(16, 10, 10, 12),
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 12),
       decoration: BoxDecoration(color: c.accentSub, borderRadius: BorderRadius.circular(14)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
+          Icon(LucideIcons.timer, size: 16, color: t.hintColor),
+          const SizedBox(width: 6),
           Text('휴식', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
           const SizedBox(width: 10),
           Text(clockText(left),
-              style: t.textTheme.headlineMedium?.copyWith(
+              style: t.textTheme.headlineSmall?.copyWith(
                   fontWeight: FontWeight.w800, fontFeatures: const [FontFeature.tabularFigures()])),
           const Spacer(),
           TextButton(onPressed: onSkip, child: const Text('건너뛰기')),
         ]),
         const SizedBox(height: 6),
         ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(value: progress, minHeight: 6),
+          borderRadius: BorderRadius.circular(3),
+          child: LinearProgressIndicator(value: progress, minHeight: 4),
         ),
       ]),
     );
   }
 }
 
-/// 종목 한 줄 — 이름 · 세트×횟수 · 큰 세트 버튼. 다 하면 체크.
+/// 종목 한 줄 — 왼쪽 동그라미(다 하면 초록 체크), 이름과 '3세트 × 5-8 · 메모',
+/// 오른쪽에 세트 점과 작은 「세트」 단추.
+///
+/// 0.2.9 는 줄마다 두 층짜리 카드에 폭 가득한 보라색 '세트 완료 (0/3)' 버튼이
+/// 있어 목록이 버튼 더미로 보였습니다. 헬스장에서 보는 건 종목 이름과 "몇 세트
+/// 남았나" 지 버튼이 아닙니다. 그래도 표적은 커야 하므로 줄 어디를 눌러도 한
+/// 세트가 올라갑니다 — 단추는 "여기가 눌리는 곳" 이라는 표시에 가깝습니다.
+/// 「−」 는 뺄 세트가 있을 때만 나옵니다. 잘못 누른 손가락을 위한 것이지 늘 보일
+/// 것은 아닙니다. 다 한 줄은 연한 초록으로 물들고 단추 자리에 '완료' 만 남습니다.
+///
+/// 키(ex-… · set-…)는 종목 이름의 slug — 시험이 줄과 단추를 찾는 손잡이입니다.
+/// 같은 종목은 한 세션에 두 번 안 나오므로(planner 규칙 4) 이름이면 충분합니다.
 class _ExerciseRow extends StatelessWidget {
   const _ExerciseRow({required this.ex, required this.onSet, required this.onUndo});
   final _Ex ex;
@@ -868,58 +1019,113 @@ class _ExerciseRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     final c = mb(context);
-    return MbCard(
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          if (ex.complete)
-            Padding(
-              padding: const EdgeInsets.only(right: 6, top: 2),
-              child: Icon(LucideIcons.checkCircle2, size: 18, color: c.ok),
-            ),
-          Expanded(
-            child: Text(ex.name,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+    final slug = slugOf(ex.name);
+    final done = ex.complete;
+    final detail = '${ex.sets}세트 × ${ex.reps}${ex.note == null ? '' : ' · ${ex.note}'}';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      /* MbCard 는 바탕색을 못 바꿉니다 — 다 한 줄을 물들여야 해서 같은 모양(모서리
+         14 · 테두리)을 여기서 그립니다. Material 이라야 줄을 누를 때 잉크가 보입니다. */
+      child: Material(
+        key: ValueKey('ex-$slug'),
+        color: done ? c.okBg : t.colorScheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: done ? c.ok.withValues(alpha: 0.25) : t.dividerColor),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: done ? null : onSet,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+            child: Row(children: [
+              Icon(done ? LucideIcons.checkCircle2 : LucideIcons.circle,
+                  size: 22, color: done ? c.ok : t.hintColor),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(ex.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 2),
+                  Text(detail,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
+                ]),
+              ),
+              const SizedBox(width: 8),
+              _SetDots(done: ex.done, total: ex.sets),
+              const SizedBox(width: 6),
+              if (ex.done > 0)
+                IconButton(
+                  tooltip: '한 세트 빼기',
+                  onPressed: onUndo,
+                  /* 48px 표적 여백을 끄지 않으면 줄에서 48px 을 차지해 이름 자리가 줄어듭니다. */
+                  style: IconButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(36, 36),
+                      fixedSize: const Size(36, 36),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                  icon: const Icon(LucideIcons.minus, size: 18),
+                ),
+              if (done)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  child: Text('완료',
+                      style: t.textTheme.labelLarge?.copyWith(color: c.ok, fontWeight: FontWeight.w700)),
+                )
+              else
+                SizedBox(
+                  height: 40,
+                  child: FilledButton.tonalIcon(
+                    key: ValueKey('set-$slug'),
+                    onPressed: onSet,
+                    style: FilledButton.styleFrom(
+                        padding: const EdgeInsets.fromLTRB(12, 0, 14, 0),
+                        minimumSize: const Size(0, 40)),
+                    icon: const Icon(LucideIcons.plus, size: 16),
+                    label: const Text('세트'),
+                  ),
+                ),
+            ]),
           ),
-          Text('${ex.sets}세트 × ${ex.reps}',
-              style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
-        ]),
-        if (ex.note != null)
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Text(ex.note!, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-          ),
-        const SizedBox(height: 10),
-        Row(children: [
-          if (ex.done > 0)
-            IconButton(
-              tooltip: '한 세트 빼기',
-              onPressed: onUndo,
-              icon: const Icon(LucideIcons.minus),
-            ),
-          Expanded(
-            child: SizedBox(
-              height: 56,
-              child: ex.complete
-                  ? Container(
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                          color: c.okBg, borderRadius: BorderRadius.circular(999)),
-                      child: Text('완료',
-                          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: c.ok)),
-                    )
-                  : FilledButton(
-                      onPressed: onSet,
-                      child: Text('세트 완료 (${ex.done}/${ex.sets})',
-                          style: const TextStyle(fontSize: 17)),
-                    ),
-            ),
-          ),
-        ]),
-      ]),
+        ),
+      ),
     );
+  }
+}
+
+/// 세트 점 — 세트 하나에 점 하나, 한 점씩 채웁니다. '1/3' 보다 빨리 읽히고 줄 높이를
+/// 안 잡아먹습니다. 점이 여섯을 넘으면 이름 자리를 밀어내므로 그때는 숫자로 씁니다.
+class _SetDots extends StatelessWidget {
+  const _SetDots({required this.done, required this.total});
+  final int done;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final on = t.colorScheme.primary;
+    if (total > 6) {
+      return Text('$done/$total',
+          style: t.textTheme.labelMedium?.copyWith(
+              color: t.hintColor, fontFeatures: const [FontFeature.tabularFigures()]));
+    }
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      for (var i = 0; i < total; i++)
+        Container(
+          width: 8,
+          height: 8,
+          margin: EdgeInsets.only(left: i == 0 ? 0 : 4),
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: i < done ? on : null,
+            border: Border.all(color: i < done ? on : t.hintColor, width: 1.5),
+          ),
+        ),
+    ]);
   }
 }
 

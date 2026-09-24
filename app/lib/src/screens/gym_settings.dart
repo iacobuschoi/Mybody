@@ -39,6 +39,33 @@ int machineStopIndex(int? n) {
   return i;
 }
 
+/// 설정 한 줄 요약 — 플랜 탭의 종목 목록 위에 섭니다. 예: '헬스장 · 기구 7종 · 머신 4대 · 익숙한 종목 2개'.
+String gymPrefsSummary(GymPrefs p) {
+  /* 맨몸은 기구가 아닙니다 — 세면 "기구 1종" 인 집이 생깁니다. */
+  final gear = p.equipment.where((e) => e != 'bodyweight').length;
+  final parts = <String>[
+    p.isHome ? '집' : '헬스장',
+    '기구 $gear종',
+    if (!p.isHome) '머신 ${machineLabel(p.machineCount)}',
+    p.familiar.isEmpty ? '익숙한 종목 없음' : '익숙한 종목 ${p.familiar.length}개',
+  ];
+  return parts.join(' · ');
+}
+
+/// 카드 하나짜리 화면 — 플랜 탭의 「기구 설정」 이 여기로 옵니다. 설정 탭에도 같은
+/// 카드가 있습니다(같은 저장소, 같은 값).
+class GymSettingsScreen extends StatelessWidget {
+  const GymSettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('운동 장소와 기구')),
+      body: ListView(padding: const EdgeInsets.all(16), children: const [GymSettingsCard()]),
+    );
+  }
+}
+
 /// 지금 설정을 읽고 → 고치고 → 씁니다.
 void updateGymPrefs(AppState app, GymPrefs Function(GymPrefs) change) {
   final settings = ((app.state['settings'] as Map?) ?? const {}).cast<String, Object?>();

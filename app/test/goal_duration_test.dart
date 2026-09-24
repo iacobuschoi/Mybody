@@ -11,6 +11,10 @@
  * 강도 화면이 처음 골라 두는 카드(마감에 가장 가까운 것 · 막힌 것은 빼고)는 손으로
  * 만든 강도 표(compute)로 봅니다 — 어느 카드가 골라졌는지는 궤적 그래프가 그리는
  * 점의 수(주수 + 1)로 읽습니다. 막힌 카드는 진짜 엔진의 표에서 판정만 바꿔 넣습니다.
+ *
+ * 기간 판이 고른 옵션으로 강도 화면 없이 바로 저장하는 길도 진짜 엔진으로 봅니다 —
+ * 옵션의 목표로 compareLevels 를 세우면 고른 주수 ±1주 카드가 있다는 약속이 엔진의
+ * 것이라서, 손으로 만든 표로는 그 약속을 볼 수 없습니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -190,8 +194,8 @@ void main() {
     addTearDown(t.view.reset);
   }
 
-  /// 홈 → 자리 하나 → [top]. 계획을 세우면 강도 화면이 두 번 pop 하므로,
-  /// 그 두 번이 홈 위에서 끝나야 시험이 빈 화면에 안 떨어집니다.
+  /// 홈 → 자리 하나 → [top]. 계획을 세우면 강도 화면은 두 번, 기간 판은 한 번 pop
+  /// 하므로, 그 pop 이 홈 위에서 끝나야 시험이 빈 화면에 안 떨어집니다.
   Future<Future<Object?>> stacked(WidgetTester t, AppState app, Widget top) async {
     await t.pumpWidget(host(app, const Scaffold(body: Text('home'))));
     final nav = t.state<NavigatorState>(find.byType(Navigator));
@@ -202,7 +206,7 @@ void main() {
   }
 
   FilledButton pickButton(WidgetTester t) =>
-      t.widget<FilledButton>(find.widgetWithText(FilledButton, '이 목표로 기간 고르기'));
+      t.widget<FilledButton>(find.widgetWithText(FilledButton, '이 계획으로 시작하기'));
 
   /* ---------------------------------------------------------------- 목표 화면 */
 
@@ -222,7 +226,7 @@ void main() {
     expect(find.byType(DurationPanel), findsOneWidget);
     expect(find.widgetWithText(TextField, '목표 체중'), findsNothing);
     expect(find.text('기간 계산하기'), findsNothing);
-    expect(find.text('이 목표로 기간 고르기'), findsOneWidget);
+    expect(find.text('이 계획으로 시작하기'), findsOneWidget);
     expect(find.textContaining('현재 ('), findsOneWidget, reason: '지금 몸은 두 길에 다 보입니다');
     expect(find.byType(ErrorWidget), findsNothing);
 
@@ -253,9 +257,8 @@ void main() {
         find.descendant(
             of: find.byKey(const ValueKey('option-cut-mid')), matching: find.text('추천')),
         findsOneWidget);
-    expect(find.textContaining('Δ체지방'), findsNWidgets(4));
-    expect(find.textContaining('하루 2100 kcal · 단백질 160 g · 주 4회'), findsNWidgets(4));
-    expect(find.textContaining('체지방률 23.1→20.1%'), findsOneWidget, reason: 'cut-mid');
+    expect(find.text('하루 2100 kcal · 단백질 160 g'), findsNWidgets(4));
+    expect(find.text('20.0 → 16.8 · 23.1 → 20.1%'), findsOneWidget, reason: 'cut-mid 의 체지방 줄');
     expect(find.text('중 · 표준'), findsNWidgets(2), reason: '감량 중 · 증량 중');
 
     /* 아직 아무것도 안 골랐으니 버튼은 닫혀 있고, 차트 선은 다 같은 굵기 */
@@ -350,7 +353,8 @@ void main() {
     await t.pump(const Duration(milliseconds: 200));
     expect(find.text('12주는 너무 짧습니다.'), findsOneWidget);
     expect(find.byType(LineChart), findsNothing);
-    expect(find.textContaining('Δ체지방'), findsNothing);
+    expect(find.textContaining('하루 '), findsNothing, reason: '카드가 없습니다');
+    expect(find.byKey(const Key('training-line')), findsNothing);
     expect(pickButton(t).onPressed, isNull);
     expect(t.takeException(), isNull);
   });
@@ -406,29 +410,172 @@ void main() {
     expect(t.takeException(), isNull);
   });
 
-  /* 고르고 나면 기존 강도 화면으로 — 목표 세 숫자와 마감 주수만 넘깁니다. */
-  testWidgets('기간 — 고르면 강도 화면으로 세 숫자와 마감 주수를 넘긴다', (t) async {
+  /* 폰에서 본 첫 반응 — "텍스트를 줄이고 체지방 · 골격근 변화를 확실히", "왜 다 주 4회지?".
+     변화량이 줄에서 가장 큰 글자이고, 운동 횟수는 카드가 아니라 위에 한 번입니다. */
+  testWidgets('기간 — 카드는 변화량이 주인공이고, 운동 횟수는 카드가 아니라 위에 한 번', (t) async {
     tall(t);
     final app = await seeded();
     await t.pumpWidget(host(app, DurationScreen(compute: _fixture)));
     await t.pump(const Duration(milliseconds: 200));
+    final cutMid = find.byKey(const ValueKey('option-cut-mid'));
+    Finder inCard(String text) => find.descendant(of: cutMid, matching: find.text(text));
+    expect(inCard('−3.2 kg'), findsOneWidget, reason: '체지방 16.8 − 20.0');
+    expect(inCard('+0.4 kg'), findsOneWidget, reason: '골격근 38.4 − 38.0');
+    expect(inCard('20.0 → 16.8 · 23.1 → 20.1%'), findsOneWidget);
+    expect(inCard('38.0 → 38.4'), findsOneWidget);
+    expect(inCard('체중 86.7 → 83.5'), findsOneWidget);
+    expect(inCard('하루 2100 kcal · 단백질 160 g'), findsOneWidget);
+    expect(find.text('−2.0 kg'), findsOneWidget, reason: '감량 하');
+    expect(find.text('−4.8 kg'), findsOneWidget, reason: '감량 상');
+    expect(find.text('+0.6 kg'), findsOneWidget, reason: '증량의 체지방');
+    expect(find.text('+1.6 kg'), findsOneWidget, reason: '증량의 골격근');
+    /* 변화량이 그 줄에서 가장 큰 글자 — 제목보다도 큽니다 — 이고, 방향의 색입니다. */
+    final fat = t.widget<Text>(inCard('−3.2 kg')).style!;
+    expect(fat.fontSize!, greaterThan(t.widget<Text>(inCard('38.0 → 38.4')).style!.fontSize!));
+    expect(fat.fontSize!, greaterThan(t.widget<Text>(inCard('중 · 표준')).style!.fontSize!));
+    expect(fat.color, MbColors.light.fat);
+    expect(t.widget<Text>(inCard('+0.4 kg')).style!.color, MbColors.light.muscle);
+    /* 옛 글(숫자 여섯 개짜리 두 줄 · 긴 설명)은 없습니다. */
+    expect(find.textContaining('Δ'), findsNothing);
+    expect(find.textContaining('카드의 막대는'), findsNothing);
+    expect(find.text('연한 줄 지금 · 진한 줄 그때'), findsOneWidget);
+    /* 운동 횟수는 카드 위에 한 번 — 엔진은 어느 강도에나 내 몸 정보의 횟수를 쓰니
+       모든 카드가 같은 값이고, 같은 값을 네 번 적으면 카드가 그걸로 갈리는 줄 읽힙니다. */
+    expect(find.text('운동 주 4회 · 회당 60분 — 내 몸 정보에서 정한 값입니다'), findsOneWidget);
+    expect(find.textContaining('주 4회'), findsOneWidget, reason: '카드에는 없습니다');
+    expect(find.descendant(of: cutMid, matching: find.textContaining('주 4회')), findsNothing);
+    expect(t.getTopLeft(find.byKey(const Key('training-line'))).dy,
+        lessThan(t.getTopLeft(cutMid).dy), reason: '카드보다 위에');
+    expect(find.byType(ErrorWidget), findsNothing);
+    expect(t.takeException(), isNull);
+
+    /* 카드마다 횟수가 다르면(내 몸 정보에 횟수가 없어 엔진이 강도마다 잡은 경우) 위의
+       한 줄 대신 카드가 각자 적습니다. */
+    await t.pumpWidget(host(app, DurationScreen(compute: (w) {
+      final f = _fixture(w);
+      var days = 3;
+      for (final o in (f['options'] as List).cast<Map<String, Object?>>()) {
+        o['daysPerWeek'] = days++;
+      }
+      return f;
+    })));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(find.byKey(const Key('training-line')), findsNothing);
+    expect(find.textContaining('· 주 '), findsNWidgets(4));
+    expect(inCard('하루 2100 kcal · 단백질 160 g · 주 5회'), findsOneWidget,
+        reason: '표의 순서대로 증량 3 · 하 4 · 중 5 · 상 6');
+    expect(t.takeException(), isNull);
+  });
+
+  /* 폰 너비(360px)에서 — 변화량 옆의 작은 글이 길어도(체지방률까지) 줄이 넘치지 않아야
+     합니다. 넘치면 디버그에서는 예외로 잡히고, 폰에서는 노란 줄무늬입니다. */
+  testWidgets('기간 — 360px 폰 너비에서도 카드의 줄이 넘치지 않는다', (t) async {
+    t.view.physicalSize = const Size(360, 4000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    final app = await seeded();
+    await t.pumpWidget(host(app, DurationScreen(compute: _fixture)));
+    await t.pump(const Duration(milliseconds: 200));
+    for (final id in ['cut-low', 'cut-mid', 'cut-high', 'bulk-mid']) {
+      expect(find.byKey(ValueKey('option-$id')), findsOneWidget, reason: id);
+    }
+    expect(find.text('20.0 → 16.8 · 23.1 → 20.1%'), findsOneWidget);
+    expect(find.byType(ErrorWidget), findsNothing);
+    expect(t.takeException(), isNull, reason: '넘침(RenderFlex overflow)은 예외로 옵니다');
+  });
+
+  test('trainingLine — 모든 카드가 같을 때만 한 줄, 회당 시간은 같을 때만, 출처는 내 몸 정보에 있을 때만', () {
+    final opts = (_fixture(12)['options'] as List).cast<Map<String, Object?>>();
+    expect(trainingLine(opts, _profile), '운동 주 4회 · 회당 60분 — 내 몸 정보에서 정한 값입니다');
+    /* 내 몸 정보에 횟수가 없는데 우연히 같으면 — 어디서 왔다고 말하지 않습니다. */
+    expect(trainingLine(opts, {..._profile, 'daysPerWeek': null}), '운동 주 4회 · 회당 60분');
+    expect(trainingLine(opts, {..._profile, 'daysPerWeek': 0}), '운동 주 4회 · 회당 60분');
+    /* 회당 시간이 없거나(옛 표) 강도마다 다르면 횟수만. */
+    expect(trainingLine([for (final o in opts) {...o, 'sessionMinutes': null}], _profile),
+        '운동 주 4회 — 내 몸 정보에서 정한 값입니다');
+    expect(
+        trainingLine(
+            [for (var i = 0; i < opts.length; i++) {...opts[i], 'sessionMinutes': 45 + i}],
+            _profile),
+        '운동 주 4회 — 내 몸 정보에서 정한 값입니다');
+    /* 횟수가 다르면 줄이 없습니다 — 카드가 각자 적습니다. */
+    expect(
+        trainingLine(
+            [for (var i = 0; i < opts.length; i++) {...opts[i], 'daysPerWeek': 3 + i}],
+            _profile),
+        isNull);
+    expect(trainingLine([for (final o in opts) {...o, 'daysPerWeek': null}], _profile), isNull);
+    expect(trainingLine(const [], _profile), isNull);
+    /* "4" 와 4.0 은 같은 값입니다. */
+    expect(
+        trainingLine([
+          {...opts.first, 'daysPerWeek': '4'},
+          {...opts.last, 'daysPerWeek': 4.0},
+        ], _profile),
+        startsWith('운동 주 4회'));
+  });
+
+  /* 시험이 목표 표만 받아 보는 길 — 세 숫자는 엔진이 준 그대로, 마감은 고른 주수,
+     화면 사정(공격성 · 어디서 왔는지)은 표에 안 섞입니다. 저장되는 목표라서요. */
+  testWidgets('기간 — onPick 이 있으면 저장하지 않고 세 숫자와 마감 주수만 넘긴다', (t) async {
+    tall(t);
+    final app = await seeded();
+    Map<String, Object?>? got;
+    await t.pumpWidget(host(
+        app,
+        Scaffold(
+            body: ListView(children: [
+          DurationPanel(compute: _fixture, onPick: (g) => got = g),
+        ]))));
+    await t.pump(const Duration(milliseconds: 200));
     await t.tap(find.byKey(const ValueKey('option-cut-mid')));
     await t.pump();
-    await t.tap(find.text('이 목표로 기간 고르기'));
+    await t.tap(find.text('이 계획으로 시작하기'));
+    await t.pumpAndSettle();
+    expect(got, {'weightKg': 83.5, 'smmKg': 38.4, 'bfmKg': 16.8, 'deadlineWeeks': 12});
+    expect(app.state['goal'], isNull);
+    expect(app.state['plan'], isNull);
+    expect(find.byType(IntensityScreen), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+
+  /* 고르면 여기서 바로 계획을 세웁니다 — 강도 화면을 거치지 않습니다. 진짜 엔진으로
+     봅니다: 옵션의 목표는 엔진이 12주 안에 닿는다고 계산한 몸이라 compareLevels 에도
+     12주 ±1주 카드가 있어야 하고, 그 카드가 계획이 되어야 합니다. */
+  testWidgets('기간 — 「이 계획으로 시작하기」는 강도 화면 없이 바로 저장하고 화면을 닫는다', (t) async {
+    tall(t);
+    final app = await seeded();
+    await stacked(t, app, const DurationScreen());
+    final card = find.byKey(const ValueKey('option-cut-mid'));
+    expect(card, findsOneWidget, reason: '이 시험의 전제 — 엔진이 감량 중 카드를 냅니다');
+    await t.tap(card);
+    await t.pump();
+    await t.tap(find.text('이 계획으로 시작하기'));
     await t.pumpAndSettle();
 
-    final s = t.widget<IntensityScreen>(find.byType(IntensityScreen));
-    expect(s.fromDuration, isTrue);
-    expect(s.goal['deadlineWeeks'], 12);
-    expect(s.goal['weightKg'], 83.5);
-    expect(s.goal['smmKg'], 38.4);
-    expect(s.goal['bfmKg'], 16.8);
-    expect(s.goal.containsKey('fromDuration'), isFalse, reason: '표시는 목표 표에 안 섞입니다');
-    expect(s.preferA, 0.6, reason: '고른 옵션(감량 중)의 공격성 — 강도 화면이 같은 카드를 고르는 데 씁니다');
-    expect(s.goal.containsKey('preferA'), isFalse);
-    expect(s.modeId, isNull);
-    expect(find.text('기간 고르기'), findsOneWidget);
-    expect(find.byType(ErrorWidget), findsNothing);
+    expect(find.byType(IntensityScreen), findsNothing, reason: '기간을 다시 고르게 하지 않습니다');
+    expect(find.byType(DurationScreen), findsNothing);
+    expect(find.text('between'), findsOneWidget, reason: '한 번 pop — 판이 선 화면이 닫힙니다');
+    expect(find.text('계획을 세웠습니다'), findsOneWidget);
+
+    final goal = (app.state['goal'] as Map).cast<String, Object?>();
+    expect(goal['deadlineWeeks'], 12);
+    expect(goal.containsKey('preferA'), isFalse);
+    expect(goal.containsKey('fromDuration'), isFalse);
+    /* 카드의 세 숫자가 그대로 목표 — 반올림하지 않고 넘깁니다. */
+    final options =
+        (core.durationOptions({..._scan}, _profile, 12, app.store.dayKey(), null)['options'] as List)
+            .cast<Map<String, Object?>>();
+    final picked =
+        (options.firstWhere((o) => o['id'] == 'cut-mid')['goal'] as Map).cast<String, Object?>();
+    expect(goal['weightKg'], core.jsToNumber(picked['weightKg']));
+    expect(goal['smmKg'], core.jsToNumber(picked['smmKg']));
+    expect(goal['bfmKg'], core.jsToNumber(picked['bfmKg']));
+
+    final plan = (app.state['plan'] as Map).cast<String, Object?>();
+    expect((core.jsToNumber(plan['weeks']) - 12).abs(), lessThanOrEqualTo(kDeadlineSlackWeeks),
+        reason: '고른 주수에 가장 가까운 카드가 계획입니다');
+    expect((plan['goal'] as Map)['bfmKg'], goal['bfmKg']);
     expect(t.takeException(), isNull);
   });
 
@@ -533,13 +680,13 @@ void main() {
   });
 
   /* 목표 화면부터 끝까지 — 세 숫자 → 강도 → 물음 → 「기간으로 정하기」 → 목표
-     화면이 기간 모드로. 이 길은 진짜 엔진(compareLevels · durationOptions)을 탑니다. */
-  testWidgets('목표 → 강도 → 「기간으로 정하기」 → 목표 화면이 기간 모드로 돌아온다', (t) async {
+     화면이 기간 모드로 → 카드 고르기 → 저장. 이 길은 진짜 엔진(compareLevels ·
+     durationOptions)을 탑니다. */
+  testWidgets('목표 → 강도 → 「기간으로 정하기」 → 기간 판에서 고르면 바로 저장하고 목표 화면이 닫힌다', (t) async {
     tall(t);
     assumeFar(core.modeById('fatLoss'));
     final app = await seeded();
-    await t.pumpWidget(host(app, const GoalScreen()));
-    await t.pump(const Duration(milliseconds: 200));
+    await stacked(t, app, const GoalScreen());
 
     await t.enterText(find.widgetWithText(TextField, '목표 체중'), '78');
     await t.enterText(find.widgetWithText(TextField, '목표 골격근량'), '40');
@@ -569,6 +716,21 @@ void main() {
     expect(find.widgetWithText(TextField, '목표 체중'), findsNothing);
     expect(app.state['plan'], isNull);
     expect(find.byType(ErrorWidget), findsNothing);
+    expect(t.takeException(), isNull);
+
+    /* 기간 판에서 추천 카드를 고르고 시작 — 강도 화면을 다시 거치지 않고 저장하고, 목표
+       화면이 닫혀 그 아래(셸 자리)로 돌아갑니다. 기간은 이미 골랐으니까요. */
+    await t.tap(find.text('추천'));
+    await t.pump();
+    await t.tap(find.text('이 계획으로 시작하기'));
+    await t.pumpAndSettle();
+    expect(find.byType(IntensityScreen), findsNothing);
+    expect(find.byType(GoalScreen), findsNothing);
+    expect(find.text('between'), findsOneWidget, reason: '한 번 pop — 목표 화면이 닫힙니다');
+    expect(find.text('계획을 세웠습니다'), findsOneWidget);
+    expect((app.state['goal'] as Map)['deadlineWeeks'], 24);
+    expect((core.jsToNumber((app.state['plan'] as Map)['weeks']) - 24).abs(),
+        lessThanOrEqualTo(kDeadlineSlackWeeks));
     expect(t.takeException(), isNull);
   });
 
@@ -841,7 +1003,14 @@ void main() {
 
   test('별표 — 기간 판의 문구에 **표시**가 섞여 있지 않다', () {
     /* toast 와 Text 는 마크다운을 모릅니다(widgets.dart). */
-    for (final s in ['이 목표로 기간 고르기', '먼저 인바디를 넣어야 합니다']) {
+    final opts = (_fixture(12)['options'] as List).cast<Map<String, Object?>>();
+    for (final s in [
+      '이 계획으로 시작하기',
+      '먼저 인바디를 넣어야 합니다',
+      '연한 줄 지금 · 진한 줄 그때',
+      '계획을 세웠습니다',
+      trainingLine(opts, _profile)!,
+    ]) {
       expect(s.contains('**'), isFalse);
     }
   });

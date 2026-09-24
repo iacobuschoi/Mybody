@@ -371,12 +371,25 @@ Map<String, Object?>? checkinOfDay(core.Store store, String dateKey) {
 /// 이번 주에 유산소로 정한 날 수로 나눕니다. 정한 날이 없으면 주당 분 전부.
 double? _cardioMinutes(AppState app, Map<String, Object?>? workout, String dateKey) {
   final perWeek = core.jsToNumber(workout?['cardioMinPerWeek']);
-  if (!(perWeek > 0)) return null;
   final days = (app.schedule.week(app.store.weekStartOf(dateKey))['days'] as List)
       .cast<Map<String, Object?>>();
   var n = 0;
   for (final d in days) {
     if ((d['plan'] as List).contains('cardio')) n++;
   }
-  return core.jsRound(perWeek / (n < 1 ? 1 : n)).toDouble();
+  return cardioSessionMinutes(perWeek, n);
+}
+
+/// 한 번에 할 유산소 분. 주 분량을 회수로 나누는데, 회수는 **이번 주에 유산소를
+/// 적어 둔 날 수와 엔진이 정한 기본 회수 중 큰 쪽**입니다.
+///
+/// 처음엔 적어 둔 날 수로만 나눴습니다. 유산소를 한 날만 적은 사람에게
+/// "유산소 96분 남았어요" 가 나왔습니다 — 주 96분을 하루에 다 하라는 말인데,
+/// 엔진의 유산소 처방은 "Z2 40분 × 2회" 입니다(cardioPlan). 회수는 그 처방을
+/// 따릅니다: 주 180분 이상이면 6회(Z2 4 + HIIT 2), 120분 이상이면 3회, 그 아래는 2회.
+double? cardioSessionMinutes(double perWeek, int plannedDays) {
+  if (!(perWeek > 0)) return null;
+  final base = perWeek >= 180 ? 6 : (perWeek >= 120 ? 3 : 2);
+  final sessions = plannedDays > base ? plannedDays : base;
+  return core.jsRound(perWeek / sessions).toDouble();
 }

@@ -15,6 +15,12 @@
  * 골격근(30대)을 같이 그리면 y축이 50kg 을 덮어서 1kg 변화가 선의 떨림으로
  * 보입니다. 체지방은 kg 대신 %로 그립니다 — 체중이 같이 빠질 때 kg 은 줄어도
  * 비율은 그대로일 수 있고, 사람이 궁금한 것은 뒤쪽입니다. kg 은 위 카드에 남습니다.
+ *
+ * **플랜의 예상 변화를 같은 그래프에 점선으로 얹습니다.** 0.2.9 를 써 본 뒤
+ * "플랜의 예상 변화 그래프랑 중첩해서 비교가능하게 해줘" — 계획 탭의 궤적은 x 가
+ * 주차라 측정 위에 놓을 수 없었습니다. 여기서는 시작일 + 주차×7일을 측정과 같은
+ * "에포크 이후 일수" 로 바꿔 카드마다 그 항목의 계획선을 겹칩니다. 계획선은 목표일까지
+ * 이어지므로 x축이 미래로 늘어납니다 — 그래야 "지금 어디쯤인가" 가 한눈에 보입니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -64,6 +70,24 @@ class ProgressScreen extends StatelessWidget {
         ? null
         : (app.state['goal'] as Map).cast<String, Object?>();
 
+    /* 플랜의 예상 변화 — 카드마다 그 항목의 계획선을 점선으로. 세 카드가 같은 계획의
+       같은 주차를 그리니 설명은 첫 카드에 한 줄이면 됩니다. */
+    final plan = app.state['plan'] is Map
+        ? (app.state['plan'] as Map).cast<String, Object?>()
+        : null;
+    final planWeight = _planSeries(plan, 'weightKg', c.weight);
+    final planSmm = _planSeries(plan, 'smmKg', c.muscle);
+    final planPbf = _planSeries(plan, 'pbfPct', c.fat);
+    final hasPlanLine = planWeight != null || planSmm != null || planPbf != null;
+
+    /* 체중 카드 밑의 설명은 짧게 — 예전 세 문장짜리는 그래프보다 글이 길었습니다.
+       있는 선만 한 문장씩, 없으면 아무 말도 안 합니다. */
+    final weightNote = [
+      if (hasPlanLine) '「플랜」 점선은 계획의 예상 변화입니다.',
+      if (checkinPts.isNotEmpty)
+        '「체크인 체중」(점선)은 주간 체크인의 집 체중계 값 — 인바디와 0.5~1kg 다를 수 있어 잇지 않습니다.',
+    ];
+
     final first = derived.first, last = derived.last;
     final noise = core.kNoise;
 
@@ -103,19 +127,18 @@ class ProgressScreen extends StatelessWidget {
             ? null
             : Series(label: '체크인 체중', color: c.weight, dashed: true, width: 1.2,
                 points: checkinPts),
+        plan: planWeight,
         goal: goal == null || !core.jsTruthy(goal['weightKg'])
             ? null
             : GoalLine(y: core.jsToNumber(goal['weightKg']), color: c.weight, label: '목표'),
-        note: checkinPts.isEmpty
-            ? null
-            : '「체크인 체중」(점선)은 주간 체크인에 넣은 집 체중계 값입니다. 한 번뿐이면 점 하나로 '
-                '보입니다. 인바디와 0.5~1kg 다를 수 있어서 인바디 선과 잇지 않습니다.',
+        note: weightNote.isEmpty ? null : weightNote.join(' '),
       ),
 
       _TrendCard(
         title: '골격근', unit: 'kg', color: c.muscle, times: times,
         values: [for (final d in derived) core.jsToNumber(d['smmKg'])],
         floor: core.jsToNumber(noise['smm']),
+        plan: planSmm,
         goal: goal == null || !core.jsTruthy(goal['smmKg'])
             ? null
             : GoalLine(y: core.jsToNumber(goal['smmKg']), color: c.muscle, label: '목표'),
@@ -127,6 +150,7 @@ class ProgressScreen extends StatelessWidget {
         /* %의 오차 폭은 따로 없습니다 — 지방 ±1.0kg 을 지금 체중으로 나눈 값,
            같은 규칙의 다른 단위입니다. */
         floor: core.jsToNumber(noise['bfm']) / core.jsToNumber(last['weightKg']) * 100,
+        plan: planPbf,
         /* 목표 체지방률은 목표 지방(kg) ÷ 목표 체중 — 목표 화면은 kg 으로만 받습니다. */
         goal: _goalPbf(goal) == null
             ? null
@@ -159,6 +183,41 @@ double? _goalPbf(Map<String, Object?>? goal) {
   return f / w * 100;
 }
 
+/// 플랜의 예상 변화를 그래프 점으로. x 는 시작일 + 주차×7일을 측정과 같은
+/// "에포크 이후 일수" 로 — 계획 탭의 궤적은 x 가 주차라 측정 위에 못 얹었습니다.
+/// y 는 궤적 칸 [key] ('weightKg' · 'smmKg' · 'pbfPct'). 숫자가 아닌 칸은 건너뜁니다 —
+/// 오래된 플랜에 그 칸이 없다고 0 을 그리면 없는 추락을 보여 주게 됩니다.
+/// week 칸이 없으면 코어(_trajWeek)처럼 자리 번호를 주차로 봅니다. 시작일이 없으면 빈 목록.
+List<Pt> planSeriesPoints(Map<String, Object?> plan, String key) {
+  final start = DateTime.tryParse('${plan['startDate']}');
+  final traj = plan['trajectory'];
+  if (start == null || traj is! List) return const [];
+  final x0 = start.millisecondsSinceEpoch / 86400000.0;
+  final out = <Pt>[];
+  for (var i = 0; i < traj.length; i++) {
+    final t = traj[i];
+    if (t is! Map) continue;
+    final wk = t['week'] is num ? (t['week'] as num).toDouble() : i.toDouble();
+    final v = t[key];
+    final y = v == null ? double.nan : core.jsToNumber(v);
+    if (!wk.isFinite || !y.isFinite) continue;
+    out.add(Pt(x0 + wk * 7, y));
+  }
+  return out;
+}
+
+/// 카드 하나의 플랜 점선. 점이 둘 미만이면 선이 안 되니 null — 범례에 「플랜」 만 남기지
+/// 않습니다. 카드 색을 옅게(55%) 씁니다: 체중 카드에는 「체크인 체중」 점선이 같은 색으로
+/// 이미 있어서, 같은 진하기면 그래프에서도 범례에서도 둘이 구분되지 않습니다.
+/// 옅은 점선 = 예상, 진한 선 = 실제 — 세 카드가 같은 규칙입니다.
+Series? _planSeries(Map<String, Object?>? plan, String key, Color color) {
+  if (plan == null) return null;
+  final pts = planSeriesPoints(plan, key);
+  if (pts.length < 2) return null;
+  return Series(label: '플랜', color: color.withValues(alpha: 0.55), dashed: true,
+      dots: false, width: 1.4, points: pts);
+}
+
 String _dateTick(double v) =>
     dateShort(DateTime.fromMillisecondsSinceEpoch((v * 86400000).round()).toIso8601String());
 
@@ -168,13 +227,16 @@ class _TrendCard extends StatelessWidget {
   const _TrendCard({
     required this.title, required this.unit, required this.color,
     required this.times, required this.values, required this.floor,
-    this.extra, this.goal, this.note,
+    this.extra, this.plan, this.goal, this.note,
   });
   final String title, unit;
   final Color color;
   final List<double> times, values;
   final double floor;
   final Series? extra;
+  /// 플랜의 예상 변화(점선). 측정 뒤로 목표일까지 이어지므로 x축이 미래까지 늘어납니다 —
+  /// LineChart 가 모든 선의 x·y 로 범위를 잡으니 여기서 따로 할 일은 없습니다.
+  final Series? plan;
   final GoalLine? goal;
   final String? note;
 
@@ -194,12 +256,13 @@ class _TrendCard extends StatelessWidget {
                 style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
         LineChart(
           height: 150,
-          /* 범례는 선이 둘일 때만 — 하나뿐이면 제목이 범례입니다. */
-          legend: extra != null,
+          /* 범례는 선이 둘 이상일 때만 — 하나뿐이면 제목이 범례입니다. */
+          legend: extra != null || plan != null,
           series: [
             Series(label: title, color: color,
                 points: [for (var i = 0; i < values.length; i++) Pt(times[i], values[i])]),
             if (extra != null) extra!,
+            if (plan != null) plan!,
           ],
           goals: [if (goal != null) goal!],
           xTickFmt: _dateTick,

@@ -10,6 +10,7 @@
  * 말하면, 진짜 불균형이 있는 사람이 확인받았다고 믿고 넘어갑니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../scope.dart';
@@ -18,6 +19,9 @@ import '../ui/charts.dart';
 import '../ui/fmt.dart';
 import '../ui/symbols.dart';
 import '../ui/widgets.dart';
+import '../workout/planner.dart';
+import '../workout/prefs.dart';
+import 'gym_settings.dart';
 
 class PlanScreen extends StatefulWidget {
   const PlanScreen({super.key, required this.go});
@@ -164,7 +168,10 @@ class _PlanScreenState extends State<PlanScreen> {
           ]),
         ),
 
-      if (workout != null) _WorkoutCard(workout: workout),
+      if (workout != null)
+        _WorkoutCard(
+            workout: workout,
+            prefs: GymPrefs.fromSettings((st['settings'] as Map?)?.cast<String, Object?>())),
       if (diet != null) _DietCard(diet: diet),
       if (plan['milestones'] != null) _MilestoneCard(
           milestones: (plan['milestones'] as List).cast<Map<String, Object?>>()),
@@ -185,18 +192,23 @@ class _PlanScreenState extends State<PlanScreen> {
 }
 
 class _WorkoutCard extends StatelessWidget {
-  const _WorkoutCard({required this.workout});
+  const _WorkoutCard({required this.workout, required this.prefs});
   final Map<String, Object?> workout;
+
+  /// 운동 장소 · 기구 · 익숙한 종목. 종목 목록은 이 설정을 거쳐서 보입니다.
+  final GymPrefs prefs;
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
+    final c = mb(context);
     final sessions = ((workout['sessions'] as List?) ?? const []).cast<Map<String, Object?>>();
+    final small = t.textTheme.labelSmall?.copyWith(color: t.hintColor);
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         SectionTitle('${workout['splitName']}',
             trailing: Text('주 ${n0(workout['daysPerWeek'])}회 · ${n0(workout['sessionMinutes'])}분',
-                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+                style: small)),
         Text('근육군당 주 ${n0(workout['setsPerMuscle'])}세트 · 유산소 주 ${n0(workout['cardioMinPerWeek'])}분',
             style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
         const SizedBox(height: 4),
@@ -208,30 +220,37 @@ class _WorkoutCard extends StatelessWidget {
             child: Text('· $b', style: t.textTheme.labelSmall?.copyWith(height: 1.5)),
           ),
         const SizedBox(height: 8),
-        for (final s in sessions)
-          if (s['rest'] != true)
-            ExpansionTile(
-              tilePadding: EdgeInsets.zero,
-              childrenPadding: const EdgeInsets.only(bottom: 8),
-              title: Text('${s['label']}', style: t.textTheme.bodyMedium),
-              subtitle: Text('${((s['exercises'] as List?) ?? const []).length}종목 · ${n0(s['minutes'])}분',
-                  style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-              children: [
-                for (final e0 in ((s['exercises'] as List?) ?? const []))
-                  Builder(builder: (_) {
-                    final e = (e0 as Map).cast<String, Object?>();
-                    return ListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      title: Text('${e['name']}', style: t.textTheme.bodySmall),
-                      subtitle: Text(
-                          '${n0(e['sets'])}세트 × ${e['reps']} · 휴식 ${n0(e['restSec'])}초 · RPE ${e['rpe']}'
-                          '${core.jsTruthy(e['note']) ? ' · ${e['note']}' : ''}',
-                          style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-                    );
-                  }),
-              ],
+
+        /* 기구 · 익숙한 종목 — 종목 목록은 이 설정을 거쳐서 보입니다. 설정 화면
+           깊숙이에만 있으면 "전혀 반영 안 됐다" 가 됩니다(주인이 0.2.9 를 써 보고
+           그렇게 말했습니다). 요약 한 줄과 여는 단추를 종목 바로 위에 둡니다. */
+        Container(
+          margin: const EdgeInsets.only(bottom: 4),
+          padding: const EdgeInsets.fromLTRB(12, 6, 4, 6),
+          decoration: BoxDecoration(color: c.accentSub, borderRadius: BorderRadius.circular(12)),
+          child: Row(children: [
+            Icon(LucideIcons.dumbbell, size: 16, color: t.hintColor),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(gymPrefsSummary(prefs),
+                  style: t.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
             ),
+            TextButton(
+              key: const Key('open-gym-settings'),
+              onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const GymSettingsScreen())),
+              child: const Text('기구 설정'),
+            ),
+          ]),
+        ),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Text('아래 종목은 이 설정에 맞춘 것입니다 — 바꾼 종목에는 원래 종목을 적어 둡니다.',
+              style: small?.copyWith(height: 1.5)),
+        ),
+
+        for (final s in sessions)
+          if (s['rest'] != true) _SessionTile(session: s, prefs: prefs),
         Text('${workout['progression']}',
             style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5)),
       ]),
@@ -239,6 +258,58 @@ class _WorkoutCard extends StatelessWidget {
   }
 }
 
+/// 세션 하나 — 접혀 있고, 펼치면 기구에 맞춘 종목들. 바꾼 종목에는 「대체」 · 「익숙」
+/// 표를 붙입니다. 표시 규칙은 tailorSession 의 메모 접두어를 그대로 읽습니다.
+class _SessionTile extends StatelessWidget {
+  const _SessionTile({required this.session, required this.prefs});
+  final Map<String, Object?> session;
+  final GymPrefs prefs;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final c = mb(context);
+    final exercises = tailorSession(session, prefs);
+    final changed = exercises.where((e) => tailorTag(e) != null).length;
+    return ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      childrenPadding: const EdgeInsets.only(bottom: 8),
+      title: Text('${session['label']}', style: t.textTheme.bodyMedium),
+      subtitle: Text(
+          '${exercises.length}종목 · ${n0(session['minutes'])}분'
+          '${changed > 0 ? ' · $changed종목 바꿈' : ''}',
+          style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+      children: [
+        for (final e in exercises)
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: Row(children: [
+              Flexible(child: Text('${e['name']}', style: t.textTheme.bodySmall)),
+              if (tailorTag(e) != null) ...[
+                const SizedBox(width: 6),
+                Pill(tailorTag(e)!, tone: tailorTag(e) == '익숙' ? Tone.ok : Tone.none),
+              ],
+            ]),
+            subtitle: Text(
+                '${n0(e['sets'])}세트 × ${e['reps']} · 휴식 ${n0(e['restSec'])}초 · RPE ${e['rpe']}'
+                '${core.jsTruthy(e['note']) ? ' · ${e['note']}' : ''}',
+                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+            /* 건너뛸 수도 있는 종목은 흐리게 — 기구가 없으면 없는 것입니다. */
+            textColor: '${e['note'] ?? ''}'.contains(kSkipNote) ? c.warn : null,
+          ),
+      ],
+    );
+  }
+}
+
+/// 종목에 붙는 표. 대체됐으면 '대체', 잘 아는 종목으로 바꿨으면 '익숙', 아니면 null.
+String? tailorTag(Map<String, Object?> e) {
+  final note = '${e['note'] ?? ''}';
+  if (note.startsWith(kFamiliarPrefix)) return '익숙';
+  if (note.startsWith(kSubstitutePrefix)) return '대체';
+  return null;
+}
 class _DietCard extends StatelessWidget {
   const _DietCard({required this.diet});
   final Map<String, Object?> diet;
