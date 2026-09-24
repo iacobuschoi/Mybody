@@ -536,7 +536,8 @@ v0.2.0 이 나갔습니다: https://github.com/iacobuschoi/Mybody/releases/tag/v
 아침에 폰을 보면 TestFlight 와 플레이 내부 테스트에서 바로 받을 수 있는 것.
 
 **시작 조건:** `git fetch --tags` 뒤 태그 `v0.2.9` 가 있고 Releases v0.2.9 에 `mybody-v0.2.9-playstore.aab` 가 있을 때
-(클라우드가 만듭니다 — f084b1d 에서 9/25 01:47 KST 에 걸었습니다). **N = 274** (안드로이드 versionCode · 아이폰 빌드 번호).
+(클라우드가 9/25 01:47 KST 에 만들었습니다 — 빌드는 f084b1d, 태그 v0.2.9 는 그 뒤 문서 커밋 3bc8a51 에 걸렸고 내용은 같습니다).
+**N = 274** (안드로이드 versionCode · 아이폰 빌드 번호 — 태그에서 세면 276 이 나오니 세지 마세요).
 아직이면 15분마다 `git pull` 로 확인합니다.
 로그인 · 비밀번호 · 2단계 인증 화면이 나오면 멈추고 보고만 합니다.
 
