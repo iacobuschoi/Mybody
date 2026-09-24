@@ -270,9 +270,9 @@ void main() {
     final app = await seeded();
     final at = _iso(DateTime.now().subtract(const Duration(minutes: 5)));
     app.store.set({'checkins': [{'at': at, 'weightKg': 74.0}]});
-    expect(checkinWeightProblem(app.store, 86.2), isNotNull);
-    expect(checkinWeightProblem(app.store, 86.2, replacing: at), isNull);
-    expect(checkinWeightProblem(app.store, 862, replacing: at), isNotNull, reason: '범위는 그대로 봅니다');
+    expect(checkinWeightProblem(app.store, 86.2), isNull);
+    expect(checkinWeightProblem(app.store, 862), isNotNull, reason: '범위는 그대로 봅니다');
+    expect(checkinWeightProblem(app.store, 45.0), isNotNull, reason: '인바디(86.7 · 오래돼 허용 40%)와는 그대로 견줍니다');
     await open(t, app, const CheckinScreen());
     await t.enterText(find.byType(TextField), '86.2');
     await t.pump();
@@ -282,6 +282,32 @@ void main() {
     final list = (app.state['checkins'] as List).cast<Map>();
     expect(list, hasLength(1));
     expect(list.single['weightKg'], 86.2);
+  });
+
+  testWidgets('어제(지난 계획 주 마지막 날) 잘못 저장한 값도 고칠 수 있다 — 판정은 5일 안이면 대신하니까', (t) async {
+    final app = await seeded(weeksAgo: 1);
+    app.store.set({'checkins': [
+      {'at': _iso(DateTime.now().subtract(const Duration(days: 1))), 'weightKg': 74.0},
+    ]});
+    expect(checkinWeightProblem(app.store, 86.2), isNull);
+  });
+
+  testWidgets('이번 주에 여럿 저장돼 있어도 전부 새 값으로 바뀐다 — 옛 값이 기준으로 남지 않는다', (t) async {
+    final app = await seeded();
+    app.store.set({'checkins': [
+      {'at': _iso(DateTime.now().subtract(const Duration(minutes: 20))), 'weightKg': 74.0, 'applied': true},
+      {'at': _iso(DateTime.now().subtract(const Duration(minutes: 10))), 'weightKg': 86.2},
+    ]});
+    expect(checkinWeightProblem(app.store, 86.0), isNull);
+    await open(t, app, const CheckinScreen());
+    await t.enterText(find.byType(TextField), '86.0');
+    await t.pump();
+    await t.tap(find.text('체크인 저장'));
+    await t.pumpAndSettle();
+    final list = (app.state['checkins'] as List).cast<Map>();
+    expect(list, hasLength(1));
+    expect(list.single['weightKg'], 86.0);
+    expect(list.single['applied'], isTrue, reason: '바뀐 것 중 하나라도 「조정함」이면 남깁니다');
   });
 
   testWidgets('지난 체크인을 지울 수 있다', (t) async {

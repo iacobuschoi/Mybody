@@ -309,6 +309,21 @@ void main() {
       expect(r['status'], 'slow');
     });
 
+    test('단계가 곧 끝나면 "다음 체크인에서 조정" 을 약속하지 않는다 — 다음 체크인은 새 단계라 다시 모으니까', () {
+      final ws = [60.0, 59.6, 59.4, 59.4, 59.4, 59.6];
+      final r = checkinReview(split, weekly(6, (i) => ws[i]), null);
+      expect(r['status'], 'watch');
+      expect(r['phaseEnding'], true);
+      final s = (r['suggestions'] as List).first as Map;
+      expect(s['title'], '다음 단계에서 다시 봅니다');
+      expect('${s['detail']}', isNot(contains('다음 체크인에서도')));
+      /* 같은 체크인이라도 감량이 계속되는 계획이면 원래대로 약속합니다. */
+      final longCut = planOf([for (var w = 0; w <= 14; w++) 60.0 - 0.4 * w], phase: 'cut');
+      final c = checkinReview(longCut, weekly(6, (i) => ws[i]), null);
+      expect(c['phaseEnding'], false);
+      expect(((c['suggestions'] as List).first as Map)['title'], '한 번 더 보고 정합니다');
+    });
+
     test('단계 정보가 없는 계획은 나누지 않는다', () {
       final plain = planOf([for (final q in split['trajectory'] as List) (q as Map)['weightKg'] as double]);
       final r = checkinReview(plain, weekly(13, (i) => i <= 6 ? 60.0 : 60.0 + 0.4 * (i - 6)), null);
@@ -336,6 +351,7 @@ void main() {
       expect(r['apply'], isNull);
       final s = (r['suggestions'] as List).first as Map;
       expect(s['title'], '바꾸지 않습니다');
+      expect(r['rawOpposite'], true);
       expect('${s['detail']}', contains('가볍지만'));
       expect('${s['detail']}', contains('늘고'));
     });
@@ -344,6 +360,7 @@ void main() {
       final rising = planOf([for (var i = 0; i < 14; i++) 86.7 + 0.11 * i], phase: 'maintain');
       final r = checkinReview(rising, weekly(12, (_) => 86.7), null);
       expect(r['held'], true);
+      expect(r['rawOpposite'], false);
       expect(r['status'], 'onTrack');
     });
   });

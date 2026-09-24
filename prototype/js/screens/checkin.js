@@ -26,6 +26,23 @@
   var draft = null;
   var draftDay = null;
   var savedAt = null;
+  /* 이번에 저장하면서 대신한 이번 계획 주의 체크인들 — 건너뛰면 되돌립니다. */
+  var replaced = null;
+  /* 이번에 제안을 적용했는가 — 그 체크인은 건너뛰어도 남깁니다. */
+  var appliedNow = false;
+
+  /* 오늘 넣는 값과 판정(엔진)이 하나로 묶는 체크인인가 — 같은 계획 주이거나 5일 안
+     (엔진의 CHECKIN_MERGE_DAYS · 앱 checkins.dart 와 같은 규칙). */
+  function mergedWithToday(c, pl) {
+    if (!pl || !pl.startDate || !c || S.dayKey(c.at) < String(pl.startDate)) return false;
+    var k = S.dayKey(c.at), today = S.dayKey();
+    return E.planWeekOf(pl.startDate, k) === E.planWeekOf(pl.startDate, today) ||
+           E.planDayOf(pl.startDate, today) - E.planDayOf(pl.startDate, k) < 5;
+  }
+  function sameWeek(c, pl) {
+    if (!pl || !pl.startDate || !c || S.dayKey(c.at) < String(pl.startDate)) return false;
+    return E.planWeekOf(pl.startDate, S.dayKey(c.at)) === E.planWeekOf(pl.startDate, S.dayKey());
+  }
 
   function newDraft() {
     return { weightKg: null, workoutPct: 70, dietKey: 'mid', dietPct: 70,
@@ -41,7 +58,7 @@
 
       var today = todayISO();
       if (!draft || draftDay !== today) {
-        draft = newDraft(); draftDay = today; savedAt = null; step = 0;
+        draft = newDraft(); draftDay = today; savedAt = null; replaced = null; appliedNow = false; step = 0;
       }
 
       var scan = S.latestScan();
@@ -145,14 +162,17 @@
               if (savedAt) {
                 var cs = (S.get().checkins || []).slice();
                 var mine = cs.filter(function (c) { return c.at === savedAt; })[0];
-                if (mine && mine.applied) {
+                if (mine && mine.applied && appliedNow) {
                   msg = '계획을 바꾼 체크인이라 남겨 두고 나갑니다';
                 } else if (mine) {
-                  S.set({ checkins: cs.filter(function (c) { return c.at !== savedAt; }) });
-                  msg = '저장했던 이번 체크인을 지우고 건너뜁니다';
+                  /* 이번 주에 전에 저장한 값을 대신했으면 그 값을 되돌립니다. */
+                  var back = cs.filter(function (c) { return c.at !== savedAt; }).concat(replaced || []);
+                  S.set({ checkins: back });
+                  msg = replaced && replaced.length ? '이번 주 값을 전에 저장한 값으로 되돌리고 건너뜁니다'
+                                                    : '저장했던 이번 체크인을 지우고 건너뜁니다';
                 }
               }
-              draft = newDraft(); draftDay = todayISO(); savedAt = null; step = 0;
+              draft = newDraft(); draftDay = todayISO(); savedAt = null; replaced = null; appliedNow = false; step = 0;
               global.MB_UID.toast(msg);
               A.go('P02');
             }
@@ -177,15 +197,13 @@
         if (w < 20 || w > 300) return '20~300kg 사이로 넣어 주세요';
         /* 견주는 값은 날짜가 가장 최근인 것 — 마지막 체크인과 최근 인바디 중에서. 오래된
            체크인과 견주면 몇 달 사이 실제로 뺀 체중을 막습니다. 허용 폭은 15% + 주당 1%(최대 40%). */
-        /* 이번 계획 주의 체크인과는 견주지 않습니다 — 판정은 이번 주 값으로 그것을 대신하는데,
-           이번 주에 862 를 저장해 버렸으면 그 862 가 기준이 되어 고쳐 넣는 86.2 를 막았습니다. */
+        /* 오늘 값이 대신할 체크인(같은 계획 주이거나 5일 안)과는 견주지 않습니다 — 이번 주에
+           74.0 을 잘못 저장했으면 그 74.0 이 기준이 되어 고쳐 넣는 86.2 를 막았습니다. */
         var ref = null, refAt = null;
         var pl = S.get().plan;
-        var nowWk = pl && pl.startDate ? E.planWeekOf(pl.startDate, S.dayKey()) : null;
         (S.get().checkins || []).forEach(function (c) {
           if (c.at === savedAt || typeof c.weightKg !== 'number' || c.weightKg < 20 || c.weightKg > 300) return;
-          if (nowWk != null && S.dayKey(c.at) >= String(pl.startDate) &&
-              E.planWeekOf(pl.startDate, S.dayKey(c.at)) === nowWk) return;
+          if (mergedWithToday(c, pl)) return;
           var t = new Date(c.at).getTime();
           if (isFinite(t) && (refAt == null || t > refAt)) { ref = c.weightKg; refAt = t; }
         });
@@ -579,7 +597,21 @@
         for (var i = 0; i < list.length; i++) { if (list[i].at === entry.at) { idx = i; break; } }
         /* 같은 체크인을 다시 저장하면 **합칩니다** — 새로 쓰면 「조정함」 표시가
            지워져, 계획을 바꾼 근거가 된 체크인이 무엇인지 잃습니다. */
-        if (idx >= 0) list[idx] = Object.assign({}, list[idx], entry); else list.push(entry);
+        if (idx >= 0) {
+          list[idx] = Object.assign({}, list[idx], entry);
+        } else {
+          /* 이번 계획 주에 전에 저장한 것이 있으면 **바꿉니다**(앱과 같음). 판정은 어차피 주마다
+             마지막 값만 쓰는데, 둘 다 남기면 고친 오타가 「지난 체크인」 · 평균 · 그래프에 계속
+             보였습니다. 「조정함」 표시는 남깁니다. */
+          var pl = S.get().plan;
+          var old = list.filter(function (c) { return sameWeek(c, pl); });
+          if (old.length) {
+            replaced = old;
+            list = list.filter(function (c) { return !sameWeek(c, pl); });
+            if (old.some(function (c) { return c.applied; })) entry.applied = true;
+          }
+          list.push(entry);
+        }
         savedAt = entry.at;
         S.set({ checkins: list });
       }
@@ -600,6 +632,7 @@
 
       /** 방금 저장한 체크인에 "조정함" 을 남깁니다 (지난 체크인 표가 보여 줍니다). */
       function markApplied() {
+        appliedNow = true;
         var list = (S.get().checkins || []).slice();
         for (var i = 0; i < list.length; i++) {
           if (list[i].at === savedAt) { list[i] = Object.assign({}, list[i], { applied: true }); }
@@ -689,6 +722,12 @@
     if (s === 'collecting' && review && review.phaseFrom != null) {
       return '계획의 단계가 바뀌어 그 단계의 체크인부터 다시 봅니다. 3주 이상에 걸친 체크인 4번이 모이면 판정합니다.';
     }
+    if (s === 'watch' && review && review.rawOpposite) {
+      return '유지 기간이라 체중 자체로 봅니다. 계획선과는 벌어졌지만 체중은 반대쪽으로 움직여 칼로리를 바꾸지 않습니다.';
+    }
+    if (s === 'watch' && review && review.phaseEnding) {
+      return '계획선에서 벗어나 보이지만 이번 단계가 곧 끝나, 다음 단계에서 거기서부터 다시 모아 봅니다.';
+    }
     if (s === 'onTrack' && review && review.held) {
       return '유지 기간이라 체중 자체가 그대로면 계획대로입니다. 계획선과는 벌어져 보여도 바꿀 이유가 없습니다.';
     }
@@ -719,6 +758,7 @@
     var span = review.spanWeeks != null ? UI.n1(review.spanWeeks) + '주 추세 · ' : '';
     /* 이름은 판정(status)에서 — ±1.00 같은 경계값을 숫자로 다시 가르면 판정과 어긋납니다. */
     if (review.status === 'onTrack') return span + (review.held ? '체중을 지키는 중(유지)' : '계획대로(±1kg 안)');
+    if (review.rawOpposite) return span + (d > 0 ? '계획보다 무거움 · 체중은 줄어듦' : '계획보다 가벼움 · 체중은 늘어남');
     return span + (d > 0 ? '계획보다 무거워짐' : '계획보다 가벼워짐') +
            (review.status === 'watch' ? ' · 지켜봄' : '');
   }

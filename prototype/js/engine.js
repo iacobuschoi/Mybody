@@ -1602,6 +1602,7 @@
     var tr = (plan && plan.trajectory) || [];
     var out = { status: 'early', direction: null, devKg: null, rateKg: null, spanWeeks: null,
                 weeks: 0, merged: 0, since: null, phaseFrom: null, held: false,
+                rawOpposite: false, phaseEnding: false,
                 suggestions: [], apply: null };
 
     /* 마지막 조정 이후만 — 그 전 체크인은 옛 칼로리로 산 주입니다. */
@@ -1722,6 +1723,12 @@
     var held = s1 === 0 && dir === 'maintain' && sP !== 0 &&
                !!rawT && Math.abs(rawT.drift) < CHECKIN_DRIFT_KG;
     out.held = held;
+    /* 다음 주 체크인이 새 단계에 들어가는가 — 그러면 거기서 다시 모으므로 "다음 체크인에서
+       정한다" 는 약속을 지킬 수 없습니다. */
+    var segNext = segX == null ? null : phaseStartX(tr, pts[n - 1].x + 1);
+    var ending = segNext != null && segNext !== segX;
+    out.phaseEnding = ending;
+    var nextTail = ending ? '이번 단계가 곧 끝나, 다음 단계에서 다시 모아 봅니다.' : '다음 체크인까지 보고 정합니다.';
 
     if (s1 === 0) {
       if (held) {
@@ -1734,19 +1741,19 @@
            확실하지는 않은 경우 — 반대로 움직였거나(계획선이 체중보다 더 오름) 흔들림. */
         out.status = 'watch';
         var rs = checkinSide(flat);
+        out.rawOpposite = rs === -sP;
         out.suggestions.push(rs === -sP
           ? { kind: 'watch', title: '바꾸지 않습니다',
               detail: '유지 기간이라 체중 자체로 봅니다. 계획선보다는 ' + (sP > 0 ? '무겁지만' : '가볍지만') +
                       ' 체중은 오히려 ' + (rs > 0 ? '늘고' : '줄고') + ' 있어서 칼로리를 바꿀 이유가 없습니다.' }
           : { kind: 'watch', title: '아직 확실하지 않습니다',
               detail: '유지 기간이라 체중 자체로 봅니다. 계획선과 벌어졌고 체중도 움직였지만, 흔들림이 커서 ' +
-                      '한쪽으로 확실하지 않습니다. 다음 체크인까지 봅니다.' });
+                      '한쪽으로 확실하지 않습니다. ' + nextTail });
       } else if (trend && Math.abs(trend.drift) >= CHECKIN_DRIFT_KG) {
         out.status = 'watch';
         out.suggestions.push(trend.rawSigma < CHECKIN_MIN_SIGMA
           ? { kind: 'watch', title: '아직 확실하지 않습니다',
-              detail: '계획선에서 벗어나는 쪽으로 보이지만 아직 기간이 짧아 확실하지 않습니다. ' +
-                      '다음 체크인까지 보고 정합니다.' }
+              detail: '계획선에서 벗어나는 쪽으로 보이지만 아직 기간이 짧아 확실하지 않습니다. ' + nextTail }
           : { kind: 'watch', title: '아직 확실하지 않습니다',
               detail: '계획선에서 벗어나는 쪽으로 보이지만 체중이 많이 흔들려 확실하지 않습니다. ' +
                       '같은 조건(아침 공복, 화장실 다녀와서)으로 재면 더 빨리 판정할 수 있습니다.' });
@@ -1759,9 +1766,13 @@
     }
     if (s0 !== s1) {
       out.status = 'watch';
-      out.suggestions.push({ kind: 'watch', title: '한 번 더 보고 정합니다',
-        detail: '추세가 처음으로 계획선에서 1kg 넘게 벗어났습니다. 다음 체크인에서도 같은 쪽이면 ' +
-                '그때 조정을 제안합니다.' });
+      out.suggestions.push(ending
+        ? { kind: 'watch', title: '다음 단계에서 다시 봅니다',
+            detail: '추세가 처음으로 계획선에서 1kg 넘게 벗어났지만 이번 단계가 곧 끝납니다. ' +
+                    '다음 단계는 거기서부터 다시 모아 보고, 그때도 벗어나면 조정을 제안합니다.' }
+        : { kind: 'watch', title: '한 번 더 보고 정합니다',
+            detail: '추세가 처음으로 계획선에서 1kg 넘게 벗어났습니다. 다음 체크인에서도 같은 쪽이면 ' +
+                    '그때 조정을 제안합니다.' });
       return out;
     }
 

@@ -57,21 +57,25 @@ const int kCheckinMergeDays = 5;
 /// 계획 주만 보면, 일요일에 하고 월요일(다음 계획 주)에 또 하라고 불렀습니다.
 /// 코어는 5일 안의 두 값을 하나로 묶으니, 불러 봐야 앞의 값을 덮을 뿐입니다.
 Map<String, Object?>? checkinThisWeek(core.Store store) {
+  final hits = _mergedWithToday(store);
+  return hits.isEmpty ? null : hits.last;
+}
+
+/// 오늘 넣는 값과 판정(코어)이 하나로 묶는 체크인들 — 같은 계획 주이거나 5일 안.
+/// 오늘 값이 이것들을 대신합니다.
+List<Map<String, Object?>> _mergedWithToday(core.Store store) {
   final plan = store.get()['plan'];
-  if (plan is! Map) return null;
+  if (plan is! Map) return const [];
   final p = plan.cast<String, Object?>();
   final today = store.dayKey();
   final nowWeek = core.planWeekOf(p['startDate'], today);
   final nowDay = core.planDayOf(p['startDate'], today);
-  Map<String, Object?>? hit;
-  for (final c in checkinsInPlan(store, p)) {
-    final k = store.dayKey(c['at']);
-    if (core.planWeekOf(p['startDate'], k) == nowWeek ||
-        nowDay - core.planDayOf(p['startDate'], k) < kCheckinMergeDays) {
-      hit = c;
-    }
-  }
-  return hit;
+  return [
+    for (final c in checkinsInPlan(store, p))
+      if (core.planWeekOf(p['startDate'], store.dayKey(c['at'])) == nowWeek ||
+          nowDay - core.planDayOf(p['startDate'], store.dayKey(c['at'])) < kCheckinMergeDays)
+        c,
+  ];
 }
 
 /// 판정 이름 — 체크인 화면 · 지난 체크인 목록이 같이 씁니다.
@@ -95,16 +99,18 @@ String checkinStatusLabel(Object? status) => switch ('$status') {
 /// 오래된 체크인과 견주면, 몇 달 동안 실제로 10kg 을 뺀 사람의 맞는 체중을 막았습니다.
 /// 허용 폭도 시간이 지난 만큼 넓힙니다(15% + 주당 1%, 최대 40%).
 ///
-/// [replacing] 은 이번에 저장하면 **바뀔** 체크인의 at — 그 값과는 견주지 않습니다.
-/// 이번 주에 862 를 저장해 버렸으면, 그 862 가 기준이 되어 고쳐 넣는 86.2 를 막았습니다.
-String? checkinWeightProblem(core.Store store, double? w, {Object? replacing}) {
+/// 오늘 값이 **대신할** 체크인(같은 계획 주이거나 5일 안 — [checkinThisWeek] 와 같은
+/// 규칙)과는 견주지 않습니다. 이번 주에 74.0 을 잘못 저장했으면, 그 74.0 이 기준이 되어
+/// 고쳐 넣는 86.2 를 막았습니다 — 판정은 그 74.0 을 이미 버리는데도.
+String? checkinWeightProblem(core.Store store, double? w) {
   if (w == null) return null;
   if (!w.isFinite) return '숫자로 넣어 주세요';
   if (w < 20 || w > 300) return '20~300kg 사이로 넣어 주세요';
   double? ref;
   DateTime? refAt;
+  final superseded = {for (final c in _mergedWithToday(store)) '${c['at']}'};
   for (final c in checkinsOf(store.get()).reversed) {
-    if (replacing != null && c['at'] == replacing) continue;
+    if (superseded.contains('${c['at']}')) continue;
     final cw = c['weightKg'];
     final at = DateTime.tryParse('${c['at']}');
     if (cw is num && cw >= 20 && cw <= 300 && at != null) {

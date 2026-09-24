@@ -80,7 +80,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
     final expected = core.planWeightAt(plan, todayDay) ?? double.nan;
     final typed = double.tryParse(_weight.text.trim());
     /* 소수점을 빠뜨린 862 같은 값은 기준점으로 들어가면 그 뒤 판정이 다 틀어집니다. */
-    final problem = checkinWeightProblem(app.store, typed, replacing: _sameWeek(app)?['at']);
+    final problem = checkinWeightProblem(app.store, typed);
     final actual = problem == null ? typed : null;
 
     /* 지난 7일 실행 — 기록에서 셉니다. */
@@ -273,25 +273,33 @@ class _CheckinScreenState extends State<CheckinScreen> {
   /// 「지난 체크인」에 계속 보였습니다. (5일 묶음을 바뀐 값부터 세던 판은 3~4일마다
   /// 재는 사람의 기록을 계속 덮어써 하나만 남겼습니다 — 주 칸은 고정이라 그러지 않습니다.)
   Map<String, Object?>? _sameWeek(app) {
-    final plan = app.state['plan'];
-    if (plan is! Map) return null;
-    final p = plan.cast<String, Object?>();
-    final list = checkinsInPlan(app.store, p);
-    if (list.isEmpty) return null;
-    final last = list.last;
-    final now = core.planWeekOf(p['startDate'], app.store.dayKey());
-    return planWeekAt(app.store, p, last['at']) == now ? last : null;
+    final all = _sameWeekAll(app);
+    return all.isEmpty ? null : all.last;
   }
 
-  /// 새 체크인을 넣거나, 이번 계획 주의 것을 바꿉니다. 바꿀 때 시각은 **새 시각**
-  /// (잰 날이 그대로 보이게), 「조정함」 표시는 남깁니다.
+  /// 이번 계획 주의 체크인 전부 — 0.2.6 까지는 저장할 때마다 더해서 한 주에 여럿일 수 있습니다.
+  List<Map<String, Object?>> _sameWeekAll(app) {
+    final plan = app.state['plan'];
+    if (plan is! Map) return const [];
+    final p = plan.cast<String, Object?>();
+    final now = core.planWeekOf(p['startDate'], app.store.dayKey());
+    return [
+      for (final c in checkinsInPlan(app.store, p))
+        if (planWeekAt(app.store, p, c['at']) == now) c,
+    ];
+  }
+
+  /// 새 체크인을 넣거나, 이번 계획 주의 것(여럿이면 전부)을 바꿉니다. 바꿀 때 시각은
+  /// **새 시각**(잰 날이 그대로 보이게), 「조정함」 표시는 남깁니다.
   List<Object?> _withEntry(app, Map<String, Object?> entry) {
-    final list = [...((app.state['checkins'] as List?) ?? const [])];
-    final prev = _sameWeek(app);
-    final i = prev == null ? -1 : list.indexWhere((x) => x is Map && x['at'] == prev['at']);
-    if (i < 0) return list..add(entry);
-    list[i] = {...entry, 'applied': entry['applied'] == true || prev!['applied'] == true};
-    return list;
+    final same = _sameWeekAll(app);
+    final ats = {for (final c in same) '${c['at']}'};
+    final applied = entry['applied'] == true || same.any((c) => c['applied'] == true);
+    final list = [
+      for (final x in ((app.state['checkins'] as List?) ?? const []))
+        if (!(x is Map && ats.contains('${x['at']}'))) x,
+    ];
+    return list..add({...entry, 'applied': applied});
   }
 
   void _save(app, double actual, Map<String, Object?> ex, Map<String, Object?>? review) {
@@ -422,9 +430,9 @@ class _AdviceCard extends StatelessWidget {
         ? null
         : dev.abs() < 0.05
             ? '$lead 계획선과 같이 가고 있습니다.'
-            : review['held'] == true
+            : review['held'] == true || review['rawOpposite'] == true
                 ? '$lead 계획선보다 ${n2(dev.abs())}kg ${dev > 0 ? '무겁지만' : '가볍지만'}, '
-                    '체중 자체는 그대로입니다.'
+                    '체중 자체는 ${review['held'] == true ? '그대로입니다' : (dev > 0 ? '오히려 줄었습니다' : '오히려 늘었습니다')}.'
                 : '$lead 그 기간에 계획선보다 ${n2(dev.abs())}kg ${dev > 0 ? '무거워졌습니다' : '가벼워졌습니다'} '
                     '(1kg 까지는 흔들림으로 봅니다).';
 
