@@ -89,7 +89,10 @@ app-factory/
 
 ---
 
-## 3. GitHub 설정 (🙋, 10분)
+## 3. GitHub 설정 — `factory/scripts/bootstrap.sh` 가 전부 합니다 (🤖)
+
+맥 미니(gh 가 주인으로 로그인된 곳)에서 한 번. 저장소 둘 만들기 · 씨앗 푸시 · 승인 환경 · 배포 열쇠 · 라벨 · lab-results 브랜치 ·
+main 보호 · 스토어 열쇠 시크릿 · 러너 등록까지. 아래는 그 스크립트가 무엇을 만드는지의 설명입니다.
 
 ### 출시 승인 버튼 = 공개 저장소의 환경 보호 규칙
 GitHub 의 「Required reviewers」(잡이 사람 승인을 기다리게 하는 것)는 Free · Pro · Team 요금제에서
@@ -100,13 +103,15 @@ GitHub 의 「Required reviewers」(잡이 사람 승인을 기다리게 하는 
 
 `app-factory-ship` → Settings → Environments → `store-production`:
 - **Required reviewers: 주인** · 「Prevent self-reviews」는 **끔** (아래 이유)
-- Environment secrets: `ASC_PROD_KEY_ID` · `ASC_PROD_ISSUER_ID` · `ASC_PROD_KEY_P8` · `PLAY_PROD_SA_JSON` ·
-  `FACTORY_READ_TOKEN` (app-factory 를 **읽기만** 하는 fine-grained 토큰 — 스토어 문안 · 스크린샷을 가져옴)
+- Environment secrets: `ASC_PROD_KEY_ID` · `ASC_PROD_ISSUER_ID` · `ASC_PROD_KEY_P8` · `PLAY_PROD_SA_JSON`
+- 스토어 문안 · 스크린샷은 개인 토큰 없이 옵니다: `app-factory` 의 release-candidate 가 **배포 열쇠(SSH, 쓰기)** 로
+  이 저장소의 `queue/<앱>/<판>/` 에 밀어 넣고, ship 은 자기 저장소만 읽습니다. 열쇠는 bootstrap.sh 가 만들어
+  `app-factory` 시크릿 `SHIP_DEPLOY_KEY` 로 넣습니다.
 
 `app-factory`(비공개) → Settings → Secrets → Actions:
 - `ASC_BETA_*` · `PLAY_BETA_SA_JSON` — 테스트 트랙까지만 되는 열쇠
-- 앱별 안드로이드 업로드 열쇠 `<APP>_KEYSTORE_B64` · `<APP>_KEYSTORE_PW` · `<APP>_KEY_ALIAS` ·
-  `<APP>_KEY_PW` (5절 스크립트가 넣음)
+- 앱별 안드로이드 업로드 열쇠 `<APP>_KEYSTORE_B64` · `<APP>_KEYSTORE_PW` · `<APP>_KEY_ALIAS` · `<APP>_KEY_PW` ·
+  `<APP>_UPLOAD_SHA256` (`scripts/new-app-keys.sh <앱>` 이 넣음) · `CLAUDE_CODE_OAUTH_TOKEN`(AI 탐색 시험용)
 
 ### 열쇠를 둘로 나누는 이유
 Claude 의 GitHub 활동은 **주인 계정 이름으로** 기록됩니다. GitHub 입장에서는 Claude 와 주인이 같은
@@ -132,7 +137,10 @@ Claude 의 GitHub 활동은 **주인 계정 이름으로** 기록됩니다. GitH
 
 ---
 
-## 4. 맥 미니 — 기기 실험실 (🙋 1시간 + 🤖)
+## 4. 맥 미니 — 기기 실험실 (🙋 30분 + 🤖 `factory/scripts/macmini-setup.sh`)
+
+4-1 의 켜 두기, 4-2 의 도구 전부, 4-5 의 Claude · 설정 · 상주 세션은 `macmini-setup.sh` 가 하고, 4-4 의 러너 등록은
+`bootstrap.sh` 가 등록 토큰을 API 로 받아 합니다. 주인 몫은 [OWNER.md](OWNER.md) A-2 ~ A-4 (Xcode · 로그인 · 폰 터치)뿐입니다.
 
 ### 4-1. 켜 두기
 ```bash
@@ -220,7 +228,7 @@ claude mcp add --scope user mobile-mcp -- npx -y @mobilenext/mobile-mcp@latest
 
 ## 5. 앱마다 한 번 — 업로드 열쇠 (🤖 맥 미니에서)
 
-새 앱을 출시 준비(S6)까지 올리면 Claude 가 맥 미니에서 스크립트를 돌려:
+새 앱을 출시 준비(S6)까지 올리면 Claude 가 맥 미니에서 `scripts/new-app-keys.sh <앱>` 을 돌려:
 1. 앱 전용 업로드 열쇠(.jks)를 만들고, 2. 비밀번호와 함께 `gh secret set` 으로 저장소에 넣고,
 3. 사본을 `~/app-keys/<앱>/`(맥 미니 로컬, 저장소 밖)에 둡니다.
 

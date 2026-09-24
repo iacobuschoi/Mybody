@@ -14,13 +14,16 @@ Claude Code · 스토어 · 시험 도구의 2026-09 현재 사실을 확인해 
 
 | 문서 | 무엇 | 누가 언제 |
 |---|---|---|
-| [LESSONS.md](LESSONS.md) | MyBody 3일의 숫자와 불편 → 공장의 결정 | 먼저. 왜 이렇게 설계했는지 |
+| [OWNER.md](OWNER.md) | **주인이 하는 일 전부** — 한 번만 · 앱마다 · 출시마다 · 매일 | 제일 먼저 |
+| [LESSONS.md](LESSONS.md) | MyBody 3일의 숫자와 불편 → 공장의 결정 | 왜 이렇게 설계했는지 |
 | [SESSIONS.md](SESSIONS.md) | **여러 Claude 세션이 어떻게 소통하나** — 통로 · 형식 · 승인 문제 해결 | 핵심 |
 | [PIPELINE.md](PIPELINE.md) | 단계 S0~S8 · 워크플로 5개 · 승인 게이트 · 사람만 되는 칸 · 보고 | 흐름 |
 | [SETUP.md](SETUP.md) | 기기 · 계정 · GitHub · Claude 세팅 (🙋 주인 / 🤖 Claude) | 세팅하는 날 |
 | [QUALITY.md](QUALITY.md) | 시험 층 L1~L6 · 결과물 검사 · 기기표 | 품질 기준 |
 | [MONEY.md](MONEY.md) | 주제 고르기 · 수익 모델 · 수수료 · 정책 위험 · 세금 · ASO · 판정표 | 돈 |
-| [seed/](seed/) | 새 저장소에 그대로 넣는 것: `CLAUDE.md` · `.claude/`(훅 · 권한 · 에이전트 · 스킬) · `portfolio/` | 복사 |
+| [seed/](seed/) | `app-factory` 저장소의 씨앗: `CLAUDE.md` · `.claude/`(훅 · 권한 · 에이전트 · 스킬) · 워크플로 3개 · `scripts/` · `portfolio/` | bootstrap.sh 가 푸시 |
+| [ship-seed/](ship-seed/) | `app-factory-ship`(출시 창구) 의 씨앗: `ship.yml` · `ship-control.yml` | bootstrap.sh 가 푸시 |
+| [scripts/](scripts/) | `macmini-setup.sh`(실험실 세팅) · `bootstrap.sh`(저장소 · 승인 환경 · 열쇠 · 러너) | 맥 미니에서 한 번 |
 
 ---
 
@@ -74,21 +77,22 @@ Claude Code · 스토어 · 시험 도구의 2026-09 현재 사실을 확인해 
 
 ---
 
-## 첫 2주 계획
+## 주인이 하는 일 전부 → [OWNER.md](OWNER.md)
+
+한 번만(반나절: 결제 · Xcode · 로그인 · 폰 터치 · 스토어 열쇠 파일 · 프로젝트 만들기) → 앱마다 콘솔 15~30분(첫 앱 뒤에는
+console-bot 으로 없앨 수 있음) → 출시마다 버튼 30초 → 매일 푸시 한 줄 읽기. 나머지는 `factory/scripts/` 두 개와 Claude 가 합니다.
 
 | 날 | 할 것 | 누가 |
 |---|---|---|
-| 1 | 계정 · 요금(Max) · 저장소 둘 만들기 · Claude GitHub App · 프로젝트 만들기 | 🙋 [SETUP.md](SETUP.md) 1~3절 · 7절 |
-| 1~2 | 맥 미니: 전용 사용자 · 도구 · 폰 연결 · 러너 · mac-lab | 🙋 30분 + 🤖 나머지 ([SETUP.md](SETUP.md) 4절) |
-| 2 | seed 풀기 · MyBody 워크플로를 공장용으로 옮기기 · `device-lab` 을 더미 앱으로 한 번 | 🤖 |
-| 3 | [SESSIONS.md](SESSIONS.md) 9절 여섯 가지 검증 | 🤖 + 🙋 승인 Reject 한 번 |
-| 3 | **첫 주제 던지기** | 🙋 한 줄 |
-| 4~10 | S1~S5 (조사 → 실기기 시험) | 🤖 · 주인은 하루 요약만 |
-| 10~11 | S6: 콘솔 첫 등록 15~30분 · 첫 AAB 손 업로드 | 🙋 |
-| 11~ | (구글 개인 계정이면) 비공개 테스트 12명 · 14일 → 그 사이 두 번째 주제 | 🙋 테스터 초대 · 🤖 |
-| 심사 뒤 | 승인 버튼 → 출시 → 루틴이 지표 · 리뷰 · 크래시 살핌 | 🙋 버튼 한 번 |
-
-첫 앱에서 파이프라인이 굳으면 두 번째 앱부터는 **주제 한 줄 + 콘솔 15분 + 버튼 한 번**입니다.
+| 1 | [OWNER.md](OWNER.md) A-1 ~ A-6 (결제 · 맥 미니 준비 · 로그인 · 폰 · 스토어 열쇠 파일) | 🙋 반나절 |
+| 1 | 맥 미니 Claude 세션: "macmini-setup.sh 돌리고 bootstrap.sh 돌려" → 저장소 둘 · 승인 환경 · 러너 · mac-lab 까지 | 🤖 |
+| 1 | 프로젝트 「앱 공장」 만들기 · 지침 붙이기 · 하루 요약 루틴 | 🙋 10분 |
+| 2 | [SESSIONS.md](SESSIONS.md) 9절 여섯 가지 검증 · MyBody 의 검증 도구를 공장 `scripts/` 로 옮기기 | 🤖 (승인 Reject 한 번만 🙋) |
+| 2 | **첫 주제 던지기** | 🙋 한 줄 |
+| 3~9 | S1~S5 | 🤖 · 주인은 하루 요약만 |
+| 9~10 | S6 콘솔 첫 등록(B) | 🙋 15~30분 |
+| 10~ | (구글 개인 계정이면) 비공개 테스트 12명 · 14일 — 그 사이 두 번째 주제 | 🙋 테스터 초대 · 🤖 |
+| 심사 뒤 | 승인 버튼 | 🙋 30초 |
 
 ---
 

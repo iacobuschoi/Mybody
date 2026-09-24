@@ -155,7 +155,8 @@ apps/<이름>/            Flutter 앱 하나 (번들 ID: io.github.<주인>.<이
 packages/               앱들이 같이 쓰는 것 (결제 벽 · 설정 · 법적 화면 · 측정 · 디자인 토큰)
 portfolio/<이름>/       조사 · 기획 · 설계 · 품질 보고 · 스토어 문안 · 지표
 portfolio/ideas.md      주제 대기열과 점수
-.github/workflows/      ci · device-lab · release-candidate · ship
+.github/workflows/      ci · device-lab · release-candidate  (ship 은 출시 창구 저장소 app-factory-ship 에)
+scripts/                lab-report.sh(러너 결과) · new-app-keys.sh(앱 열쇠) · 정적 검사
 .maestro/ 또는 apps/<이름>/.maestro/   실기기 흐름 시험
 ```
 

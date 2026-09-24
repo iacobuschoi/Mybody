@@ -1,0 +1,60 @@
+# =============================================================================
+# ship-control — 이미 나간 판을 다루기: 배포 비율 올리기 · 멈추기. 전부 같은 승인 환경 뒤.
+#
+#   gh workflow run ship-control.yml -f app=habit -f version=1.0.0 -f action=rollout -f rollout=1
+#   gh workflow run ship-control.yml -f app=habit -f version=1.0.0 -f action=halt
+#
+# 크래시가 치솟으면 담당 스레드가 halt 를 실행해 승인 요청을 보냅니다. 급하면 주인이 Play Console 앱에서 직접 멈춰도 됩니다.
+# ※ 첫 실행에서 확정.
+# =============================================================================
+name: ship-control
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        required: true
+      version:
+        description: queue/<앱>/<판> 의 판
+        required: true
+      action:
+        type: choice
+        options: [rollout, halt, resume]
+        required: true
+      rollout:
+        description: rollout 일 때 비율 0.05~1
+        default: '1'
+
+permissions:
+  contents: read
+
+jobs:
+  control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: store-production
+    env:
+      Q: queue/${{ inputs.app }}/${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo gem install fastlane -N -q >/dev/null
+      - name: 구글 프로덕션 트랙
+        env:
+          SA: ${{ secrets.PLAY_PROD_SA_JSON }}
+        shell: bash
+        run: |
+          [ -f "$Q/build.json" ] || { echo "queue 없음"; exit 1; }
+          bid=$(jq -r .bundle_id "$Q/build.json"); ac=$(jq -r .android_version_code "$Q/build.json")
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          case "${{ inputs.action }}" in
+            rollout) r="${{ inputs.rollout }}"; st=inProgress; [ "$r" = "1" ] && st=completed
+                     fastlane supply --json_key "$RUNNER_TEMP/sa.json" --package_name "$bid" --track production --version_code "$ac" \
+                       --rollout "$r" --release_status "$st" --skip_upload_aab --skip_upload_apk --skip_upload_metadata --skip_upload_images --skip_upload_screenshots --skip_upload_changelogs ;;
+            halt)    fastlane supply --json_key "$RUNNER_TEMP/sa.json" --package_name "$bid" --track production --version_code "$ac" \
+                       --release_status halted --skip_upload_aab --skip_upload_apk --skip_upload_metadata --skip_upload_images --skip_upload_screenshots --skip_upload_changelogs ;;
+            resume)  fastlane supply --json_key "$RUNNER_TEMP/sa.json" --package_name "$bid" --track production --version_code "$ac" \
+                       --release_status inProgress --skip_upload_aab --skip_upload_apk --skip_upload_metadata --skip_upload_images --skip_upload_screenshots --skip_upload_changelogs ;;
+          esac
+          rm -f "$RUNNER_TEMP/sa.json"
+          echo "### ${{ inputs.app }} ${{ inputs.version }} — ${{ inputs.action }} ${{ inputs.rollout }}" >> "$GITHUB_STEP_SUMMARY"
+      # 애플의 단계적 출시 멈춤 · 재개는 fastlane 에 없어 App Store Connect API 를 직접 부릅니다 — 첫 필요 때 추가.

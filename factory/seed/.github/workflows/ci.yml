@@ -1,0 +1,153 @@
+# =============================================================================
+# ci — 모든 PR · main 푸시 (깃허브 리눅스 러너)
+#
+# 바뀐 앱만 시험합니다. packages/ · 워크플로 · 훅이 바뀌면 전부.
+# 여기서 초록이어야 PR 이 머지됩니다(브랜치 보호). 시험을 끄거나 건너뛰어 초록을 만들지 않습니다.
+#
+# MyBody apk.yml 에서 가져온 것: Flutter 판 고정 · 직접 클론(남의 액션 최소) · 시험 timeout(멈추는 시험이
+# 10분씩 기다리던 일) · 결과를 요약에.
+# ※ 첫 실행에서 확정 — 아직 실제로 돌려 보지 않은 파일입니다.
+# =============================================================================
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.41.2
+
+jobs:
+  # 어느 앱이 바뀌었나
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      apps: ${{ steps.pick.outputs.apps }}
+      any: ${{ steps.pick.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - id: pick
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then base="${{ github.event.pull_request.base.sha }}"; else base="${{ github.event.before }}"; fi
+          if [ -z "$base" ] || ! git cat-file -e "$base" 2>/dev/null; then base=$(git rev-parse HEAD~1 2>/dev/null || echo "")
+          fi
+          changed=$(git diff --name-only "$base" HEAD 2>/dev/null || git ls-files)
+          all=$(ls apps 2>/dev/null | grep -v '^_' || true)
+          if echo "$changed" | grep -qE '^(packages/|\.github/workflows/ci\.yml|\.claude/hooks/|scripts/)'; then apps="$all"
+          else apps=$(echo "$changed" | sed -n 's#^apps/\([^/]*\)/.*#\1#p' | sort -u | grep -v '^_' || true); fi
+          # 설명서만 바뀐 앱은 뺍니다 (MyBody: app/README.md 가 걸려 헛돌았음)
+          json=$(printf '%s\n' $apps | jq -R 'select(length>0)' | jq -sc .)
+          echo "apps=$json" >> "$GITHUB_OUTPUT"
+          [ "$json" != "[]" ] && echo "any=true" >> "$GITHUB_OUTPUT" || echo "any=false" >> "$GITHUB_OUTPUT"
+          echo "시험할 앱: $json"
+
+  # 훅이 깨지면 모든 세션의 셸이 막히거나(다 막음) 열립니다(다 통과). 코드처럼 시험합니다.
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - run: node .claude/hooks/guard.test.js
+
+  packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: needs.changes.outputs.any == 'true'
+    needs: changes
+    steps:
+      - uses: actions/checkout@v4
+      - name: Flutter 캐시
+        id: fcache
+        uses: actions/cache@v4
+        with: { path: ~/flutter, key: "flutter-${{ env.FLUTTER_VERSION }}-${{ runner.os }}" }
+      - if: steps.fcache.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$HOME/flutter"
+      - run: |
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          git config --global --add safe.directory "$HOME/flutter"
+      - name: 공통 패키지 시험
+        shell: bash
+        run: |
+          shopt -s nullglob
+          for p in packages/*/; do
+            [ -f "$p/pubspec.yaml" ] || continue
+            echo "== $p"; (cd "$p" && flutter pub get && flutter analyze && timeout 600 flutter test) || exit 1
+          done
+
+  app:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: needs.changes.outputs.any == 'true'
+    needs: changes
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.changes.outputs.apps) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: Flutter 캐시
+        id: fcache
+        uses: actions/cache@v4
+        with: { path: ~/flutter, key: "flutter-${{ env.FLUTTER_VERSION }}-${{ runner.os }}" }
+      - if: steps.fcache.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$HOME/flutter"
+      - run: |
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"
+          git config --global --add safe.directory "$HOME/flutter"
+      - run: flutter --version
+
+      - name: 묶음 받기
+        working-directory: apps/${{ matrix.app }}
+        run: flutter pub get
+
+      - name: 코드 검사
+        working-directory: apps/${{ matrix.app }}
+        run: flutter analyze
+
+      # 멈추는 시험(플러그인 await)이 있으면 flutter_test 는 하나에 10분씩 기다립니다. 통째로 15분에서 끊습니다.
+      - name: 위젯 · 골든 시험
+        working-directory: apps/${{ matrix.app }}
+        timeout-minutes: 15
+        run: flutter test --reporter expanded 2>&1 | tail -n 200
+
+      # 문구 · 글꼴 · 스토어 규정 정적 검사 — scripts/ 에 있는 것만 돕니다 (없으면 건너뛰고 요약에 적음)
+      - name: 정적 검사 (문구 · 글꼴 · 규정)
+        shell: bash
+        run: |
+          for s in check-copy check-fonts check-store-rules; do
+            if [ -f "scripts/$s.js" ]; then echo "== $s"; node "scripts/$s.js" "apps/${{ matrix.app }}" || exit 1
+            else echo "- $s: 아직 없음" >> "$GITHUB_STEP_SUMMARY"; fi
+          done
+
+      - name: 요약
+        if: always()
+        run: echo "### ${{ matrix.app }} — ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+
+  # 브랜치 보호가 볼 이름 하나. 위 잡이 늘어나도 보호 규칙은 이것만 가리킵니다.
+  ok:
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [changes, guard, packages, app]
+    steps:
+      - shell: bash
+        run: |
+          r='${{ toJson(needs) }}'
+          echo "$r" | jq .
+          if echo "$r" | jq -e '[.[] | .result] | any(. == "failure" or . == "cancelled")' >/dev/null; then exit 1; fi

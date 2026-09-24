@@ -12,13 +12,20 @@ argument-hint: <앱 slug>
 
 - [ ] `main` 이 초록이고, `docs/factory/QUALITY.md` L1~L5 가 이 커밋에서 초록
 - [ ] 판 번호 결정(`1.<기능>.<고침>`) · `portfolio/<slug>/CHANGELOG.md` 에 사용자 말로 3줄
-- [ ] `release-candidate` 워크플로 실행 → TestFlight · 플레이 내부 테스트에 올라감
+- [ ] 안드로이드 업로드 열쇠가 없으면(첫 판) mac-lab 에 `scripts/new-app-keys.sh <slug>` 를 부탁(세 줄 메시지)
+- [ ] `store/` 를 fastlane 배치로 먼저 채움(2절) — release-candidate 의 queue 단계가 그대로 복사합니다
+- [ ] `gh workflow run release-candidate.yml -f app=<slug> -f version=<판>` → TestFlight · 플레이 내부 테스트에
+      올라감 · 출시 창구 `queue/<slug>/<판>/` 에 문안이 들어감
 - [ ] **올라간 결과물 확인**: AAB 서명 지문이 이 앱의 업로드 열쇠와 같음 · IPA 번들 ID · 판 번호 ·
       빌드 번호 · 권한 목록(매니페스트 · Info.plist 를 꺼내서) — 워크플로 요약에 찍힌 것을 읽음
 - [ ] `device-lab` 을 이 빌드로 한 번 더 (실기기 초록, 스크린샷)
 
 ## 2. 스토어 문안 · 그림 (`portfolio/<slug>/store/`)
 
+- [ ] 배치(fastlane 표준 — ship 이 그대로 올림): `store/ios/metadata/<ko,en-GB>/{name,subtitle,keywords,description,
+      release_notes,promotional_text,privacy_url,support_url}.txt` · `store/ios/screenshots/<ko>/` ·
+      `store/android/<ko-KR,en-US>/{title,short_description,full_description}.txt` · `store/android/<ko-KR>/changelogs/<versionCode>.txt` ·
+      `store/android/<ko-KR>/images/{icon.png,featureGraphic.png,phoneScreenshots/}` · 사용자가 있는 앱이면 `store/phased` 파일(단계적 출시)
 - [ ] 한국어 · 영어: 이름(30) · 부제(30, 애플) · 짧은 설명(80, 구글) · 설명 · 키워드(100, 애플) ·
       새로운 기능. 글자 수는 스크립트로 셉니다.
 - [ ] 키워드는 `research.md` 후보에서, 이름 · 부제와 겹치지 않게(애플은 겹치면 낭비)
@@ -40,8 +47,8 @@ argument-hint: <앱 slug>
 ## 4. 승인 요청
 
 - [ ] 출시 PR(또는 상황판) 본문을 CLAUDE.md §5 「출시 요청」 형식으로
-- [ ] 출시 창구 `app-factory-ship` 의 `ship` 워크플로 실행(app=<slug>, version=<판>, 빌드 번호) →
-      `store-production` 환경에서 멈추고 GitHub 이 주인에게 승인 요청을 보냅니다
+- [ ] `gh workflow run ship.yml -R <주인>/app-factory-ship -f app=<slug> -f version=<판> -f rollout=<새 앱 1 · 업데이트 0.2>`
+      → `store-production` 환경에서 멈추고 GitHub 이 주인에게 승인 요청을 보냅니다
 - [ ] 주인에게 알림 한 번: "<앱> v<판> 출시 승인 요청 — 바뀐 것 한 줄 · 실기기 n대 초록 · 링크"
 
 승인 뒤 ship 이 돌면: 애플은 심사 제출(통과하면 자동 출시), 구글은 프로덕션 트랙으로(사용자가 있는

@@ -1,0 +1,171 @@
+# =============================================================================
+# device-lab — 맥 미니 실험실에서 시뮬레이터 · 실기기 시험
+#
+# 담당 스레드가 실행합니다:  gh workflow run device-lab.yml -f app=habit -f ref=<PR head 커밋> -f suite=smoke
+# 밤에는 ACTIVE 표시가 있는 앱 전부 full.
+#
+# 결과는 말이 아니라 파일과 상태로 (docs/factory/SESSIONS.md 4절):
+#   · lab-results 브랜치  <앱>/<실행번호>/summary.json · report.md · shots/
+#   · ref 커밋의 체크 런  lab/android · lab/ios  → PR 체크 이벤트가 담당 스레드를 깨움
+#
+# 러너: runs-on [self-hosted, lab] (docs/factory/SETUP.md 4절). 동시에 하나만.
+# ※ 첫 실행에서 확정 — 아직 실제로 돌려 보지 않은 파일입니다. Maestro · Patrol 명령은 첫 앱에서 맞춥니다.
+# =============================================================================
+name: device-lab
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 앱 slug (apps/<slug>)
+        required: true
+      ref:
+        description: 시험할 커밋 SHA 또는 브랜치 (PR head 커밋을 주면 결과가 PR 에 붙음)
+        required: true
+        default: main
+      suite:
+        description: smoke(핵심 흐름) · full(전부 + 실기기) · explore(AI 탐색 시험까지)
+        required: true
+        default: smoke
+        type: choice
+        options: [smoke, full, explore]
+  schedule:
+    - cron: '0 18 * * *'     # 매일 03:00 KST — ACTIVE 앱 전부 full
+
+concurrency:
+  group: lab
+  cancel-in-progress: false
+
+permissions:
+  contents: write     # lab-results 브랜치에 푸시
+  checks: write       # ref 커밋에 체크 런 lab/android · lab/ios (PR 체크 이벤트 → 담당 스레드가 깨어남)
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: m
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            m=$(jq -nc --arg a "${{ inputs.app }}" --arg r "${{ inputs.ref }}" --arg s "${{ inputs.suite }}" '[{app:$a, ref:$r, suite:$s}]')
+          else
+            m=$(for f in portfolio/*/ACTIVE; do [ -f "$f" ] && basename "$(dirname "$f")"; done | jq -R . | jq -sc 'map({app:., ref:"main", suite:"full"})')
+          fi
+          echo "matrix=$m" >> "$GITHUB_OUTPUT"; echo "$m"
+
+  lab:
+    needs: plan
+    if: needs.plan.outputs.matrix != '[]'
+    runs-on: [self-hosted, lab]
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        include: ${{ fromJson(needs.plan.outputs.matrix) }}
+    env:
+      APP: ${{ matrix.app }}
+      SUITE: ${{ matrix.suite }}
+      OUT: ${{ github.workspace }}/lab-out
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+          fetch-depth: 0
+
+      - name: 준비
+        shell: bash
+        run: |
+          rm -rf "$OUT"; mkdir -p "$OUT/shots"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          flutter --version | head -1; maestro --version || true; adb devices -l; xcrun simctl list devices booted | head -5
+          # 시험 기기표에 있는 기기만 — 주인 폰을 건드리지 않습니다 (docs/factory/QUALITY.md 「기기표」)
+          [ -f docs/factory/devices.json ] && cat docs/factory/devices.json || echo "devices.json 없음 — 연결된 기기 전부를 시험 기기로 봅니다"
+
+      - name: 빌드 (디버그 · 시험용)
+        working-directory: apps/${{ matrix.app }}
+        shell: bash
+        run: |
+          flutter pub get
+          flutter build apk --debug --dart-define=LAB=1 2>&1 | tail -3
+          flutter build ios --simulator --debug --dart-define=LAB=1 2>&1 | tail -3
+
+      # ── 안드로이드: 시험 기기 전부 (실기기 포함) ──
+      - name: 안드로이드 — Maestro 흐름
+        shell: bash
+        continue-on-error: true
+        run: |
+          apk=$(ls apps/$APP/build/app/outputs/flutter-apk/app-debug.apk)
+          pkg=$(grep -o 'applicationId *= *"[^"]*"' apps/$APP/android/app/build.gradle.kts | sed 's/.*"\(.*\)"/\1/')
+          tags="--include-tags smoke"; [ "$SUITE" != "smoke" ] && tags=""
+          for d in $(adb devices | awk 'NR>1 && $2=="device"{print $1}'); do
+            echo "== $d"; adb -s $d install -r "$apk" >/dev/null
+            adb -s $d shell pm clear "$pkg" >/dev/null || true
+            mkdir -p "$OUT/android-$d"
+            maestro --device "$d" test $tags --format junit --output "$OUT/android-$d/junit.xml" \
+              --debug-output "$OUT/android-$d" "apps/$APP/.maestro" || echo "FAIL $d" >> "$OUT/android.fail"
+            # 시작 시간(콜드) — 중급 실기기 2초 기준
+            adb -s $d shell am force-stop "$pkg"; adb -s $d shell am start -W -n "$pkg/.MainActivity" | grep -E 'TotalTime' | sed "s/^/$d /" >> "$OUT/startup.txt" || true
+          done
+          ls "$OUT"
+
+      # ── iOS: 가장 작은 · 가장 큰 시뮬레이터 ──
+      - name: iOS 시뮬레이터 — Maestro 흐름
+        shell: bash
+        continue-on-error: true
+        run: |
+          app=$(ls -d apps/$APP/build/ios/iphonesimulator/*.app | head -1)
+          bid=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Info.plist")
+          tags="--include-tags smoke"; [ "$SUITE" != "smoke" ] && tags=""
+          for name in "iPhone SE (3rd generation)" "iPhone 17 Pro Max"; do
+            udid=$(xcrun simctl list devices available -j | jq -r --arg n "$name" '.devices[][] | select(.name==$n) | .udid' | head -1)
+            [ -z "$udid" ] && { echo "시뮬레이터 없음: $name" >> "$OUT/ios.note"; continue; }
+            echo "== $name ($udid)"; xcrun simctl boot "$udid" 2>/dev/null || true; xcrun simctl bootstatus "$udid" -b
+            xcrun simctl uninstall "$udid" "$bid" 2>/dev/null || true; xcrun simctl install "$udid" "$app"
+            slug=$(echo "$name" | tr -c 'A-Za-z0-9\n' '-'); mkdir -p "$OUT/ios-$slug"
+            maestro --device "$udid" test $tags --format junit --output "$OUT/ios-$slug/junit.xml" \
+              --debug-output "$OUT/ios-$slug" "apps/$APP/.maestro" || echo "FAIL $name" >> "$OUT/ios.fail"
+            # 큰 글꼴 · 다크 모드 스크린샷 한 장씩
+            xcrun simctl ui "$udid" appearance dark; xcrun simctl launch "$udid" "$bid" >/dev/null; sleep 3
+            xcrun simctl io "$udid" screenshot "$OUT/shots/ios-$slug-dark.png"; xcrun simctl ui "$udid" appearance light
+          done
+
+      # ── 실제 아이폰: full 이상, Patrol 이 있을 때만 (Maestro 는 실제 아이폰 미지원) ──
+      - name: 아이폰 실기기 — Patrol
+        if: matrix.suite != 'smoke'
+        shell: bash
+        continue-on-error: true
+        run: |
+          udid=$(xcrun xctrace list devices 2>/dev/null | grep -i iphone | grep -v Simulator | grep -oE '[0-9A-F-]{25,}' | head -1)
+          [ -z "$udid" ] && { echo "아이폰 실기기 없음" >> "$OUT/ios.note"; exit 0; }
+          if [ -d "apps/$APP/integration_test" ] && grep -q patrol "apps/$APP/pubspec.yaml"; then
+            (cd "apps/$APP" && patrol test -d "$udid" --release 2>&1 | tail -40) > "$OUT/iphone-patrol.txt" || echo "FAIL iphone" >> "$OUT/ios.fail"
+          else
+            echo "patrol 시험 없음 — apps/$APP/integration_test 에 추가 필요" >> "$OUT/ios.note"
+          fi
+
+      # ── AI 탐색 시험 (explore) — qa-explorer 헌장으로 mobile-mcp 를 잡고 눌러 봄 ──
+      - name: AI 탐색 시험
+        if: matrix.suite == 'explore'
+        shell: bash
+        continue-on-error: true
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ] && { echo "CLAUDE_CODE_OAUTH_TOKEN 없음" >> "$OUT/explore.note"; exit 0; }
+          claude -p --permission-mode auto --output-format text --max-turns 150 \
+            "qa-explorer 에이전트로 apps/$APP 의 출시 후보(방금 빌드한 디버그 앱, 이미 기기에 설치됨)를 탐색 시험해라. 결과는 $OUT/explore.md 에 QUALITY.md 형식으로." \
+            > "$OUT/explore.log" 2>&1 || true
+          tail -20 "$OUT/explore.log"
+
+      - name: 결과 정리 · lab-results 푸시 · 체크 런
+        if: always()
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/lab-report.sh "$APP" "$sha" "$SUITE" "$OUT" "${{ github.run_id }}" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

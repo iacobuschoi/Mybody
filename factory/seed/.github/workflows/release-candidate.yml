@@ -1,0 +1,264 @@
+# =============================================================================
+# release-candidate — 출시 후보: 서명된 AAB · IPA 를 만들어 열어서 검사하고, 테스트 트랙에 올리고,
+#                     스토어 문안 · 스크린샷을 출시 창구(app-factory-ship)의 queue/ 에 넣습니다.
+#
+#   gh workflow run release-candidate.yml -f app=habit -f version=1.0.0
+#
+# 열쇠: 테스트 트랙까지만 되는 것(ASC_BETA_* · PLAY_BETA_SA_JSON)과 앱별 업로드 열쇠(<APP>_KEYSTORE_B64 …).
+#       프로덕션 열쇠는 이 저장소에 없습니다. 출시는 app-factory-ship 의 승인 뒤.
+#
+# MyBody 에서 배운 것이 이 파일의 절반입니다: 서명 안 된 중간 AAB(find|head -1) · 디버그 열쇠 배포 ·
+# 판 이름 어긋남 · 인터넷 권한 빠짐 — 전부 "결과물을 열어서" 잡습니다.
+# ※ 첫 실행에서 확정 — 아직 실제로 돌려 보지 않은 파일입니다.
+# =============================================================================
+name: release-candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      app:
+        description: 앱 slug (apps/<slug>, 소문자)
+        required: true
+      version:
+        description: 판 이름 1.2.3
+        required: true
+      skip_upload:
+        description: 스토어 테스트 트랙 업로드 건너뛰기 (결과물 검사만)
+        type: boolean
+        default: false
+
+concurrency:
+  group: rc-${{ inputs.app }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.41.2
+  APP: ${{ inputs.app }}
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  # ── 안드로이드 (깃허브 리눅스) ──────────────────────────────────────────────
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      version_code: ${{ steps.vc.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }         # 빌드 번호 = 커밋 수 (얕은 클론이면 언제나 1)
+
+      - id: vc
+        run: |
+          n=$(git rev-list --count HEAD); echo "code=$n" >> "$GITHUB_OUTPUT"; echo "versionCode $n · versionName $VERSION"
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "판 이름은 1.2.3 꼴이어야 합니다"; exit 1; }
+
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - uses: actions/cache@v4
+        id: fcache
+        with: { path: ~/flutter, key: "flutter-${{ env.FLUTTER_VERSION }}-${{ runner.os }}" }
+      - if: steps.fcache.outputs.cache-hit != 'true'
+        run: git clone --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$HOME/flutter"
+      - run: |
+          echo "$HOME/flutter/bin" >> "$GITHUB_PATH"; git config --global --add safe.directory "$HOME/flutter"
+      - run: yes | flutter doctor --android-licenses > /dev/null 2>&1 || true
+
+      # 앱별 업로드 열쇠. 시크릿 이름은 대소문자를 가리지 않으므로 habit → HABIT_KEYSTORE_B64 가 잡힙니다.
+      # 없으면 여기서 멈춥니다 — 디버그 열쇠로 서명된 것이 테스트 트랙에 가면 그 뒤 판이 전부 거부됩니다.
+      - name: 서명 열쇠
+        env:
+          KS: ${{ secrets[format('{0}_KEYSTORE_B64', inputs.app)] }}
+          STORE_PW: ${{ secrets[format('{0}_KEYSTORE_PW', inputs.app)] }}
+          ALIAS: ${{ secrets[format('{0}_KEY_ALIAS', inputs.app)] }}
+          KEY_PW: ${{ secrets[format('{0}_KEY_PW', inputs.app)] }}
+        run: |
+          [ -n "$KS" ] || { echo "업로드 열쇠 시크릿이 없습니다: $(echo $APP | tr a-z A-Z)_KEYSTORE_B64 — 맥 미니에서 scripts/new-app-keys.sh $APP"; exit 1; }
+          printf '%s' "$KS" | base64 -d > "apps/$APP/android/upload.jks"
+          printf 'storeFile=upload.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$STORE_PW" "$ALIAS" "$KEY_PW" > "apps/$APP/android/key.properties"
+
+      - name: 빌드 (AAB · APK)
+        working-directory: apps/${{ inputs.app }}
+        run: |
+          flutter pub get
+          flutter build appbundle --release --build-number=${{ steps.vc.outputs.code }} --build-name="$VERSION" --split-debug-info=build/symbols
+          flutter build apk --release --build-number=${{ steps.vc.outputs.code }} --build-name="$VERSION" --target-platform android-arm,android-arm64
+
+      # 결과물을 열어서 확인 — 빌드가 초록인 것과 결과물이 맞는 것은 다른 이야기입니다.
+      - name: 결과물 검사
+        id: check
+        env:
+          WANT_SHA: ${{ secrets[format('{0}_UPLOAD_SHA256', inputs.app)] }}
+        shell: bash
+        run: |
+          aab="apps/$APP/build/app/outputs/bundle/release/app-release.aab"     # 경로 고정 (find | head -1 금지)
+          apk="apps/$APP/build/app/outputs/flutter-apk/app-release.apk"
+          [ -f "$aab" ] && [ -f "$apk" ] || { echo "결과물이 없습니다"; ls -R apps/$APP/build/app/outputs; exit 1; }
+          unzip -l "$aab" | grep -qE 'META-INF/[^/]+\.(RSA|EC|DSA)$' || { echo "AAB 에 서명이 없습니다"; exit 1; }
+          fp=$(keytool -printcert -jarfile "$aab" | grep -m1 SHA256 | awk '{print $2}' | tr -d ':' | tr A-F a-f)
+          echo "서명 지문 $fp"
+          if [ -n "$WANT_SHA" ] && [ "$fp" != "$(echo $WANT_SHA | tr -d ':' | tr A-F a-f)" ]; then echo "지문이 앱 업로드 열쇠와 다릅니다"; exit 1; fi
+          aapt=$(ls -d "$ANDROID_HOME"/build-tools/*/aapt | sort -V | tail -1)
+          "$aapt" dump badging "$apk" > badging.txt
+          pkg=$(sed -n "s/^package: name='\([^']*\)'.*/\1/p" badging.txt); vc=$(sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" badging.txt); vn=$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" badging.txt)
+          tsdk=$(sed -n "s/^targetSdkVersion:'\([0-9]*\)'.*/\1/p" badging.txt)
+          echo "package $pkg · versionCode $vc · versionName $vn · targetSdk $tsdk"
+          [ "$vc" = "${{ steps.vc.outputs.code }}" ] && [ "$vn" = "$VERSION" ] || { echo "판 번호가 어긋납니다"; exit 1; }
+          [ "$pkg" = "io.github.${{ github.repository_owner }}.$APP" ] || { echo "패키지 이름이 규칙과 다릅니다: $pkg"; exit 1; }
+          [ "${tsdk:-0}" -ge 36 ] || { echo "targetSdk 36 이상이어야 합니다 (2026-08-31 부터 플레이 요구)"; exit 1; }
+          grep -q "uses-permission: name='android.permission.INTERNET'" badging.txt && echo "INTERNET 권한 있음" || echo "INTERNET 권한 없음 (오프라인 앱이면 정상)"
+          echo "권한:"; grep '^uses-permission' badging.txt | sed "s/uses-permission: name='\([^']*\)'.*/  \1/"
+          zipalign=$(ls -d "$ANDROID_HOME"/build-tools/*/zipalign | sort -V | tail -1)
+          "$zipalign" -c -P 16 -v 4 "$apk" >/dev/null 2>&1 && echo "16KB 정렬 OK" || echo "16KB 정렬 확인 실패 — 네이티브 .so 정렬을 봐야 합니다 (2027-02-01 부터 필수)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "aab=$aab" >> "$GITHUB_OUTPUT"; echo "apk=$apk" >> "$GITHUB_OUTPUT"; echo "pkg=$pkg" >> "$GITHUB_OUTPUT"
+          { echo "### 안드로이드 $APP $VERSION ($vc)"; echo "- $pkg · targetSdk $tsdk · 서명 $fp"; echo "- AAB $(du -h "$aab" | cut -f1) · APK $(du -h "$apk" | cut -f1)"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-${{ inputs.version }}-android
+          path: |
+            ${{ steps.check.outputs.aab }}
+            ${{ steps.check.outputs.apk }}
+            apps/${{ inputs.app }}/build/symbols
+          retention-days: 30
+
+      # 플레이 내부 테스트 트랙. 새 앱(초안)의 첫 AAB 는 API 가 안 받습니다 → 실패해도 결과물은 위 산출물에 있으니
+      # 콘솔에서 한 번 손으로 올리고(그 뒤로는 API), 요약에 그렇게 적습니다.
+      - name: 플레이 내부 테스트에 올리기
+        if: ${{ !inputs.skip_upload }}
+        env:
+          SA: ${{ secrets.PLAY_BETA_SA_JSON }}
+        shell: bash
+        run: |
+          [ -n "$SA" ] || { echo "PLAY_BETA_SA_JSON 없음 — 업로드 건너뜀" | tee -a "$GITHUB_STEP_SUMMARY"; exit 0; }
+          sudo gem install fastlane -N -q >/dev/null
+          printf '%s' "$SA" > "$RUNNER_TEMP/sa.json"
+          if fastlane supply --json_key "$RUNNER_TEMP/sa.json" --package_name "${{ steps.check.outputs.pkg }}" \
+               --aab "${{ steps.check.outputs.aab }}" --track internal --release_status draft \
+               --skip_upload_metadata --skip_upload_images --skip_upload_screenshots --skip_upload_changelogs; then
+            echo "- 플레이 내부 테스트(초안)에 올림 · versionCode ${{ steps.vc.outputs.code }}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- ⚠ 플레이 업로드 실패 — 새 앱이면 첫 AAB 는 콘솔에서 손으로(산출물에서 받기). 그 뒤부터는 API 로 됩니다." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          rm -f "$RUNNER_TEMP/sa.json"
+
+      - if: always()
+        run: rm -f "apps/$APP/android/upload.jks" "apps/$APP/android/key.properties"
+
+  # ── iOS (맥 미니 러너) ─────────────────────────────────────────────────────
+  # 서명: 맥 미니의 Xcode 가 Apple ID 로 로그인돼 있고 「자동 서명」이 켜져 있습니다 (SETUP.md 4-3).
+  # 러너가 지워지지 않는 기계라 MyBody 처럼 실행마다 인증서를 새로 만들 필요가 없습니다.
+  ios:
+    runs-on: [self-hosted, lab]
+    timeout-minutes: 60
+    outputs:
+      build_number: ${{ steps.build.outputs.bn }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - name: API 키 놓기 (업로드용)
+        env:
+          KEY_ID: ${{ secrets.ASC_BETA_KEY_ID }}
+          P8: ${{ secrets.ASC_BETA_KEY_P8 }}
+        shell: bash
+        run: |
+          [ -n "$KEY_ID" ] && [ -n "$P8" ] || { echo "ASC_BETA_KEY_ID / ASC_BETA_KEY_P8 없음"; exit 1; }
+          mkdir -p ~/private_keys; printf '%s\n' "$P8" | tr -d '\r' > ~/private_keys/AuthKey_"$KEY_ID".p8; chmod 600 ~/private_keys/AuthKey_"$KEY_ID".p8
+
+      - name: 빌드 (IPA)
+        id: build
+        working-directory: apps/${{ inputs.app }}
+        shell: bash
+        run: |
+          bn=$(git rev-list --count HEAD); echo "bn=$bn" >> "$GITHUB_OUTPUT"
+          # 팀 ID: 키체인의 Apple Distribution 신원에서. apps/<앱>/ios 프로젝트에도 DEVELOPMENT_TEAM 이 있어야 합니다 (new-app 스킬이 템플릿에서 넣음).
+          team=$(security find-identity -v -p codesigning 2>/dev/null | grep -m1 'Apple Distribution' | grep -oE '\(([A-Z0-9]{10})\)' | tr -d '()' || true)
+          cat > "$RUNNER_TEMP/export.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>export</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>uploadSymbols</key><true/>
+            ${team:+<key>teamID</key><string>$team</string>}
+          </dict></plist>
+          PLIST
+          flutter pub get
+          flutter build ipa --release --build-number="$bn" --build-name="$VERSION" --export-options-plist="$RUNNER_TEMP/export.plist" 2>&1 | tail -15 || true
+          if ! ls build/ios/ipa/*.ipa >/dev/null 2>&1; then
+            # 자동 서명은 내보낼 때 프로파일을 새로 받아야 할 수 있습니다 — API 키로 허용해서 다시.
+            echo "flutter 내보내기 실패 — xcodebuild -exportArchive -allowProvisioningUpdates 로 재시도"
+            xcodebuild -exportArchive -archivePath build/ios/archive/Runner.xcarchive -exportPath build/ios/ipa \
+              -exportOptionsPlist "$RUNNER_TEMP/export.plist" -allowProvisioningUpdates \
+              -authenticationKeyPath "$HOME/private_keys/AuthKey_${{ secrets.ASC_BETA_KEY_ID }}.p8" \
+              -authenticationKeyID "${{ secrets.ASC_BETA_KEY_ID }}" -authenticationKeyIssuerID "${{ secrets.ASC_BETA_ISSUER_ID }}" 2>&1 | tail -15
+          fi
+          ls build/ios/ipa/*.ipa
+
+      - name: 결과물 검사
+        id: check
+        shell: bash
+        run: |
+          ipa=$(ls apps/$APP/build/ios/ipa/*.ipa | head -1); echo "ipa=$ipa" >> "$GITHUB_OUTPUT"
+          rm -rf "$RUNNER_TEMP/ipa"; mkdir -p "$RUNNER_TEMP/ipa"; unzip -q "$ipa" -d "$RUNNER_TEMP/ipa"
+          app=$(ls -d "$RUNNER_TEMP"/ipa/Payload/*.app | head -1); pl="$app/Info.plist"
+          get() { /usr/libexec/PlistBuddy -c "Print :$1" "$pl" 2>/dev/null || echo ""; }
+          bid=$(get CFBundleIdentifier); ver=$(get CFBundleShortVersionString); bn=$(get CFBundleVersion); enc=$(get ITSAppUsesNonExemptEncryption); minos=$(get MinimumOSVersion)
+          echo "$bid · $ver ($bn) · iOS $minos+ · 비면제암호화=$enc"
+          [ "$bid" = "io.github.${{ github.repository_owner }}.$APP" ] || { echo "번들 ID 가 규칙과 다릅니다: $bid"; exit 1; }
+          [ "$ver" = "$VERSION" ] && [ "$bn" = "${{ steps.build.outputs.bn }}" ] || { echo "판 번호가 어긋납니다"; exit 1; }
+          [ "$enc" = "false" ] || echo "- ⚠ ITSAppUsesNonExemptEncryption 이 false 가 아님 — 업로드마다 수출 규정 질문이 뜹니다" >> "$GITHUB_STEP_SUMMARY"
+          [ -f "$app/PrivacyInfo.xcprivacy" ] || { echo "PrivacyInfo.xcprivacy 가 없습니다 (2024-05 부터 필수 사유 API 미신고 시 업로드 거부)"; exit 1; }
+          echo "권한 문구:"; /usr/libexec/PlistBuddy -c 'Print' "$pl" | grep -E '^\s*NS[A-Za-z]+UsageDescription' | sed 's/^/  /' || echo "  (없음)"
+          codesign -dv --verbose=2 "$app" 2>&1 | grep -E 'Authority=Apple Distribution|TeamIdentifier' | sed 's/^/  /'
+          { echo "### iOS $APP $VERSION ($bn)"; echo "- $bid · iOS $minos+ · $(du -h "$ipa" | cut -f1)"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: TestFlight 에 올리기
+        if: ${{ !inputs.skip_upload }}
+        env:
+          KEY_ID: ${{ secrets.ASC_BETA_KEY_ID }}
+          ISSUER: ${{ secrets.ASC_BETA_ISSUER_ID }}
+        run: |
+          xcrun altool --upload-app --type ios -f "${{ steps.check.outputs.ipa }}" --apiKey "$KEY_ID" --apiIssuer "$ISSUER" 2>&1 | tail -5
+          echo "- TestFlight 에 올림 (처리 10~30분)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.app }}-${{ inputs.version }}-ios
+          path: ${{ steps.check.outputs.ipa }}
+          retention-days: 30
+
+      - if: always()
+        run: rm -rf ~/private_keys "$RUNNER_TEMP/ipa" "$RUNNER_TEMP/export.plist"
+
+  # ── 스토어 문안 · 스크린샷을 출시 창구의 queue/ 로 ──────────────────────────
+  # 출시 창구(공개 저장소)는 배포 열쇠(SSH deploy key, 쓰기)로만 받습니다. 개인 토큰이 필요 없습니다.
+  queue:
+    needs: [android, ios]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: queue 에 넣기
+        env:
+          DEPLOY_KEY: ${{ secrets.SHIP_DEPLOY_KEY }}
+        shell: bash
+        run: |
+          [ -n "$DEPLOY_KEY" ] || { echo "SHIP_DEPLOY_KEY 없음 — scripts/bootstrap.sh 가 만듭니다"; exit 1; }
+          [ -d "portfolio/$APP/store" ] || { echo "portfolio/$APP/store 가 없습니다 (release-prep 스킬이 만듭니다)"; exit 1; }
+          mkdir -p ~/.ssh; printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/ship; chmod 600 ~/.ssh/ship; ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/ship -o IdentitiesOnly=yes"
+          git clone --depth 1 git@github.com:${{ github.repository_owner }}/app-factory-ship.git "$RUNNER_TEMP/ship"
+          d="$RUNNER_TEMP/ship/queue/$APP/$VERSION"; rm -rf "$d"; mkdir -p "$d"
+          cp -R "portfolio/$APP/store/." "$d/"
+          jq -n --arg app "$APP" --arg v "$VERSION" --arg ac "${{ needs.android.outputs.version_code }}" --arg ib "${{ needs.ios.outputs.build_number }}" \
+             --arg sha "$GITHUB_SHA" --arg bid "io.github.${{ github.repository_owner }}.$APP" \
+             '{app:$app, version:$v, android_version_code:($ac|tonumber), ios_build_number:($ib|tonumber), commit:$sha, bundle_id:$bid, queued_at:(now|todate)}' > "$d/build.json"
+          cd "$RUNNER_TEMP/ship"; git config user.name factory; git config user.email factory@users.noreply.github.com
+          git add -A; git commit -qm "queue: $APP $VERSION (android $(jq -r .android_version_code "$d/build.json") · ios $(jq -r .ios_build_number "$d/build.json"))" && git push -q
+          echo "### 출시 창구 queue/$APP/$VERSION 에 넣었습니다 — 승인 요청은 release-prep 스킬 4단계" >> "$GITHUB_STEP_SUMMARY"
+          rm -f ~/.ssh/ship
