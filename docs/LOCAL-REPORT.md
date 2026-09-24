@@ -387,3 +387,18 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
 - 읽어 본 값: 화면 끄기 · 절전 = 안 함(전원/배터리 둘 다), 최대 절전 = 전원 안 함 · 배터리 1시간.
   덮개 동작은 이 전원 계획에 항목이 없어 못 읽음(기본값이면 절전). **Windows 업데이트 일시 중지: 안 걸려 있음.**
 - 주인에게 덮개 「아무 것도 안 함」 · 업데이트 「1주 일시 중지」 · 충전기 연결을 부탁함.
+
+---
+
+# 노트북 보고 — 22:29 바깥에서 서버가 절반쯤 안 닿던 것, 고침 (22:37)
+
+- 증상: 주인 폰(SKT 5G)에서 `ERR_CONNECTION_CLOSED` · 앱 「서버에 닿지 못했습니다」. 노트북에서 부르면 멀쩡했음 —
+  **노트북에서 `*.ts.net` 을 부르면 Tailscale 내부망(100.73.56.0)으로 가서 funnel 을 안 거칩니다.** 바깥 확인은
+  check-host.net(여러 나라) 같은 외부에서 해야 합니다.
+- 원인: funnel 공개 중계 두 대 중 **103.84.155.153 은 OK, 103.84.155.217 은 매번 "Broken pipe"** → 클라이언트가
+  어느 쪽을 고르느냐에 따라 절반쯤 실패. 서버·funnel 설정·권한·Tailscale 상태 페이지는 모두 정상.
+  `tailscale netcheck` 에 "gateway and self IP changed" — 노트북 쪽 네트워크 매핑이 바뀐 뒤 한 중계만 옛 길을 쥐고 있던 것으로 보임.
+- 한 것: funnel/serve reset 후 작업 재시작(효과 없음) → **`tailscale debug rebind` + `tailscale debug restun`** →
+  check-host 24곳 전부 200(.217 경유 4건 포함).
+- 제안(판단은 MyBody): 같은 일이 네트워크가 바뀔 때마다 다시 날 수 있습니다. 바깥에서 health 를 보는 감시(예: check-host
+  API 또는 폰 쪽) + 실패 시 `tailscale debug rebind` 를 거는 작은 감시 작업을 둘지.
