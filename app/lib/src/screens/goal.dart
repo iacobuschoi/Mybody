@@ -152,8 +152,7 @@ class _GoalScreenState extends State<GoalScreen> {
       return Scaffold(
         appBar: AppBar(title: const Text('목표 설정')),
         body: const EmptyState(
-            title: '먼저 인바디를 넣어야 합니다',
-            detail: '지금 어디에 있는지를 알아야 어디로 갈지 정할 수 있습니다.'),
+            title: '먼저 인바디를 넣어야 합니다'),
       );
     }
 
@@ -238,8 +237,7 @@ class _GoalScreenState extends State<GoalScreen> {
           const SectionTitle('목표'),
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
-            child: Text('세 칸 중 두 칸을 정하면 나머지 한 칸은 자동으로 맞춥니다. '
-                '자동 칸은 (자동) 으로 표시됩니다.',
+            child: Text('두 칸을 정하면 나머지 한 칸은 자동입니다',
                 style: Theme.of(context).textTheme.bodySmall
                     ?.copyWith(color: Theme.of(context).hintColor, height: 1.5)),
           ),
@@ -276,17 +274,13 @@ class _GoalScreenState extends State<GoalScreen> {
       if (complete && targetPbf.isFinite && targetPbf < floorPct)
         Note(
           tone: Tone.bad,
-          title: '목표 체지방률 ${n1(targetPbf)}% 는 이 앱이 도와주는 하한($floorPct%)보다 낮습니다.',
-          text: ' 생리적 필수 체지방이 $essentialPct% 이고, 그 근처는 '
-              '경기 직전 선수가 짧게만 머무는 구간입니다. 계획을 만들지 않습니다.',
+          title: '목표 체지방률 ${n1(targetPbf)}% 는 하한 $floorPct% 보다 낮습니다.',
+          text: ' 필수 체지방 $essentialPct% 근처라 계획을 만들지 않습니다.',
         ),
       MbCard(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          /* "정해 두면 그 안에 되는지 따져 봅니다" 설명은 뺐습니다 — 제목과 칩이면 됩니다. */
           const SectionTitle('마감 (선택)'),
-          Text('정해 두면 그 안에 되는지 따져 봅니다. 안 되면 안 된다고 말합니다.',
-              style: Theme.of(context).textTheme.bodySmall
-                  ?.copyWith(color: Theme.of(context).hintColor)),
-          const SizedBox(height: 10),
           Wrap(spacing: 8, children: [
             for (final w in _deadlineChoices)
               ChoiceChip(
@@ -357,7 +351,7 @@ class _GoalScreenState extends State<GoalScreen> {
         decoration: InputDecoration(
           labelText: auto ? '$label (자동)' : label,
           suffixText: unit,
-          helperText: auto ? '나머지 두 칸으로 계산됩니다 — 직접 고치면 다른 칸이 자동이 됩니다' : null,
+          helperText: auto ? '나머지 두 칸에서 계산됩니다' : null,
           border: const OutlineInputBorder(),
           filled: auto,
         ),
@@ -435,7 +429,7 @@ class _GoalScreenState extends State<GoalScreen> {
         builder: (ctx, sc) => ListView(controller: sc, padding: const EdgeInsets.all(20), children: [
           Text('모드 고르기', style: Theme.of(ctx).textTheme.titleMedium),
           const SizedBox(height: 4),
-          Text('앱이 고른 것이 기본입니다. 바꾸면 그 모드의 속도 상한과 단백질 하한을 따릅니다.',
+          Text('앱이 고른 것이 기본입니다 — 바꾸면 그 모드의 기준을 따릅니다',
               style: Theme.of(ctx).textTheme.bodySmall
                   ?.copyWith(color: Theme.of(ctx).hintColor, height: 1.5)),
           const SizedBox(height: 14),

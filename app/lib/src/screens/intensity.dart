@@ -133,10 +133,7 @@ class _IntensityScreenState extends State<IntensityScreen> {
         appBar: AppBar(title: const Text('기간 고르기')),
         body: ListView(padding: const EdgeInsets.all(16), children: [
           for (final w in (cmp['warnings'] as List)) Note(tone: Tone.bad, text: '$w'),
-          const Note(
-            text: '목표를 조금 낮추거나 마감을 늘리면 계산이 됩니다. '
-                '거짓 날짜를 만들어 드리지는 않습니다.',
-          ),
+          const Note(text: '목표를 조금 낮추거나 마감을 늘려 보세요'),
         ]),
       );
     }
@@ -162,13 +159,12 @@ class _IntensityScreenState extends State<IntensityScreen> {
           const Note(
             key: Key('all-blocked'),
             tone: Tone.bad,
-            text: '고를 수 있는 계획이 없습니다 — 세 강도 모두 필수지방 아래이거나 근육 상한 '
-                '너머입니다. 목표를 조금 올리거나 낮추면 계산이 됩니다.',
+            text: '고를 수 있는 계획이 없습니다 — 목표를 조금 올리거나 낮춰 보세요',
           ),
         if (offDeadline)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
-            child: Text('기간으로 고른 계획입니다 — 카드의 기간이 고른 주수와 조금 다를 수 있습니다',
+            child: Text('기간으로 고른 계획 — 주수가 조금 다를 수 있습니다',
                 key: const Key('duration-note'), style: small),
           ),
 
@@ -179,20 +175,8 @@ class _IntensityScreenState extends State<IntensityScreen> {
           recommended: g.levels.any((r) => cmp['recommended'] == r['level']),
           onTap: () => setState(() => _level = '${g.rep['level']}'),
         ),
-        if (groups.length < results.length)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            /* 셋이 다 합쳐졌을 때만 "강도를 바꿔도 같다" — 둘만 합쳐졌으면 바로 위 두 카드가
-               서로 다른데 그렇게 말했습니다. */
-            child: Text(
-              groups.length == 1
-                  ? '같은 계획이 되는 강도는 한 장으로 합쳤습니다. 이 목표에서는 강도를 바꿔도 '
-                      '기간 · 식단 · 운동이 같습니다.'
-                  : '같은 계획이 되는 강도는 한 장으로 합쳤습니다. 이 목표에서는 '
-                      '${groups.firstWhere((g) => g.levels.length > 1).subject} 같은 계획입니다.',
-              style: small,
-            ),
-          ),
+        /* 카드 밑의 "같은 계획이 되는 강도는 한 장으로 합쳤습니다…" 두 문장은 뺐습니다 —
+           합친 카드가 제목(「상·중·하 · 같은 계획」)과 한 줄로 이미 말합니다. */
 
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -576,8 +560,7 @@ class _LevelCard extends StatelessWidget {
             /* 합친 카드에 대표(상)의 설명("가장 빠르게 · 식단이 가장 빡빡")을 달면 틀립니다. */
             Text(
                 merged
-                    ? '이 목표에서는 ${group.subject} 같은 계획입니다. '
-                        '기간 · 식단 · 운동이 모두 같아서 한 장으로 합쳤습니다.'
+                    ? '${group.subject} 같은 계획 — 한 장으로 합쳤습니다'
                     : '${r['blurb']}',
                 style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
             const SizedBox(height: 12),

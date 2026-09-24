@@ -76,7 +76,7 @@ const kSnackMinProteinG = 15.0;
   if (opts.isNotEmpty) {
     final o = (opts.first as Map).cast<String, Object?>();
     final names = ((o['items'] as List?) ?? const [])
-        .map((x) => '${(x as Map)['name']} ${core.suggestPortionText(x.cast<String, Object?>())}'.trim())
+        .map((x) => core.suggestItemText((x as Map).cast<String, Object?>()))
         .join(' + ');
     body = '단백질 ${n0(remainP)}g 남았어요. 간식으로 $names (단백질 ${n0(o['totalP'])}g) 어때요?';
   } else {

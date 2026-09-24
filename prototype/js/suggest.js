@@ -103,6 +103,192 @@
   }
   function density(food) { return food.kcal > 0 ? food.p / food.kcal * 100 : 0; }
 
+  /* ---------------------------------------------------------------------- */
+  /* 기름진 것과 담백한 것                                                   */
+  /*                                                                         */
+  /* 2026-09 피드백: "족발·갈비탕이 뜬다". 단백질 밀도만 보면 족발은 좋은     */
+  /* 답입니다(40g/480kcal) — 지방이 34g 인 것을 안 봤을 뿐입니다. 그래서      */
+  /* 조합의 지방 칼로리 비율(f×9/kcal)이 상한을 넘거나 이름에 기름진 말이     */
+  /* 있으면 **뒤로 뺍니다**. 버리지는 않습니다 — 담백한 후보가 모자랄 때만    */
+  /* 뒤에 붙이고 shape 에 '지방 많음' 을 답니다. 담백한 이름(구이·찜·샐러드·  */
+  /* 잡곡·생선·닭가슴살·두부…)에는 가산점을 줘서 값이 비슷하면 앞에 섭니다.   */
+  /* ---------------------------------------------------------------------- */
+
+  /** 조합 전체의 지방 칼로리 비율 상한. 1/3 을 넘으면 기름진 한 끼입니다. */
+  var FAT_KCAL_MAX = 0.33;
+
+  /** 이름에 이게 들어가면 숫자와 상관없이 기름진 것으로 봅니다(fooddb 이름 기준).
+   *  '치킨(' 은 후라이드·양념만 잡고 서브웨이(치킨)은 남깁니다. */
+  var GREASY = ['족발', '보쌈', '갈비', '삼겹살', '치킨(', '돈까스', '피자', '햄버거', '라면',
+                '곱창', '튀김', '마요', '크림', '설렁탕', '순대', '부대', '제육', '후라이',
+                '베이컨', '핫도그'];
+
+  /** 담백한 조리·재료. 품목마다 HEALTHY_BONUS 만큼 점수를 깎습니다(낮을수록 좋음). */
+  var HEALTHY = ['구이', '찜', '샐러드', '잡곡', '현미', '생선', '닭가슴살', '닭안심', '두부',
+                 '계란', '그릭', '고구마', '나물', '비빔밥', '회(', '오트밀', '참치캔',
+                 '살코기', '뒷다리', '연어', '브로콜리', '단백질 음료', '훈제란'];
+  var HEALTHY_BONUS = 3;
+  /* 담백한 말이 붙어도 그 자체가 기름지면(계란후라이 0.74 · 계란말이 0.67 · 목살 구이 0.64)
+     가산점이 없습니다. 삶은 계란이 0.60 이라 그 바로 위에 선을 긋습니다. */
+  var HEALTHY_OWN_FAT_MAX = 0.62;
+
+  /** 회전용으로 모아 두는 상위 후보 수의 하한. 실제로는 max(이 값, limit×ROTATE_DAYS). */
+  var ROTATE_POOL_MIN = 8;
+
+  /** 며칠 만에 같은 세 줄이 돌아오는가. limit×3 이면 사흘째에 첫날 메뉴가 그대로
+   *  돌아왔습니다(일·수·토 가 같은 세 줄). 한 주면 "매일 다른 것" 으로 읽힙니다. */
+  var ROTATE_DAYS = 7;
+
+  function hasKw(name, list) {
+    var s = String(name || '');
+    for (var i = 0; i < list.length; i++) if (s.indexOf(list[i]) >= 0) return true;
+    return false;
+  }
+  function fatRatio(f, kcal) { return kcal > 0 ? (f || 0) * 9 / kcal : 0; }
+
+  /** 이 조합이 기름진가 — 이름으로든 합계 숫자로든. */
+  function isGreasy(items) {
+    var kc = 0, fat = 0;
+    for (var i = 0; i < items.length; i++) {
+      if (hasKw(items[i].name, GREASY)) return true;
+      kc += (items[i].kcal || 0);
+      fat += (items[i].f || 0);
+    }
+    return fatRatio(fat, kc) > FAT_KCAL_MAX;
+  }
+  function healthyCount(items) {
+    var n = 0;
+    for (var i = 0; i < items.length; i++) {
+      var x = items[i];
+      if (hasKw(x.name, HEALTHY) && fatRatio(x.f, x.kcal) <= HEALTHY_OWN_FAT_MAX) n++;
+    }
+    return n;
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* 회전 — 매일 다른 것을                                                   */
+  /*                                                                         */
+  /* 같은 입력이면 같은 답이 나오는 게 이 모듈의 미덕인데, 사용자 입장에서는  */
+  /* 사흘 내리 설렁탕입니다. 그래서 날짜(opts.seed = 'YYYY-MM-DD')를 씨앗으로 */
+  /* 상위 후보 안에서 시작점만 옮깁니다. 같은 날은 같은 답, 다음 날은 다른   */
+  /* 첫 줄. Date 를 안 씁니다 — 시간대에 따라 하루가 밀리고, Dart 쪽과       */
+  /* 정수 연산으로 똑같이 맞추려면 산수만 남기는 게 안전합니다.             */
+  /* ---------------------------------------------------------------------- */
+
+  function intOf(s) {
+    if (typeof s !== 'string' || !/^\d{1,9}$/.test(s)) return null;
+    return parseInt(s, 10);
+  }
+
+  /** 'YYYY-MM-DD' → 1970-01-01 부터 센 날 수(days_from_civil). 모양이 아니면 null. */
+  function dayNumber(seed) {
+    if (typeof seed !== 'string') return null;
+    var parts = seed.split('-');
+    if (parts.length !== 3) return null;
+    var y = intOf(parts[0]), m = intOf(parts[1]), d = intOf(parts[2]);
+    if (y === null || m === null || d === null || m < 1 || m > 12 || d < 1 || d > 31) return null;
+    if (m <= 2) y -= 1;
+    var era = Math.floor(y / 400);
+    var yoe = y - era * 400;
+    var doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1;
+    var doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+    return era * 146097 + doe - 719468;
+  }
+
+  function gcd(a, b) { while (b) { var t = a % b; a = b; b = t; } return a; }
+
+  /**
+   * 날짜로 정한 자리에서 limit 개를 돌려 가며 고릅니다. 한 묶음(limit 개)씩
+   * 건너뛰어서 어제 본 메뉴가 오늘 또 첫 줄에 서지 않습니다. 후보가 한 묶음
+   * 이하면 한 칸씩만 밉니다. day 가 없으면 점수순 그대로입니다.
+   * 보폭은 후보 수와 서로소로 잡습니다 — 후보가 9개에 보폭 3이면 시작점이
+   * 0·3·6 세 자리뿐이라 사흘마다 같은 세 줄이었습니다. 서로소면 n 일 동안
+   * 첫 줄이 전부 다릅니다.
+   */
+  function rotate(top, limit, day) {
+    var n = top.length, take = Math.min(limit, n);
+    if (day === null || n < 2) return top.slice(0, take);
+    var step = n > limit ? limit : 1;
+    while (gcd(step, n) !== 1) step++;
+    var start = ((day * step) % n + n) % n;
+    var out = [];
+    for (var i = 0; i < take; i++) out.push(top[(start + i) % n]);
+    return out;
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* 분량 표기 — '1개 × 2' 는 '2개'                                          */
+  /* ---------------------------------------------------------------------- */
+
+  function isDigit(ch) { return ch >= '0' && ch <= '9'; }
+  function isHangul(ch) { return ch >= '가' && ch <= '힣'; }
+  function isLatin(ch) { return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z'); }
+  function isQtyPrev(ch) { return ch === ' ' || ch === '+' || ch === '(' || isHangul(ch); }
+  function isQtyWord(w) {
+    if (w === 'g' || w === 'ml' || w === 'kg' || w === 'L') return true;
+    for (var i = 0; i < w.length; i++) if (!isHangul(w.charAt(i))) return false;
+    return true;
+  }
+
+  /**
+   * '1개' × 2 → '2개', '100g' × 1.5 → '150g', '1팩100g' × 2 → '2팩200g'.
+   * 단위 속 숫자 중 뒤에 셀 수 있는 말(개·컵·장·팩… 또는 g·ml·kg·L)이 붙은
+   * 것만 곱합니다. '15cm' 같은 크기는 두고, '1/2모' 처럼 분수가 낀 것은 손대지
+   * 않습니다. 하나라도 정수가 안 되면('1개' × 1.5) 빈 문자열 — 호출부가
+   * '× 1.5' 로 돌아갑니다.
+   */
+  function scaleUnit(unit, mult) {
+    if (!unit || unit.indexOf('/') >= 0 || !(mult > 0)) return '';
+    var out = '', any = false, i = 0, n = unit.length;
+    while (i < n) {
+      var ch = unit.charAt(i);
+      if (isDigit(ch) && (i === 0 || isQtyPrev(unit.charAt(i - 1)))) {
+        var j = i;
+        while (j < n && isDigit(unit.charAt(j))) j++;
+        var k = j;
+        while (k < n && (isHangul(unit.charAt(k)) || isLatin(unit.charAt(k)))) k++;
+        if (k > j && isQtyWord(unit.slice(j, k))) {
+          var v = parseInt(unit.slice(i, j), 10) * mult;
+          if (v % 1 !== 0) return '';
+          out += String(v);
+          any = true;
+          i = j;
+          continue;
+        }
+      }
+      out += ch;
+      i++;
+    }
+    return any ? out : '';
+  }
+
+  /** 단위의 첫 수량 토큰 — '1팩 100g' → '1팩', '1개' → '1개', '100g' → ''(셀 수 없음). */
+  function countToken(unit) {
+    var s = String(unit || ''), i = 0, n = s.length;
+    while (i < n) {
+      var ch = s.charAt(i);
+      if (isDigit(ch) && (i === 0 || isQtyPrev(s.charAt(i - 1)))) {
+        var j = i;
+        while (j < n && isDigit(s.charAt(j))) j++;
+        var k = j;
+        while (k < n && isHangul(s.charAt(k))) k++;
+        if (k > j) return s.slice(i, k);
+        i = j;
+        continue;
+      }
+      i++;
+    }
+    return '';
+  }
+
+  /** 이 배수로 먹는다고 볼 수 있는가. 정수가 아닌 배수는 단위의 말로 적을 수 있을 때만
+   *  ('100g' → '150g', '2쪽' → '3쪽'). '계란 1개 × 1.5' · '1/2모 × 1.5' 는 먹는 양이
+   *  아닙니다 — 말할 수 없는 분량은 권하지 않습니다. */
+  function multOk(food, mult) {
+    if (mult % 1 === 0) return true;
+    return scaleUnit(String(food.unit || ''), mult) !== '';
+  }
+
   function scale(food, mult) {
     return {
       name: food.name, unit: food.unit, cat: food.cat, conf: food.conf, mult: mult,
@@ -121,8 +307,33 @@
     var base = dup ? '' : item.unit;
     if (item.mult === 1) return base;
     if (item.mult === 0.5) return (base ? base + ' ' : '') + '반';
+    // '1개 × 2' 보다 '2개' 가 사람 말입니다 — 단위가 셀 수 있는 것일 때만.
+    var scaled = base ? scaleUnit(base, item.mult) : '';
+    if (scaled) return scaled;
     var x = '× ' + (item.mult % 1 === 0 ? item.mult : item.mult.toFixed(1));
     return base ? base + ' ' + x : x;
+  }
+
+  /**
+   * 화면에 쓰는 한 품목의 글 — 이름 + 분량. 이름 끝이 단위의 수량('훈제란 1개' 의
+   * '1개' · '닭가슴살 스테이크(시판) 1팩' 의 '1팩')이면 그 수량을 이름에서 떼고 단위로
+   * 다시 말합니다: '훈제란 1개 55g', ×2 는 '훈제란 2개 110g'. 안 떼면 '훈제란 1개 1개 55g'
+   * 이나 '훈제란 1개 2개 110g' 처럼 두 숫자가 한 줄에 섭니다. 이름이 단위 전체로
+   * 끝나면(코티지치즈 100g) 그것도 떼어 '코티지치즈 200g'.
+   */
+  function itemText(item) {
+    var name = String(item.name || ''), unit = String(item.unit || '');
+    var suffix = '';
+    if (unit && name.length > unit.length && name.slice(name.length - unit.length) === unit) {
+      suffix = unit;
+    } else {
+      var tok = countToken(unit);
+      if (tok && name.length > tok.length && name.slice(name.length - tok.length) === tok) suffix = tok;
+    }
+    if (!suffix) return (name + ' ' + portionText(item)).trim();
+    var head = name.slice(0, name.length - suffix.length).replace(/\s+$/, '');
+    var pt = portionText({ name: head, unit: unit, mult: item.mult });
+    return (head + ' ' + pt).trim();
   }
 
   function pool(role, avoid) {
@@ -193,24 +404,60 @@
     return best.name;
   }
 
-  function finish(cands, needP, limit, aim, opts) {
+  /** 사먹기의 주인공은 메뉴판의 단품(첫 품목)입니다 — 단백질이 제일 많은 것으로 고르면
+   *  편의점 닭가슴살 · 참치캔이 주인공이 되어 '순두부찌개+닭가슴살' 과 '순두부찌개+참치캔'
+   *  이 서로 다른 선택지로 통과합니다. 한 날 세 줄 중 둘이 순두부찌개였습니다. */
+  function dishOf(items) { return items[0].name; }
+
+  /** @param mainKey 조합의 주인공 이름 — 같은 주인공은 한 번만 보입니다(기본 mainOf). */
+  function finish(cands, needP, limit, aim, opts, mainKey) {
+    var keyOf = mainKey || mainOf;
     cands.forEach(function (c) {
-      c.score = score(c.totalP, c.totalKcal, needP, aim, overBudget(c.items, opts)) + (c.extra || 0);
+      c.score = score(c.totalP, c.totalKcal, needP, aim, overBudget(c.items, opts)) + (c.extra || 0)
+              - healthyCount(c.items) * HEALTHY_BONUS;
       c.coversPct = needP > 0 ? Math.round(c.totalP / needP * 100) : 100;
+      c.greasy = isGreasy(c.items);
     });
     cands.sort(function (a, b) { return a.score - b.score; });
 
     // 주요리가 서로 다른 것만 고릅니다.
     // 같은 음식의 배수 차이나 반찬만 바꾼 조합이 나란히 뜨면 선택지가 아니라 한 가지입니다.
-    var seenMain = {}, out = [];
-    for (var i = 0; i < cands.length && out.length < limit; i++) {
-      var m = mainOf(cands[i].items);
+    // 담백한 것부터, 회전할 수 있게 넉넉히 모읍니다.
+    var poolSize = Math.max(ROTATE_POOL_MIN, limit * ROTATE_DAYS);
+    var seenMain = {}, top = [], i, m;
+    for (i = 0; i < cands.length && top.length < poolSize; i++) {
+      if (cands[i].greasy) continue;
+      m = keyOf(cands[i].items);
       if (seenMain[m]) continue;
       seenMain[m] = true;
       cands[i].main = m;
+      top.push(cands[i]);
+    }
+    /* 회전은 "충분히 좋은 것" 안에서만 돕니다. 아홉째 후보가 단백질을 반만
+       채우면 그날은 추천이 나쁜 날이 됩니다. 이번 몫의 90% 를 채우는 것이
+       한 묶음 이상이면 그 안에서 돌고, 아니면 점수순 그대로입니다. */
+    var good = top.filter(function (c) { return c.totalP >= needP * 0.9; });
+    var out = good.length >= limit ? rotate(good, limit, dayNumber(opts && opts.seed))
+                                   : top.slice(0, limit);
+
+    // 담백한 후보가 모자랄 때만 기름진 것을 뒤에 붙입니다 — 표시를 달고.
+    for (i = 0; i < cands.length && out.length < limit; i++) {
+      if (!cands[i].greasy) continue;
+      m = keyOf(cands[i].items);
+      if (seenMain[m]) continue;
+      seenMain[m] = true;
+      cands[i].main = m;
+      cands[i].shape = cands[i].shape ? cands[i].shape + ' · 지방 많음' : '지방 많음';
       out.push(cands[i]);
     }
     return out;
+  }
+
+  /** 보이는 것 중 하나라도 이번 몫의 90% 를 채우면 "채울 수 있다" 입니다.
+   *  (회전하면 첫 줄이 최고점이 아니라서 첫 줄만 볼 수 없습니다.) */
+  function feasible(out, needP) {
+    for (var i = 0; i < out.length; i++) if (out[i].totalP >= needP * 0.9) return true;
+    return false;
   }
 
   /* ---------------------------------------------------------------------- */
@@ -231,6 +478,7 @@
 
     for (i = 0; i < items.length; i++) {
       for (a = 0; a < MULTS.length; a++) {
+        if (!multOk(items[i], MULTS[a])) continue;
         var s1 = scale(items[i], MULTS[a]);
         if (s1.kcal > budget) continue;
         cands.push({ items: [s1], totalP: s1.p, totalKcal: s1.kcal });
@@ -239,7 +487,9 @@
     for (i = 0; i < items.length; i++) {
       for (j = i + 1; j < items.length; j++) {
         for (a = 0; a < MULTS.length; a++) {
+          if (!multOk(items[i], MULTS[a])) continue;
           for (b = 0; b < MULTS.length; b++) {
+            if (!multOk(items[j], MULTS[b])) continue;
             var x1 = scale(items[i], MULTS[a]), x2 = scale(items[j], MULTS[b]);
             var kc = x1.kcal + x2.kcal;
             if (kc > budget) continue;
@@ -255,7 +505,7 @@
     var out = finish(cands, needP, limit, aim, opts);
     return { options: out, needP: needP, dayP: dayP, budget: budget, aim: aim,
              ceiling: ceilingProtein(budget, opts.avoid),
-             feasible: out.length > 0 && out[0].totalP >= needP * 0.9 };
+             feasible: feasible(out, needP) };
   }
 
   /* ---------------------------------------------------------------------- */
@@ -296,6 +546,7 @@
       if (pp >= needP * 0.95) return;
       addons.forEach(function (a) {
         for (var m = 0; m < MULTS.length; m++) {
+          if (!multOk(a, MULTS[m])) continue;
           var ad = scale(a, MULTS[m]);
           var kc2 = kc + ad.kcal;
           if (kc2 > budget) continue;
@@ -309,10 +560,10 @@
 
     var aim = opts.aimKcal || Math.min(budget, Math.round(budget / Math.max(1, opts.mealsLeft || 1)));
     if (aim > 900) aim = 900;
-    var out = finish(cands, needP, limit, aim, opts);
+    var out = finish(cands, needP, limit, aim, opts, dishOf);
     return { options: out, needP: needP, dayP: dayP, budget: budget, aim: aim,
              ceiling: ceilingProtein(budget, opts.avoid),
-             feasible: out.length > 0 && out[0].totalP >= needP * 0.9 };
+             feasible: feasible(out, needP) };
   }
 
   /* ---------------------------------------------------------------------- */
@@ -340,6 +591,7 @@
     for (bi = 0; bi < bases.length; bi++) {
       for (mi = 0; mi < mains.length; mi++) {
         for (a = 0; a < MULTS.length; a++) {
+          if (!multOk(mains[mi], MULTS[a])) continue;
           var base = scale(bases[bi], 1);
           var main = scale(mains[mi], MULTS[a]);
           var kc2 = base.kcal + main.kcal;
@@ -367,7 +619,7 @@
     var out = finish(cands, needP, limit, aim, opts);
     return { options: out, needP: needP, dayP: dayP, budget: budget, aim: aim,
              ceiling: ceilingProtein(budget, opts.avoid),
-             feasible: out.length > 0 && out[0].totalP >= needP * 0.9 };
+             feasible: feasible(out, needP) };
   }
 
   /** 화면에 쓸 한 줄. 상태를 말할 뿐 명령하지 않습니다. */
@@ -402,9 +654,10 @@
 
   global.MB_SUGGEST = {
     suggestSnack: suggestSnack, suggestMeal: suggestMeal, suggestEatOut: suggestEatOut,
-    summaryText: summaryText, portionText: portionText, density: density,
+    summaryText: summaryText, portionText: portionText, itemText: itemText, density: density,
+    dayNumber: dayNumber, scaleUnit: scaleUnit, countToken: countToken, isGreasy: isGreasy,
     SNACKABLE: SNACKABLE, BASE: BASE, MAIN: MAIN, SIDE: SIDE, ONE_DISH: ONE_DISH,
-    NEEDS_RICE: NEEDS_RICE, ADD_ON: ADD_ON,
-    MIN_PROTEIN_G: MIN_PROTEIN_G
+    NEEDS_RICE: NEEDS_RICE, ADD_ON: ADD_ON, GREASY: GREASY, HEALTHY: HEALTHY,
+    MIN_PROTEIN_G: MIN_PROTEIN_G, FAT_KCAL_MAX: FAT_KCAL_MAX
   };
 })(window);

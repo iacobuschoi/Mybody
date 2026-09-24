@@ -11,8 +11,14 @@
  * 숫자는 **변화량**('−2.9 kg', 방향의 색)입니다. 지금 → 그때는 그 옆에 작게,
  * 막대 두 줄은 그 밑에. 0.2.9 를 폰에서 써 본 첫 반응이 "텍스트를 줄이고 체지방 ·
  * 골격근 변화를 확실히 보이게" 였습니다 — 숫자 여섯 개를 작은 두 줄에 늘어놓으니
- * 정작 봐야 할 변화가 그 사이에 묻혔습니다. 옵션들의 체지방 궤적은 차트 한 장에
- * 겹쳐서 어느 것이 얼마나 다른지 눈으로 비교하게 합니다.
+ * 정작 봐야 할 변화가 그 사이에 묻혔습니다. 다음 반응은 "그 변화량 글씨가 너무
+ * 크다" 여서 22px 에서 18px 로 살짝만 내렸습니다 — 여전히 줄에서 가장 큰 글자입니다.
+ * 옵션들의 체지방 궤적은 차트 한 장에 겹쳐서 어느 것이 얼마나 다른지 눈으로 비교하게
+ * 합니다.
+ *
+ * 설명문은 한 줄을 넘기지 않습니다. 기간 카드는 제목 · 주수 · 칩 · 자(− +)뿐이고,
+ * 카드와 판의 나머지 글도 숫자 몇 개와 짧은 한 줄입니다 — 화면에 글이 많을수록
+ * 정작 골라야 할 카드가 아래로 밀립니다.
  *
  * 고르면 **여기서 바로 계획을 세웁니다** (compareLevels → buildPlan → 저장). 예전에는
  * 고른 뒤 강도 화면(intensity.dart)을 한 번 더 밀어 12 · 18 · 23주 카드를 다시
@@ -25,6 +31,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../scope.dart';
@@ -109,9 +116,7 @@ class _DurationPanelState extends State<DurationPanel> {
     final app = Scope.of(context);
     final scans = app.store.sortedScans();
     if (scans.isEmpty) {
-      return const EmptyState(
-          title: '먼저 인바디를 넣어야 합니다',
-          detail: '지금 어디에 있는지를 알아야 어디로 갈지 정할 수 있습니다.');
+      return const EmptyState(title: '먼저 인바디를 넣어야 합니다');
     }
     final profile = app.profile ?? core.kSeedProfile;
     final cur = core.derive(scans.last, profile);
@@ -140,8 +145,7 @@ class _DurationPanelState extends State<DurationPanel> {
       for (final w in warnings) Note(tone: Tone.warn, text: w),
       if (options.isEmpty)
         (warnings.isEmpty
-            ? const Note(
-                text: '이 기간에는 만들 수 있는 계획이 없습니다. 기간을 늘리거나 줄여 보세요.')
+            ? const Note(text: '이 기간에는 계획이 없습니다 — 기간을 바꿔 보세요')
             : const SizedBox.shrink())
       else ...[
         MbCard(
@@ -302,7 +306,7 @@ class _DurationPanelState extends State<DurationPanel> {
   }
 }
 
-/// 카드 위에 한 번 두는 운동 처방 — '운동 주 4회 · 회당 60분 — 내 몸 정보에서 정한 값입니다'.
+/// 카드 위에 한 번 두는 운동 처방 — '운동 주 4회 · 회당 60분 — 내 몸 정보 기준'.
 /// 모든 카드가 같은 횟수일 때만 그 줄이고, 카드마다 다르면 null(그때는 카드가 각자 적습니다).
 ///
 /// 0.2.9 폰 시험에서 "왜 다 주 4회지?" 를 들었습니다. 엔진의 resolveTraining 은 어느
@@ -313,7 +317,8 @@ class _DurationPanelState extends State<DurationPanel> {
 /// 없으면 엔진이 강도마다 다르게 잡으므로(params.days) 그때는 카드마다 다를 수 있습니다.
 ///
 /// 회당 시간도 같은 규칙 — 내 몸 정보에 있으면 모든 카드가 같고, 없으면 강도마다 달라서
-/// 같을 때만 붙입니다. 출처("내 몸 정보에서 정한 값")는 정말 거기서 왔을 때만 말합니다.
+/// 같을 때만 붙입니다. 출처("내 몸 정보 기준")는 정말 거기서 왔을 때만, 폰 너비에서 한
+/// 줄에 들어가게 짧게 말합니다.
 String? trainingLine(List<Map<String, Object?>> options, Map<String, Object?> profile) {
   if (options.isEmpty) return null;
   /* 모든 카드가 같은 값을 들고 있을 때만 그 값. 하나라도 없거나 다르면 null.
@@ -336,7 +341,7 @@ String? trainingLine(List<Map<String, Object?>> options, Map<String, Object?> pr
   final days = shared('daysPerWeek');
   if (days == null) return null;
   final minutes = shared('sessionMinutes');
-  final from = core.jsTruthy(profile['daysPerWeek']) ? ' — 내 몸 정보에서 정한 값입니다' : '';
+  final from = core.jsTruthy(profile['daysPerWeek']) ? ' — 내 몸 정보 기준' : '';
   return '운동 주 ${n0(days)}회${minutes == null ? '' : ' · 회당 ${n0(minutes)}분'}$from';
 }
 
@@ -411,6 +416,12 @@ String optionTitle(Map<String, Object?> o) {
   return sub.isEmpty ? label : '$label · $sub';
 }
 
+/// 기간 카드 — 제목 · 주수 · 칩(8/12/16/24) · 자. 자의 양옆에 「−」「+」 가 있어
+/// 1주씩 맞출 수 있습니다: 칩은 빠르고 자는 대충이라, 15주 · 20주처럼 그 사이의
+/// 딱 한 주수는 엄지로 자를 끌어 맞추기가 어렵습니다(폰에서 "슬라이더 옆에 − + 를"
+/// 이라고 들었습니다). 끝(8 · 52주)에서는 그쪽 단추가 닫힙니다 — 눌러도 안 움직이는
+/// 단추는 고장으로 보입니다. 설명문은 없습니다: "이 기간 안에 갈 수 있는 몸" 은 밑의
+/// 카드가 보여 주는 것이라 글로 한 번 더 말할 것이 없습니다.
 class _WeeksCard extends StatelessWidget {
   const _WeeksCard({required this.weeks, required this.onChanged});
   final int weeks;
@@ -419,6 +430,7 @@ class _WeeksCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
+    final hint = t.textTheme.labelSmall?.copyWith(color: t.hintColor);
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         SectionTitle('기간',
@@ -427,9 +439,6 @@ class _WeeksCard extends StatelessWidget {
                 style: t.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w800,
                     fontFeatures: const [FontFeature.tabularFigures()]))),
-        Text('이 기간 안에 갈 수 있는 몸을 방향별로 보여 줍니다.',
-            style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
-        const SizedBox(height: 10),
         Wrap(spacing: 8, children: [
           for (final w in kDurationChips)
             ChoiceChip(
@@ -438,19 +447,73 @@ class _WeeksCard extends StatelessWidget {
               onSelected: (_) => onChanged(w),
             ),
         ]),
-        Slider(
-          value: weeks.toDouble(),
-          min: kDurationMin.toDouble(),
-          max: kDurationMax.toDouble(),
-          divisions: kDurationMax - kDurationMin,
-          label: '$weeks주',
-          onChanged: (v) => onChanged(v.round()),
-        ),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-          Text('$kDurationMin주', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-          Text('$kDurationMax주', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+        const SizedBox(height: 4),
+        Row(children: [
+          _StepButton(
+            buttonKey: const Key('duration-minus'),
+            icon: LucideIcons.minus,
+            tooltip: '1주 줄이기',
+            onPressed: weeks > kDurationMin ? () => onChanged(weeks - 1) : null,
+          ),
+          Expanded(
+            child: Slider(
+              value: weeks.toDouble(),
+              min: kDurationMin.toDouble(),
+              max: kDurationMax.toDouble(),
+              divisions: kDurationMax - kDurationMin,
+              label: '$weeks주',
+              onChanged: (v) => onChanged(v.round()),
+            ),
+          ),
+          _StepButton(
+            buttonKey: const Key('duration-plus'),
+            icon: LucideIcons.plus,
+            tooltip: '1주 늘리기',
+            onPressed: weeks < kDurationMax ? () => onChanged(weeks + 1) : null,
+          ),
         ]),
+        /* 자의 양 끝 숫자 — 단추가 차지하는 폭(그림은 40 이지만 표적 여백까지 48)만큼
+           들여서 자 밑에 놓습니다. */
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: kMinInteractiveDimension),
+          child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            Text('$kDurationMin주', style: hint),
+            Text('$kDurationMax주', style: hint),
+          ]),
+        ),
       ]),
+    );
+  }
+}
+
+/// 자 옆의 동그란 − / + 단추. 닫히면(onPressed null) 테마가 흐리게 그립니다.
+/// 열쇠([buttonKey])는 이 껍데기가 아니라 안의 IconButton 에 답니다 — 시험이
+/// 열쇠로 찾아 onPressed 를 읽는 것이 그 단추입니다.
+class _StepButton extends StatelessWidget {
+  const _StepButton(
+      {required this.buttonKey,
+      required this.icon,
+      required this.tooltip,
+      required this.onPressed});
+  final Key buttonKey;
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback? onPressed;
+
+  /// 단추 한 변. 자의 줄 높이(48)보다 작게 두어 줄이 단추 때문에 커지지 않습니다.
+  static const double size = 40;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton.filledTonal(
+      key: buttonKey,
+      tooltip: tooltip,
+      onPressed: onPressed,
+      style: IconButton.styleFrom(
+          padding: EdgeInsets.zero,
+          minimumSize: const Size(size, size),
+          fixedSize: const Size(size, size)),
+      icon: Icon(icon, size: 18),
     );
   }
 }
@@ -508,8 +571,8 @@ class _OptionCard extends StatelessWidget {
     final delta = ((o['delta'] as Map?) ?? const {}).cast<String, Object?>();
     final stoppedAt = o['stoppedAt'];
     final note = o['note'] == null || '${o['note']}'.isEmpty ? null : '${o['note']}';
-    final noteText = note ??
-        (stoppedAt == null ? null : '${n0(stoppedAt)}주째에 멈춥니다 — 그 뒤로는 더 못 갑니다.');
+    /* 멈춤 안내는 한 줄 — "그 뒤로는 더 못 갑니다" 는 "멈춥니다" 가 이미 말한 것입니다. */
+    final noteText = note ?? (stoppedAt == null ? null : '${n0(stoppedAt)}주째에 멈춥니다');
     final small = t.textTheme.labelSmall?.copyWith(
         color: t.hintColor, height: 1.5, fontFeatures: const [FontFeature.tabularFigures()]);
 
@@ -592,6 +655,14 @@ class _OptionCard extends StatelessWidget {
 /// 막대 두 줄(연한 줄이 지금, 진한 줄이 그때). 막대가 줄 너비를 다 쓰는 이유는 카드
 /// 사이의 "더 긴 막대 = 더 많이" 비교가 그림의 요점이라서 — 숫자 칸에 자리를 내주면
 /// 막대가 짧아져 그 차이가 안 보입니다.
+///
+/// 변화량은 [kChangeFontSize](18px) 굵게. 처음엔 titleLarge(22px)였는데 폰에서 "너무
+/// 크다, 살짝만 줄여라" 였습니다. Material 3 의 titleMedium 은 16px 이라 그걸 그대로
+/// 쓰면 살짝이 아니라 한참 줄어서, titleMedium 바탕에 크기만 18 로 둡니다 — 카드
+/// 제목(titleSmall 14px)보다는 여전히 큽니다.
+/// 변화량 글자 크기(px). 카드 제목(14)보다 크고 옛 값(22)보다 작게.
+const double kChangeFontSize = 18;
+
 class _NowThen extends StatelessWidget {
   const _NowThen({
     required this.label,
@@ -637,8 +708,11 @@ class _NowThen extends StatelessWidget {
           Text(label, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
           const SizedBox(width: 8),
           Text('${signed(change)} kg',
-              style: t.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800, color: color, fontFeatures: tabular)),
+              style: t.textTheme.titleMedium?.copyWith(
+                  fontSize: kChangeFontSize,
+                  fontWeight: FontWeight.w800,
+                  color: color,
+                  fontFeatures: tabular)),
           const SizedBox(width: 10),
           /* 좁은 폰에서는 줄여서라도 한 줄에 — 변화량 옆에서 두 줄로 꺾이면 무엇의
              지금 → 그때인지 흐려집니다(Stat 과 같은 이유). */

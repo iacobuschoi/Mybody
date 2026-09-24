@@ -26,6 +26,7 @@ import '../shell.dart';
 import '../ui/fmt.dart';
 import '../ui/symbols.dart';
 import '../ui/widgets.dart';
+import 'adherence.dart' show DayMark, DayMarkLegend, dayMarkState;
 import 'news.dart';
 
 class SocialScreen extends StatefulWidget {
@@ -156,7 +157,7 @@ class _SocialScreenState extends State<SocialScreen> {
           Note(
               tone: Tone.warn,
               text: _fromCache
-                  ? '$_error — 마지막으로 본 목록입니다. 여기서 바꾼 것은 망이 돌아오면 보냅니다.'
+                  ? '$_error — 마지막으로 본 목록입니다 · 바꾼 것은 나중에 보냅니다'
                   : _error!),
         /* 나를 찌른 친구들 — 맨 위에. 치울 때까지 남습니다. */
         Builder(builder: (_) {
@@ -243,8 +244,7 @@ class _SocialScreenState extends State<SocialScreen> {
         if (accepted.isEmpty)
           const EmptyState(
             title: '아직 친구가 없습니다',
-            detail: '초대 코드를 주고받으면 서로의 운동 체크가 보입니다. '
-                '몸 숫자는 기본이 비공개이고, 친구마다 따로 켤 수 있습니다.',
+            detail: '초대 코드를 주고받으면 운동 체크가 보입니다 — 몸 숫자는 기본 비공개',
           )
         else
           for (final p in accepted)
@@ -599,8 +599,7 @@ class _FriendDetailScreenState extends State<FriendDetailScreen> {
                   style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
               children: [
                 RichishText(
-                  '끄면 화면에서 가리는 게 아니라 **서버가 안 보냅니다.** '
-                  '몸 숫자는 기본으로 꺼져 있고, 행동(기록·운동·식단)만 보입니다.',
+                  '끄면 **서버가 안 보냅니다** — 몸 숫자는 기본으로 꺼져 있습니다',
                   style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5),
                 ),
                 const SizedBox(height: 8),
@@ -993,15 +992,8 @@ class _FriendDietCard extends StatelessWidget {
                         ? '${n0(td['kcal'])} kcal'
                         : '${n0(td['kcal'])} / ${n0(target['intakeKcal'])} kcal · ${_pctOf(td['kcal'], target['intakeKcal'])}',
                     style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
-        /* 먹어야 하는 것 중 얼마나 먹었나 — 한 줄로. */
-        if (logged && target != null)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text(
-                '먹어야 하는 것 중 칼로리 ${_pctOf(td['kcal'], target['intakeKcal'])} · '
-                '단백질 ${_pctOf(td['p'], target['proteinG'])} 먹었습니다.',
-                style: hint),
-          ),
+        /* "먹어야 하는 것 중 칼로리 …% · 단백질 …% 먹었습니다" 한 줄은 뺐습니다 —
+           제목 옆 kcal 퍼센트와 아래 막대가 같은 숫자를 이미 보여 줍니다. */
         if (td == null)
           Text('이 친구가 식단을 공유하지 않습니다.', style: hint)
         else if (!logged)
@@ -1085,9 +1077,10 @@ class _FriendWeekCard extends StatelessWidget {
           Text('이 친구가 운동 일정을 공유하지 않습니다.', style: hint)
         else ...[
           Row(children: [
-            for (final d in days)
-              Expanded(child: _FriendDayCell(day: d, isToday: '${d['key']}' == today)),
+            for (final d in days) Expanded(child: _FriendDayCell(day: d, today: today)),
           ]),
+          const SizedBox(height: 6),
+          const DayMarkLegend(),
           if (planned != null && (missed > 0 || open > 0)) ...[
             const SizedBox(height: 10),
             Text('지나간 날 중 체크 없음 ${n0(missed)} · 남은 날 ${n0(open)}', style: hint),
@@ -1098,10 +1091,11 @@ class _FriendWeekCard extends StatelessWidget {
   }
 }
 
+/* 홈의 요일 칸과 같은 그림(DayMark + 종류 점) — 친구 것이라 누를 수 없습니다. */
 class _FriendDayCell extends StatelessWidget {
-  const _FriendDayCell({required this.day, required this.isToday});
+  const _FriendDayCell({required this.day, required this.today});
   final Map<String, dynamic> day;
-  final bool isToday;
+  final String today;
 
   @override
   Widget build(BuildContext context) {
@@ -1109,20 +1103,21 @@ class _FriendDayCell extends StatelessWidget {
     final c = mb(context);
     final plan = (day['plan'] as List?) ?? const [];
     final done = (day['done'] as List?) ?? const [];
-    final missed = day['missed'] == true;
+    final isToday = '${day['key']}' == today;
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 1),
       padding: const EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(8),
         color: isToday ? c.accentSub : null,
-        border: missed ? Border.all(color: c.warn.withValues(alpha: 0.5)) : null,
       ),
       child: Column(children: [
         Text('${day['dow']}', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
         Text(n0(day['dayNum']),
             style: t.textTheme.bodySmall?.copyWith(
                 fontWeight: isToday ? FontWeight.w800 : FontWeight.w500)),
+        const SizedBox(height: 3),
+        DayMark(dayMarkState(day, today: today), size: 20),
         const SizedBox(height: 3),
         SizedBox(
           height: 6,

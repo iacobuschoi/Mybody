@@ -89,7 +89,8 @@ void main() {
     expect(find.text('오늘 식단'), findsOneWidget);
     expect(find.text('140 / 147 g · 95%'), findsOneWidget, reason: '단백질 먹은 것/먹어야 하는 것');
     expect(find.text('1800 / 2445 kcal · 74%'), findsOneWidget);
-    expect(find.textContaining('먹어야 하는 것 중'), findsOneWidget);
+    /* "먹어야 하는 것 중 …% 먹었습니다" 문장은 없습니다 — 위 퍼센트와 막대가 말합니다(피드백 24). */
+    expect(find.textContaining('먹어야 하는 것 중'), findsNothing);
     expect(find.text('이번 주 운동'), findsOneWidget);
     expect(find.text('2/4일 완료'), findsOneWidget);
     expect(find.text('몸'), findsOneWidget, reason: '켠 몸 수치만 따로');

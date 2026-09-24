@@ -172,8 +172,7 @@ class _ShellState extends State<Shell> {
             api: api,
             onDone: () {},   // 토큰이 생기는 순간 위에서 다시 그립니다
             onServerChange: Scope.serverSetterOf(context),
-            intro: '처음이면 「처음이에요」로 가입하세요. 결과지 사진 판독, 친구 기능, '
-                '기기를 바꿔도 기록이 따라오는 것은 계정으로 됩니다.',
+            intro: '처음이면 「처음이에요」로 가입하세요 — 사진 판독 · 친구 · 기기 옮기기는 계정으로 됩니다',
             onSkip: () => app.store.set({'guest': true}),
           );
         }

@@ -120,8 +120,8 @@
       { name: '바벨 벤치프레스',   equip: 'barbell', pattern: 'push', note: '견갑 고정, 바가 명치 아래' },
       { name: '인클라인 덤벨프레스', equip: 'dumbbell', pattern: 'push', note: '30~40도, 상부 자극' },
       { name: '딥스',             equip: 'bodyweight', pattern: 'push', note: '몸 앞으로 기울이면 가슴' },
-      { name: '체스트 프레스 머신', equip: 'machine', pattern: 'push', note: '초보/마무리용' },
-      { name: '푸시업',            equip: 'bodyweight', pattern: 'push', note: '홈트 대체' }
+      { name: '체스트 프레스 머신', equip: 'machine', pattern: 'push', note: '등을 패드에 붙이고 손잡이는 가슴 높이' },
+      { name: '푸시업',            equip: 'bodyweight', pattern: 'push', note: '손은 어깨 너비, 몸은 일직선' }
     ],
     back: [
       { name: '풀업 / 랫풀다운',   equip: 'machine', pattern: 'pull', note: '견갑 하강 먼저' },

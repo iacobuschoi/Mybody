@@ -11,13 +11,29 @@
  * ========================================================================== */
 library;
 
+import 'dart:math' as math;
+
 import 'exercises.dart';
 
-/// 헬스장이면 기본으로 다 있다고 봅니다 — 없는 것을 빼는 쪽이 빠릅니다.
+/// 헬스장에 있는 것 전부 — 「기구가 다 있는 헬스장」 의 뜻입니다(const GymPrefs()).
 const Set<String> kGymEquipment = {'barbell', 'dumbbell', 'machine', 'cable', 'bodyweight'};
 
 /// 집은 반대로, 흔히 있는 것만.
 const Set<String> kHomeEquipment = {'bodyweight', 'dumbbell', 'band'};
+
+/// 초보 프리셋의 기구 — 머신 · 케이블 · 덤벨(+맨몸). 바벨은 뺍니다: 무슨 운동을
+/// 할지 모르는 사람에게 바벨 벤치 · 스쿼트부터 주면 첫날 헬스장에서 멈춥니다.
+/// 머신은 자리에 앉아 손잡이를 밀면 되고, 덤벨은 무게를 고르기 쉽습니다.
+const Set<String> kBeginnerEquipment = {'machine', 'cable', 'dumbbell', 'bodyweight'};
+
+/// 초보 프리셋의 「하루에 쓸 머신 수」 — 한 시간 루틴에 머신 4개 + 덤벨.
+const int kBeginnerMachineCount = 4;
+
+/// 「하루에 쓸 머신 수」 의 가장 작은 눈금. 0 · 1 은 눈금에 없습니다 — 머신을
+/// 안 쓰는 사람은 머신 · 케이블 타일을 끕니다. 옛 판(0 눈금이 있던 0.2.11)의
+/// 저장값은 읽을 때 여기로 올립니다. 그래야 세그먼트가 켜 보이는 값과 실제
+/// 규칙이 같습니다.
+const int kMachineCountMin = 2;
 
 const Object _keep = Object();
 
@@ -39,17 +55,37 @@ class GymPrefs {
     this.familiar = const [],
   }) : equipment = equipment ?? (place == 'home' ? kHomeEquipment : kGymEquipment);
 
+  /// 초보 프리셋 — 헬스장 · 머신 4개 + 덤벨 · 익숙한 종목 없음. 설정을 한 번도
+  /// 안 만진 사람의 값입니다(2차 피드백 15: "초보자는 무슨 운동을 해야 하는지
+  /// 모른다"). 저장된 설정이 있으면 그 사람 것이 이깁니다.
+  const GymPrefs.beginner()
+      : this(place: 'gym', equipment: kBeginnerEquipment, machineCount: kBeginnerMachineCount);
+
   bool get isHome => place == 'home';
 
-  /// 그 자리의 기본 기구.
+  /// 지금 값이 초보 프리셋 그대로인가 — 화면이 「초보 기본」 표를 붙이는 기준.
+  bool get isBeginnerPreset =>
+      !isHome &&
+      machineCount == kBeginnerMachineCount &&
+      familiar.isEmpty &&
+      equipment.length == kBeginnerEquipment.length &&
+      equipment.containsAll(kBeginnerEquipment);
+
+  /// 그 자리의 기본 기구 — 헬스장은 "다 있음" 입니다(있는 것을 빼는 쪽이 빠릅니다).
   static Set<String> defaultEquipment(String place) =>
       place == 'home' ? {...kHomeEquipment} : {...kGymEquipment};
 
-  /// settings['gym'] 에서 읽습니다. 없거나 깨져 있으면 헬스장 기본값 —
-  /// 설정을 한 번도 안 만진 사람이 대부분이고, 그 사람의 계획은 엔진 그대로여야 합니다.
+  /// 장소를 고를 때 그 자리의 프리셋 — 헬스장은 초보 프리셋, 집은 집 기본.
+  /// 화면이 장소 카드를 누르면 기구와 머신 수를 여기서 받고 익숙한 종목은 지킵니다.
+  static GymPrefs presetFor(String place) =>
+      place == 'home' ? const GymPrefs(place: 'home') : const GymPrefs.beginner();
+
+  /// settings['gym'] 에서 읽습니다. 없거나 깨져 있으면 초보 프리셋 —
+  /// 설정을 한 번도 안 만진 사람이 대부분이고, 그 사람에게는 머신 4개 + 덤벨
+  /// 한 시간 루틴이 엔진의 바벨 계획보다 낫습니다.
   static GymPrefs fromSettings(Map<String, Object?>? settings) {
     final raw = settings?['gym'];
-    if (raw is! Map) return const GymPrefs();
+    if (raw is! Map) return const GymPrefs.beginner();
     final g = raw;
 
     final place = g['place'] == 'home' ? 'home' : 'gym';
@@ -68,7 +104,7 @@ class GymPrefs {
 
     int? machineCount;
     final mc = g['machineCount'];
-    if (mc is num && mc.isFinite && mc >= 0) machineCount = mc.toInt();
+    if (mc is num && mc.isFinite && mc >= 0) machineCount = math.max(kMachineCountMin, mc.toInt());
 
     final fam = <String>[];
     final f = g['familiar'];

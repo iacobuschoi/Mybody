@@ -88,8 +88,7 @@ class _FoodScreenState extends State<FoodScreen> {
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             const SectionTitle('아직 하루 목표가 없습니다'),
-            Text('플랜을 만들면 칼로리와 탄단지 목표가 생기고, 여기에 대조해서 보여드립니다.',
-                style: hint),
+            Text('플랜이 하루 칼로리·단백질 목표를 정합니다', style: hint),
             const SizedBox(height: 10),
             FilledButton(onPressed: () => widget.go('goal'), child: const Text('플랜 만들기')),
           ]),
@@ -125,9 +124,7 @@ class _FoodScreenState extends State<FoodScreen> {
         _MealCard(meal: meal, date: date, logs: logs, onChanged: _refresh),
 
       if (logs.isEmpty)
-        const Note(
-            text: '완벽하게 적을 필요 없습니다. 한 끼만 적어도 주 평균이 살아납니다. '
-                '안 적은 날은 0으로 치지 않고 평균에서 빼기 때문입니다.'),
+        const Note(text: '한 끼만 적어도 됩니다 — 안 적은 날은 평균에서 뺍니다'),
     ]);
   }
 
@@ -364,12 +361,14 @@ class _SuggestCardState extends State<_SuggestCard> {
     final loggedMeals = {for (final l in logs) '${l['meal']}'};
     final mealsLeft = ['아침', '점심', '저녁'].where((m) => !loggedMeals.contains(m)).length;
     /* 오늘 먹은 것과 먹어야 하는 탄단지에 맞춥니다 — 남은 탄수·지방을
-       넘기는 조합은 뒤로 갑니다. */
+       넘기는 조합은 뒤로 갑니다. 날짜가 씨앗이라 같은 날은 같은 답,
+       다음 날은 다른 메뉴가 첫 줄에 섭니다(안 질리게). */
     final opts = <String, Object?>{
       'remainP': widget.remainP, 'remainKcal': widget.remainK,
       'remainC': widget.remainC, 'remainF': widget.remainF,
       'avoid': eaten.toList(),
       'mealsLeft': math.max(1, mealsLeft), 'limit': 3,
+      'seed': widget.date,
     };
     final res = switch (_mode) {
       'out' => core.suggestEatOut(opts),
@@ -410,7 +409,7 @@ class _SuggestCardState extends State<_SuggestCard> {
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(
                   ((options[i]['items'] as List?) ?? const [])
-                      .map((x) => '${(x as Map)['name']} ${core.suggestPortionText(x.cast<String, Object?>())}'.trim())
+                      .map((x) => core.suggestItemText((x as Map).cast<String, Object?>()))
                       .join(' + '),
                   style: t.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
                 ),
@@ -613,10 +612,8 @@ class _YesterdayCard extends StatelessWidget {
         SectionTitle('어제와 같이 드셨나요?',
             trailing: Text('${n0(tot['kcal'])}kcal · 단백질 ${n0(tot['p'])}g',
                 style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
-        Text('같은 음식을 같은 값으로 재사용하면 주마다 기록 편향이 흔들리지 않습니다. '
-            '계획 재조정이 그만큼 정확해집니다.',
-            style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
-        const SizedBox(height: 8),
+        /* "같은 값으로 재사용하면 기록 편향이…" 설명은 뺐습니다 — 제목과 버튼이 이미
+           할 일을 다 말합니다. */
         OutlinedButton(
           onPressed: () {
             for (final l in yest) {
@@ -873,7 +870,7 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
             ] else if (hits.isEmpty)
               EmptyState(
                 title: '찾는 음식이 없습니다',
-                detail: '비슷한 걸 골라서 양을 조절하는 편이 안 적는 것보다 낫습니다.',
+                detail: '비슷한 걸 고르고 양을 조절하세요',
                 action: OutlinedButton(onPressed: _custom, child: const Text('직접 입력')),
               )
             else

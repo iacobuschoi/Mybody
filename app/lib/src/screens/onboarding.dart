@@ -149,8 +149,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            /* 성별은 꾸밈이 아니라 계산에 들어갑니다 — 왜 묻는지 말합니다. */
-            '성별은 기초대사량과 안전 하한(필수 체지방)에 들어갑니다.',
+            /* 성별은 꾸밈이 아니라 계산에 들어갑니다 — 왜 묻는지 한 마디. */
+            '기초대사량 계산에 씁니다',
             style: Theme.of(context).textTheme.labelSmall
                 ?.copyWith(color: Theme.of(context).hintColor, height: 1.5),
           ),
@@ -196,8 +196,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const SectionTitle('운동 경력'),
-            Text('주 2회 이상 저항운동을 이어 온 기간입니다. 모르겠으면 짧은 쪽을 고르세요 — '
-                '앱이 더 보수적으로 잡습니다.',
+            Text('주 2회 이상 근력운동을 이어 온 기간 — 모르면 짧은 쪽',
                 style: Theme.of(context).textTheme.labelSmall
                     ?.copyWith(color: Theme.of(context).hintColor, height: 1.5)),
             const SizedBox(height: 8),
@@ -294,7 +293,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           value: _cloudSync,
           onChanged: (v) => setState(() => _cloudSync = v),
           title: const Text('기록을 내 계정에 동기화'),
-          subtitle: Text('기기를 바꾸거나 두 기기를 같이 써도 기록이 합쳐집니다. 사진은 안 올라갑니다.',
+          subtitle: Text('기기를 바꿔도 기록이 따라옵니다 — 사진은 안 올라갑니다',
               style: Theme.of(context).textTheme.labelSmall),
         ),
       ]);

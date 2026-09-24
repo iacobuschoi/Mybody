@@ -6,16 +6,20 @@
  * 같은 숫자를 씁니다 — 여기는 그리기만 합니다.
  *
  * 분모를 반드시 씁니다. "3일" 이 아니라 "계획한 5일 중 3일" 입니다.
+ *
+ * 요일 동그라미(DayMark)는 여기서 정의하고 홈의 이번 주 카드·친구 주간
+ * 카드가 같은 것을 씁니다 — 세 화면이 같은 그림을 다르게 그리면 색이
+ * 무슨 뜻인지 매번 다시 배워야 합니다.
  * ========================================================================== */
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../adherence.dart';
 import '../scope.dart';
 import '../ui/fmt.dart';
-import '../theme.dart' show MbColors;
 import '../ui/widgets.dart';
 
 Map<String, Object?>? _targetOf(BuildContext context) {
@@ -29,6 +33,133 @@ String _dowOf(String key) {
   final d = DateTime.tryParse('${key}T00:00:00');
   return d == null ? '' : core.kDow[(d.weekday - 1) % 7];
 }
+
+/* --- 요일 표시 ---------------------------------------------------------------
+ *
+ * 색만으로는 못 읽습니다(보라 채움이 지킴인지, 살구가 놓침인지). 그래서
+ * 상태마다 모양이 다릅니다: 지킴은 체크, 놓침은 ×, 오늘은 점, 앞날은 빈
+ * 테두리, 쉬는 날은 옅은 점. 범례(DayMarkLegend)도 같은 위젯으로 그립니다. */
+
+enum DayMarkState { kept, missed, today, future, rest }
+
+/// 일정 하루의 맵에서 표시 상태를 정합니다. 달성률(workoutAdherence)·홈
+/// (schedule.week)·친구 공유(store.share) 세 곳의 맵을 다 받습니다 — 셋 다
+/// `plan`·`key` 는 있고 `kept`·`missed` 는 있으면 믿고, 없으면(옛 공유)
+/// `done` 에서 셉니다. 계획이 없는 날은 언제나 쉬는 날입니다.
+DayMarkState dayMarkState(Map d, {required String today}) {
+  final plan = d['plan'] as List? ?? const [];
+  if (plan.isEmpty) return DayMarkState.rest;
+  final done = d['done'];
+  final kept = d.containsKey('kept')
+      ? core.jsTruthy(d['kept'])
+      : done is Map
+          ? plan.every((t) => core.jsTruthy(done[t]))
+          : done is List && plan.every(done.contains);
+  if (kept) return DayMarkState.kept;
+  if (core.jsTruthy(d['missed'])) return DayMarkState.missed;
+  final key = '${d['key']}';
+  if (key == today) return DayMarkState.today;
+  if (key.compareTo(today) > 0) return DayMarkState.future;
+  return DayMarkState.missed;   // 지난 날인데 다 못 했으면 놓친 것
+}
+
+class DayMark extends StatelessWidget {
+  /// [tagged] 가 참이면 상태 이름의 키(`daymark-kept` 등)를 답니다 — 범례의
+  /// 작은 것에는 안 달아서 테스트가 실제 칸만 셀 수 있게 합니다.
+  const DayMark(this.state, {super.key, this.size = 22, this.tagged = true});
+  final DayMarkState state;
+  final double size;
+  final bool tagged;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final c = mb(context);
+    final primary = t.colorScheme.primary;
+    final (Color? fill, Color? border, double bw) = switch (state) {
+      DayMarkState.kept => (primary, null, 0.0),
+      DayMarkState.missed => (null, c.warn, 1.5),
+      DayMarkState.today => (null, primary, 1.5),
+      DayMarkState.future => (null, t.dividerColor, 1.0),
+      DayMarkState.rest => (null, null, 0.0),
+    };
+    Widget? inner;
+    final iconSize = size * 0.62;
+    final dot = size * 0.28;
+    switch (state) {
+      case DayMarkState.kept:
+        inner = Icon(LucideIcons.check, size: iconSize, color: t.colorScheme.onPrimary);
+      case DayMarkState.missed:
+        inner = Icon(LucideIcons.x, size: iconSize, color: c.warn);
+      case DayMarkState.today:
+        inner = _Dot(dot, primary);
+      case DayMarkState.rest:
+        inner = _Dot(dot, t.hintColor.withValues(alpha: 0.4));
+      case DayMarkState.future:
+        inner = null;
+    }
+    return Container(
+      key: tagged ? ValueKey('daymark-${state.name}') : null,
+      width: size, height: size,
+      decoration: BoxDecoration(
+        color: fill,
+        shape: BoxShape.circle,
+        border: border == null ? null : Border.all(color: border, width: bw),
+      ),
+      alignment: Alignment.center,
+      child: inner,
+    );
+  }
+}
+
+class _Dot extends StatelessWidget {
+  const _Dot(this.size, this.color);
+  final double size;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        width: size, height: size,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      );
+}
+
+/// 한 줄 범례 — 지킴 · 놓침 · 오늘 · 쉬는 날. 작게, 카드 아래에 둡니다.
+class DayMarkLegend extends StatelessWidget {
+  const DayMarkLegend({super.key});
+
+  static const items = [
+    (DayMarkState.kept, '지킴'),
+    (DayMarkState.missed, '놓침'),
+    (DayMarkState.today, '오늘'),
+    (DayMarkState.rest, '쉬는 날'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final style = t.textTheme.labelSmall?.copyWith(color: t.hintColor, fontSize: 10, height: 1);
+    return Wrap(
+      key: const ValueKey('daymark-legend'),
+      spacing: 10, runSpacing: 4,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        for (final (s, label) in items)
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            DayMark(s, size: 13, tagged: false),
+            const SizedBox(width: 3),
+            /* 글자는 RichText 로 — 범례는 내용이 아니라 설명이라, 화면의 「오늘」
+               같은 제목을 세는 테스트(find.text)에 안 잡히게 둡니다. */
+            RichText(
+                text: TextSpan(text: label, style: style),
+                textScaler: MediaQuery.textScalerOf(context)),
+          ]),
+      ],
+    );
+  }
+}
+
+/* --- 화면 ------------------------------------------------------------------ */
 
 class AdherenceScreen extends StatelessWidget {
   const AdherenceScreen({super.key, required this.go});
@@ -80,14 +211,15 @@ class _AdherenceBodyState extends State<AdherenceBody> {
       const SizedBox(height: 12),
 
       /* --- 운동 ------------------------------------------------------------ */
-      _WorkoutCard(w: w, streak: streak, label: label, week: _tab == 'week'),
+      _WorkoutCard(w: w, streak: streak, label: label, week: _tab == 'week',
+          today: app.store.dayKey()),
 
       /* --- 식단 ------------------------------------------------------------ */
       if (target == null)
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             SectionTitle('식단 · $label'),
-            Text('플랜을 만들면 칼로리·단백질 목표가 생기고, 기록을 거기에 대조해서 보여드립니다.',
+            Text('플랜이 하루 칼로리·단백질 목표를 정합니다',
                 style: hint),
             const SizedBox(height: 10),
             FilledButton(onPressed: () => widget.go('goal'), child: const Text('플랜 만들기')),
@@ -132,24 +264,22 @@ class _AdherenceBodyState extends State<AdherenceBody> {
                   delta: '${n0(adh['proteinHitPct'])}%')),
             ]),
             const SizedBox(height: 6),
+            /* 한 줄 — "0으로 치지 않고 분모에서 뺐다" 는 설명은 "안 적은 날은 뺐다" 로 족합니다. */
             Text(
-                '평균은 기록한 ${n0(loggedDays)}일만으로 냈습니다. '
-                '${missedDays > 0 ? '기록 없는 ${n0(missedDays)}일은 0으로 치지 않고 분모에서 뺐습니다.' : ''}',
+                '기록한 ${n0(loggedDays)}일 평균'
+                '${missedDays > 0 ? ' — 안 적은 ${n0(missedDays)}일은 뺐습니다' : ''}',
                 style: hint),
           ],
         ]),
       ),
       if (missedDays >= (totalDays * 0.5).ceil())
-        const Note(
-            text: '절반 이상 안 적으셨습니다. 매 끼니를 다 적을 필요는 없고, '
-                '단백질 들어간 것만 적어도 이 화면은 쓸모가 있습니다.'),
+        const Note(text: '절반 넘게 안 적었습니다 — 단백질 든 것만 적어도 됩니다'),
       if (_tab == 'week')
         ..._week(context, days, target, adh)
       else
         _month(context, days, target, adh),
-      const Note(
-          text: '하루 값이 아니라 주 평균으로 보세요. 기록 오차와 TDEE 추정 오차가 겹쳐서, '
-              '하루치 숫자는 원래 흔들립니다. 계획은 체중 변화를 보고 조정됩니다.'),
+      /* 맨 밑의 "하루 값이 아니라 주 평균으로 보세요 · TDEE 추정 오차…" 상자는 뺐습니다 —
+         카드가 이미 「평균」 이라고 쓰고 있습니다. */
     ];
   }
 
@@ -171,54 +301,12 @@ class _AdherenceBodyState extends State<AdherenceBody> {
       for (final s in specs)
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            SectionTitle(s.$1,
-                trailing: Text('목표 ${n0(s.$3)}${s.$5}',
-                    style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
-            Builder(builder: (_) {
-              final vals = [for (final d in days) core.jsToNumber(d[s.$2] ?? 0)];
-              final maxV = [s.$3 * 1.4, vals.reduce(math.max) * 1.1, 1.0].reduce(math.max);
-              return SizedBox(
-                height: 90,
-                child: Stack(children: [
-                  Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                    for (var i = 0; i < days.length; i++)
-                      Expanded(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 2),
-                          child: Container(
-                            height: core.jsTruthy(days[i]['logged'])
-                                ? math.max(3.0, vals[i] / maxV * 70)
-                                : 3,
-                            decoration: BoxDecoration(
-                              color: core.jsTruthy(days[i]['logged'])
-                                  ? s.$4.withValues(alpha: vals[i] >= s.$3 * 0.9 ? 1 : 0.55)
-                                  : t.dividerColor,
-                              borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
-                            ),
-                          ),
-                        ),
-                      ),
-                  ]),
-                  /* 목표선 */
-                  Positioned(
-                    left: 0, right: 0, bottom: (70 * s.$3 / maxV).clamp(0.0, 90.0),
-                    child: Container(height: 1, color: t.hintColor.withValues(alpha: 0.4)),
-                  ),
-                ]),
-              );
-            }),
-            Row(children: [
-              for (final d in days)
-                Expanded(
-                  child: Text(core.jsTruthy(d['logged']) ? _dowOf('${d['date']}') : '·',
-                      textAlign: TextAlign.center,
-                      style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, fontSize: 10)),
-                ),
-            ]),
+            SectionTitle(s.$1),
+            _DayBars(days: days, field: s.$2, target: s.$3, color: s.$4, unit: s.$5),
             const SizedBox(height: 6),
             Text(
                 loggedDays > 0
-                    ? '기록한 ${n0(loggedDays)}일 평균 ${n0(avg?[s.$2])}${s.$5} (목표의 ${n0(pct?[s.$2])}%)'
+                    ? '평균 ${n0(avg?[s.$2])}${s.$5} · 목표의 ${n0(pct?[s.$2])}%'
                     : '기록 없음',
                 style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
           ]),
@@ -275,28 +363,143 @@ class _AdherenceBodyState extends State<AdherenceBody> {
             Text('단백질 달성', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
           ]),
         ]),
-        const SizedBox(height: 8),
-        Text('여기서 볼 건 정확한 값이 아니라 패턴입니다 — 주말에 무너지는지, 바쁜 주에 끊기는지.',
-            style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
+        /* "정확한 값이 아니라 패턴을 보라" 는 한 줄은 뺐습니다 — 범례가 있는 격자는
+           그 자체로 패턴입니다. */
       ]),
     );
   }
+}
+
+/* --- 일별 막대 ---------------------------------------------------------------
+ *
+ * 목표가 막대 높이의 70% 자리입니다. 목표를 넘으면 그만큼 더 올라가고(최대
+ * 100%), 목표선은 그 높이에 **점선** + 오른쪽 끝 「목표 149g」 라벨로
+ * 그립니다. 축선은 바닥에 하나 — 예전엔 목표선이 실선으로 막대 위에 떠
+ * 있어서 축인지 목표인지 몰랐습니다. 기록 없는 날은 막대 없이 요일 글자만
+ * 흐리게 — "·" 는 무슨 뜻인지 물어보게 만듭니다. */
+class _DayBars extends StatelessWidget {
+  const _DayBars({required this.days, required this.field, required this.target,
+      required this.color, required this.unit});
+  final List<Map<String, Object?>> days;
+  final String field;
+  final double target;
+  final Color color;
+  final String unit;
+
+  static const double height = 84;
+  static const double targetFrac = 0.7;
+  static const double gap = 3, dowHeight = 10;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final labelStyle = t.textTheme.labelSmall?.copyWith(color: t.hintColor, fontSize: 10, height: 1);
+    final lineColor = t.hintColor.withValues(alpha: 0.6);
+    final scale = target > 0 ? targetFrac / target : 0.0;
+
+    final bars = SizedBox(
+      height: height,
+      child: Stack(children: [
+        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+          for (final d in days)
+            Expanded(
+              child: Builder(builder: (_) {
+                if (!core.jsTruthy(d['logged'])) return const SizedBox.shrink();
+                final v = core.jsToNumber(d[field] ?? 0);
+                final frac = (v * scale).clamp(0.0, 1.0);
+                return Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: Container(
+                    height: math.max(2.0, frac * height),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: v >= target * 0.9 ? 1 : 0.55),
+                      borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
+                    ),
+                  ),
+                );
+              }),
+            ),
+        ]),
+        /* 목표선 — 점선. 막대와 같은 스케일이라 "넘었나" 가 바로 보입니다. */
+        Positioned(
+          left: 0, right: 0, bottom: height * targetFrac,
+          child: CustomPaint(size: const Size(double.infinity, 1), painter: _DashPainter(lineColor)),
+        ),
+        /* 축선 — 바닥에. */
+        Positioned(left: 0, right: 0, bottom: 0, child: Container(height: 1, color: t.dividerColor)),
+      ]),
+    );
+
+    /* 요일 줄 — 막대 바로 밑에 붙입니다. 글자 높이는 height:1 로 고정해서
+       (fontSize 10 = 10px) 오른쪽 라벨 칸이 같은 만큼 비울 수 있습니다. */
+    final dows = Row(children: [
+      for (final d in days)
+        Expanded(
+          child: Text(_dowOf('${d['date']}'),
+              textAlign: TextAlign.center,
+              style: labelStyle?.copyWith(
+                  color: core.jsTruthy(d['logged'])
+                      ? t.hintColor
+                      : t.hintColor.withValues(alpha: 0.35))),
+        ),
+    ]);
+
+    return Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+      Expanded(
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          bars, const SizedBox(height: gap), dows,
+        ]),
+      ),
+      /* 라벨은 선의 오른쪽 끝, 자기 칸에 — 막대를 가리지 않습니다. */
+      Column(mainAxisSize: MainAxisSize.min, children: [
+        SizedBox(
+          height: height,
+          child: Align(
+            alignment: const Alignment(0, 1 - 2 * targetFrac),
+            child: Padding(
+              padding: const EdgeInsets.only(left: 6),
+              child: Text('목표 ${n0(target)}$unit', style: labelStyle),
+            ),
+          ),
+        ),
+        const SizedBox(height: gap + dowHeight),
+      ]),
+    ]);
+  }
+}
+
+class _DashPainter extends CustomPainter {
+  const _DashPainter(this.color);
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final p = Paint()..color = color..strokeWidth = 1;
+    const on = 4.0, off = 3.0;
+    for (var x = 0.0; x < size.width; x += on + off) {
+      canvas.drawLine(Offset(x, 0.5), Offset(math.min(x + on, size.width), 0.5), p);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashPainter old) => old.color != color;
 }
 
 /* --- 운동 ------------------------------------------------------------------
    "지킨 날 / 계획한 날". 오늘 아직 안 한 것은 놓친 게 아니라 열린 것이라
    분모에 안 넣습니다 — 아침에 열어 보고 0% 를 맞으면 안 됩니다. */
 class _WorkoutCard extends StatelessWidget {
-  const _WorkoutCard({required this.w, required this.streak, required this.label, required this.week});
+  const _WorkoutCard({required this.w, required this.streak, required this.label,
+      required this.week, required this.today});
   final Map<String, Object?> w;
   final Map<String, Object?> streak;
   final String label;
   final bool week;
+  final String today;
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
-    final c = mb(context);
     final hint = t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5);
     final planned = core.jsToNumber(w['plannedDays']);
     final kept = core.jsToNumber(w['keptDays']);
@@ -316,7 +519,7 @@ class _WorkoutCard extends StatelessWidget {
         SectionTitle('운동 · $label',
             trailing: Pill('계획 ${n0(planned)}일', tone: planned > 0 ? Tone.ok : Tone.none)),
         if (planned == 0)
-          Text('이 기간에 계획한 운동이 없습니다. 홈에서 요일을 켜 두면 여기서 셉니다.', style: hint)
+          Text('계획한 운동이 없습니다 — 홈에서 요일을 켜 두세요', style: hint)
         else ...[
           Row(children: [
             Expanded(child: Stat(label: '지킨 날', value: n0(kept), unit: '일',
@@ -326,23 +529,23 @@ class _WorkoutCard extends StatelessWidget {
           ]),
           const SizedBox(height: 6),
           if (types.isNotEmpty) Text(types.join(' · '), style: hint),
-          Text(
-              '연속 ${n0(streak['days'])}일 · 최근 28일 중 ${n0(streak['last28'])}일. '
-              '계획한 날만 세고, 쉬는 날은 끊지 않습니다.',
-              style: hint),
+          /* "계획한 날만 세고 쉬는 날은 끊지 않는다" 는 규칙 설명은 뺐습니다 — 숫자 둘이면 됩니다. */
+          Text('연속 ${n0(streak['days'])}일 · 최근 28일 중 ${n0(streak['last28'])}일', style: hint),
         ],
         const SizedBox(height: 10),
-        if (week) _WeekStrip(days: days, c: c) else _MonthGrid(days: days, c: c),
+        if (week) _WeekStrip(days: days, today: today) else _MonthGrid(days: days, today: today),
+        const SizedBox(height: 8),
+        const DayMarkLegend(),
       ]),
     );
   }
 }
 
-/// 7칸 — 요일 + 동그라미. 지킴 = 채움, 놓침 = 경고색 테두리, 오늘(열림) = 점선, 쉼 = 점.
+/// 7칸 — 요일 + DayMark.
 class _WeekStrip extends StatelessWidget {
-  const _WeekStrip({required this.days, required this.c});
+  const _WeekStrip({required this.days, required this.today});
   final List<Map<String, Object?>> days;
-  final MbColors c;
+  final String today;
 
   @override
   Widget build(BuildContext context) {
@@ -355,7 +558,7 @@ class _WeekStrip extends StatelessWidget {
                 style: t.textTheme.labelSmall?.copyWith(
                     color: core.jsTruthy(d['isToday']) ? t.colorScheme.primary : t.hintColor)),
             const SizedBox(height: 4),
-            _Cell(d: d, c: c, size: 22),
+            DayMark(dayMarkState(d, today: today)),
           ]),
         ),
     ]);
@@ -363,64 +566,18 @@ class _WeekStrip extends StatelessWidget {
 }
 
 class _MonthGrid extends StatelessWidget {
-  const _MonthGrid({required this.days, required this.c});
+  const _MonthGrid({required this.days, required this.today});
   final List<Map<String, Object?>> days;
-  final MbColors c;
+  final String today;
 
   @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context);
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      GridView.count(
+  Widget build(BuildContext context) => GridView.count(
         crossAxisCount: 10, shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
         mainAxisSpacing: 4, crossAxisSpacing: 4,
-        children: [for (final d in days) _Cell(d: d, c: c)],
-      ),
-      const SizedBox(height: 8),
-      Wrap(spacing: 10, runSpacing: 6, children: [
-        _Legend('지킴', t.colorScheme.primary),
-        _Legend('놓침', c.warn.withValues(alpha: 0.35)),
-        _Legend('쉬는 날', t.scaffoldBackgroundColor, dashed: true),
-      ]),
-    ]);
-  }
-}
-
-class _Cell extends StatelessWidget {
-  const _Cell({required this.d, required this.c, this.size});
-  final Map<String, Object?> d;
-  final MbColors c;
-  final double? size;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = Theme.of(context);
-    final kept = core.jsTruthy(d['kept']);
-    final missed = core.jsTruthy(d['missed']);
-    final open = core.jsTruthy(d['open']);
-    final rest = (d['plan'] as List? ?? const []).isEmpty;
-    final bg = kept
-        ? t.colorScheme.primary
-        : missed
-            ? c.warn.withValues(alpha: 0.35)
-            : t.scaffoldBackgroundColor;
-    return Container(
-      width: size, height: size,
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(size == null ? 6 : size! / 2),
-        border: kept || missed
-            ? null
-            : Border.all(
-                color: open ? t.colorScheme.primary : t.dividerColor,
-                width: open ? 1.5 : 1),
-      ),
-      alignment: Alignment.center,
-      child: rest && size != null
-          ? Text('·', style: TextStyle(color: t.hintColor, fontSize: 12, height: 1))
-          : null,
-    );
-  }
+        children: [
+          for (final d in days) Center(child: DayMark(dayMarkState(d, today: today), size: 20)),
+        ],
+      );
 }
 
 class _Legend extends StatelessWidget {

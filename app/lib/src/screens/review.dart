@@ -46,7 +46,7 @@ const _derived = [
   _F('visceralFatLevel', '내장지방 레벨', '레벨', dec: 0, range: [1, 30]),
   _F('bmrKcal', '기초대사량 (BMR)', 'kcal', dec: 0, range: [800, 4000]),
   _F('whr', '복부지방률 (WHR)', '', dec: 2, range: [0.6, 1.3],
-      hint: '보통 0.7 ~ 1.1 사이입니다. 소수점 위치를 특히 잘 보세요.'),
+      hint: '보통 0.7~1.1 — 소수점 위치를 보세요'),
   _F('inbodyScore', 'InBody 점수', '점', dec: 0, range: [20, 110]),
 ];
 
@@ -198,14 +198,14 @@ class _ReviewScreenState extends State<ReviewScreen> {
           const Note(
             tone: Tone.ok,
             title: '이미 있는 기록과 같습니다.',
-            text: ' 같은 결과지입니다 — 저장하면 두 줄이 되지 않고 그 기록을 갱신합니다.',
+            text: ' 저장하면 그 기록을 갱신합니다.',
           ),
         if (same != null && !twin) ...[
           Note(
             tone: Tone.warn,
             title: '같은 시각의 측정이 이미 있습니다.',
-            text: ' ${dateK(same['measuredAt'])} · 체중 ${n1(same['weightKg'])}kg. 값이 다릅니다 — '
-                '다른 측정이면 그대로 저장되고, 그 기록을 고쳐 넣는 것이면 덮어쓰기를 켜세요.',
+            text: ' ${dateK(same['measuredAt'])} · 체중 ${n1(same['weightKg'])}kg — '
+                '다른 측정이면 그대로 저장, 고쳐 넣는 것이면 덮어쓰기를 켜세요.',
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,
@@ -238,7 +238,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
             text: '${i['why'] ?? ''}',
           ),
         if (invalid == null && checks.isEmpty && rangeIssues.isEmpty && deltaIssues.isEmpty)
-          const Note(tone: Tone.ok, title: '검산을 통과했습니다.', text: ' 값들이 서로 맞습니다.'),
+          const Note(tone: Tone.ok, text: '검산을 통과했습니다'),
 
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -278,8 +278,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         SectionTitle('지난 측정 ${widget.history.length}개도 같이'),
         Text(
-          '결과지 아래 「신체변화」 그래프에서 읽었습니다 — 내 기록에 없는 날만. '
-          '체크한 것은 같이 저장됩니다.',
+          '결과지 「신체변화」 그래프에서 읽은 것 — 체크한 것만 같이 저장됩니다',
           style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5),
         ),
         const SizedBox(height: 4),

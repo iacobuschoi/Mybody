@@ -234,6 +234,9 @@ void main(List<String> args) {
         case 'suggest.summaryText':
           v = suggest.summaryText(suggest.suggestMeal(_m(c['opts'])!));
           break;
+        case 'suggest.itemText':
+          v = suggest.itemText(_m(c['item'])!);
+          break;
         case 'modes.select':
           v = modes.select(_m(c['input'])!);
           break;

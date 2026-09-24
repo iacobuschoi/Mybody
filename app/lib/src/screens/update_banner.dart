@@ -108,8 +108,7 @@ class _UpdateRequired extends StatelessWidget {
         const Note(
           tone: Tone.warn,
           title: '이 버전은 이제 서버와 맞지 않습니다.',
-          text: '로그인 · 동기화 · 친구 기능이 안 될 수 있습니다. '
-              '이 기기에 적는 기록은 그대로 쓸 수 있습니다.',
+          text: '로그인 · 동기화 · 친구가 안 될 수 있습니다 — 기기의 기록은 그대로 씁니다.',
         ),
         RichishText(
             '${n.version} 이상으로 업데이트해 주세요. 지금은 ${n.current}입니다. '

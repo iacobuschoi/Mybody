@@ -126,8 +126,7 @@ class _UploadScreenState extends State<UploadScreen> {
       builder: (ctx) => AlertDialog(
         title: const Text('사진 판독은 로그인이 필요합니다'),
         content: const Text(
-          '판독 횟수를 사람마다 세기 때문에 계정으로만 됩니다. '
-          '로그인하지 않아도 사진을 보며 아래 세 칸을 직접 넣으면 똑같이 기록됩니다.',
+          '판독은 계정별로 세기 때문입니다 — 로그인 없이는 아래 세 칸을 직접 넣으면 됩니다',
           style: TextStyle(fontSize: 13, height: 1.5),
         ),
         actions: [
@@ -327,10 +326,7 @@ class _UploadScreenState extends State<UploadScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('인바디 올리기')),
       body: ListView(padding: const EdgeInsets.all(16), children: [
-        const Note(
-          text: '결과지를 보면서 숫자 세 개만 넣으면 됩니다. 나머지는 다음 화면에서 '
-              '채우거나, 비워 두면 이 셋에서 계산합니다.',
-        ),
+        const Note(text: '숫자 세 개만 넣으면 됩니다 — 나머지는 자동으로 계산합니다'),
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const SectionTitle('결과지 사진'),

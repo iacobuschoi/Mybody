@@ -57,6 +57,26 @@ void main() {
       expect(ids(remote['scans']), ['s1']);
     });
 
+    test('내 루틴도 합집합 — 각 기기가 만든 것은 다 남고, 같은 id 는 updatedAt 이 나중인 쪽', () {
+      expect(mergedLists['routines'], 'id');
+      Map<String, Object?> routine(String id, String name, String updatedAt) => {
+            'id': id, 'name': name, 'label': '하체 B',
+            'exercises': [{'name': '바벨 스쿼트', 'sets': 3, 'reps': '5-8', 'restSec': 150, 'kg': 60}],
+            'createdAt': t1, 'updatedAt': updatedAt,
+          };
+      final m = mergeStates(
+        st({'routines': [routine('r1', '하체 B 내 버전', t3), routine('r2', '폰에서 만든 것', t2)]}),
+        st({'routines': [routine('r1', '하체 B', t2), routine('r3', '태블릿에서 만든 것', t2)]}),
+        localAt: t1, remoteAt: t4,
+      );
+      expect(ids(m['routines']), ['r1', 'r3', 'r2'], reason: '서버 순서 먼저, 이 기기 것은 뒤에');
+      final r1 = (m['routines'] as List).firstWhere((r) => (r as Map)['id'] == 'r1') as Map;
+      expect(r1['name'], '하체 B 내 버전', reason: '레코드 전체는 서버가 새로워도 항목의 updatedAt 이 이깁니다');
+      /* 한 바퀴 더 돌아도 그대로 */
+      final again = mergeStates(body(m), body(m), localAt: t4, remoteAt: t4);
+      expect(ids(again['routines']), ['r1', 'r3', 'r2']);
+    });
+
     test('같은 항목을 둘 다 고쳤으면 updatedAt 이 나중인 쪽, 없으면 레코드가 나중인 쪽', () {
       /* updatedAt 이 있으면 레코드 전체 시각은 안 봅니다 — 서버가 더 새로워도. */
       var m = mergeStates(

@@ -567,10 +567,10 @@ class _SignInScreenState extends State<SignInScreen> {
 
           const SizedBox(height: 16),
           if (_mode == _AuthMode.signIn)
+            /* 「처음이에요」 「비밀번호 잊음」 은 위 세그먼트가 이미 보여 줍니다 — 여기는
+               그 둘로도 안 되는 길 하나만. */
             Text(
-              '계정이 없으면 위에서 「처음이에요」를 누르세요.\n'
-              '비밀번호를 잊었다면 가입할 때 받은 복구 코드가 필요합니다. '
-              '그것도 없으면 이 서버를 띄운 사람에게 말하면 풀어 줄 수 있습니다.',
+              '복구 코드가 없으면 이 서버를 띄운 사람에게 말하면 풀어 줄 수 있습니다',
               style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5),
             ),
 
@@ -587,8 +587,7 @@ class _SignInScreenState extends State<SignInScreen> {
             ),
             const SizedBox(height: 8),
             Text(
-              '기록은 이 기기에만 저장됩니다. 숫자를 직접 넣어 기록 · 목표 · 계획 · 식단을 '
-              '다 쓸 수 있고, 사진 판독 · 친구 · 기기 옮기기는 나중에 설정에서 로그인하면 됩니다.',
+              '기록은 이 기기에만 저장됩니다 — 사진 판독 · 친구 · 기기 옮기기만 못 씁니다',
               style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5),
             ),
           ],
@@ -690,9 +689,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 decoration: BoxDecoration(
                   color: mb.accentSub, borderRadius: BorderRadius.circular(12)),
                 child: const Text(
-                  '기록은 내 계정에도 저장됩니다.\n\n'
-                  '측정 기록·목표·계획·식단이 이 기기와 내 계정에 같이 있습니다 — 기기를 바꿔 '
-                  '로그인하면 그대로 따라옵니다. 친구가 보는 것은 친구에게 보여 주기로 켠 것뿐입니다.',
+                  '기록은 내 계정에도 저장됩니다 — 기기를 바꿔도 따라오고, 친구는 켜 둔 것만 봅니다.',
                   style: TextStyle(height: 1.6),
                 ),
               ),

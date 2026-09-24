@@ -63,11 +63,16 @@ void main() {
 
   void noop(String route, [Object? arg]) {}
 
+  /* 오늘을 화요일로 고정합니다 — 「하체 A」 만 펼쳐지고 첫 세션(상체 A)은 접힌 채여야
+     "눌러서 펼친다" 를 시험할 수 있습니다. 상체 B 는 상체 A 와 종목이 같아서, 그쪽이
+     펼쳐져 있으면 「익숙」 표가 둘이 됩니다. */
+  final tuesday = DateTime(2026, 3, 3);
+
   Future<void> open(WidgetTester t, AppState app) async {
     t.view.physicalSize = const Size(1000, 4000);
     t.view.devicePixelRatio = 1.0;
     addTearDown(t.view.reset);
-    await t.pumpWidget(host(app, Scaffold(body: PlanScreen(go: noop))));
+    await t.pumpWidget(host(app, Scaffold(body: PlanScreen(go: noop, today: tuesday))));
     await t.pumpAndSettle();
     expect(find.byType(ErrorWidget), findsNothing);
   }
@@ -83,7 +88,8 @@ void main() {
 
   test('설정 요약 한 줄', () {
     expect(gymPrefsSummary(GymPrefs.fromSettings(null)), startsWith('헬스장 · 기구 '));
-    expect(gymPrefsSummary(GymPrefs.fromSettings(null)), contains('머신 제한 없음'));
+    /* 기본값은 초보 프리셋(피드백 15) — 머신 수가 「제한 없음」 이 아니라 kBeginnerMachineCount 대. */
+    expect(gymPrefsSummary(GymPrefs.fromSettings(null)), contains('머신 $kBeginnerMachineCount대'));
     expect(gymPrefsSummary(GymPrefs.fromSettings(null)), endsWith('익숙한 종목 없음'));
     final home = GymPrefs.fromSettings({'gym': {'place': 'home', 'familiar': ['push-up', 'squat']}});
     expect(gymPrefsSummary(home), startsWith('집 · '));
@@ -119,10 +125,12 @@ void main() {
     expect(find.textContaining('${swapped.length}종목 바꿈'), findsWidgets);
     await t.tap(find.text('${session['label']}'));
     await t.pumpAndSettle();
-    /* 바꾼 종목의 이름과 「대체」 표, 그리고 원래 종목 이름. */
+    /* 바꾼 종목의 이름과 「대체」 표, 그리고 「원래 X」 — 접두어(「대체: 」)는 표가
+       대신하므로 화면에는 안 나갑니다. */
     expect(find.text('${swapped.first['name']}'), findsWidgets);
     expect(find.text('대체'), findsWidgets);
-    expect(find.textContaining('${swapped.first['note']}'), findsWidgets);
+    expect(find.textContaining(tailorNote(swapped.first)!), findsWidgets);
+    expect(find.textContaining(kSubstitutePrefix), findsNothing);
   });
 
   testWidgets('익숙한 종목을 고르면 「익숙」 표로 그 종목이 들어간다', (t) async {

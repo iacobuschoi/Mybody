@@ -45,8 +45,8 @@ const _planStart = '2026-09-07';
 /// 에포크 이후 일수 — 화면이 측정 시각과 계획선에 같이 쓰는 x 단위.
 double _days(DateTime d) => d.millisecondsSinceEpoch / 86400000.0;
 
-const _planNote = '「플랜」 점선은 계획의 예상 변화입니다.';
-const _checkinNote = '「체크인 체중」(점선)은 주간 체크인의 집 체중계 값 — 인바디와 0.5~1kg 다를 수 있어 잇지 않습니다.';
+/* 체중 카드 밑 설명은 체크인 점이 있을 때 이 한 줄뿐 — 「플랜」 점선은 범례가 말합니다(피드백 24). */
+const _checkinNote = '체크인 점은 집 체중계 값 — 인바디와 0.5~1kg 다를 수 있습니다';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -215,8 +215,9 @@ void main() {
       expect((plan.color.r, plan.color.g, plan.color.b), (actual.r, actual.g, actual.b));
     }
 
-    /* 설명은 첫 카드에 한 줄만. */
-    expect(find.text(_planNote), findsOneWidget);
+    /* 「플랜」 점선 설명문은 없습니다 — 범례가 말합니다. */
+    expect(find.textContaining('점선'), findsNothing);
+    expect(find.text(_checkinNote), findsNothing);
   });
 
   testWidgets('계획이 없으면 「플랜」 도 설명도 없다', (t) async {
@@ -234,7 +235,7 @@ void main() {
     }
   });
 
-  testWidgets('체크인이 있으면 체중 카드는 선 셋 — 체중 · 체크인 체중 · 플랜, 설명은 두 문장 한 줄', (t) async {
+  testWidgets('체크인이 있으면 체중 카드는 선 셋 — 체중 · 체크인 체중 · 플랜, 설명은 체크인 한 줄', (t) async {
     final app = await seeded(withCheckin: true);
     await open(t, app);
     expect(t.takeException(), isNull);
@@ -244,10 +245,11 @@ void main() {
     expect(find.byKey(const ValueKey('legend-dashed')), findsNWidgets(4));
     final weight = charts(t).first;
     expect([for (final s in weight.series) s.label], ['체중', '체크인 체중', '플랜']);
-    expect(find.text('$_planNote $_checkinNote'), findsOneWidget);
-    /* 예전의 세 문장짜리 설명은 없습니다. */
+    expect(find.text(_checkinNote), findsOneWidget);
+    /* 예전의 세 문장짜리 설명도, 「플랜」 점선 설명도 없습니다. */
     expect(find.textContaining('주간 체크인에 넣은'), findsNothing);
     expect(find.textContaining('점 하나로'), findsNothing);
+    expect(find.textContaining('점선'), findsNothing);
   });
 
   testWidgets('계획 없이 체크인만 있으면 체크인 문장 하나', (t) async {

@@ -465,11 +465,17 @@ class Store {
   /* --- 묘비 ---------------------------------------------------------------- */
 
   /// 묘비를 남길 수 있는 칸. 동기화(merge)가 같은 이름으로 읽습니다.
-  static const List<String> tombstoneBuckets = ['scans', 'foodLogs'];
+  /// 'routines' 는 앱(workout/routines.dart)이 [tombstone] 으로 직접 세웁니다 —
+  /// 없으면 기준본 없는 첫 동기화(새 기기 · 재로그인)에서 지운 루틴이 되살아납니다.
+  static const List<String> tombstoneBuckets = ['scans', 'foodLogs', 'routines'];
   /// 이보다 오래된 묘비는 버립니다. 그 사이에 한 번도 동기화 안 된 기기의
   /// 옛 복사본은 되살아날 수 있지만, 영원히 들고 있으면 백업 파일이 지운
   /// 것으로만 자랍니다.
   static const int tombstoneDays = 90;
+
+  /// 목록을 직접 고치는 쪽(앱의 루틴 저장소)이 지운 것을 알리는 공개 문 —
+  /// 저장은 하지 않습니다. 부른 쪽이 [set] 으로 목록을 바꾸며 같이 저장합니다.
+  void tombstone(String bucket, Object? id) => _tombstone(bucket, id);
 
   /// "id 를 지웠다" 를 시각과 함께 적습니다. 지금 여기에 없던 id 라도 적습니다 —
   /// 지우라는 뜻은 같고, 다른 기기에는 있을 수 있습니다.

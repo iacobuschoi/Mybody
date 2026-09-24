@@ -51,6 +51,9 @@ const Map<String, String> mergedLists = {
   /* 즐겨찾기 · 목표 이력도 쌓이는 목록입니다 — 통째로 이기고 지면 한쪽이 더한 것을 잃습니다.
      id 가 없으면 내용 자체가 id 입니다(_byId). */
   'foodFavorites': 'id', 'goalHistory': 'at',
+  /* 내 루틴(workout/routines.dart) — 두 기기에서 각각 만든 루틴은 다 남고,
+     같은 것은 updatedAt 이 나중인 쪽. */
+  'routines': 'id',
 };
 
 /// 따로 규칙이 있는 칸들. 나머지는 전부 "하나짜리 값" 입니다.

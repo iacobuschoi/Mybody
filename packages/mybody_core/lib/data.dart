@@ -235,13 +235,13 @@ const Map<String, Object?> kExercises = {
       'name': '체스트 프레스 머신',
       'equip': 'machine',
       'pattern': 'push',
-      'note': '초보/마무리용',
+      'note': '등을 패드에 붙이고 손잡이는 가슴 높이',
     },
     {
       'name': '푸시업',
       'equip': 'bodyweight',
       'pattern': 'push',
-      'note': '홈트 대체',
+      'note': '손은 어깨 너비, 몸은 일직선',
     },
   ],
   'back': [

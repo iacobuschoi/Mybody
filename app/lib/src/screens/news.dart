@@ -46,8 +46,7 @@ class _NewsScreenState extends State<NewsScreen> {
       body: items.isEmpty
           ? const EmptyState(
               title: '아직 소식이 없습니다',
-              detail: '친구가 이번 주에 운동을 체크하면 여기에 쌓입니다.\n'
-                  '안 한 것은 올라오지 않습니다.',
+              detail: '친구가 운동을 체크하면 여기에 쌓입니다',
             )
           : ListView(padding: const EdgeInsets.all(16), children: [
               for (final raw in items)
@@ -82,8 +81,7 @@ class _NewsScreenState extends State<NewsScreen> {
                 }),
               const SizedBox(height: 4),
               Text(
-                '친구가 언제 운동했는지는 앱이 모릅니다 — 서버가 보내 주는 것은 '
-                '이번 주에 며칠 지켰는지뿐입니다. 그래서 「내가 알게 된 때」로 적습니다.',
+                '시각은 「내가 알게 된 때」 — 서버는 며칠 지켰는지만 보냅니다',
                 style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5),
               ),
             ]),

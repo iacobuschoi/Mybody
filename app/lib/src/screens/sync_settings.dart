@@ -76,7 +76,7 @@ class SyncSettingsCard extends StatelessWidget {
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
           title: const Text('내 계정에 기록 동기화'),
-          subtitle: Text('기기를 바꾸거나 두 기기를 같이 써도 기록이 합쳐집니다. 사진은 안 올라갑니다.',
+          subtitle: Text('기기를 바꿔도 기록이 따라옵니다 — 사진은 안 올라갑니다',
               style: t.textTheme.labelSmall),
           value: on,
           onChanged: (v) => app.store.set({'settings': {...settings, 'cloudSync': v}}),

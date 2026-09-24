@@ -8,6 +8,8 @@
  *   · 칼로리 공식이 손으로 계산한 값과 같은가 (80kg · 30분 · MET 5 = 210)
  *   · 맨몸 루틴이 경력·체중·오늘 분할에 따라 모양을 바꾸는가
  * ========================================================================== */
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mybody/src/workout/bodyweight.dart';
 import 'package:mybody/src/workout/exercises.dart';
@@ -61,7 +63,7 @@ List<String> ids(List<Map<String, Object?>> xs) => [for (final x in xs) '${x['id
 
 void main() {
   group('종목 사전', () {
-    test('엔진 종목은 전부, 글자 그대로 있다', () {
+    test('엔진 종목은 전부, 글자 그대로 있다 — 메모까지', () {
       for (final entry in kExercises.entries) {
         for (final x in (entry.value as List)) {
           final name = '${(x as Map)['name']}';
@@ -69,8 +71,15 @@ void main() {
           expect(e, isNotNull, reason: name);
           expect(e!.name, name);
           expect(e.group, entry.key, reason: name);
+          /* 엔진이 메모를 준 종목은 사전도 같은 말 — 화면에 그대로 나가는 글이라 두 사전이
+             다르면 대체 여부에 따라 다른 요령이 보입니다(엔진 메모가 빈 것은 사전이 채웁니다). */
+          final engineNote = '${x['note'] ?? ''}';
+          if (engineNote.isNotEmpty) expect(e.note, engineNote, reason: '$name 의 메모');
         }
       }
+      /* 분류 딱지('초보/마무리용' · '홈트 대체')는 요령이 아닙니다 — 초보의 첫 줄에 나갔습니다. */
+      expect(exerciseById('chest-press-machine')!.note, isNot(contains('마무리')));
+      expect(exerciseById('push-up')!.note, isNot(contains('홈트')));
     });
 
     test('45개 이상 · 번호와 이름이 겹치지 않고 · 기구와 부위가 아는 값이다', () {
@@ -110,10 +119,41 @@ void main() {
   });
 
   group('GymPrefs', () {
-    test('없거나 깨진 설정은 헬스장 기본값', () {
-      expect(GymPrefs.fromSettings(null).equipment, kGymEquipment);
-      expect(GymPrefs.fromSettings({'gym': 'garbage'}).place, 'gym');
+    test('없거나 깨진 설정은 초보 프리셋 — 머신 4개 + 덤벨 · 케이블, 바벨 없음', () {
+      for (final p in [GymPrefs.fromSettings(null), GymPrefs.fromSettings({'gym': 'garbage'})]) {
+        expect(p.place, 'gym');
+        expect(p.equipment, kBeginnerEquipment);
+        expect(p.equipment, isNot(contains('barbell')));
+        expect(p.machineCount, kBeginnerMachineCount);
+        expect(p.familiar, isEmpty);
+        expect(p.isBeginnerPreset, isTrue);
+        expect(p.toJson(), const GymPrefs.beginner().toJson());
+      }
+      /* 깨진 값은 칸마다 따로 봅니다 — place 만 이상하면 나머지는 저장된 대로. */
       expect(GymPrefs.fromSettings({'gym': {'place': 'moon', 'machineCount': -3}}).machineCount, isNull);
+      /* 옛 판의 0 · 1 은 첫 눈금(2)으로 — 세그먼트가 켜 보이는 값과 실제 규칙이 같아야 합니다. */
+      expect(GymPrefs.fromSettings({'gym': {'machineCount': 0}}).machineCount, kMachineCountMin);
+      expect(GymPrefs.fromSettings({'gym': {'machineCount': 1}}).machineCount, kMachineCountMin);
+      expect(GymPrefs.fromSettings({'gym': {'machineCount': 6}}).machineCount, 6);
+      expect(const GymPrefs().equipment, kGymEquipment, reason: '「다 있는 헬스장」 은 그대로');
+      expect(const GymPrefs().isBeginnerPreset, isFalse);
+    });
+
+    test('저장된 설정이 있으면 프리셋이 끼어들지 않는다', () {
+      final p = GymPrefs.fromSettings({
+        'gym': {'place': 'gym', 'equipment': ['barbell', 'dumbbell'], 'machineCount': null, 'familiar': ['bench-press']},
+      });
+      expect(p.equipment, {'barbell', 'dumbbell', 'bodyweight'});
+      expect(p.machineCount, isNull);
+      expect(p.familiar, ['bench-press']);
+      expect(p.isBeginnerPreset, isFalse);
+    });
+
+    test('presetFor — 헬스장은 초보 프리셋, 집은 집 기본', () {
+      expect(GymPrefs.presetFor('gym').toJson(), const GymPrefs.beginner().toJson());
+      expect(GymPrefs.presetFor('home').place, 'home');
+      expect(GymPrefs.presetFor('home').equipment, kHomeEquipment);
+      expect(GymPrefs.presetFor('home').machineCount, isNull);
     });
 
     test('집은 맨몸·덤벨·밴드가 기본 · 모르는 기구는 버리고 맨몸은 언제나', () {
@@ -241,6 +281,19 @@ void main() {
       expect(out3.where((x) => x['equip'] == 'machine').length, 1);
     });
 
+    test('기구가 없어 바꾼 자리에 아는 종목이 들어가면 「익숙한 종목」 으로 적고, 그 부위는 한 번만', () {
+      /* 초보 프리셋(바벨 없음)에 딥스를 안다고 해 두면 바벨 벤치 자리에 딥스가 옵니다 —
+         1번 규칙(잘 아는 것 > 같은 움직임)으로요. 메모는 「익숙한 종목」 이어야 화면의
+         「익숙」 표와 맞고, 3번 규칙이 가슴에 하나를 더 넣지 않습니다. */
+      final out = tailorSession(upperA, const GymPrefs.beginner().copyWith(familiar: ['dips']));
+      expect(out.first['name'], '딥스');
+      expect('${out.first['note']}', startsWith('$kFamiliarPrefix바벨 벤치프레스'));
+      expect(out.where((x) => '${x['note']}'.startsWith(kFamiliarPrefix)).length, 1);
+      expect(out[1]['name'], '인클라인 덤벨프레스', reason: '가슴의 다른 자리는 그대로');
+      /* 모르는 종목으로 바꾼 자리는 여전히 「대체」. */
+      expect('${out[3]['note']}', startsWith('$kSubstitutePrefix바벨 로우'));
+    });
+
     test('대체할 것이 없으면 그대로 두고 건너뛰라고 적는다', () {
       final s = session('상체 A', [['외계 프레스', 'machine', 'alien']]);
       final out = tailorSession(s, const GymPrefs(place: 'home'));
@@ -257,6 +310,97 @@ void main() {
     test('같은 입력이면 같은 답', () {
       const p = GymPrefs(place: 'home', machineCount: 1, familiar: ['push-up', 'inverted-row']);
       expect(tailorSession(upperA, p), tailorSession(upperA, p));
+    });
+
+    test('머신을 채우는 것은 바벨 없는 헬스장에서만 — 바벨이 있으면 머신 수는 한도', () {
+      /* 바벨 있는 헬스장 · 머신 4: 상체 A 는 엔진 그대로(머신 둘). 자리가 남아도 안 채웁니다. */
+      final full = tailorSession(upperA, const GymPrefs(machineCount: 4));
+      expect(names(full), names(withIds(upperA['exercises'] as List)));
+      /* 바벨 없음 · 머신 무제한: 바벨 자리는 머신으로 가지만(1번 규칙의 머신 가산점) 덤벨 줄은 그대로. */
+      final noCap = tailorSession(upperA, const GymPrefs.beginner().copyWith(machineCount: null));
+      expect(names(noCap)[1], '인클라인 덤벨프레스');
+      expect(names(noCap)[0], '체스트 프레스 머신');
+      /* 집에서는 머신 가산점이 없습니다. */
+      final home = tailorSession(upperA, const GymPrefs(place: 'home'));
+      expect(home.any((x) => x['equip'] == 'machine' || x['equip'] == 'cable'), isFalse);
+    });
+
+    test('두 번 바뀐 줄도 「원래」 는 엔진의 이름 — 4번 규칙이 1번 규칙의 답을 다시 바꿔도', () {
+      /* 하체 A 초보 프리셋: 힙 쓰러스트(바벨) → 1번에서 머신으로. 메모의 원래 이름은 언제나 플랜의 것. */
+      final out = tailorSession(lowerA, const GymPrefs.beginner());
+      for (final x in out) {
+        final note = '${x['note']}';
+        if (!note.startsWith(kSubstitutePrefix)) continue;
+        final original = note.substring(kSubstitutePrefix.length).split(' · ').first;
+        expect(names(withIds(lowerA['exercises'] as List)), contains(original), reason: note);
+      }
+    });
+
+    test('메모 읽기 — 표 · 「원래 X」 · 요령만', () {
+      const sub = {'note': '$kSubstitutePrefix바벨 벤치프레스 · 등을 패드에'};
+      const fam = {'note': '$kFamiliarPrefix바벨 로우'};
+      expect(tailorTag(sub), '대체');
+      expect(tailorTag(fam), '익숙');
+      expect(tailorTag({'note': '견갑 고정'}), isNull);
+      expect(tailorNote(sub), '원래 바벨 벤치프레스 · 등을 패드에');
+      expect(tailorNote(sub, original: false), '등을 패드에', reason: '초보 프리셋 · 헬스 화면은 요령만');
+      expect(tailorNote(fam), '원래 바벨 로우');
+      expect(tailorNote(fam, original: false), isNull, reason: '요령이 없으면 아무것도');
+      expect(tailorNote({'note': '견갑 고정'}, original: false), '견갑 고정');
+      expect(tailorNote({'note': '$kSubstitutePrefix바벨 컬 · $kSkipNote'}, original: false), kSkipNote);
+      expect(tailorNote({}), isNull);
+    });
+
+    test('초보 프리셋 — 엔진의 상하체 4분할을 손질하면 세션마다 머신 == min(4, 종목 수) · 바벨 0 · 종목 ≥ 5', () {
+      final scan = {
+        'weightKg': 86.7, 'smmKg': 38.0, 'bfmKg': 20.0, 'pbfPct': 23.1,
+        'bmrKcal': 1810, 'measuredAt': '2026-03-01T00:00:00.000Z',
+      };
+      final profile = {
+        'sex': 'male', 'age': 22, 'heightCm': 187, 'activityLevel': 'moderate',
+        'trainingAge': 'novice', 'daysPerWeek': 4,
+      };
+      final cmp = compareLevels(scan, profile,
+          {'weightKg': 80.5, 'smmKg': 39.0, 'bfmKg': 12.0}, '2026-03-15', null, null);
+      final plan = buildPlan(cmp, 'mid', scan, profile)!;
+      final workout = plan['workout'] as Map;
+      expect(workout['splitName'], '상하체 4분할');
+      final sessions = (workout['sessions'] as List)
+          .map((s) => (s as Map).cast<String, Object?>())
+          .where((s) => s['rest'] != true)
+          .toList();
+      expect(sessions, hasLength(4));
+
+      const prefs = GymPrefs.beginner();
+      for (final s in sessions) {
+        final out = tailorSession(s, prefs);
+        final label = '${s['label']}: ${names(out)}';
+        expect(out.length, (s['exercises'] as List).length, reason: label);
+        expect(out.length, greaterThanOrEqualTo(5), reason: label);
+        expect(names(out).toSet().length, out.length, reason: '겹치지 않습니다 · $label');
+        /* 「머신 4개 + 덤벨」 — 한도가 아니라 채우는 목표입니다(피드백 15). 종목이 넷이면 넷. */
+        final machines = out.where((x) => x['equip'] == 'machine' || x['equip'] == 'cable').length;
+        expect(machines, math.min(kBeginnerMachineCount, out.length), reason: label);
+        for (final x in out) {
+          expect(x['equip'], isNot('barbell'), reason: label);
+          expect(kBeginnerEquipment, contains(x['equip']), reason: '덤벨·맨몸·머신으로만 · $label');
+          expect('${x['note']}', isNot(contains(kSkipNote)), reason: '건너뛸 종목이 없어야 합니다 · $label');
+        }
+        /* 덤벨·맨몸도 섞여야 "머신 4개 + 덤벨" 입니다 — 머신만 넷이면 나머지는 프리웨이트. */
+        expect(out.any((x) => x['equip'] == 'dumbbell' || x['equip'] == 'bodyweight'), isTrue, reason: label);
+      }
+
+      /* 상체는 바벨 벤치 → 체스트 프레스 머신, 바벨 로우 → 케이블 로우, 오버헤드 프레스 →
+         숄더 프레스 머신(머신 자리가 남아 머신이 먼저), 바벨 컬 → 덤벨 컬(넷이 차서 덤벨).
+         머신 넷 + 덤벨 셋. */
+      final upper = tailorSession(sessions.first, prefs);
+      expect(names(upper), ['체스트 프레스 머신', '인클라인 덤벨프레스', '풀업 / 랫풀다운', '시티드 케이블로우',
+        '숄더 프레스 머신', '덤벨 컬', '인클라인 덤벨컬']);
+      expect(upper.where((x) => '${x['note']}'.startsWith(kSubstitutePrefix)).length, 4);
+      /* 하체는 바벨 스쿼트 → 핵 스쿼트, RDL → 힙 쓰러스트 머신, 힙 쓰러스트 → 케이블 풀스루 —
+         덤벨 안고 스쿼트 · 바닥 브릿지가 아니라 머신 넷입니다. */
+      final lower = tailorSession(sessions[1], prefs);
+      expect(names(lower), ['핵 스쿼트', '레그프레스', '힙 쓰러스트 머신', '케이블 풀스루', '행잉 레그레이즈']);
     });
 
     test('withIds — 사전 번호, 없으면 이름에서, 이미 있으면 그대로', () {

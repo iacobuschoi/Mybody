@@ -78,14 +78,11 @@ class ProgressScreen extends StatelessWidget {
     final planWeight = _planSeries(plan, 'weightKg', c.weight);
     final planSmm = _planSeries(plan, 'smmKg', c.muscle);
     final planPbf = _planSeries(plan, 'pbfPct', c.fat);
-    final hasPlanLine = planWeight != null || planSmm != null || planPbf != null;
 
-    /* 체중 카드 밑의 설명은 짧게 — 예전 세 문장짜리는 그래프보다 글이 길었습니다.
-       있는 선만 한 문장씩, 없으면 아무 말도 안 합니다. */
+    /* 체중 카드 밑의 설명은 체크인 점이 있을 때 한 줄뿐 — 「플랜」 점선은 범례가
+       이미 말하고, 체크인 점만 "왜 인바디 선과 다른가" 가 필요합니다. */
     final weightNote = [
-      if (hasPlanLine) '「플랜」 점선은 계획의 예상 변화입니다.',
-      if (checkinPts.isNotEmpty)
-        '「체크인 체중」(점선)은 주간 체크인의 집 체중계 값 — 인바디와 0.5~1kg 다를 수 있어 잇지 않습니다.',
+      if (checkinPts.isNotEmpty) '체크인 점은 집 체중계 값 — 인바디와 0.5~1kg 다를 수 있습니다',
     ];
 
     final first = derived.first, last = derived.last;
@@ -93,10 +90,7 @@ class ProgressScreen extends StatelessWidget {
 
     return ListView(padding: const EdgeInsets.all(16), children: [
       if (scans.length < 2)
-        const Note(
-          text: '측정이 한 번뿐이라 아직 추세를 말할 수 없습니다. '
-              '변화는 두 점 사이에서만 보입니다 — 4주 이상 간격을 두고 한 번 더 재세요.',
-        )
+        const Note(text: '측정이 한 번뿐입니다 — 4주 뒤에 한 번 더 재세요')
       else
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -111,8 +105,7 @@ class ProgressScreen extends StatelessWidget {
                 floor: core.jsToNumber(noise['bfm']), color: c.fat),
             const SizedBox(height: 8),
             Text(
-              '별표(*)는 두 측정의 차이가 인바디 오차 안이라는 뜻입니다. '
-              '그 항목은 변했는지 아닌지 이 두 번의 측정으로는 알 수 없습니다.',
+              '* 표시는 인바디 오차 안의 차이입니다',
               style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5),
             ),
           ]),

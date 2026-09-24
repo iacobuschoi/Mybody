@@ -181,7 +181,7 @@ void main() {
     expect(find.text('일정 없음'), findsOneWidget);
     await t.enterText(find.byType(TextField), '86.0');
     await t.pump();
-    expect(find.textContaining('실행 여부는 반영하지 못했습니다'), findsOneWidget);
+    expect(find.textContaining('체중만 보고 판정했습니다'), findsOneWidget);
     await t.tap(find.text('체크인 저장'));
     await t.pump(const Duration(milliseconds: 300));
     final c = ((app.state['checkins'] as List).last as Map).cast<String, Object?>();

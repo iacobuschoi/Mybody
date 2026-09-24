@@ -595,7 +595,7 @@ void main() {
     await t.pump(const Duration(milliseconds: 200));
     final tile = find.widgetWithText(SwitchListTile, '끼니 기록 알림');
     expect(tile, findsOneWidget);
-    expect(find.textContaining('10시 아침 · 13시 점심 · 19시 저녁'), findsOneWidget);
+    expect(find.textContaining('10시 · 13시 · 19시'), findsOneWidget);
     expect(t.widget<SwitchListTile>(tile).value, isTrue);
     await t.tap(tile);
     await t.pump();
@@ -844,7 +844,9 @@ void main() {
     for (final title in ['상 · 최단', '중 · 표준', '하 · 여유']) {
       expect(find.text(title), findsNothing, reason: title);
     }
-    expect(find.textContaining('상·중·하가 같은 계획입니다'), findsOneWidget);
+    /* 카드 한 줄이 말하고, 카드 밑의 두 문장 설명은 없습니다(피드백 24). */
+    expect(find.textContaining('상·중·하가 같은 계획'), findsOneWidget);
+    expect(find.textContaining('한 장으로 합쳤습니다'), findsOneWidget);
     expect(find.text('추천'), findsOneWidget);
     expect(find.textContaining('주 하나'), findsOneWidget, reason: '"N~N주" 가 아니라');
     expect(find.textContaining('~'), findsNothing);
@@ -861,7 +863,8 @@ void main() {
     await t.pumpAndSettle();
     expect(find.text('상 · 최단'), findsOneWidget);
     expect(find.text('중·하 · 같은 계획'), findsOneWidget);
-    expect(find.textContaining('중·하가 같은 계획입니다'), findsWidgets);
+    /* 합친 카드 한 줄 「중·하가 같은 계획 — 한 장으로 합쳤습니다」 — 카드 밑 설명은 없습니다. */
+    expect(find.textContaining('중·하가 같은 계획'), findsOneWidget);
     expect(find.textContaining('강도를 바꿔도'), findsNothing);
     expect(t.takeException(), isNull);
   });

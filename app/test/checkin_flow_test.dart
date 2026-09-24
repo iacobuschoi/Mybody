@@ -238,7 +238,7 @@ void main() {
       {'at': _iso(DateTime.now()), 'weightKg': 85.6},
     ]});
     await open(t, app, Scaffold(body: ProgressScreen(go: (_, [__]) {})));
-    expect(find.textContaining('(점선)은 주간 체크인'), findsOneWidget);
+    expect(find.textContaining('체크인 점은 집 체중계 값'), findsOneWidget);
     expect(find.text('체크인 체중'), findsOneWidget);
     expect(t.takeException(), isNull);
   });

@@ -82,7 +82,7 @@
           borderTop: i ? '1px solid var(--border)' : 'none' } });
         row.appendChild(h('div', { style: { fontWeight: '700', marginBottom: '2px' },
           text: opt.items.map(function (x) {
-            return (x.name + ' ' + SG.portionText(x)).trim();
+            return SG.itemText(x);
           }).join(' + ') }));
         row.appendChild(h('div.muted', {
           text: '단백질 ' + opt.totalP + 'g · ' + opt.totalKcal + 'kcal' +

@@ -19,9 +19,17 @@
  *     분 칸은 시계를 안 켠 사람(이미 하고 온 사람)에게만 보입니다.
  *   · 아직 오지 않은 날은 저장을 막습니다(코어도 거부합니다) — 내일 할 운동을
  *     오늘 적는 건 기록이 아니라 소원입니다.
+ *   · 이 화면에서 바로 고칩니다(2차 피드백 18~21). 종목 줄의 무게 칩은 체성분으로
+ *     어림한 시작 무게(workout/loads.dart)이고 지난 30일 기록이 있으면 그 무게 —
+ *     누르면 스테퍼로 오늘 쓸 무게를 정합니다. 세트를 다 채운 뒤에도 「+」 로
+ *     더 할 수 있고(4/3), 목록 끝의 「종목 추가」 는 두 번 터치(부위 → 종목)로
+ *     끝나며, 줄을 왼쪽으로 밀면 빠집니다(5초 안에 되돌리기). 오늘 바꾼 구성은
+ *     그 날 기록에 그대로 남고, 종료 시트에서 「내 루틴으로 저장」 을 켜면
+ *     workout/routines.dart 에 남아 같은 라벨의 날에 자동으로 다시 씁니다.
  *
  * 기록은 코어의 setScheduleLog 로 갑니다 — 그 날의 체크(done)까지 같이 남습니다.
- *   헬스   log['gym']    = {kind:'gym', startedAt, minutes, kcal, sets, exercises:[{name, sets, of}]}
+ *   헬스   log['gym']    = {kind:'gym', startedAt, minutes, kcal, sets,
+ *                           exercises:[{name, sets(한 것), of(계획), reps, restSec, kg(맨몸 null)}]}
  *   맨몸   log['gym']    = {kind:'bodyweight', minutes, kcal, exercises:[이름…]}
  *   유산소 log['cardio'] = {kind:'walk'|'run'|'bike'|'cardio', startedAt, minutes, km, kcal}
  * ========================================================================== */
@@ -40,8 +48,11 @@ import '../ui/widgets.dart';
 import '../workout/bodyweight.dart';
 import '../workout/exercises.dart';
 import '../workout/kcal.dart';
+import '../workout/loads.dart';
 import '../workout/planner.dart';
 import '../workout/prefs.dart';
+import '../workout/routines.dart';
+import 'exercise_picker.dart';
 
 /// 화면 종류. 셸이 `go('workout', (dateKey: …, type: …))` 로 넘깁니다.
 const kWorkoutTypes = ['gym', 'cardio', 'bodyweight'];
@@ -113,6 +124,19 @@ double? latestWeightKg(AppState app) {
   }
 }
 
+/// 마지막 인바디의 골격근량. 없으면 null — 무게 추천이 체중만으로 계산합니다.
+double? latestSmmKg(AppState app) {
+  final scans = app.store.sortedScans();
+  if (scans.isEmpty) return null;
+  try {
+    final d = core.derive(scans.last, app.profile ?? core.kSeedProfile);
+    final s = core.jsToNumber(d['smmKg']);
+    return s.isNaN || s <= 0 ? null : s;
+  } catch (_) {
+    return null;
+  }
+}
+
 /// 마지막 인바디의 체지방률. 없으면 null.
 double? latestPbfPct(AppState app) {
   final scans = app.store.sortedScans();
@@ -148,35 +172,127 @@ class WorkoutSessionScreen extends StatefulWidget {
   State<WorkoutSessionScreen> createState() => _WorkoutSessionScreenState();
 }
 
+/// 무게 추천의 재료 — 한 번 열 때 한 번만 모읍니다(프로필 · 마지막 인바디 ·
+/// 최근 30일의 종목별 마지막 기록).
+class _LoadCtx {
+  _LoadCtx(AppState app, String dateKey)
+      : profile = app.profile ?? core.kSeedProfile,
+        /* 측정이 없으면 체중 70kg 기준 — 칩이 아예 없는 것보다 "안 되면 줄여 보세요"
+           가 붙은 어림값이 낫습니다. */
+        weightKg = latestWeightKg(app) ?? kFallbackWeightKg,
+        smmKg = latestSmmKg(app),
+        last = lastLoadsFrom(
+            ((app.state['schedule'] as Map?) ?? const {}).cast<String, Object?>(), dateKey);
+
+  final Map<String, Object?> profile;
+  final double weightKg;
+  final double? smmKg;
+  final Map<String, Map<String, Object?>> last;
+
+  Load of(String name, Exercise? e, String reps) => recommendLoad(
+      name: name, exercise: e, reps: reps, profile: profile,
+      weightKg: weightKg, smmKg: smmKg, last: last[name]);
+
+  /// 최근에 한 종목의 고유번호(최근 것부터) — 종목 고르기의 「최근」 줄.
+  List<String> get recentIds {
+    final out = <String>[];
+    for (final name in last.keys) {
+      final e = exerciseByName(name);
+      if (e != null && !out.contains(e.id)) out.add(e.id);
+      if (out.length >= 8) break;
+    }
+    return out;
+  }
+}
+
 /// 종목 한 줄의 진행 상태.
 class _Ex {
-  _Ex({required this.name, required this.sets, required this.reps, required this.restSec, this.note});
+  _Ex({
+    required this.id,
+    required this.name,
+    required this.sets,
+    required this.reps,
+    required this.restSec,
+    this.note,
+    this.equip = 'bodyweight',
+    this.load = Load.none,
+    double? kg,
+    this.kgSet = false,
+  }) : kg = kg ?? load.kg;
 
+  final String id;
   final String name;
+  /// 계획한 세트. done 이 이보다 커질 수 있습니다(4/3) — 기록엔 sets: done, of: sets.
   final int sets;
   final String reps;
   final int restSec;
   final String? note;
+  final String equip;
+  /// 추천(또는 지난 기록) — 칩의 글자와 힌트, 스테퍼의 단위.
+  final Load load;
+  /// 오늘 쓰는 무게. null 은 맨몸.
+  double? kg;
+  /// 사용자가 스테퍼로 정했는가 — 정했으면 '추천' 을 떼고 숫자만 보여 줍니다.
+  bool kgSet;
   int done = 0;
 
   bool get complete => done >= sets;
 
-  /// planner · exercisesFor 가 주는 모양에서. 빈 값은 엔진의 기본(3세트 · 10-15 · 75초)으로.
-  static _Ex from(Map<String, Object?> m) {
+  /// 무게가 있는 기구인가 — 맨몸 · 밴드 줄에는 칩이 없습니다.
+  bool get weighted => load.source != 'none';
+
+  String get kgLabel {
+    final k = kg;
+    if (k == null) return '맨몸';
+    return !kgSet && load.source == 'body' ? '추천 ${kgText(k)}kg' : '${kgText(k)}kg';
+  }
+
+  /// planner · exercisesFor · 루틴이 주는 모양에서. 빈 값은 엔진의 기본(3세트 ·
+  /// 10-15 · 75초)으로. 루틴에 저장된 kg 은 지난 기록이 없을 때만 씁니다 —
+  /// 몸이 더 최근에 답한 값이 우선입니다.
+  static _Ex from(Map<String, Object?> m, _LoadCtx ctx) {
+    final name = '${m['name'] ?? ''}';
+    final rawId = m['id'];
+    final lib = (rawId is String && rawId.isNotEmpty ? exerciseById(rawId) : null) ?? exerciseByName(name);
     final sets = core.jsToNumber(m['sets']);
     final rest = core.jsToNumber(m['restSec']);
     final reps = m['reps'] != null && '${m['reps']}'.isNotEmpty
         ? '${m['reps']}'
         : (m['seconds'] != null ? '${n0(m['seconds'])}초' : '10-15');
-    final note = m['note'] == null ? '' : '${m['note']}';
+    /* 엔진 내부 접두어(「대체: 원래 바벨 벤치프레스 · 요령」)는 여기서 걷어냅니다 —
+       헬스장에서 보는 건 요령이지 플랜의 사정이 아닙니다. 플랜 탭이 「대체」 표를 답니다. */
+    final note = tailorNote(m, original: false) ?? '';
+    final load = ctx.of(name, lib, reps);
+    final saved = m['kg'];
+    final useSaved = saved is num && saved > 0 && load.source == 'body';
     return _Ex(
-      name: '${m['name'] ?? ''}',
+      id: rawId is String && rawId.isNotEmpty ? rawId : (lib?.id ?? slugOf(name)),
+      name: name,
       sets: sets.isNaN || sets < 1 ? 3 : sets.round(),
       reps: reps,
       restSec: rest.isNaN || rest < 0 ? 75 : rest.round(),
       note: note.isEmpty ? null : note,
+      equip: lib?.equip ?? '${m['equip'] ?? 'bodyweight'}',
+      load: load,
+      kg: useSaved ? saved.toDouble() : load.kg,
+      kgSet: useSaved,
     );
   }
+
+  /// 루틴 · 기록에 남기는 모양. 세트는 계획보다 더 했으면 한 만큼.
+  Map<String, Object?> toRoutineRow() => {
+        'name': name,
+        'sets': done > sets ? done : sets,
+        'reps': reps,
+        'restSec': restSec,
+        'kg': kg,
+      };
+}
+
+/// 스테퍼 시트의 답. null 을 "취소" 와 구분하려고 상자에 담습니다.
+class _KgPick {
+  const _KgPick(this.kg);
+  final double? kg;
 }
 
 class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
@@ -190,10 +306,22 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
   List<_Ex>? _gym;
   DateTime? _restEndsAt;
   int _restTotalSec = 0;
+  _LoadCtx? _loads;
+  /// 지금 목록이 어느 내 루틴에서 왔는가. null 이면 플랜(또는 기본) 종목.
+  String? _routineName;
+  String? _routineId;
 
   /* --- 집에서 맨몸 ---------------------------------------------------------- */
   Map<String, Object?>? _routine;
   List<bool> _checked = const [];
+
+  /* --- 종료 시트의 입력칸 ------------------------------------------------------
+     시트를 열 때마다 새로 만들면 닫힌 뒤 dispose 할 자리가 없습니다 — 시트가 사라지는
+     애니메이션 동안 칸이 아직 컨트롤러를 붙들고 있어서, await 직후에 지우면 터집니다.
+     화면과 같이 살고 같이 죽습니다. 열 때 비웁니다. */
+  final _minutesCtl = TextEditingController();
+  final _kmCtl = TextEditingController();
+  final _nameCtl = TextEditingController();
 
   static DateTime _now() => WorkoutSessionScreen.clock();
 
@@ -215,6 +343,9 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
   @override
   void dispose() {
     _tick?.cancel();
+    _minutesCtl.dispose();
+    _kmCtl.dispose();
+    _nameCtl.dispose();
     super.dispose();
   }
 
@@ -252,8 +383,8 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     }
   }
 
+  /// 한 세트. 계획을 다 채운 뒤에도 됩니다(4/3) — 더 한 것도 기록입니다.
   void _completeSet(_Ex e) {
-    if (e.complete) return;
     _start();   // 시작을 잊었어도 세트를 누르면 시간이 갑니다
     setState(() {
       e.done++;
@@ -276,6 +407,249 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
   void _skipRest() {
     setState(() => _restEndsAt = null);
     _syncTick();
+  }
+
+  /* --- 헬스 목록 고치기 ---------------------------------------------------- */
+
+  _LoadCtx _loadsOf(AppState app) => _loads ??= _LoadCtx(app, widget.dateKey);
+
+  String _sessionLabel(AppState app) {
+    final s = planSessionFor(app.state, widget.dateKey);
+    return s == null ? '' : '${s['label'] ?? ''}';
+  }
+
+  /// 처음 열 때의 목록. 같은 라벨로 저장한 내 루틴이 있으면 그것 — 저장한 사람은
+  /// 다음에 그걸 쓰려고 저장한 것이니 묻지 않습니다(「플랜 종목으로」 가 되돌립니다).
+  List<_Ex> _initialGym(AppState app) {
+    final ctx = _loadsOf(app);
+    final r = routineForLabel(app, _sessionLabel(app));
+    if (r != null) {
+      _routineName = '${r['name'] ?? ''}';
+      _routineId = '${r['id'] ?? ''}';
+      return [for (final m in routineExercises(r)) _Ex.from(m, ctx)];
+    }
+    return [for (final m in gymExercisesFor(app.state, widget.dateKey)) _Ex.from(m, ctx)];
+  }
+
+  /// 목록을 바꿉니다 — 같은 종목의 한 세트 수와 정한 무게는 이어받습니다.
+  /// 두 세트 하고 루틴을 바꿨다고 그 두 세트가 사라지면 안 됩니다.
+  void _swapList(List<_Ex> next, {String? routineName, String? routineId}) {
+    final old = {for (final e in _gym ?? const <_Ex>[]) e.id: e};
+    for (final e in next) {
+      final o = old[e.id];
+      if (o == null) continue;
+      e.done = o.done;
+      if (o.kgSet) {
+        e.kg = o.kg;
+        e.kgSet = true;
+      }
+    }
+    /* 「되돌리기」 스낵바는 옛 목록의 것입니다 — 목록이 바뀌면 되돌릴 자리가 없습니다. */
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    setState(() {
+      _gym = next;
+      _routineName = routineName;
+      _routineId = routineId;
+    });
+  }
+
+  void _applyRoutine(AppState app, Map<String, Object?> r) {
+    final ctx = _loadsOf(app);
+    _swapList([for (final m in routineExercises(r)) _Ex.from(m, ctx)],
+        routineName: '${r['name'] ?? ''}', routineId: '${r['id'] ?? ''}');
+  }
+
+  void _resetToPlan(AppState app) {
+    final ctx = _loadsOf(app);
+    _swapList([for (final m in gymExercisesFor(app.state, widget.dateKey)) _Ex.from(m, ctx)]);
+  }
+
+  /// 「루틴 불러오기」 — 고르면 그 구성으로, 길게 누르면 지웁니다.
+  Future<void> _pickRoutine(AppState app) async {
+    final r = await showModalBottomSheet<Map<String, Object?>>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        final list = routinesOf(app);
+        return _Sheet(children: [
+          Text('내 루틴', style: Theme.of(ctx).textTheme.titleMedium),
+          Text('길게 누르면 지웁니다',
+              style: Theme.of(ctx).textTheme.labelSmall?.copyWith(color: Theme.of(ctx).hintColor)),
+          const SizedBox(height: 6),
+          if (list.isEmpty) const EmptyState(title: '저장한 루틴이 없습니다'),
+          for (final r in list)
+            ListTile(
+              key: ValueKey('routine-${r['id']}'),
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(LucideIcons.bookmark, size: 20),
+              title: Text('${r['name'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: Text(
+                  '${routineExercises(r).length}종목'
+                  '${'${r['label'] ?? ''}'.isEmpty ? '' : ' · ${r['label']}'}',
+                  style: Theme.of(ctx).textTheme.bodySmall?.copyWith(color: Theme.of(ctx).hintColor)),
+              onTap: () => Navigator.pop(ctx, r),
+              onLongPress: () async {
+                final yes = await showDialog<bool>(
+                  context: ctx,
+                  builder: (d) => AlertDialog(
+                    title: Text('「${r['name']}」 을 지울까요?'),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('취소')),
+                      FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('지우기')),
+                    ],
+                  ),
+                );
+                if (yes == true) {
+                  deleteRoutine(app, '${r['id']}');
+                  /* 지금 쓰는 루틴을 지웠으면 머리글의 이름도 내립니다 — 종료 시트가
+                     그 이름으로 다시 저장해 지운 루틴을 되살리면 안 됩니다. 종목은 그대로. */
+                  if (r['id'] == _routineId && mounted) {
+                    setState(() {
+                      _routineName = null;
+                      _routineId = null;
+                    });
+                  }
+                  setSheet(() {});
+                }
+              },
+            ),
+        ]);
+      }),
+    );
+    if (r == null || !mounted) return;
+    _applyRoutine(app, r);
+  }
+
+  /// 「종목 추가」 — 부위 → 종목, 두 번 터치. 3세트 × 10-15 · 75초 + 추천 무게로 붙습니다.
+  Future<void> _addExercise(AppState app) async {
+    final prefs = GymPrefs.fromSettings((app.state['settings'] as Map?)?.cast<String, Object?>());
+    final ctx = _loadsOf(app);
+    final e = await pickExercise(
+      context,
+      equip: prefs.equipment,
+      exclude: {for (final x in _gym ?? const <_Ex>[]) x.id},
+      familiar: prefs.familiar,
+      recent: ctx.recentIds,
+      title: '종목 추가',
+    );
+    if (e == null || !mounted) return;
+    setState(() {
+      (_gym ??= []).add(_Ex.from({
+        'id': e.id, 'name': e.name, 'equip': e.equip, 'note': e.note,
+        'sets': 3, 'reps': '10-15', 'restSec': 75,
+      }, ctx));
+    });
+  }
+
+  /// 줄을 밀어서 뺐을 때 — 5초 안에 되돌릴 수 있습니다. 잘못 민 손가락은 흔합니다.
+  void _removeExercise(_Ex e) {
+    final list = _gym!;
+    final at = list.indexOf(e);
+    if (at < 0) return;
+    setState(() => list.removeAt(at));
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text('${e.name} 뺐습니다'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: '되돌리기',
+          onPressed: () {
+            /* 그 사이 목록이 바뀌었을 수 있습니다 — 지금 목록에 같은 종목이 없을 때만. */
+            final cur = _gym;
+            if (!mounted || cur == null || cur.any((x) => x.id == e.id)) return;
+            setState(() => cur.insert(at > cur.length ? cur.length : at, e));
+          },
+        ),
+      ));
+  }
+
+  /// 무게 칩 → 스테퍼. − · 숫자 · +, 「맨몸」 과 「추천」 한 번에.
+  Future<void> _editKg(_Ex e) async {
+    final step = e.load.step > 0 ? e.load.step : 2.5;
+    var kg = e.kg;
+    final r = await showModalBottomSheet<_KgPick>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        final t = Theme.of(ctx);
+        final stepNow = kg == null ? step : (stepFor(e.equip, kg!) > 0 ? stepFor(e.equip, kg!) : step);
+        return _Sheet(children: [
+          Text(e.name, style: t.textTheme.titleMedium),
+          if (e.load.hint.isNotEmpty)
+            Text(e.load.hint, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+          const SizedBox(height: 12),
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            IconButton.filledTonal(
+              key: const ValueKey('kg-minus'),
+              tooltip: '${kgText(stepNow)}kg 내리기',
+              onPressed: kg == null
+                  ? null
+                  : () => setSheet(() {
+                        /* 내려서 0 이 되면 맨몸. 단위보다 작은 값(1.25kg)은 헬스장에 없습니다. */
+                        final s = stepFor(e.equip, kg! - 0.001) > 0 ? stepFor(e.equip, kg! - 0.001) : step;
+                        final next = kg! - s;
+                        kg = next <= 0 ? null : next;
+                      }),
+              icon: const Icon(LucideIcons.minus),
+            ),
+            /* 글자 1.3배에서 '117.5 kg' 이 150px 을 넘어 두 줄로 접혔습니다 — 줄여서 한 줄에. */
+            SizedBox(
+              width: 150,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  kg == null ? '맨몸' : '${kgText(kg!)} kg',
+                  key: const ValueKey('kg-value'),
+                  maxLines: 1,
+                  textAlign: TextAlign.center,
+                  style: t.textTheme.headlineMedium?.copyWith(
+                      fontWeight: FontWeight.w800, fontFeatures: const [FontFeature.tabularFigures()]),
+                ),
+              ),
+            ),
+            IconButton.filledTonal(
+              key: const ValueKey('kg-plus'),
+              tooltip: '${kgText(stepNow)}kg 올리기',
+              onPressed: () => setSheet(() => kg = (kg ?? 0) + stepNow),
+              icon: const Icon(LucideIcons.plus),
+            ),
+          ]),
+          const SizedBox(height: 12),
+          Wrap(spacing: 8, alignment: WrapAlignment.center, children: [
+            ChoiceChip(
+              key: const ValueKey('kg-none'),
+              label: const Text('맨몸'),
+              selected: kg == null,
+              onSelected: (_) => setSheet(() => kg = null),
+            ),
+            /* 지난 기록 그대로면 「지난번 55kg」, 다 채워서 올린 값이면 「추천 60kg」 — 60 은 지난번이 아닙니다. */
+            if (e.load.kg != null)
+              ChoiceChip(
+                key: const ValueKey('kg-reco'),
+                label: Text('${e.load.source == 'last' && e.load.kg == e.load.prevKg ? '지난번' : '추천'} ${kgText(e.load.kg!)}kg'),
+                selected: kg == e.load.kg,
+                onSelected: (_) => setSheet(() => kg = e.load.kg),
+              ),
+          ]),
+          const SizedBox(height: 14),
+          SizedBox(
+            height: 52,
+            child: FilledButton(
+              key: const ValueKey('kg-ok'),
+              onPressed: () => Navigator.pop(ctx, _KgPick(kg)),
+              child: const Text('확인'),
+            ),
+          ),
+        ]);
+      }),
+    );
+    if (r == null || !mounted) return;
+    setState(() {
+      e.kg = r.kg;
+      e.kgSet = true;
+    });
   }
 
   /* --- 저장 -------------------------------------------------------------- */
@@ -301,7 +675,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('기록하지 않고 나갈까요?'),
-        content: const Text('지금까지 잰 시간과 세트는 남지 않습니다. 「종료」 를 누르면 저장할 수 있습니다.'),
+        content: const Text('잰 시간과 세트가 남지 않습니다 — 저장하려면 「종료」'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('계속하기')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('나가기')),
@@ -350,17 +724,19 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
   Widget _futureNote() => const Note(
         tone: Tone.warn,
         title: '아직 오지 않은 날입니다.',
-        text: '그날이 되면 기록할 수 있습니다 — 내일 할 운동을 오늘 적는 건 기록이 아니라 소원입니다.',
+        text: '그날이 되면 기록할 수 있습니다.',
       );
 
   /* --- 헬스 -------------------------------------------------------------- */
 
   Widget _gymBody(BuildContext context, AppState app, bool future) {
-    final list = _gym ??= [for (final m in gymExercisesFor(app.state, widget.dateKey)) _Ex.from(m)];
+    final list = _gym ??= _initialGym(app);
     final t = Theme.of(context);
+    final c = mb(context);
     final doneSets = list.fold<int>(0, (a, e) => a + e.done);
     final totalSets = list.fold<int>(0, (a, e) => a + e.sets);
     final session = planSessionFor(app.state, widget.dateKey);
+    final routines = routinesOf(app);
 
     return Column(children: [
       _TimerPanel(
@@ -373,39 +749,97 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
       ),
       if (_resting) _RestBanner(left: _restLeft, totalSec: _restTotalSec, onSkip: _skipRest),
       Expanded(
-        child: list.isEmpty
-            ? const EmptyState(
-                title: '오늘 할 종목이 없습니다',
-                detail: '설정의 「운동 장소와 기구」 에서 있는 기구를 켜 두면 여기에 종목이 나옵니다.',
-              )
-            : ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: [
-                if (future) _futureNote(),
-                /* 머리글 — 세션 이름, 몇 세트 했는지, 그 밑에 얇은 진행 막대. 종목이
-                   대여섯이면 스크롤하는 동안 전체가 안 보이므로 여기서 한눈에 잡습니다. */
+        child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: [
+          if (future) _futureNote(),
+          /* 머리글 — 세션 이름, 몇 세트 했는지, 그 밑에 얇은 진행 막대. 종목이
+             대여섯이면 스크롤하는 동안 전체가 안 보이므로 여기서 한눈에 잡습니다.
+             그 밑 줄은 내 루틴 — 지금 목록이 어느 루틴인지, 다른 루틴 불러오기. */
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Expanded(
+                  child: Text(
+                    session == null ? '오늘 플랜에 없는 날 — 전신 기본 종목' : '${session['label']}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                Text('$doneSets/$totalSets 세트',
+                    style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+              ]),
+              const SizedBox(height: 6),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: LinearProgressIndicator(
+                    value: totalSets == 0 ? 0 : (doneSets / totalSets).clamp(0.0, 1.0), minHeight: 4),
+              ),
+              if (_routineName != null || routines.isNotEmpty)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Row(children: [
-                      Expanded(
-                        child: Text(
-                          session == null ? '오늘 플랜에 없는 날 — 전신 기본 종목' : '${session['label']}',
-                          style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Wrap(spacing: 8, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                    if (_routineName != null) ...[
+                      Pill('내 루틴: $_routineName', key: const ValueKey('routine-current'), tone: Tone.ok),
+                      InkWell(
+                        key: const ValueKey('routine-reset'),
+                        borderRadius: BorderRadius.circular(6),
+                        onTap: () => _resetToPlan(app),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                          child: Text('플랜 종목으로',
+                              style: t.textTheme.labelSmall?.copyWith(
+                                  color: t.colorScheme.primary, decoration: TextDecoration.underline)),
                         ),
                       ),
-                      Text('$doneSets/$totalSets 세트',
-                          style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-                    ]),
-                    const SizedBox(height: 6),
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(3),
-                      child: LinearProgressIndicator(
-                          value: totalSets == 0 ? 0 : doneSets / totalSets, minHeight: 4),
-                    ),
+                    ],
+                    if (routines.isNotEmpty)
+                      ActionChip(
+                        key: const ValueKey('routine-load'),
+                        avatar: const Icon(LucideIcons.bookmark, size: 16),
+                        label: const Text('루틴 불러오기'),
+                        visualDensity: VisualDensity.compact,
+                        onPressed: () => _pickRoutine(app),
+                      ),
                   ]),
                 ),
-                for (final e in list)
-                  _ExerciseRow(ex: e, onSet: () => _completeSet(e), onUndo: () => _undoSet(e)),
-              ]),
+            ]),
+          ),
+          if (list.isEmpty)
+            const EmptyState(
+              title: '오늘 할 종목이 없습니다',
+              detail: '「종목 추가」 로 넣거나 설정에서 기구를 켜 두세요',
+            ),
+          /* 왼쪽으로 밀면 빠집니다. 키는 종목 id — 되돌리면 같은 줄이 다시 섭니다. */
+          for (final e in list)
+            Dismissible(
+              key: ValueKey('dismiss-${e.id}'),
+              direction: DismissDirection.endToStart,
+              onDismissed: (_) => _removeExercise(e),
+              background: Container(
+                alignment: Alignment.centerRight,
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.only(right: 20),
+                decoration: BoxDecoration(color: c.badBg, borderRadius: BorderRadius.circular(14)),
+                child: Icon(LucideIcons.trash2, color: c.bad),
+              ),
+              child: _ExerciseRow(
+                ex: e,
+                onSet: () => _completeSet(e),
+                onUndo: () => _undoSet(e),
+                onKg: () => _editKg(e),
+              ),
+            ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              key: const ValueKey('ex-add'),
+              onPressed: () => _addExercise(app),
+              icon: const Icon(LucideIcons.plus, size: 18),
+              label: const Text('종목 추가'),
+            ),
+          ),
+        ]),
       ),
     ]);
   }
@@ -423,9 +857,14 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     /* 세트를 누르고 같은 초에 「종료」 를 누르면 잰 시간이 0초입니다 — 그대로면 분 칸도
        없이 「저장」 만 꺼진 채 갇힙니다. 0초는 "안 쟀다" 로 보고 분 칸을 냅니다. */
     final timed = _timed && _elapsedSeconds > 0;
-    final minutesCtl = TextEditingController();
+    final minutesCtl = _minutesCtl..clear();
+    /* 「내 루틴으로 저장」 — 이름은 지금 쓰는 루틴이 있으면 그 이름(같은 이름으로
+       저장하면 그 루틴이 고쳐집니다), 없으면 '(세션 라벨) 내 루틴'. */
+    final label = _sessionLabel(app);
+    var keepRoutine = false;
+    final nameCtl = _nameCtl..text = _routineName ?? defaultRoutineName(label);
 
-    final seconds = await showModalBottomSheet<int>(
+    final r = await showModalBottomSheet<({int seconds, String? routine})>(
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
@@ -455,7 +894,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
               onChanged: (_) => setSheet(() {}),
               decoration: const InputDecoration(
                   labelText: '운동 시간', suffixText: '분', border: OutlineInputBorder(),
-                  helperText: '시작을 안 눌렀으니 몇 분 했는지 넣어 주세요'),
+                  helperText: '몇 분 했는지 넣어 주세요'),
             ),
           ],
           if (weight == null) ...[
@@ -463,23 +902,46 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
             Text('측정이 없어 체중 ${n0(kFallbackWeightKg)}kg 기준으로 계산했습니다.',
                 style: Theme.of(ctx).textTheme.labelSmall?.copyWith(color: Theme.of(ctx).hintColor)),
           ],
+          if (list.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            SwitchListTile(
+              key: const ValueKey('routine-save'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('내 루틴으로 저장'),
+              secondary: const Icon(LucideIcons.bookmark, size: 20),
+              value: keepRoutine,
+              onChanged: (v) => setSheet(() => keepRoutine = v),
+            ),
+            if (keepRoutine)
+              TextField(
+                key: const ValueKey('routine-name'),
+                controller: nameCtl,
+                textInputAction: TextInputAction.done,
+                decoration: const InputDecoration(
+                    labelText: '루틴 이름', isDense: true, border: OutlineInputBorder()),
+              ),
+          ],
           const SizedBox(height: 14),
           if (future) _futureNote(),
           SizedBox(
             height: 52,
             child: FilledButton(
-              onPressed: sec > 0 && !future ? () => Navigator.pop(ctx, sec) : null,
+              onPressed: sec > 0 && !future
+                  ? () => Navigator.pop(ctx, (seconds: sec, routine: keepRoutine ? nameCtl.text : null))
+                  : null,
               child: const Text('저장'),
             ),
           ),
         ]);
       }),
     );
-    if (seconds == null || !mounted) {
+    if (r == null || !mounted) {
       /* 창을 그냥 닫았으면 시계를 도로 돌립니다 — 실수로 누른 「종료」가 시간을 멈춰 두면 안 됩니다. */
-      if (seconds == null && wasRunning && mounted) _start();
+      if (r == null && wasRunning && mounted) _start();
       return;
     }
+    final seconds = r.seconds;
 
     final kcal = workoutKcal(
             weightKg: weight ?? kFallbackWeightKg, duration: Duration(seconds: seconds), kind: 'gym')
@@ -491,13 +953,23 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
       'seconds': seconds,
       'kcal': kcal,
       'sets': doneSets,
+      /* 한 종목만 — 세트(한 것) · of(계획) · 반복 · 쉬는 시간 · 무게. 다음에 같은
+         종목을 열면 lastLoadsFrom 이 이 kg 을 읽습니다. */
       'exercises': [
         for (final e in list)
-          if (e.done > 0) {'name': e.name, 'sets': e.done, 'of': e.sets},
+          if (e.done > 0)
+            {'name': e.name, 'sets': e.done, 'of': e.sets, 'reps': e.reps, 'restSec': e.restSec, 'kg': e.kg},
       ],
     });
     if (!ok || !mounted) return;
-    await _celebrate(kcal, detail: '헬스 ${timeText(seconds, timed: timed)} · 완료 세트 $doneSets');
+    var detail = '헬스 ${timeText(seconds, timed: timed)} · 완료 세트 $doneSets';
+    if (r.routine != null) {
+      /* 루틴은 오늘 목록 전부 — 한 세트도 안 한 종목도 구성의 일부입니다. */
+      final saved = saveRoutine(app,
+          name: r.routine!, label: label, exercises: [for (final e in list) e.toRoutineRow()]);
+      detail = '$detail · 내 루틴 「${saved['name']}」';
+    }
+    await _celebrate(kcal, detail: detail);
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -547,8 +1019,8 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     /* 헬스와 같은 규칙 — 시계를 켰으면 잰 시간(초)이 답이고, 「시간을 직접 넣기」로 온
        사람에게만 분 칸이 보입니다. 0초는 "안 쟀다" — 헬스와 같은 규칙. */
     final timed = _timed && _elapsedSeconds > 0;
-    final minutesCtl = TextEditingController();
-    final kmCtl = TextEditingController();
+    final minutesCtl = _minutesCtl..clear();
+    final kmCtl = _kmCtl..clear();
     var kind = kCardioKinds.first;
 
     final r = await showModalBottomSheet<({String kind, int seconds, double? km})>(
@@ -699,7 +1171,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
           if (hasGymLog)
             const Note(
               tone: Tone.warn,
-              text: '오늘은 이미 헬스 기록이 있습니다. 맨몸 운동은 따로 기록하지 않습니다 — 하는 건 자유예요.',
+              text: '오늘은 헬스 기록이 있어 맨몸 운동은 따로 기록하지 않습니다',
             ),
           if (exercises.isEmpty)
             const EmptyState(title: '오늘 할 종목이 없습니다', detail: '내 몸 정보를 넣으면 종목을 골라 둡니다.'),
@@ -1005,15 +1477,22 @@ class _RestBanner extends StatelessWidget {
 /// 남았나" 지 버튼이 아닙니다. 그래도 표적은 커야 하므로 줄 어디를 눌러도 한
 /// 세트가 올라갑니다 — 단추는 "여기가 눌리는 곳" 이라는 표시에 가깝습니다.
 /// 「−」 는 뺄 세트가 있을 때만 나옵니다. 잘못 누른 손가락을 위한 것이지 늘 보일
-/// 것은 아닙니다. 다 한 줄은 연한 초록으로 물들고 단추 자리에 '완료' 만 남습니다.
+/// 것은 아닙니다. 다 한 줄은 연한 초록으로 물들고 점 밑에 '완료' 가 붙지만 「+」 는
+/// 작게 남습니다 — 계획보다 더 한 세트도 기록입니다(4/3). 줄 자체는 다 한 뒤에는
+/// 안 눌립니다. 초과는 일부러 누르는 것이어야지 스치는 손가락이 아닙니다.
 ///
-/// 키(ex-… · set-…)는 종목 이름의 slug — 시험이 줄과 단추를 찾는 손잡이입니다.
+/// 이름 밑의 무게 칩('추천 40kg' · 지난 기록이면 '40kg' · '맨몸')은 누르면 스테퍼.
+/// 힌트('안 되면 2.5~5kg 씩 줄여 보세요')는 스테퍼 시트에만 — 줄마다 붙이면 상체
+/// 일곱 줄에 같은 문장 일곱 개입니다. 맨몸 · 밴드 줄에는 칩이 없습니다.
+///
+/// 키(ex-… · set-… · kg-…)는 종목 이름의 slug — 시험이 줄과 단추를 찾는 손잡이입니다.
 /// 같은 종목은 한 세션에 두 번 안 나오므로(planner 규칙 4) 이름이면 충분합니다.
 class _ExerciseRow extends StatelessWidget {
-  const _ExerciseRow({required this.ex, required this.onSet, required this.onUndo});
+  const _ExerciseRow({required this.ex, required this.onSet, required this.onUndo, required this.onKg});
   final _Ex ex;
   final VoidCallback onSet;
   final VoidCallback onUndo;
+  final VoidCallback onKg;
 
   @override
   Widget build(BuildContext context) {
@@ -1053,10 +1532,24 @@ class _ExerciseRow extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
+                  if (ex.weighted)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 6),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Pill(ex.kgLabel, key: ValueKey('kg-$slug'), onTap: onKg,
+                            tone: ex.kg == null ? Tone.none : Tone.ok),
+                      ),
+                    ),
                 ]),
               ),
               const SizedBox(width: 8),
-              _SetDots(done: ex.done, total: ex.sets),
+              Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                _SetDots(done: ex.done, total: ex.sets),
+                if (done)
+                  Text('완료',
+                      style: t.textTheme.labelSmall?.copyWith(color: c.ok, fontWeight: FontWeight.w700)),
+              ]),
               const SizedBox(width: 6),
               if (ex.done > 0)
                 IconButton(
@@ -1071,10 +1564,16 @@ class _ExerciseRow extends StatelessWidget {
                   icon: const Icon(LucideIcons.minus, size: 18),
                 ),
               if (done)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  child: Text('완료',
-                      style: t.textTheme.labelLarge?.copyWith(color: c.ok, fontWeight: FontWeight.w700)),
+                IconButton.filledTonal(
+                  key: ValueKey('set-$slug'),
+                  tooltip: '세트 추가',
+                  onPressed: onSet,
+                  style: IconButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(36, 36),
+                      fixedSize: const Size(36, 36),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                  icon: const Icon(LucideIcons.plus, size: 18),
                 )
               else
                 SizedBox(
@@ -1098,7 +1597,8 @@ class _ExerciseRow extends StatelessWidget {
 }
 
 /// 세트 점 — 세트 하나에 점 하나, 한 점씩 채웁니다. '1/3' 보다 빨리 읽히고 줄 높이를
-/// 안 잡아먹습니다. 점이 여섯을 넘으면 이름 자리를 밀어내므로 그때는 숫자로 씁니다.
+/// 안 잡아먹습니다. 점이 여섯을 넘으면 이름 자리를 밀어내므로 그때는 숫자로 쓰고,
+/// 계획보다 더 했으면('4/3') 점으로는 못 그리니 강조색 숫자로 씁니다.
 class _SetDots extends StatelessWidget {
   const _SetDots({required this.done, required this.total});
   final int done;
@@ -1108,10 +1608,13 @@ class _SetDots extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     final on = t.colorScheme.primary;
-    if (total > 6) {
+    if (total > 6 || done > total) {
+      final over = done > total;
       return Text('$done/$total',
           style: t.textTheme.labelMedium?.copyWith(
-              color: t.hintColor, fontFeatures: const [FontFeature.tabularFigures()]));
+              color: over ? on : t.hintColor,
+              fontWeight: over ? FontWeight.w700 : null,
+              fontFeatures: const [FontFeature.tabularFigures()]));
     }
     return Row(mainAxisSize: MainAxisSize.min, children: [
       for (var i = 0; i < total; i++)

@@ -65,13 +65,17 @@ class MbColors extends ThemeExtension<MbColors> {
 }
 
 const _accent = Color(0xFF4F46E5);
+/* 다크의 강조색 — base.css 의 다크 토큰(--accent:#7c7cf7). #4F46E5 를 어두운
+   바탕(#171A20)에 그대로 두면 작은 글자('4/3' · 링크 · TextButton)가 2.8:1 로
+   흐립니다. #7C7CF7 은 5:1, 흰 글자 단추 위에서는 3.5:1(웹과 같은 조합). */
+const _accentDark = Color(0xFF7C7CF7);
 
 ThemeData _base(Brightness b) {
   final dark = b == Brightness.dark;
   final scheme = ColorScheme.fromSeed(
     seedColor: _accent,
     brightness: b,
-    primary: _accent,
+    primary: dark ? _accentDark : _accent,
     onPrimary: Colors.white,
     surface: dark ? const Color(0xFF171A20) : Colors.white,
   );

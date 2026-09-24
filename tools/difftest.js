@@ -399,6 +399,12 @@ function foodCase(rnd, module) {
     const f = F.FOODS[(rnd() * F.FOODS.length) | 0];
     return { name: f.name, mult: [0.5, 1, 1.5, 2, 0, null, 3][(rnd() * 7) | 0] };
   }
+  if (module === 'suggest.itemText') {
+    /* 이름 끝에 수량이 든 품목('훈제란 1개' · '코티지치즈 100g')이 갈리는 자리라
+       표의 이름을 그대로 쓰고, 배수만 흔듭니다. */
+    const f = F.FOODS[(rnd() * F.FOODS.length) | 0];
+    return { item: { name: f.name, unit: f.unit, mult: [0.5, 1, 1.5, 2][(rnd() * 4) | 0] } };
+  }
   /* 추천 세 종류 공통 입력 */
   const opts = {
     remainP: Math.round(rnd() * 160),
@@ -416,6 +422,16 @@ function foodCase(rnd, module) {
   }
   if (rnd() > 0.93) delete opts.remainKcal;   // 예산이 없으면 검사가 전부 통과합니다
   if (rnd() > 0.95) opts.remainP = 0;
+  /* 회전은 날짜가 씨앗입니다 — 같은 날 같은 답, 다음 날 다른 첫 줄. 날짜→일수를
+     양쪽이 정수 연산으로 똑같이 내는지가 관건이라 윤년 언저리까지 흔들고,
+     모양이 아닌 것('', 'abc', 13월, 숫자)은 회전 없음이어야 하니 그것도 넣습니다. */
+  const sr = rnd();
+  if (sr > 0.35) {
+    const y = 2020 + ((rnd() * 10) | 0), mo = 1 + ((rnd() * 12) | 0), d = 1 + ((rnd() * 31) | 0);
+    opts.seed = y + '-' + String(mo).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  } else if (sr > 0.25) {
+    opts.seed = ['', 'abc', '2026-13-01', '2026-9-5', '2026-02-30', '20260924', 42, null][(rnd() * 8) | 0];
+  }
   return { opts: opts };
 }
 
@@ -941,6 +957,7 @@ function jsCaller(module) {
       /* 요약 문구는 추천 결과를 받습니다 — 먼저 추천을 돌립니다. */
       return c => S.summaryText(S.suggestMeal(c.opts));
     }
+    if (fn === 'itemText') return c => S.itemText(c.item);
     if (!S[fn]) throw new Error('모르는 모듈: ' + module);
     return c => S[fn](c.opts);
   }
@@ -1109,6 +1126,7 @@ const MODULES = [
   { name: 'suggest.suggestEatOut',    gen: makePlanCases, cap: 300 },
   { name: 'suggest.suggestMeal',      gen: makePlanCases, cap: 200 },
   { name: 'suggest.summaryText',      gen: makePlanCases, cap: 200 },
+  { name: 'suggest.itemText',         gen: makePlanCases },
   { name: 'store.dayKey',             gen: makePlanCases },
   { name: 'store.weekStartOf',        gen: makePlanCases },
   { name: 'store.dayTotals',          gen: makePlanCases },

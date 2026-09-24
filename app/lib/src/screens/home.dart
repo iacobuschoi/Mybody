@@ -25,6 +25,8 @@ import '../ui/charts.dart';
 import '../ui/fmt.dart';
 import '../ui/symbols.dart';
 import '../ui/widgets.dart';
+import 'adherence.dart' show DayMark, DayMarkLegend, dayMarkState;
+import 'plan.dart' show cardioStat;
 import 'update_banner.dart';
 
 /* 아래쪽에 자리를 둡니다 — 떠 있는 "인바디" 버튼이 마지막 줄을 가렸습니다.
@@ -70,11 +72,7 @@ class HomeScreen extends StatelessWidget {
       BriefingCard(go: go),
       _SummaryCard(d: d, pd: pd, scan: scan, onTap: () => go('scan', scan['id'])),
       if (st['goal'] != null && st['plan'] != null && !app.store.planMatchesGoal())
-        Note(
-          tone: Tone.warn,
-          title: '목표가 바뀌었습니다.',
-          text: '플랜을 다시 만들어야 아래 숫자가 맞습니다.',
-        ),
+        const Note(tone: Tone.warn, text: '목표가 바뀌었습니다 — 플랜을 다시 만드세요'),
       /* 계획이 없을 때의 「목표 정하기」 카드는 뺐습니다 — 브리핑이 같은
          말을 하고 같은 버튼을 듭니다. */
       if (st['goal'] != null && st['plan'] != null) _GoalCard(go: go),
@@ -360,10 +358,11 @@ class _GoalCard extends StatelessWidget {
                 ? Tone.ok
                 : (drift['status'] == 'onTrack' ? Tone.none : Tone.warn),
             title: '${drift['headline']}',
+            /* 숫자 둘만 — "계획상 오늘 체지방 …kg, 실제 …kg." 문장은 같은 말을 길게 했습니다. */
             text: drift['status'] == 'onTrack'
                 ? ''
-                : ' 계획상 오늘 체지방 ${n1((drift['expected'] as Map)['bfmKg'])}kg, '
-                    '실제 ${n1((drift['actual'] as Map)['bfmKg'])}kg.',
+                : ' 체지방 계획 ${n1((drift['expected'] as Map)['bfmKg'])}kg · '
+                    '실제 ${n1((drift['actual'] as Map)['bfmKg'])}kg',
           ),
           if (drift['muscleWarning'] != null)
             Note(tone: Tone.warn, text: '${drift['muscleWarning']}'),
@@ -469,8 +468,10 @@ class _WeekCard extends StatelessWidget {
                 style: Theme.of(context).textTheme.labelSmall
                     ?.copyWith(color: Theme.of(context).hintColor))),
         Row(children: [
-          for (final d in days) Expanded(child: _DayCell(day: d)),
+          for (final d in days) Expanded(child: _DayCell(day: d, today: app.store.dayKey())),
         ]),
+        const SizedBox(height: 6),
+        const DayMarkLegend(),
         if (td != null && left.isNotEmpty) ...[
           const SizedBox(height: 12),
           _TodayRow(day: td, left: left, go: go),
@@ -534,7 +535,7 @@ List<Widget> _fillFromPlan(BuildContext context, app, List<Map<String, Object?>>
       child: Text('플랜대로 채우기 (${(w as Map)['splitName']} · 남은 ${targets.length}일)'),
     ),
     const SizedBox(height: 5),
-    Text('오늘부터 채웁니다. 이미 정한 날은 그대로 둡니다.',
+    Text('오늘부터 · 이미 정한 날은 그대로',
         style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
   ];
 }
@@ -548,17 +549,24 @@ List<Widget> _cardioNote(BuildContext context, app, List<Map<String, Object?>> d
   if (w is! Map || !(core.jsToNumber(w['cardioMinPerWeek']) > 0)) return const [];
   if (days.any((d) => (d['plan'] as List).contains('cardio'))) return const [];
   final t = Theme.of(context);
+  /* 「40분 × 2회」 는 플랜 탭과 같은 조각(cardioStat)으로 읽습니다 — 엔진 문구의
+     "Z2 저강도" 같은 말은 여기서 걷어냅니다. 못 읽으면 주당 분. */
+  final cs = cardioStat(w.cast<String, Object?>());
+  final what = cs.unit.startsWith('×') ? '${cs.value} ${cs.unit}' : '주 ${cs.value}분';
   return [
     const SizedBox(height: 8),
-    Text('유산소는 플랜에 주 ${n0(w['cardioMinPerWeek'])}분만 있고 요일이 없습니다. '
-        '직접 고르셔야 합니다 (${w['cardioPlan'] ?? ''}).',
+    Text('유산소 $what — 요일은 칸을 눌러 고르세요',
         style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
   ];
 }
 
+/* 요일 칸 — 요일 · 날짜 · DayMark(지킴/놓침/오늘/쉬는 날, 달성률과 같은 그림)
+   · 그 아래 운동 종류 점. 종류 점은 "무엇을" 했는지, DayMark 는 "다 했는지"
+   입니다. */
 class _DayCell extends StatelessWidget {
-  const _DayCell({required this.day});
+  const _DayCell({required this.day, required this.today});
   final Map<String, Object?> day;
+  final String today;
 
   @override
   Widget build(BuildContext context) {
@@ -568,7 +576,6 @@ class _DayCell extends StatelessWidget {
     final plan = (day['plan'] as List);
     final done = (day['done'] as Map);
     final isToday = day['isToday'] == true;
-    final missed = day['missed'] == true;
 
     return InkWell(
       borderRadius: BorderRadius.circular(8),
@@ -579,13 +586,14 @@ class _DayCell extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(8),
           color: isToday ? c.accentSub : null,
-          border: missed ? Border.all(color: c.warn.withValues(alpha: 0.5)) : null,
         ),
         child: Column(children: [
           Text('${day['dow']}', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
           Text(n0(day['dayNum']),
               style: t.textTheme.bodySmall?.copyWith(
                   fontWeight: isToday ? FontWeight.w800 : FontWeight.w500)),
+          const SizedBox(height: 3),
+          DayMark(dayMarkState(day, today: today), size: 20),
           const SizedBox(height: 3),
           SizedBox(
             height: 6,

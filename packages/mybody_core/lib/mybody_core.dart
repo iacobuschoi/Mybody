@@ -17,7 +17,7 @@ export 'js_num.dart';
 export 'modes.dart' hide fill, select, whyNot, alternativesFor, byId, forDisplay;
 export 'schedule.dart' hide typeOf, labelOf, indexOf, isKept;
 export 'store.dart';
-export 'suggest.dart' hide density, portionText, summaryText;
+export 'suggest.dart' hide density, portionText, itemText, summaryText;
 
 import 'engine.dart' as _engine;
 import 'fooddb.dart' as _fooddb;
@@ -45,4 +45,5 @@ final foodScaled = _fooddb.scaled;
 
 final suggestSummaryText = _suggest.summaryText;
 final suggestPortionText = _suggest.portionText;
+final suggestItemText = _suggest.itemText;
 final suggestDensity = _suggest.density;

@@ -66,7 +66,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
         appBar: AppBar(title: const Text('주간 체크인')),
         body: const EmptyState(
           title: '아직 계획이 없습니다',
-          detail: '체크인은 계획 대비 어디쯤인지를 보는 자리라, 먼저 목표를 정해야 합니다.',
+          detail: '목표를 정하면 체크인할 수 있습니다',
         ),
       );
     }
@@ -129,9 +129,9 @@ class _CheckinScreenState extends State<CheckinScreen> {
             if (thisWeek != null) ...[
               const SizedBox(height: 8),
               Note(
-                text: '이번 주에 이미 체크인했습니다 (${dateShort(thisWeek['at'])} · '
-                    '${n1(thisWeek['weightKg'])}kg). '
-                    '${_sameWeek(app) != null ? '다시 저장하면 이번 주 값을 새 값으로 바꿉니다.' : '5일 안이라 판정에는 새 값만 씁니다.'}',
+                text: '이미 체크인했습니다 (${dateShort(thisWeek['at'])} · '
+                    '${n1(thisWeek['weightKg'])}kg) — '
+                    '${_sameWeek(app) != null ? '다시 저장하면 이번 주 값을 새 값으로 바꿉니다' : '5일 안이라 판정에는 새 값만 씁니다'}',
               ),
             ],
             const SizedBox(height: 14),
@@ -143,7 +143,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
                 labelText: '지금 체중',
                 suffixText: 'kg',
                 border: const OutlineInputBorder(),
-                helperText: '아침 공복, 화장실 다녀와서 잰 값이 가장 덜 흔들립니다',
+                helperText: '아침 공복에 잰 값이 가장 정확합니다',
                 helperMaxLines: 2,
                 errorText: problem,
                 errorMaxLines: 2,
@@ -177,14 +177,10 @@ class _CheckinScreenState extends State<CheckinScreen> {
               ),
             ]),
             const SizedBox(height: 6),
-            Text(
-                /* 왜 안 묻는지를 한 줄로. 낮게 나와도 혼나지 않는다는 말은
-                   그대로 둡니다 — 덜 지킨 주에 칼로리를 더 깎으면 굶게 되므로
-                   앱은 그때 계획을 그대로 두라고 답합니다. */
-                '홈의 운동 체크와 식단 기록에서 셉니다 (플랜 탭 「달성률」 과 같은 숫자). '
-                '낮아도 혼나지 않습니다 — 덜 지킨 주에 칼로리를 더 깎으면 굶게 되기 때문에, '
-                '앱은 그때 계획을 그대로 두라고 답합니다.',
-                style: hint),
+            /* 왜 안 묻는지를 한 줄로. "낮아도 혼나지 않는다 — 덜 지킨 주에 칼로리를
+               더 깎으면 굶게 되니 계획을 그대로 둔다" 는 설명은 뺐습니다 — 그 판정은
+               아래 「이번 주 제안」 카드가 그때 직접 말합니다. */
+            Text('홈의 운동 체크 · 식단 기록에서 셉니다', style: hint),
           ]),
         ),
 
@@ -213,10 +209,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
                 xTickFmt: (v) => '${v.round()}주',
               ),
               const SizedBox(height: 6),
-              Text('점은 집 체중계로 넣은 체크인입니다. 인바디와 0.5~1kg 다를 수 있어서, '
-                  '판정은 계획선과의 거리가 아니라 점들의 추세가 계획선과 얼마나 다르게 '
-                  '가는지로 합니다. 같은 주(또는 5일 안)에 다시 잰 값은 앞의 값을 대신합니다.',
-                  style: hint),
+              Text('점은 집 체중계 값 — 판정은 점들의 추세로 합니다', style: hint),
             ]),
           ),
 
@@ -228,7 +221,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
             caveat: dietPct == null &&
                     core.jsTruthy(ex['hasTarget']) &&
                     !const {'early', 'collecting', 'adherence'}.contains(review['status'])
-                ? '식단 기록이 ${n0(logged)}일뿐이라 실행 여부는 반영하지 못했습니다. 체중만 보고 낸 판정입니다.'
+                ? '식단 기록이 ${n0(logged)}일뿐이라 체중만 보고 판정했습니다'
                 : null,
           ),
 
@@ -502,7 +495,7 @@ class _PastCard extends StatelessWidget {
             trailing: Text(list.isEmpty ? '' : '최근 ${recent.length}건',
                 style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
         if (recent.isEmpty)
-          Text('아직 없습니다. 주 1회 같은 조건(아침 공복)으로 재면, 3주에 걸쳐 4번째 체크인부터 판정이 나옵니다.',
+          Text('아직 없습니다 — 4번째 체크인부터 판정이 나옵니다',
               style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5))
         else
           for (final c in recent)

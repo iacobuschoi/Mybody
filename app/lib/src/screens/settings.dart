@@ -52,7 +52,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SectionTitle('내 몸 정보'),
             Text(
               profile == null
-                  ? '아직 안 넣었습니다. 키·나이·성별이 있어야 기초대사량과 계획이 맞습니다.'
+                  ? '아직 안 넣었습니다 — 키·나이·성별이 계획의 기준입니다'
                   : '${profile['sex'] == 'male' ? '남성' : '여성'} · '
                       '${core.jsNumToString(core.jsToNumber(profile['age']))}세 · '
                       '${core.jsNumToString(core.jsToNumber(profile['heightCm']))}cm',
@@ -72,7 +72,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('연속 기록(스트릭) 숨기기'),
-              subtitle: Text('연속 숫자가 부담이면 끌 수 있습니다. 기록은 그대로 남습니다.',
+              subtitle: Text('기록은 그대로 남습니다',
                   style: t.textTheme.labelSmall),
               value: core.jsTruthy(settings['hideStreaks']),
               onChanged: (on) {
@@ -84,7 +84,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('끼니 기록 알림'),
-              subtitle: Text('10시 아침 · 13시 점심 · 19시 저녁. 그 끼니를 이미 적었으면 안 울립니다.',
+              subtitle: Text('10시 · 13시 · 19시 — 이미 적은 끼니는 안 울립니다',
                   style: t.textTheme.labelSmall),
               value: settings['mealReminder'] != false,
               onChanged: (on) {
@@ -96,7 +96,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('운동 알림'),
-              subtitle: Text('헬스를 하기로 한 날 저녁 8시 반, 아직 안 갔으면 집에서 15분 맨몸 운동을 권합니다.',
+              subtitle: Text('헬스 날 저녁 8시 반 — 아직 안 갔으면 알림',
                   style: t.textTheme.labelSmall),
               value: settings['workoutReminder'] != false,
               onChanged: (on) {
@@ -108,7 +108,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('간식 단백질 알림'),
-              subtitle: Text('오후 3시 반·저녁 8시 반에, 그날 단백질이 15g 넘게 남았을 때만.',
+              subtitle: Text('오후 3시 반 · 저녁 8시 반, 단백질이 15g 넘게 남았을 때만',
                   style: t.textTheme.labelSmall),
               value: settings['snackNudge'] != false,
               onChanged: (on) {
@@ -132,8 +132,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Text(
               api.signedIn
                   ? '로그인되어 있습니다'
-                  : '로그인하지 않았습니다 — 지금은 기록이 이 기기에만 저장됩니다. 로그인하면 사진 판독 · '
-                      '친구 · 기기 옮기기가 됩니다.',
+                  : '로그인하지 않았습니다 — 기록은 이 기기에만 · 로그인하면 사진 판독 · 친구 · 기기 옮기기',
               style: t.textTheme.bodySmall?.copyWith(color: t.hintColor),
             ),
             const SizedBox(height: 10),
@@ -260,8 +259,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             children: [
               Text('내 몸 정보', style: Theme.of(ctx).textTheme.titleMedium),
               const SizedBox(height: 4),
-              Text('기초대사량과 계획이 이 값에서 나옵니다. 나이를 비우면 '
-                  '근성장 속도를 보수적으로 잡습니다.',
+              Text('계획의 기준값입니다 — 나이를 비우면 보수적으로 잡습니다',
                   style: Theme.of(ctx).textTheme.bodySmall
                       ?.copyWith(color: Theme.of(ctx).hintColor, height: 1.5)),
               const SizedBox(height: 16),
@@ -353,8 +351,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           width: double.maxFinite,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
             const Text(
-              '아래를 복사해서 카톡 「나에게 보내기」나 메모에 붙여넣어 두세요. '
-              '앱을 지우거나 폰을 바꿀 때 이것만 있으면 되돌릴 수 있습니다.',
+              '복사해서 메모나 카톡 「나에게 보내기」에 붙여 두세요',
               style: TextStyle(fontSize: 12, height: 1.5),
             ),
             const SizedBox(height: 12),

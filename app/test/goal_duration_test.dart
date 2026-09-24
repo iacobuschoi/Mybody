@@ -325,6 +325,79 @@ void main() {
     expect(kDurationChips, [8, 12, 16, 24]);
     expect(asked, [8], reason: '4주로 열어도 8주로 올려서 계산합니다');
     expect(t.widget<Text>(find.byKey(const Key('duration-weeks'))).data, '8주');
+    /* 기간 카드에 설명문은 없습니다 — 제목 · 주수 · 칩 · 자뿐. */
+    expect(find.textContaining('갈 수 있는 몸'), findsNothing);
+    expect(find.textContaining('보여 줍니다'), findsNothing);
+  });
+
+  /* 칩은 빠르고 자는 대충이라 15주 · 20주 같은 그 사이의 딱 한 주수는 − / + 로 맞춥니다.
+     끝(8 · 52주)에서는 그쪽 단추가 닫혀야 — 눌러도 안 움직이는 단추는 고장으로 보입니다. */
+  testWidgets('기간 — − / + 는 1주씩 옮기고, 8주와 52주 끝에서는 그쪽 단추가 닫힌다', (t) async {
+    tall(t);
+    final asked = <int>[];
+    final app = await seeded();
+    await t.pumpWidget(host(app, DurationScreen(compute: (w) {
+      asked.add(w);
+      return _fixture(w);
+    })));
+    await t.pump(const Duration(milliseconds: 200));
+    final minus = find.byKey(const Key('duration-minus'));
+    final plus = find.byKey(const Key('duration-plus'));
+    String weeks() => t.widget<Text>(find.byKey(const Key('duration-weeks'))).data!;
+    VoidCallback? pressOf(Finder f) => t.widget<IconButton>(f).onPressed;
+    expect(minus, findsOneWidget);
+    expect(plus, findsOneWidget);
+    expect(pressOf(minus), isNotNull);
+    expect(pressOf(plus), isNotNull);
+    /* 단추는 자와 한 줄에, 왼쪽 − · 오른쪽 + */
+    final slider = find.byType(Slider);
+    expect(t.getCenter(minus).dx, lessThan(t.getCenter(slider).dx));
+    expect(t.getCenter(plus).dx, greaterThan(t.getCenter(slider).dx));
+    expect(t.getCenter(minus).dy, moreOrLessEquals(t.getCenter(slider).dy, epsilon: 4));
+
+    await t.tap(plus);
+    await t.pump();
+    expect(weeks(), '13주');
+    expect(t.widget<Slider>(slider).value, 13);
+    expect(asked, [12, 13], reason: '한 주 늘리면 그 주수로 다시 계산합니다');
+    expect(find.text('13주 동안의 체지방'), findsOneWidget);
+    expect(find.byType(ChoiceChip).evaluate().map((e) => (e.widget as ChoiceChip).selected),
+        everyElement(isFalse), reason: '13주는 칩에 없습니다');
+
+    await t.tap(minus);
+    await t.pump();
+    expect(weeks(), '12주');
+    expect(asked, [12, 13], reason: '12주는 들고 있던 표');
+
+    /* 아래 끝 — 8주에서는 − 가 닫히고 눌러도 그대로 */
+    await t.tap(find.widgetWithText(ChoiceChip, '8주'));
+    await t.pump();
+    expect(weeks(), '8주');
+    expect(pressOf(minus), isNull);
+    expect(pressOf(plus), isNotNull);
+    await t.tap(minus);
+    await t.pump();
+    expect(weeks(), '8주');
+    await t.tap(plus);
+    await t.pump();
+    expect(weeks(), '9주');
+    expect(pressOf(minus), isNotNull, reason: '8주를 벗어나면 − 가 다시 열립니다');
+
+    /* 위 끝 — 자를 52주로 끌면 + 가 닫히고 눌러도 그대로 */
+    t.widget<Slider>(slider).onChanged!(52);
+    await t.pump();
+    expect(weeks(), '52주');
+    expect(pressOf(plus), isNull);
+    expect(pressOf(minus), isNotNull);
+    await t.tap(plus);
+    await t.pump();
+    expect(weeks(), '52주');
+    await t.tap(minus);
+    await t.pump();
+    expect(weeks(), '51주');
+    expect(pressOf(plus), isNotNull);
+    expect(find.byType(ErrorWidget), findsNothing);
+    expect(t.takeException(), isNull);
   });
 
   /* 엔진이 증량을 강도 없이 한 장(label '증량', levels [low, mid, high])으로 주면
@@ -364,7 +437,7 @@ void main() {
     final app = await seeded();
     await t.pumpWidget(host(app, DurationScreen(compute: (w) => _fixture(w, empty: true))));
     await t.pump(const Duration(milliseconds: 200));
-    expect(find.textContaining('만들 수 있는 계획이 없습니다'), findsOneWidget);
+    expect(find.text('이 기간에는 계획이 없습니다 — 기간을 바꿔 보세요'), findsOneWidget);
     expect(pickButton(t).onPressed, isNull);
   });
 
@@ -395,7 +468,8 @@ void main() {
       return f;
     })));
     await t.pump(const Duration(milliseconds: 200));
-    expect(find.text('9주째에 멈춥니다 — 그 뒤로는 더 못 갑니다.'), findsOneWidget);
+    expect(find.text('9주째에 멈춥니다'), findsOneWidget);
+    expect(find.textContaining('더 못 갑니다'), findsNothing, reason: '한 줄 — 같은 말을 두 번 하지 않습니다');
     expect(t.takeException(), isNull);
   });
 
@@ -429,19 +503,27 @@ void main() {
     expect(find.text('−4.8 kg'), findsOneWidget, reason: '감량 상');
     expect(find.text('+0.6 kg'), findsOneWidget, reason: '증량의 체지방');
     expect(find.text('+1.6 kg'), findsOneWidget, reason: '증량의 골격근');
-    /* 변화량이 그 줄에서 가장 큰 글자 — 제목보다도 큽니다 — 이고, 방향의 색입니다. */
+    /* 변화량이 그 줄에서 가장 큰 글자 — 제목보다도 큽니다 — 이고, 방향의 색입니다.
+       다만 처음의 titleLarge(22px)는 "너무 크다" 여서 18px 로 살짝만 — 굵기는 그대로. */
+    final theme = Theme.of(t.element(cutMid));
     final fat = t.widget<Text>(inCard('−3.2 kg')).style!;
+    expect(fat.fontSize, kChangeFontSize);
+    expect(kChangeFontSize, 18);
+    expect(fat.fontSize!, lessThan(theme.textTheme.titleLarge!.fontSize!), reason: '옛 크기(22)보다 작게');
+    expect(fat.fontWeight, FontWeight.w800, reason: '굵기는 그대로');
     expect(fat.fontSize!, greaterThan(t.widget<Text>(inCard('38.0 → 38.4')).style!.fontSize!));
     expect(fat.fontSize!, greaterThan(t.widget<Text>(inCard('중 · 표준')).style!.fontSize!));
     expect(fat.color, MbColors.light.fat);
-    expect(t.widget<Text>(inCard('+0.4 kg')).style!.color, MbColors.light.muscle);
+    final smm = t.widget<Text>(inCard('+0.4 kg')).style!;
+    expect(smm.color, MbColors.light.muscle);
+    expect(smm.fontSize, kChangeFontSize);
     /* 옛 글(숫자 여섯 개짜리 두 줄 · 긴 설명)은 없습니다. */
     expect(find.textContaining('Δ'), findsNothing);
     expect(find.textContaining('카드의 막대는'), findsNothing);
     expect(find.text('연한 줄 지금 · 진한 줄 그때'), findsOneWidget);
     /* 운동 횟수는 카드 위에 한 번 — 엔진은 어느 강도에나 내 몸 정보의 횟수를 쓰니
        모든 카드가 같은 값이고, 같은 값을 네 번 적으면 카드가 그걸로 갈리는 줄 읽힙니다. */
-    expect(find.text('운동 주 4회 · 회당 60분 — 내 몸 정보에서 정한 값입니다'), findsOneWidget);
+    expect(find.text('운동 주 4회 · 회당 60분 — 내 몸 정보 기준'), findsOneWidget);
     expect(find.textContaining('주 4회'), findsOneWidget, reason: '카드에는 없습니다');
     expect(find.descendant(of: cutMid, matching: find.textContaining('주 4회')), findsNothing);
     expect(t.getTopLeft(find.byKey(const Key('training-line'))).dy,
@@ -469,7 +551,7 @@ void main() {
 
   /* 폰 너비(360px)에서 — 변화량 옆의 작은 글이 길어도(체지방률까지) 줄이 넘치지 않아야
      합니다. 넘치면 디버그에서는 예외로 잡히고, 폰에서는 노란 줄무늬입니다. */
-  testWidgets('기간 — 360px 폰 너비에서도 카드의 줄이 넘치지 않는다', (t) async {
+  testWidgets('기간 — 360px 폰 너비에서도 카드의 줄과 자(− +)가 넘치지 않는다', (t) async {
     t.view.physicalSize = const Size(360, 4000);
     t.view.devicePixelRatio = 1.0;
     addTearDown(t.view.reset);
@@ -480,24 +562,33 @@ void main() {
       expect(find.byKey(ValueKey('option-$id')), findsOneWidget, reason: id);
     }
     expect(find.text('20.0 → 16.8 · 23.1 → 20.1%'), findsOneWidget);
+    /* 자와 양옆 단추가 한 줄에 다 들어가고, 단추는 화면 안에 있습니다. */
+    expect(find.byKey(const Key('duration-minus')), findsOneWidget);
+    expect(find.byKey(const Key('duration-plus')), findsOneWidget);
+    expect(t.getTopLeft(find.byKey(const Key('duration-minus'))).dx, greaterThanOrEqualTo(0));
+    expect(t.getBottomRight(find.byKey(const Key('duration-plus'))).dx, lessThanOrEqualTo(360));
+    expect(t.getSize(find.byType(Slider)).width, greaterThan(150), reason: '자가 끌 만큼은 남습니다');
+    await t.tap(find.byKey(const Key('duration-plus')));
+    await t.pump();
+    expect(t.widget<Text>(find.byKey(const Key('duration-weeks'))).data, '13주');
     expect(find.byType(ErrorWidget), findsNothing);
     expect(t.takeException(), isNull, reason: '넘침(RenderFlex overflow)은 예외로 옵니다');
   });
 
   test('trainingLine — 모든 카드가 같을 때만 한 줄, 회당 시간은 같을 때만, 출처는 내 몸 정보에 있을 때만', () {
     final opts = (_fixture(12)['options'] as List).cast<Map<String, Object?>>();
-    expect(trainingLine(opts, _profile), '운동 주 4회 · 회당 60분 — 내 몸 정보에서 정한 값입니다');
+    expect(trainingLine(opts, _profile), '운동 주 4회 · 회당 60분 — 내 몸 정보 기준');
     /* 내 몸 정보에 횟수가 없는데 우연히 같으면 — 어디서 왔다고 말하지 않습니다. */
     expect(trainingLine(opts, {..._profile, 'daysPerWeek': null}), '운동 주 4회 · 회당 60분');
     expect(trainingLine(opts, {..._profile, 'daysPerWeek': 0}), '운동 주 4회 · 회당 60분');
     /* 회당 시간이 없거나(옛 표) 강도마다 다르면 횟수만. */
     expect(trainingLine([for (final o in opts) {...o, 'sessionMinutes': null}], _profile),
-        '운동 주 4회 — 내 몸 정보에서 정한 값입니다');
+        '운동 주 4회 — 내 몸 정보 기준');
     expect(
         trainingLine(
             [for (var i = 0; i < opts.length; i++) {...opts[i], 'sessionMinutes': 45 + i}],
             _profile),
-        '운동 주 4회 — 내 몸 정보에서 정한 값입니다');
+        '운동 주 4회 — 내 몸 정보 기준');
     /* 횟수가 다르면 줄이 없습니다 — 카드가 각자 적습니다. */
     expect(
         trainingLine(
@@ -820,7 +911,7 @@ void main() {
         findsOneWidget);
     /* ±1주 안에 카드가 없으니 그렇다고 말합니다. */
     expect(find.byKey(const Key('duration-note')), findsOneWidget);
-    expect(find.text('기간으로 고른 계획입니다 — 카드의 기간이 고른 주수와 조금 다를 수 있습니다'),
+    expect(find.text('기간으로 고른 계획 — 주수가 조금 다를 수 있습니다'),
         findsOneWidget);
     expect(startButton(t).onPressed, isNotNull);
     expect(t.takeException(), isNull);
