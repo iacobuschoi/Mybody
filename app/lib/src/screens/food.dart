@@ -15,15 +15,22 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../scope.dart';
+import '../nudge.dart' show mealFromReminder;
 import '../ui/fmt.dart';
 import '../ui/widgets.dart';
 
 const _meals = ['아침', '점심', '저녁', '간식'];
 
 /// 지금 시각으로 다음 끼니를 짐작합니다 (원본 guessMeal).
+///
+/// 끼니 알림을 누르고 들어왔으면 3시간 동안은 그 끼니입니다([mealFromReminder]).
+/// 아침은 11시 전까지 — 예전엔 10시였는데, 10시 「아침 메뉴를 기록해주세요!」 를 보고
+/// 적으면 점심으로 저장되고 13시 점심 알림까지 빠졌습니다.
 String guessMeal([DateTime? now]) {
+  final fromReminder = mealFromReminder(now);
+  if (fromReminder != null) return fromReminder;
   final hr = (now ?? DateTime.now()).hour;
-  if (hr < 10) return '아침';
+  if (hr < 11) return '아침';
   if (hr < 15) return '점심';
   if (hr < 21) return '저녁';
   return '간식';

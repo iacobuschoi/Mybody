@@ -113,8 +113,23 @@ List<({int id, DateTime at, String meal, String title, String body})> planMealRe
   return out;
 }
 
-/// 알림을 눌러 앱이 열렸을 때 갈 곳('food' 등). 셸이 듣고 그 탭으로 갑니다.
+/// 알림을 눌러 앱이 열렸을 때 갈 곳('food', 끼니 알림은 'food:아침' 처럼 끼니까지).
+/// 셸이 듣고 그 탭으로 갑니다.
 final ValueNotifier<String?> notificationRoute = ValueNotifier<String?>(null);
+
+/// 방금 누른 끼니 알림 — 식단 화면의 기본 끼니가 이걸 따릅니다([mealFromReminder]).
+/// 10시 「아침 메뉴를 기록해주세요!」 를 누르고 10시 5분에 적으면 시각으로는 점심이라,
+/// 아침이 점심으로 저장되고 13시 점심 알림까지 빠졌습니다.
+({String meal, DateTime at})? tappedMealReminder;
+
+/// 끼니 알림을 누른 지 3시간 안이면 그 끼니. 아니면 null.
+String? mealFromReminder([DateTime? now]) {
+  final r = tappedMealReminder;
+  if (r == null) return null;
+  final n = now ?? DateTime.now();
+  if (n.isBefore(r.at) || n.difference(r.at) > const Duration(hours: 3)) return null;
+  return r.meal;
+}
 
 class SnackNudge {
   static final _plugin = FlutterLocalNotificationsPlugin();
@@ -247,48 +262,91 @@ class SnackNudge {
 
 /// 끼니 기록 알림 — [planMealReminders] 를 폰에 겁니다. 플러그인은 [SnackNudge] 것을 같이 씁니다.
 class MealReminder {
-  /// 마지막으로 건 것 — 같으면 다시 안 겁니다. 저장할 때마다 42개를 지우고 다시
-  /// 거는 것은 낭비라서, 날짜 · 오늘 적은 끼니 · 설정이 바뀔 때만 겁니다.
+  /// 마지막으로 다 건 것 — 같으면 다시 안 겁니다. 저장할 때마다 42개를 다시 거는 것은
+  /// 낭비라서, 날짜 · 오늘 적은 끼니 · 설정이 바뀔 때만 겁니다.
   static String? _last;
 
-  static Future<void> reschedule(AppState app) async {
+  /// 한 번에 하나씩 — 켤 때와 저장할 때 두 번이 겹치면, 먼저 시작한 쪽이 뒤에 지운
+  /// 알림(오늘 적은 점심)을 다시 걸었습니다.
+  static Future<void> _chain = Future<void>.value();
+
+  static Future<void> reschedule(AppState app) {
+    final run = _chain.then((_) => _run(app));
+    _chain = run.catchError((_) {});
+    return run;
+  }
+
+  static Future<void> _run(AppState app) async {
     if (!SnackNudge._ready) return;
-    try {
-      final settings = (app.state['settings'] as Map?) ?? const {};
-      final on = settings['mealReminder'] != false && app.state['onboarded'] == true;
-      final now = DateTime.now();
-      final logged = <String>{for (final l in app.store.logsForDate()) '${l['meal']}'};
-      final plan = on ? planMealReminders(now: now, loggedToday: logged) : const <({int id, DateTime at, String meal, String title, String body})>[];
-      /* 시각까지 넣습니다 — 10시가 지나면 오늘 아침 알림이 빠져야 합니다. */
-      final sig = [for (final r in plan) '${r.id}@${r.at.toIso8601String()}'].join(',');
-      if (sig == _last) return;
-      for (var id = kMealIdBase; id < kMealIdBase + kMealDays * kMealSlots.length; id++) {
-        await SnackNudge._plugin.cancel(id: id);
-      }
-      _last = sig;
-      if (!on) return;
+    final plugin = SnackNudge._plugin;
+    final settings = (app.state['settings'] as Map?) ?? const {};
+    final on = settings['mealReminder'] != false && app.state['onboarded'] == true;
+    final logged = <String>{for (final l in app.store.logsForDate()) '${l['meal']}'};
+    var plan = on
+        ? planMealReminders(now: DateTime.now(), loggedToday: logged)
+        : const <({int id, DateTime at, String meal, String title, String body})>[];
+    /* 시각까지 넣습니다 — 10시가 지나면 오늘 아침 알림이 빠져야 합니다. */
+    final sig = [for (final r in plan) '${r.id}@${r.at.toIso8601String()}'].join(',');
+    if (sig == _last) return;
+    if (on) {
       await SnackNudge.askPermission(app);
-      for (final r in plan) {
-        await SnackNudge._plugin.zonedSchedule(
+      /* 권한을 묻는 동안 시각이 지났을 수 있습니다. */
+      plan = [for (final r in plan) if (r.at.isAfter(DateTime.now())) r];
+    }
+
+    /* 안드로이드 7~11 은 며칠 뒤로 건 「정확하지 않은」 알람을 창을 크게 잡고 서로
+       묶어서, 10 · 13시 알림이 19시에 같이 오거나 다음 날로 밀렸습니다. 그 판들은
+       정확한 알람에 권한이 필요 없어서(플러그인이 true), 되면 정확하게 겁니다.
+       12 이상은 권한이 없으면 정확하지 않은 알람이고, 늦어도 한 시간 안입니다. */
+    var mode = AndroidScheduleMode.inexactAllowWhileIdle;
+    try {
+      final android = plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      if (android != null && (await android.canScheduleExactNotifications() ?? false)) {
+        mode = AndroidScheduleMode.exactAllowWhileIdle;
+      }
+    } catch (_) {}
+
+    /* 새것을 먼저 겁니다(같은 번호면 바뀜) — 다 지운 뒤에 걸다가 하나가 실패하면
+       알림이 하나도 안 남았습니다. 그다음 계획에 없는 번호만 지웁니다. */
+    var ok = true;
+    final keep = <int>{};
+    for (final r in plan) {
+      if (!r.at.isAfter(DateTime.now())) continue;
+      try {
+        await plugin.zonedSchedule(
           id: r.id,
           title: r.title,
           body: r.body,
-          payload: 'food',
+          payload: 'food:${r.meal}',
           scheduledDate: tz.TZDateTime.from(r.at, tz.local),
-          notificationDetails: const NotificationDetails(
+          notificationDetails: NotificationDetails(
             android: AndroidNotificationDetails(
               'meals', '끼니 기록 알림',
               channelDescription: '10시 · 13시 · 19시에 아침 · 점심 · 저녁 메뉴 기록을 알려 줍니다',
               importance: Importance.defaultImportance,
               priority: Priority.defaultPriority,
+              /* 폰이 꺼져 있다 켜지면 안드로이드는 놓친 알림을 그 자리에서 띄웁니다.
+                 원래 시각을 보여 주고, 세 시간이 지나면 스스로 사라지게 합니다. */
+              when: r.at.millisecondsSinceEpoch,
+              showWhen: true,
+              timeoutAfter: const Duration(hours: 3).inMilliseconds,
             ),
           ),
-          /* 몇 분 늦어도 되는 알림입니다 — 정확한 알람 권한을 안 받습니다. */
-          androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+          androidScheduleMode: mode,
         );
+        keep.add(r.id);
+      } catch (_) {
+        ok = false;
       }
-    } catch (_) {
-      _last = null;   // 다음에 다시 시도
     }
+    for (var id = kMealIdBase; id < kMealIdBase + kMealDays * kMealSlots.length; id++) {
+      if (keep.contains(id)) continue;
+      try {
+        await plugin.cancel(id: id);
+      } catch (_) {
+        ok = false;
+      }
+    }
+    _last = ok ? sig : null;   // 실패가 있으면 다음에 다시
   }
 }

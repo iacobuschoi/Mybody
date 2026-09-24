@@ -3,6 +3,7 @@
  * ========================================================================== */
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mybody/src/nudge.dart';
+import 'package:mybody/src/screens/food.dart' show guessMeal;
 
 void main() {
   final morning = DateTime(2026, 9, 22, 10, 0);
@@ -72,6 +73,28 @@ void main() {
       expect(ids.every((id) => id >= kMealIdBase && id < kMealIdBase + kMealDays * 3), isTrue);
       expect(ids.contains(7), isFalse);
       expect(kMealIdBase + kMealDays * 3 <= 1000, isTrue);
+    });
+  });
+
+  group('끼니 알림을 누르고 적으면 그 끼니로', () {
+    tearDown(() => tappedMealReminder = null);
+
+    test('아침 알림을 누른 뒤 3시간 동안은 아침 — 시각으로는 점심이어도', () {
+      tappedMealReminder = (meal: '아침', at: DateTime(2026, 9, 24, 10, 2));
+      expect(mealFromReminder(DateTime(2026, 9, 24, 10, 5)), '아침');
+      expect(guessMeal(DateTime(2026, 9, 24, 12, 30)), '아침');
+      expect(mealFromReminder(DateTime(2026, 9, 24, 13, 5)), isNull, reason: '3시간이 지나면 시각대로');
+      expect(guessMeal(DateTime(2026, 9, 24, 13, 5)), '점심');
+    });
+
+    test('알림을 안 눌러도 10시대는 아침 — 10시 알림을 보고 앱을 직접 열어 적는 경우', () {
+      expect(guessMeal(DateTime(2026, 9, 24, 9, 59)), '아침');
+      expect(guessMeal(DateTime(2026, 9, 24, 10, 30)), '아침');
+      expect(guessMeal(DateTime(2026, 9, 24, 11, 0)), '점심');
+      /* 그래서 10시대에 적은 아침이 13시 점심 알림을 지우지 않습니다. */
+      final r = planMealReminders(now: DateTime(2026, 9, 24, 10, 30),
+          loggedToday: {guessMeal(DateTime(2026, 9, 24, 10, 30))});
+      expect(r.where((x) => x.at.day == 24).map((x) => x.meal), ['점심', '저녁']);
     });
   });
 }

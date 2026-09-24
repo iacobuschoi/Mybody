@@ -31,6 +31,7 @@ import 'package:mybody/src/screens/scandetail.dart';
 import 'package:mybody/src/screens/settings.dart';
 import 'package:mybody/src/screens/social.dart';
 import 'package:mybody/src/screens/upload.dart';
+import 'package:mybody/src/nudge.dart';
 import 'package:mybody/src/shell.dart';
 import 'package:mybody/src/theme.dart';
 import 'package:mybody/src/ui/widgets.dart';
@@ -637,6 +638,31 @@ void main() {
      틀렸다는 표시는 어디에도 없습니다. */
   /* **막 깐 앱은 로그인이 먼저입니다.** 사진 판독은 계정으로 되는 일이라,
      계정 없이 들어가면 첫 판독이 실패합니다 — 그게 첫인상이면 안 됩니다. */
+  /* 끼니 알림을 누르면 — 위에 떠 있던 화면(설정 · 음식 찾기)을 닫고 식단 탭으로,
+     그 끼니를 기본값으로. 탭만 바꾸면 위에 뜬 화면에 가려 안 보였습니다. */
+  testWidgets('끼니 알림을 누르면 위에 뜬 화면을 닫고 식단 탭으로', (t) async {
+    t.view.physicalSize = const Size(1000, 2400);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    addTearDown(() => tappedMealReminder = null);
+    final app = await seeded();
+    app.store.set({'guest': true});
+    await t.pumpWidget(host(app, const Shell(), api_: api(signedIn: false)));
+    await t.pumpAndSettle();
+    expect(find.byType(NavigationBar), findsOneWidget);
+    Navigator.of(t.element(find.byType(NavigationBar)))
+        .push(MaterialPageRoute(builder: (_) => const Scaffold(body: Text('위에 뜬 화면'))));
+    await t.pumpAndSettle();
+    expect(find.text('위에 뜬 화면'), findsOneWidget);
+    notificationRoute.value = 'food:아침';
+    await t.pumpAndSettle();
+    expect(find.text('위에 뜬 화면'), findsNothing);
+    expect(t.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex, 1);
+    expect(tappedMealReminder?.meal, '아침');
+    expect(guessMeal(), '아침');
+    expect(notificationRoute.value, isNull);
+  });
+
   testWidgets('막 깐 앱은 로그인을 먼저 세운다', (t) async {
     SharedPreferences.setMockInitialValues({});
     final app = await AppState.boot();

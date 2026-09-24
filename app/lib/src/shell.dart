@@ -12,7 +12,7 @@
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
-import 'nudge.dart' show notificationRoute;
+import 'nudge.dart' show notificationRoute, tappedMealReminder;
 import 'scope.dart';
 import 'ui/symbols.dart';
 import 'screens/food.dart';
@@ -57,7 +57,13 @@ class _ShellState extends State<Shell> {
     final r = notificationRoute.value;
     if (r == null || !mounted) return;
     notificationRoute.value = null;
-    if (r == 'food') _go('food');
+    if (r == 'food' || r.startsWith('food:')) {
+      /* 끼니 알림이면 그 끼니를 식단 화면의 기본값으로(10시 5분에 적어도 아침). */
+      if (r.startsWith('food:')) tappedMealReminder = (meal: r.substring(5), at: DateTime.now());
+      /* 설정 · 음식 찾기 같은 화면이 위에 떠 있으면 탭을 바꿔도 안 보입니다. */
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      _go('food');
+    }
   }
 
   static const _tabs = [
