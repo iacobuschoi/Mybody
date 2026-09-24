@@ -536,14 +536,15 @@ v0.2.0 이 나갔습니다: https://github.com/iacobuschoi/Mybody/releases/tag/v
 아침에 폰을 보면 TestFlight 와 플레이 내부 테스트에서 바로 받을 수 있는 것.
 
 **시작 조건:** `git fetch --tags` 뒤 태그 `v0.2.9` 가 있고 Releases v0.2.9 에 `mybody-v0.2.9-playstore.aab` 가 있을 때
-(클라우드가 만듭니다). N = `git rev-list --count v0.2.9`. 아직이면 15분마다 `git pull` 로 확인합니다.
+(클라우드가 만듭니다 — 2fdaa3d 에서 04:20 KST 쯤 걸었습니다). **N = 273** (안드로이드 versionCode · 아이폰 빌드 번호).
+아직이면 15분마다 `git pull` 로 확인합니다.
 로그인 · 비밀번호 · 2단계 인증 화면이 나오면 멈추고 보고만 합니다.
 
 1. **서버는 안 건드립니다** — 이 판은 서버 코드가 안 바뀝니다. `git pull` 만 해 두세요(다음 재시작 때 같이 갑니다).
 2. **구글 플레이** — v0.2.9 AAB 받기 → `keytool -printcert -jarfile` SHA-256 `06d945a3…83de11` 확인 →
    **내부 테스트** → 새 버전 → AAB → 출시 노트 `play/등록정보.md` 「0.2.9」 → 저장 및 출시 → 「내부 테스터에게 제공됨」 확인.
    **비공개 테스트 · 프로덕션에는 올리지 않습니다.**
-3. **애플** — App Store Connect → TestFlight → 빌드 0.2.9 (N) 이 「처리 완료」 인지 → **내부 그룹 `my`** 에 들어 있는지
+3. **애플** — App Store Connect → TestFlight → 빌드 0.2.9 (273) 이 「처리 완료」 인지 → **내부 그룹 `my`** 에 들어 있는지
    (자동 배포가 꺼져 있으면 빌드 추가). **friends(외부) 그룹에는 넣지 않습니다** — 새 베타 심사가 걸립니다.
    **App Store 탭은 건드리지 않습니다** (0.2.8 심사 중).
 4. **업데이트 안내 값** — `node tools/app-version.js --play=0.2.9` (플레이 내부 테스터 = 주인 폰이 0.2.8 이면 홈에 새 판 배너).
