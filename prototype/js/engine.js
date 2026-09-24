@@ -524,7 +524,11 @@
    */
   function simulateSimultaneous(cur, goal, profile, a, goalInfo, con) {
     var k = cur.smmToFfm;
-    var isCutting = goalInfo.dBfmKg < -0.3;
+    /* 지방 목표가 지금보다 0.05kg 넘게 낮으면 감량으로 시작합니다. 예전엔 0.3kg 까지를
+       "지방 목표 없음" 으로 보고 증량으로 시작했는데, 끝났을 때 지방은 목표 + 0.05 안이어야
+       해서 — 시작부터 이미 넘은 상태라 — 지방 0.05~0.3kg 줄이기 목표는 어떤 강도로도
+       "4년 안에 안 됨" 이었습니다. 0.5kg 줄이기는 되는데 0.2kg 줄이기는 안 되던 것. */
+    var isCutting = goalInfo.dBfmKg < -0.05;
     var mode = isCutting ? 'cut' : (goalInfo.dSmmKg > 0.3 ? 'bulk' : 'maintain');
     var params = paramsAt(a, mode === 'bulk' ? 'bulk' : 'cut', con);
     var phase = mode;
@@ -534,13 +538,21 @@
     /* fatWeek 을 0 으로 못박고 다시 확인하지 않던 것이 버그였습니다.
        증량 계획이 목표 지방을 8kg 넘기고 끝나도 "도달"로 표시됐습니다 —
        79kg 을 입력한 사람의 마지막 마일스톤이 88.8kg 이었습니다. */
-    var fatWeek = goalInfo.dBfmKg >= -0.3 ? 0 : null;
+    var fatWeek = goalInfo.dBfmKg >= -0.05 ? 0 : null;
     var smmWeek = goalInfo.dSmmKg <= 0.3 ? 0 : null;
     var anyCapped = false, anyFloored = false, cutWeeks = 0, leanLossTotal = 0;
     var fatBreached = false, anyFatFloor = false;
 
     for (var wk = 1; wk <= MAX_WEEKS; wk++) {
       var r = stepWeek(st, phase, params, profile, k, wk);
+      /* 증량 한 주가 지방을 목표 위로 올리면, 그 주부터 잉여를 멈춥니다(유지).
+         예전엔 넘긴 **뒤에** 멈춰서 마지막 주에 붙은 지방만큼 넘은 채로 끝났고, 끝의 지방은
+         목표 안이어야 하므로 "도달 못 함" 이 됐습니다 — 근육 +1kg · 지방 그대로(또는 +0.5kg)
+         목표가 어떤 강도로도 안 된다고 나왔고, 지방을 더 많이 올려도 되는 목표만 됐습니다. */
+      if (phase === 'bulk' && r.state.bfmKg > goal.bfmKg + 0.05) {
+        phase = 'maintain'; fatBreached = true;
+        r = stepWeek(st, phase, params, profile, k, wk);
+      }
       st = r.state;
       if (phase === 'cut') cutWeeks++;
       if (r.capped) anyCapped = true;
@@ -553,9 +565,6 @@
       if (fatWeek === null && st.bfmKg <= goal.bfmKg + 0.05) fatWeek = wk;
       if (smmWeek === null && st.smmKg >= goal.smmKg - 0.005) smmWeek = wk;
 
-      /* 증량 중 지방이 목표를 넘으면 잉여를 멈춥니다.
-         감량이 목표 도달 후 유지로 전환하는 것과 같은 규칙인데 반대쪽에만 있었습니다. */
-      if (phase === 'bulk' && st.bfmKg > goal.bfmKg + 0.05) { phase = 'maintain'; fatBreached = true; }
 
       if (fatWeek !== null && smmWeek !== null && st.bfmKg <= goal.bfmKg + 0.05) break;
       // 목표 체지방 도달 후에는 더 깎지 않고 유지로 전환

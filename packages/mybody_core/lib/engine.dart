@@ -620,7 +620,9 @@ Map<String, Object?> simulateSimultaneous(
     Map<String, Object?> goalInfo,
     Map<String, Object?>? con) {
   final k = _f(cur, 'smmToFfm');
-  final isCutting = goalInfo['dBfmKg'] is num && (goalInfo['dBfmKg'] as num) < -0.3;
+  /* 지방 목표가 지금보다 0.05kg 넘게 낮으면 감량으로 시작합니다(예전 0.3kg — 0.05~0.3kg
+     줄이기 목표는 시작부터 끝 조건을 넘은 상태라 어떤 강도로도 안 됐습니다). engine.js 참고. */
+  final isCutting = goalInfo['dBfmKg'] is num && (goalInfo['dBfmKg'] as num) < -0.05;
   final mode = isCutting ? 'cut' : (_gt(goalInfo['dSmmKg'], 0.3) ? 'bulk' : 'maintain');
   final params = paramsAt(a, mode == 'bulk' ? 'bulk' : 'cut', con);
   var phase = mode;
@@ -633,7 +635,7 @@ Map<String, Object?> simulateSimultaneous(
   };
   final traj = <Map<String, Object?>>[snapshot(st, 0, phase, null)];
   /* 목표 지방을 넘긴 채 끝나도 "도달"로 표시되던 버그가 여기 있었습니다. */
-  int? fatWeek = _gte(goalInfo['dBfmKg'], -0.3) ? 0 : null;
+  int? fatWeek = _gte(goalInfo['dBfmKg'], -0.05) ? 0 : null;
   int? smmWeek = (goalInfo['dSmmKg'] is num && (goalInfo['dSmmKg'] as num) <= 0.3) ? 0 : null;
   var anyCapped = false, anyFloored = false;
   var cutWeeks = 0;
@@ -644,7 +646,14 @@ Map<String, Object?> simulateSimultaneous(
   final goalSmm = _f(goal, 'smmKg');
 
   for (var wk = 1; wk <= maxWeeks; wk++) {
-    final r = stepWeek(st, phase, params, profile, k, wk);
+    var r = stepWeek(st, phase, params, profile, k, wk);
+    /* 증량 한 주가 지방을 목표 위로 올리면 그 주부터 잉여를 멈춥니다(유지). 넘긴 뒤에
+       멈추면 마지막 주의 지방만큼 넘은 채로 끝나 "도달 못 함" 이 됐습니다. engine.js 참고. */
+    if (phase == 'bulk' && _f((r['state'] as Map).cast<String, Object?>(), 'bfmKg') > goalBfm + 0.05) {
+      phase = 'maintain';
+      fatBreached = true;
+      r = stepWeek(st, phase, params, profile, k, wk);
+    }
     st = (r['state'] as Map).cast<String, Object?>();
     if (phase == 'cut') cutWeeks++;
     if (r['capped'] == true) anyCapped = true;
@@ -661,10 +670,6 @@ Map<String, Object?> simulateSimultaneous(
     if (fatWeek == null && bfm <= goalBfm + 0.05) fatWeek = wk;
     if (smmWeek == null && smm >= goalSmm - 0.005) smmWeek = wk;
 
-    if (phase == 'bulk' && bfm > goalBfm + 0.05) {
-      phase = 'maintain';
-      fatBreached = true;
-    }
     if (fatWeek != null && smmWeek != null && bfm <= goalBfm + 0.05) break;
     if (phase == 'cut' && fatWeek != null && smmWeek == null) phase = 'maintain';
   }
