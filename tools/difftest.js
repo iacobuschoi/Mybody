@@ -602,7 +602,8 @@ function checkinCase(rnd, module) {
   const noise = pick([0.2, 0.5, 0.9]);
   let day = (rnd() * 10) | 0;
   for (let i = 0; i < count; i++) {
-    if (i > 0) day += rnd() > 0.15 ? 5 + ((rnd() * 5) | 0) : ((rnd() * 3) | 0);
+    /* 주 1회 · 3~4일마다 · 같은 날 다시 — 5일 묶음이 사슬처럼 이어지지 않는지 봅니다. */
+    if (i > 0) day += pick([7, 7, 7, 5, 6, 8, 9, 3, 4, 3, 4, 0, 1, 2]);
     if (rnd() > 0.9) day += 10;
     let r = { week: Math.floor(day / 7), day: day,
               weightKg: Math.round((lineAt(day / 7) + offset + drift * i + (rnd() - 0.5) * noise) * 10) / 10 };

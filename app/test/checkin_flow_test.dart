@@ -171,13 +171,13 @@ void main() {
     expect((app.state['checkins'] as List).length, 5);
   });
 
-  testWidgets('5일 안에 다시 저장하면 앞의 값을 새 값으로 바꾼다 — 목록에 둘 다 남지 않는다', (t) async {
+  testWidgets('같은 계획 주에 다시 저장하면 그 주 값을 새 값으로 바꾼다 — 목록에 둘 다 남지 않는다', (t) async {
     final app = await seeded();
     app.store.set({'checkins': [
-      {'at': _iso(DateTime.now().subtract(const Duration(hours: 2))), 'weightKg': 88.0},
+      {'at': _iso(DateTime.now().subtract(const Duration(minutes: 1))), 'weightKg': 88.0, 'applied': true},
     ]});
     await open(t, app, const CheckinScreen());
-    expect(find.textContaining('5일 안에 다시 저장하면', findRichText: true), findsOneWidget);
+    expect(find.textContaining('다시 저장하면 이번 주 값을 새 값으로', findRichText: true), findsOneWidget);
     await t.enterText(find.byType(TextField), '86.6');
     await t.pump();
     await t.tap(find.text('체크인 저장'));
@@ -185,6 +185,16 @@ void main() {
     final list = (app.state['checkins'] as List).cast<Map>();
     expect(list, hasLength(1));
     expect(list.single['weightKg'], 86.6);
+    expect(list.single['applied'], isTrue, reason: '「조정함」 표시는 남깁니다');
+  });
+
+  testWidgets('NaN 같은 글자는 막는다', (t) async {
+    final app = await seeded();
+    await open(t, app, const CheckinScreen());
+    await t.enterText(find.byType(TextField), 'NaN');
+    await t.pump();
+    expect(find.textContaining('숫자로 넣어 주세요'), findsOneWidget);
+    expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '체크인 저장')).onPressed, isNull);
   });
 
   testWidgets('홈 — 이번 주에 체크인했으면 완료로 보인다', (t) async {

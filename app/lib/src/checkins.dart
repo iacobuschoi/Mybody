@@ -96,6 +96,7 @@ String checkinStatusLabel(Object? status) => switch ('$status') {
 /// 허용 폭도 시간이 지난 만큼 넓힙니다(15% + 주당 1%, 최대 40%).
 String? checkinWeightProblem(core.Store store, double? w) {
   if (w == null) return null;
+  if (!w.isFinite) return '숫자로 넣어 주세요';
   if (w < 20 || w > 300) return '20~300kg 사이로 넣어 주세요';
   double? ref;
   DateTime? refAt;

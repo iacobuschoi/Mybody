@@ -130,7 +130,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
               Note(
                 text: '이번 주에 이미 체크인했습니다 (${dateShort(thisWeek['at'])} · '
                     '${n1(thisWeek['weightKg'])}kg). '
-                    '${_recent(app) != null ? '5일 안에 다시 저장하면 그 값을 새 값으로 바꿉니다.' : '다시 저장하면 새 체크인으로 더합니다.'}',
+                    '${_sameWeek(app) != null ? '다시 저장하면 이번 주 값을 새 값으로 바꿉니다.' : '5일 안이라 판정에는 새 값만 씁니다.'}',
               ),
             ],
             const SizedBox(height: 14),
@@ -267,37 +267,29 @@ class _CheckinScreenState extends State<CheckinScreen> {
         'applied': applied,
       };
 
-  /// 5일 안에 한 체크인 — 다시 저장하면 이걸 새 값으로 바꿉니다(판정도 5일 안의
-  /// 두 값을 하나로 봅니다). 목록에 둘 다 남으면 틀린 값이 「지난 체크인」에 계속 보입니다.
-  Map<String, Object?>? _recent(app) {
+  /// 이번 **계획 주**에 한 체크인 — 다시 저장하면 이걸 새 값으로 바꿉니다. 판정(코어)도
+  /// 계획 주마다 마지막 값만 쓰므로 같은 칸입니다. 목록에 둘 다 남으면 틀린 값이
+  /// 「지난 체크인」에 계속 보였습니다. (5일 묶음을 바뀐 값부터 세던 판은 3~4일마다
+  /// 재는 사람의 기록을 계속 덮어써 하나만 남겼습니다 — 주 칸은 고정이라 그러지 않습니다.)
+  Map<String, Object?>? _sameWeek(app) {
     final plan = app.state['plan'];
     if (plan is! Map) return null;
     final p = plan.cast<String, Object?>();
     final list = checkinsInPlan(app.store, p);
     if (list.isEmpty) return null;
     final last = list.last;
-    final today = core.planDayOf(p['startDate'], app.store.dayKey());
-    final then = core.planDayOf(p['startDate'], app.store.dayKey(last['at']));
-    return today - then < kCheckinMergeDays ? last : null;
+    final now = core.planWeekOf(p['startDate'], app.store.dayKey());
+    return planWeekAt(app.store, p, last['at']) == now ? last : null;
   }
 
-  /// 새 체크인을 넣거나, 5일 안의 것을 바꿉니다. 바꿀 때 「조정함」 표시와 — 조정에
-  /// 묶인 체크인이면 — 그 시각은 그대로 둡니다(조정 뒤 기준점이 흔들리지 않게).
+  /// 새 체크인을 넣거나, 이번 계획 주의 것을 바꿉니다. 바꿀 때 시각은 **새 시각**
+  /// (잰 날이 그대로 보이게), 「조정함」 표시는 남깁니다.
   List<Object?> _withEntry(app, Map<String, Object?> entry) {
     final list = [...((app.state['checkins'] as List?) ?? const [])];
-    final prev = _recent(app);
-    if (prev == null) return list..add(entry);
-    final plan = app.state['plan'] as Map;
-    final adjs = plan['adjustments'] is List ? plan['adjustments'] as List : const [];
-    final tied = adjs.isNotEmpty && adjs.last is Map && (adjs.last as Map)['at'] == prev['at'];
-    final merged = {
-      ...entry,
-      if (tied) 'at': prev['at'],
-      'applied': entry['applied'] == true || prev['applied'] == true,
-    };
-    final i = list.indexWhere((x) => x is Map && x['at'] == prev['at']);
+    final prev = _sameWeek(app);
+    final i = prev == null ? -1 : list.indexWhere((x) => x is Map && x['at'] == prev['at']);
     if (i < 0) return list..add(entry);
-    list[i] = merged;
+    list[i] = {...entry, 'applied': entry['applied'] == true || prev!['applied'] == true};
     return list;
   }
 
@@ -318,7 +310,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
   Future<void> _delete(app, Map<String, Object?> c) async {
     final plan = app.state['plan'];
     final adjs = plan is Map && plan['adjustments'] is List ? plan['adjustments'] as List : const [];
-    final tied = adjs.any((a) => a is Map && a['at'] == c['at']);
+    final tied = c['applied'] == true || adjs.any((a) => a is Map && a['at'] == c['at']);
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -385,15 +377,8 @@ class _CheckinScreenState extends State<CheckinScreen> {
     );
     if (yes != true || !mounted) return;
 
-    /* 조정과 체크인은 같은 시각 — 바꿔 넣는 경우에도 새 시각으로(새 조정이 기준). */
-    final list = [...((app.state['checkins'] as List?) ?? const [])];
-    final prev = _recent(app);
-    final i = prev == null ? -1 : list.indexWhere((x) => x is Map && x['at'] == prev['at']);
-    if (i >= 0) {
-      list[i] = _entry(at, actual, ex, review, true);
-    } else {
-      list.add(_entry(at, actual, ex, review, true));
-    }
+    /* 조정과 체크인은 같은 시각 — 이번 주 것을 바꿔 넣는 경우에도 새 시각으로(새 조정이 기준). */
+    final list = _withEntry(app, _entry(at, actual, ex, review, true));
     app.store.set({'checkins': list});
     app.store.setPlan((res['plan'] as Map).cast<String, Object?>());
     if (!app.store.saved()) {
@@ -502,7 +487,7 @@ class _PastCard extends StatelessWidget {
             trailing: Text(list.isEmpty ? '' : '최근 ${recent.length}건',
                 style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
         if (recent.isEmpty)
-          Text('아직 없습니다. 주 1회 같은 조건(아침 공복)으로 재면 둘째 주부터 판정이 나옵니다.',
+          Text('아직 없습니다. 주 1회 같은 조건(아침 공복)으로 재면, 3주에 걸쳐 4번째 체크인부터 판정이 나옵니다.',
               style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5))
         else
           for (final c in recent)

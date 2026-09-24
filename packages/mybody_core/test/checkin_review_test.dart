@@ -230,4 +230,49 @@ void main() {
     expect(planWeightAt(cut, 3.5), closeTo(86.5, 1e-9));
     expect(planWeightAt(null, 7), isNull);
   });
+
+  test('3~4일마다 재도 판정한다 — 5일 묶음이 사슬처럼 이어지지 않는다', () {
+    /* 월 · 목(0, 4, 7, 11, …)으로 재는 사람. 예전엔 전부 한 점으로 묶여 영영 "기준" 이었습니다. */
+    final days = <int>[];
+    for (var d = 0; d <= 84;) {
+      days.add(d);
+      d += days.length.isOdd ? 4 : 3;
+    }
+    final r = checkinReview(cut, rd([for (final d in days) [d, 86.7]]), null);
+    expect(r['weeks'], greaterThanOrEqualTo(10));
+    expect(r['status'], 'slow');
+  });
+
+  test('감량 뒤 유지 구간에서 체중을 지키면 계획대로 — 앞선 감량을 "줄고 있다" 로 읽지 않는다', () {
+    final tr = <double>[for (var w = 0; w <= 26; w++) w <= 6 ? 86.7 - (2.8 / 6) * w : 83.9 + 0.1 * (w - 6)];
+    final p = planOf([for (final w in tr) double.parse(w.toStringAsFixed(1))],
+        phases: [for (var w = 0; w <= 26; w++) w <= 6 ? 'cut' : 'maintain']);
+    final line = ((p['trajectory'] as List).cast<Map>()).map((q) => q['weightKg'] as double).toList();
+    for (final n in [10, 16, 22, 27]) {
+      final r = checkinReview(p, weekly(n, (i) => i <= 6 ? line[i] : 83.9), null);
+      expect(r['status'], 'onTrack', reason: '$n번');
+      expect(r['apply'], isNull);
+    }
+  });
+
+  test('유지 계획선이 올라도 체중을 지키면 "흔들린다" 가 아니라 "지키고 있다"', () {
+    final rising = planOf([for (var i = 0; i < 14; i++) 86.7 + 0.11 * i], phase: 'maintain');
+    final r = checkinReview(rising, weekly(12, (_) => 86.7), null);
+    expect(r['status'], 'onTrack');
+    expect((r['suggestions'] as List).first['title'], '체중을 지키고 있습니다');
+  });
+
+  test('딱 3주(21일)면 판정한다 — 주로 나눈 소수 오차로 "모자라다" 하지 않는다', () {
+    final r = checkinReview(cut, rd([[13, 86.2], [20, 86.2], [27, 86.2], [34, 86.2]]), null);
+    expect(r['status'], isNot('collecting'));
+  });
+
+  test('흔들림이 거의 없는데 확실하지 않을 때는 "기간이 짧아서" 라고 말한다', () {
+    /* 잔차 0 · 0.34 · 0.68 · 1.02 — 곧은 선(흔들림 0)이지만 3주 1.02kg 은 아직 확실하지 않음. */
+    final p = planOf([80, 79.5, 79, 78.5, 78, 77.5], phase: 'cut');
+    final r = checkinReview(p, rd([[0, 80], [7, 79.84], [14, 79.68], [21, 79.52]]), null);
+    expect(r['status'], 'watch');
+    expect('${(r['suggestions'] as List).first['detail']}', contains('기간이 짧아'));
+    expect('${(r['suggestions'] as List).first['detail']}', isNot(contains('흔들려')));
+  });
 }

@@ -406,7 +406,7 @@
           h('div.card__title', { text: '이번 주 제안' }),
           h('span.badge.' + statusBadgeClass(review.status), { text: statusLabel(review.status) })
         ]));
-        sCard.appendChild(h('div.card__sub', { text: statusDesc(review.status) }));
+        sCard.appendChild(h('div.card__sub', { text: statusDesc(review.status, review) }));
         sCard.appendChild(h('div', { style: { marginTop: '10px' } },
           (review.suggestions || []).map(function (s) {
             return h('div.radio-card', { style: { marginBottom: '6px' } }, [
@@ -672,9 +672,13 @@
     return ({ onTrack: 'badge--ok', slow: 'badge--warn', fast: 'badge--warn',
               heavy: 'badge--warn', light: 'badge--warn', adherence: 'badge--bad' })[s] || 'badge--accent';
   }
-  function statusDesc(s) {
+  function statusDesc(s, review) {
+    if (s === 'early' && review) {
+      if (review.since) return '계획을 조정한 직후라 판정하지 않습니다. 여기서부터 다시 흐름을 봅니다.';
+      if (review.merged) return '같은 주(또는 5일 안)에 다시 잰 값이라 앞의 값을 대신합니다. 아직 판정하지 않습니다.';
+    }
     return ({
-      early: '첫 체크인(또는 조정 직후)이라 판정하지 않습니다. 여기서부터 체크인끼리의 흐름을 봅니다.',
+      early: '첫 체크인이라 판정하지 않습니다. 여기서부터 체크인끼리의 흐름을 봅니다.',
       collecting: '판정은 3주 이상에 걸친 체크인 4번부터 합니다. 그때까지는 흐름만 모읍니다.',
       onTrack: '체크인들의 추세가 계획선과 1kg 안에서 같이 갑니다. 이번 주는 바꿀 이유가 없습니다.',
       watch: '벗어나는 쪽으로 보이지만 아직 한 번이거나 흔들림이 커서 확실하지 않습니다. 다음 체크인까지 봅니다.',
@@ -692,10 +696,14 @@
     if (review.status === 'early') {
       return review.since ? '조정 뒤 새 기준' : (review.merged ? '5일 안에 다시 잰 값으로 기준' : '첫 체크인 — 기준');
     }
-    if (review.status === 'collecting') return '모으는 중 — ' + review.weeks + '/4번';
+    if (review.status === 'collecting') {
+      return '모으는 중 — ' + review.weeks + '/4번 · ' +
+             (review.spanWeeks != null ? UI.n1(review.spanWeeks) : '0') + '/3주';
+    }
     if (d == null) return '판정 없음';
     var span = review.spanWeeks != null ? UI.n1(review.spanWeeks) + '주 추세 · ' : '';
-    if (Math.abs(d) < 1) return span + '흔들림 범위(±1)';
+    /* 이름은 판정(status)에서 — ±1.00 같은 경계값을 숫자로 다시 가르면 판정과 어긋납니다. */
+    if (review.status === 'onTrack') return span + '계획대로(±1kg 안 · 또는 체중 유지)';
     return span + (d > 0 ? '계획보다 무거워짐' : '계획보다 가벼워짐') +
            (review.status === 'watch' ? ' · 지켜봄' : '');
   }
