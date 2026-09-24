@@ -275,4 +275,76 @@ void main() {
     expect('${(r['suggestions'] as List).first['detail']}', contains('기간이 짧아'));
     expect('${(r['suggestions'] as List).first['detail']}', isNot(contains('흔들려')));
   });
+
+  group('추세는 지금 단계 안에서만 (4차 검토)', () {
+    /* 감량 6주(주 0.4kg) → 증량(주 0.4kg). */
+    final split = planOf([for (var w = 0; w <= 14; w++) w <= 6 ? 60.0 - 0.4 * w : 57.6 + 0.4 * (w - 6)],
+        phases: [for (var w = 0; w <= 14; w++) w <= 6 ? 'cut' : 'bulk']);
+
+    test('감량 때 정체하고 증량에 들어가 계획대로 늘면 "빨리 는다 · 줄이기" 가 아니다', () {
+      /* 감량 내내 60kg(정체), 증량부터 계획 속도로 늘어남. 예전엔 감량 때 쌓인 +2.4kg 이
+         증량 추세로 읽혀 "빠릅니다 · 150kcal 줄이기" 가 나왔습니다. */
+      final r = checkinReview(split, weekly(13, (i) => i <= 6 ? 60.0 : 60.0 + 0.4 * (i - 6)), null);
+      expect(r['direction'], 'gain');
+      expect(r['phaseFrom'], 6);
+      expect(r['weeks'], 7);
+      expect(r['status'], 'onTrack');
+      expect(r['apply'], isNull);
+    });
+
+    test('단계가 막 바뀌었으면 새 단계의 체크인이 모일 때까지 모은다', () {
+      final r = checkinReview(split, weekly(9, (i) => i <= 6 ? 60.0 : 60.0 + 0.4 * (i - 6)), null);
+      expect(r['status'], 'collecting');
+      expect(r['phaseFrom'], 6);
+      expect(r['weeks'], 3);
+      expect(r['apply'], isNull);
+      final s = (r['suggestions'] as List).first as Map;
+      expect(s['title'], '새 단계라 다시 모으는 중입니다');
+      expect('${s['detail']}', contains('증량 단계로'));
+    });
+
+    test('감량 구간 안에서는 그대로 — 정체면 느림 · 줄이기', () {
+      final r = checkinReview(split, weekly(6, (_) => 60.0), null);
+      expect(r['phaseFrom'], isNull);
+      expect(r['status'], 'slow');
+    });
+
+    test('단계 정보가 없는 계획은 나누지 않는다', () {
+      final plain = planOf([for (final q in split['trajectory'] as List) (q as Map)['weightKg'] as double]);
+      final r = checkinReview(plain, weekly(13, (i) => i <= 6 ? 60.0 : 60.0 + 0.4 * (i - 6)), null);
+      expect(r['phaseFrom'], isNull);
+      expect(r['weeks'], 13);
+    });
+  });
+
+  group('유지 — "지키고 있다" 는 체중이 실제로 그대로일 때만 (4차 검토)', () {
+    test('감량 뒤 유지가 짧으면 "지키고 있다" 가 아니라 모으는 중', () {
+      final p = planOf([for (var w = 0; w <= 12; w++) w <= 6 ? 86.7 - 0.4 * w : 84.3 + 0.1 * (w - 6)],
+          phases: [for (var w = 0; w <= 12; w++) w <= 6 ? 'cut' : 'maintain']);
+      final r = checkinReview(p, weekly(9, (i) => i <= 6 ? 86.7 - 0.4 * i : 84.3), null);
+      expect(r['status'], 'collecting');
+      expect(r['held'], false);
+      expect('${((r['suggestions'] as List).first as Map)['detail']}', contains('유지 단계로'));
+    });
+
+    test('계획선이 체중보다 더 올라 벌어졌어도 체중이 1kg 넘게 늘었으면 "지키고 있다" 가 아니다', () {
+      /* 계획선 주 0.3kg · 체중 주 0.15kg — 계획선보다 가볍지만 체중은 11주에 1.65kg 늘었습니다. */
+      final rising = planOf([for (var i = 0; i < 14; i++) 80.0 + 0.3 * i], phase: 'maintain');
+      final r = checkinReview(rising, weekly(12, (i) => 80.0 + 0.15 * i), null);
+      expect(r['held'], false);
+      expect(r['status'], 'watch');
+      expect(r['apply'], isNull);
+      final s = (r['suggestions'] as List).first as Map;
+      expect(s['title'], '바꾸지 않습니다');
+      expect('${s['detail']}', contains('가볍지만'));
+      expect('${s['detail']}', contains('늘고'));
+    });
+
+    test('체중이 정말 그대로면 held', () {
+      final rising = planOf([for (var i = 0; i < 14; i++) 86.7 + 0.11 * i], phase: 'maintain');
+      final r = checkinReview(rising, weekly(12, (_) => 86.7), null);
+      expect(r['held'], true);
+      expect(r['status'], 'onTrack');
+    });
+  });
 }

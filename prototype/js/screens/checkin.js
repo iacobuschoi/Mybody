@@ -177,9 +177,15 @@
         if (w < 20 || w > 300) return '20~300kg 사이로 넣어 주세요';
         /* 견주는 값은 날짜가 가장 최근인 것 — 마지막 체크인과 최근 인바디 중에서. 오래된
            체크인과 견주면 몇 달 사이 실제로 뺀 체중을 막습니다. 허용 폭은 15% + 주당 1%(최대 40%). */
+        /* 이번 계획 주의 체크인과는 견주지 않습니다 — 판정은 이번 주 값으로 그것을 대신하는데,
+           이번 주에 862 를 저장해 버렸으면 그 862 가 기준이 되어 고쳐 넣는 86.2 를 막았습니다. */
         var ref = null, refAt = null;
+        var pl = S.get().plan;
+        var nowWk = pl && pl.startDate ? E.planWeekOf(pl.startDate, S.dayKey()) : null;
         (S.get().checkins || []).forEach(function (c) {
           if (c.at === savedAt || typeof c.weightKg !== 'number' || c.weightKg < 20 || c.weightKg > 300) return;
+          if (nowWk != null && S.dayKey(c.at) >= String(pl.startDate) &&
+              E.planWeekOf(pl.startDate, S.dayKey(c.at)) === nowWk) return;
           var t = new Date(c.at).getTime();
           if (isFinite(t) && (refAt == null || t > refAt)) { ref = c.weightKg; refAt = t; }
         });
@@ -397,7 +403,7 @@
         ]));
         card.appendChild(h('div.field__hint', {
           text: '집 체중계는 인바디와 0.5~1kg 다를 수 있어서, 판정은 계획선과의 거리가 아니라 ' +
-                '체크인들의 추세가 계획선과 얼마나 다르게 가는지로 합니다. 5일 안에 다시 잰 값은 앞의 값을 대신합니다.' }));
+                '체크인들의 추세가 계획선과 얼마나 다르게 가는지로 합니다. 같은 주(또는 5일 안)에 다시 잰 값은 앞의 값을 대신합니다.' }));
         body.appendChild(card);
 
         /* --- C04 제안 --- */
@@ -448,13 +454,15 @@
               }, previewText(preview));
             }
           }) : null,
-          h('button.btn.btn--block', {
+          /* 「이번엔 유지」는 거절할 제안이 있을 때만 — 적용한 뒤에도 남아 있으면
+             누르는 순간 "계획을 그대로 두었습니다" 라고 거짓말을 합니다. */
+          canApply ? h('button.btn.btn--block', {
             text: '이번엔 유지', uid: 'P08-B04', uidLabel: '이번엔 유지',
             onClick: function () {
               global.MB_UID.toast('계획을 그대로 두었습니다');
               A.go('P02');
             }
-          }),
+          }) : null,
           h('button.btn.btn--ghost.btn--block', {
             text: '강도 변경', uid: 'P08-B05', uidLabel: '강도 변경',
             onClick: function () { global.MB_MODALS.changeLevel(rebuildWithLevel); }
@@ -528,10 +536,11 @@
           text: '체중은 하루 사이에도 ±1kg 흔들립니다. 한 번의 숫자가 아니라 흐름으로 보세요.',
           evidence: '전날 짜게 먹었거나 탄수화물을 몰아 먹었거나 잠이 모자랐으면, ' +
                     '체지방이 전혀 늘지 않아도 숫자는 올라갑니다.\n\n' +
-                    '앱의 판단 기준 — 5일 안에 다시 잰 값은 앞의 값을 대신합니다. 체크인마다 그날 자리의 ' +
+                    '앱의 판단 기준 — 같은 주(또는 5일 안)에 다시 잰 값은 앞의 값을 대신합니다. 체크인마다 그날 자리의 ' +
                     '계획선과의 차이를 구하고 그 차이들에 직선 추세를 맞춰, 3주 이상 · 4번 이상의 체크인에서 ' +
                     '추세가 1kg 넘게 · 흔들림에 비해 확실하게 벗어나는 일이 두 번 연속 체크인에서 보일 때만 ' +
-                    '계획을 건드립니다. 한 번이면 지켜봅니다. ' +
+                    '계획을 건드립니다. 한 번이면 지켜봅니다. 감량 → 유지처럼 계획의 단계가 바뀌면 ' +
+                    '그 단계의 체크인부터 다시 봅니다. ' +
                     '체지방과 골격근이 실제로 어떻게 움직였는지는 인바디로만 확인됩니다.'
         }));
 
@@ -677,6 +686,12 @@
       if (review.since) return '계획을 조정한 직후라 판정하지 않습니다. 여기서부터 다시 흐름을 봅니다.';
       if (review.merged) return '같은 주(또는 5일 안)에 다시 잰 값이라 앞의 값을 대신합니다. 아직 판정하지 않습니다.';
     }
+    if (s === 'collecting' && review && review.phaseFrom != null) {
+      return '계획의 단계가 바뀌어 그 단계의 체크인부터 다시 봅니다. 3주 이상에 걸친 체크인 4번이 모이면 판정합니다.';
+    }
+    if (s === 'onTrack' && review && review.held) {
+      return '유지 기간이라 체중 자체가 그대로면 계획대로입니다. 계획선과는 벌어져 보여도 바꿀 이유가 없습니다.';
+    }
     return ({
       early: '첫 체크인이라 판정하지 않습니다. 여기서부터 체크인끼리의 흐름을 봅니다.',
       collecting: '판정은 3주 이상에 걸친 체크인 4번부터 합니다. 그때까지는 흐름만 모읍니다.',
@@ -694,16 +709,16 @@
     var d = review.devKg;
     if (review.status === 'adherence') return '식단 먼저 — 체중 판정 보류';
     if (review.status === 'early') {
-      return review.since ? '조정 뒤 새 기준' : (review.merged ? '5일 안에 다시 잰 값으로 기준' : '첫 체크인 — 기준');
+      return review.since ? '조정 뒤 새 기준' : (review.merged ? '다시 잰 값으로 기준' : '첫 체크인 — 기준');
     }
     if (review.status === 'collecting') {
-      return '모으는 중 — ' + review.weeks + '/4번 · ' +
+      return (review.phaseFrom != null ? '새 단계 · ' : '모으는 중 — ') + review.weeks + '/4번 · ' +
              (review.spanWeeks != null ? UI.n1(review.spanWeeks) : '0') + '/3주';
     }
     if (d == null) return '판정 없음';
     var span = review.spanWeeks != null ? UI.n1(review.spanWeeks) + '주 추세 · ' : '';
     /* 이름은 판정(status)에서 — ±1.00 같은 경계값을 숫자로 다시 가르면 판정과 어긋납니다. */
-    if (review.status === 'onTrack') return span + '계획대로(±1kg 안 · 또는 체중 유지)';
+    if (review.status === 'onTrack') return span + (review.held ? '체중을 지키는 중(유지)' : '계획대로(±1kg 안)');
     return span + (d > 0 ? '계획보다 무거워짐' : '계획보다 가벼워짐') +
            (review.status === 'watch' ? ' · 지켜봄' : '');
   }

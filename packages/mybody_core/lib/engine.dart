@@ -1699,8 +1699,10 @@ Map<String, Object?>? dietNudge(Map<String, Object?> today, Map<String, Object?>
  *  · 계획 주마다 마지막 값, 그 대표들 중 이웃한 두 값이 5일 안이면 앞의 값을 버림(사슬 없음).
  *  · 4번 이상 · 3주 이상부터 판정. 추세가 1kg 넘게 벗어나고 기울기/표준오차 ≥ 2.5
  *    (흔들림은 0.35kg 밑으로 안 봄)일 때 "벗어남". 두 번 연속 벗어남이면 조정.
- *  · 방향은 x 를 포함하는 구간이 끝나는 점의 phase. 유지 단계는 그 유지 구간 안의 체중
- *    자체도 같은 쪽일 때만 — 체중을 지켜서 판정을 거둔 경우는 onTrack(흔들린다고 안 함).
+ *  · 방향은 x 를 포함하는 구간이 끝나는 점의 phase. 추세는 지금 단계 안에서만 맞춥니다
+ *    (단계가 바뀌면 거기서부터 다시 — 감량 때 쌓인 차이가 증량 추세로 읽히지 않게).
+ *  · 유지 단계는 체중 자체도 같은 쪽일 때만. 체중이 실제로 1kg 안에서 그대로라 판정을
+ *    거둔 경우는 held · onTrack(흔들린다고 안 함).
  *  · 무거워지면 −150, 가벼워지면 +150, 감량 중에 무거워지면 유산소 +40분.
  *  · 식단 준수도 70% 미만이면 adherence 가 먼저. 마지막 조정 이후 체크인만 봅니다.
  * -------------------------------------------------------------------------- */
@@ -1844,8 +1846,9 @@ int _checkinSide(List<List<double>> pts) {
   return t.drift > 0 ? 1 : -1;
 }
 
-/// 마지막 점이 들어 있는 유지 구간이 시작하는 x. 단계 정보가 없으면 null(전부 봄).
-double? _maintainStartX(List tr, double x) {
+/// x 가 들어 있는 단계 구간이 시작하는 x. 단계 정보가 없으면 null(전부 봄).
+/// 점 k 의 phase 는 k−1 → k 구간의 것이라, 같은 단계가 이어지는 첫 점 k 의 앞 점이 시작.
+double? _phaseStartX(List tr, double x) {
   var g = -1;
   for (var i = 0; i < tr.length; i++) {
     if (_trajWeek(tr[i] as Map, i) > x) {
@@ -1854,9 +1857,11 @@ double? _maintainStartX(List tr, double x) {
     }
   }
   if (g < 0) g = tr.length - 1;
-  if (g < 0 || (tr[g] as Map)['phase'] != 'maintain') return null;
+  if (g < 0) return null;
+  final ph = (tr[g] as Map)['phase'];
+  if (ph != 'cut' && ph != 'bulk' && ph != 'maintain') return null;
   var k = g;
-  while (k - 1 >= 0 && (tr[k - 1] as Map)['phase'] == 'maintain') {
+  while (k - 1 >= 0 && (tr[k - 1] as Map)['phase'] == ph) {
     k--;
   }
   return k >= 1
@@ -1871,7 +1876,8 @@ Map<String, Object?> checkinReview(Map<String, Object?>? plan, List? readings,
   final suggestions = <Map<String, Object?>>[];
   final out = <String, Object?>{
     'status': 'early', 'direction': null, 'devKg': null, 'rateKg': null, 'spanWeeks': null,
-    'weeks': 0, 'merged': 0, 'since': null, 'suggestions': suggestions, 'apply': null,
+    'weeks': 0, 'merged': 0, 'since': null, 'phaseFrom': null, 'held': false,
+    'suggestions': suggestions, 'apply': null,
   };
 
   /* 마지막 조정 이후만 — 그 전 체크인은 옛 칼로리로 산 주입니다. */
@@ -1915,7 +1921,7 @@ Map<String, Object?> checkinReview(Map<String, Object?>? plan, List? readings,
       kept.add(k);
     }
   }
-  final n = kept.length;
+  var n = kept.length;
   out['weeks'] = n;
   out['merged'] = merged;
 
@@ -1939,7 +1945,7 @@ Map<String, Object?> checkinReview(Map<String, Object?>? plan, List? readings,
             'detail': '계획을 바꾼 뒤로는 그때 체크인부터 다시 봅니다.'}
         : (merged != 0
             ? {'kind': 'hold', 'title': '기준 체중을 다시 잡았습니다',
-                'detail': '5일 안에 다시 잰 값이라 앞의 값을 이 값으로 바꿔 기준으로 씁니다.'}
+                'detail': '같은 주(또는 5일 안)에 다시 잰 값이라 앞의 값을 이 값으로 바꿔 기준으로 씁니다.'}
             : {
                 'kind': 'hold', 'title': '기준 체중을 잡았습니다',
                 'detail': '첫 체크인은 판정하지 않습니다. 인바디와 집 체중계는 0.5~1kg 다를 수 있어서, '
@@ -1949,7 +1955,7 @@ Map<String, Object?> checkinReview(Map<String, Object?>? plan, List? readings,
   }
 
   /* 잔차 = 그날 체중 − 그날 자리의 계획선. 유지 단계 확인용으로 체중 그대로도. */
-  final pts = <List<double>>[], flat = <List<double>>[];
+  var pts = <List<double>>[], flat = <List<double>>[];
   for (var i = 0; i < n; i++) {
     final x = kept[i][1] / 7;
     pts.add([x, kept[i][0] - _trajWeightAt(tr, x), kept[i][1]]);
@@ -1963,7 +1969,16 @@ Map<String, Object?> checkinReview(Map<String, Object?>? plan, List? readings,
   }
   final dir = _trajDirectionAt(tr, pts[n - 1][0]);
   out['direction'] = dir;
-  final trend = _checkinTrend(pts);
+  /* 지금 단계 안의 체크인만 — 단계가 바뀌면 거기서부터 다시 봅니다. */
+  final segX = _phaseStartX(tr, pts[n - 1][0]);
+  if (segX != null && pts[0][0] < segX) {
+    out['phaseFrom'] = r1(segX);
+    pts = [for (final q in pts) if (q[0] >= segX) q];
+    flat = [for (final q in flat) if (q[0] >= segX) q];
+    n = pts.length;
+    out['weeks'] = n;
+  }
+  final trend = n >= 2 ? _checkinTrend(pts) : null;
   if (trend != null) {
     out['devKg'] = r2(trend.drift);
     out['rateKg'] = r2(trend.slope);
@@ -1973,29 +1988,31 @@ Map<String, Object?> checkinReview(Map<String, Object?>? plan, List? readings,
   if (n < kCheckinMinN || trend == null || !(trend.spanDays >= kCheckinMinSpanDays)) {
     out['status'] = 'collecting';
     suggestions.add({
-      'kind': 'hold', 'title': '흐름을 모으는 중입니다',
-      'detail': '판정은 3주 이상에 걸친 체크인 4번부터 합니다 — 지금 $n번 · '
+      'kind': 'hold',
+      'title': out['phaseFrom'] != null ? '새 단계라 다시 모으는 중입니다' : '흐름을 모으는 중입니다',
+      'detail': '${out['phaseFrom'] != null ? '계획이 ${const {'cut': '감량', 'gain': '증량', 'maintain': '유지'}[dir]} 단계로 넘어가 거기서부터 다시 봅니다. ' : ''}'
+          '판정은 3주 이상에 걸친 체크인 4번부터 합니다 — 지금 $n번 · '
           '${_s(trend != null ? r1(trend.spanDays / 7) : 0)}주. '
           '한 번 한 번의 체중은 ±1kg 흔들려서, 추세가 보일 때까지 계획을 바꾸지 않습니다.',
     });
     return out;
   }
 
-  /* 유지 단계는 그 유지 구간 안의 체중 자체도 같은 쪽으로 움직였을 때만. */
-  final mStart = dir == 'maintain' ? _maintainStartX(tr, pts[n - 1][0]) : null;
+  /* 유지 단계는 체중 자체도 같은 쪽으로 움직였을 때만. */
   int side(List<List<double>> p, List<List<double>> f) {
     final s = _checkinSide(p);
-    if (s != 0 && dir == 'maintain') {
-      final ff = mStart == null ? f : [for (final q in f) if (q[0] >= mStart) q];
-      if (_checkinSide(ff) != s) return 0;
-    }
+    if (s != 0 && dir == 'maintain' && _checkinSide(f) != s) return 0;
     return s;
   }
 
   final s1 = side(pts, flat);
   final s0 = side(pts.sublist(0, n - 1), flat.sublist(0, n - 1));
-  /* 유지 확인 때문에 판정을 거뒀는가 — 체중을 지키고 있는 것. */
-  final held = s1 == 0 && dir == 'maintain' && _checkinSide(pts) != 0;
+  /* 체중을 지키고 있어서 거둔 것인가 — 계획선과는 벌어졌지만 체중 자체는 1kg 안에서 그대로. */
+  final sP = _checkinSide(pts);
+  final rawT = _checkinTrend(flat);
+  final held = s1 == 0 && dir == 'maintain' && sP != 0 &&
+      rawT != null && rawT.drift.abs() < kCheckinDriftKg;
+  out['held'] = held;
 
   if (s1 == 0) {
     if (held) {
@@ -2005,6 +2022,18 @@ Map<String, Object?> checkinReview(Map<String, Object?>? plan, List? readings,
         'detail': '유지 기간이라 체중 자체가 그대로면 계획대로입니다. 계획선은 근육이 붙는 만큼 '
             '조금씩 오르게 그려져 있어서 거기서는 벗어나 보이지만, 바꿀 이유는 없습니다.',
       });
+    } else if (dir == 'maintain' && sP != 0) {
+      /* 계획선과는 확실히 벌어졌는데 체중 자체는 1kg 넘게 움직였고, 같은 쪽으로
+         확실하지는 않은 경우 — 반대로 움직였거나(계획선이 체중보다 더 오름) 흔들림. */
+      out['status'] = 'watch';
+      final rs = _checkinSide(flat);
+      suggestions.add(rs == -sP
+          ? {'kind': 'watch', 'title': '바꾸지 않습니다',
+              'detail': '유지 기간이라 체중 자체로 봅니다. 계획선보다는 ${sP > 0 ? '무겁지만' : '가볍지만'}'
+                  ' 체중은 오히려 ${rs > 0 ? '늘고' : '줄고'} 있어서 칼로리를 바꿀 이유가 없습니다.'}
+          : {'kind': 'watch', 'title': '아직 확실하지 않습니다',
+              'detail': '유지 기간이라 체중 자체로 봅니다. 계획선과 벌어졌고 체중도 움직였지만, 흔들림이 커서 '
+                  '한쪽으로 확실하지 않습니다. 다음 체크인까지 봅니다.'});
     } else if (trend.drift.abs() >= kCheckinDriftKg) {
       out['status'] = 'watch';
       suggestions.add(trend.rawSigma < kCheckinMinSigma

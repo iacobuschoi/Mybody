@@ -94,13 +94,17 @@ String checkinStatusLabel(Object? status) => switch ('$status') {
 /// 견주는 값은 **날짜가 가장 최근인 것** — 마지막 체크인과 최근 인바디 중에서.
 /// 오래된 체크인과 견주면, 몇 달 동안 실제로 10kg 을 뺀 사람의 맞는 체중을 막았습니다.
 /// 허용 폭도 시간이 지난 만큼 넓힙니다(15% + 주당 1%, 최대 40%).
-String? checkinWeightProblem(core.Store store, double? w) {
+///
+/// [replacing] 은 이번에 저장하면 **바뀔** 체크인의 at — 그 값과는 견주지 않습니다.
+/// 이번 주에 862 를 저장해 버렸으면, 그 862 가 기준이 되어 고쳐 넣는 86.2 를 막았습니다.
+String? checkinWeightProblem(core.Store store, double? w, {Object? replacing}) {
   if (w == null) return null;
   if (!w.isFinite) return '숫자로 넣어 주세요';
   if (w < 20 || w > 300) return '20~300kg 사이로 넣어 주세요';
   double? ref;
   DateTime? refAt;
   for (final c in checkinsOf(store.get()).reversed) {
+    if (replacing != null && c['at'] == replacing) continue;
     final cw = c['weightKg'];
     final at = DateTime.tryParse('${c['at']}');
     if (cw is num && cw >= 20 && cw <= 300 && at != null) {

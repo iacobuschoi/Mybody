@@ -17,9 +17,10 @@
  * **판정은 흔들림보다 커야 합니다.** 예전엔 이번 주 체중 하나를 계획선에 대
  * 보고 0.15kg 만 달라도 "빠릅니다 · 하루 150kcal 늘리기" 를 냈습니다 — 계획
  * 다음 날 집 체중계 값이 인바디와 0.5kg 다르다는 이유로요. 지금은 코어의
- * checkinReview 가: 첫 체크인은 기준점(판정 없음), 그 뒤 **변화량**을 계획선과
- * 견줘 ±0.5kg 안이면 계획대로, 한 번 벗어나면 지켜봄, 두 번 연속일 때만
- * 조정을 제안합니다. 그때만 「저장하고 제안 적용」이 나옵니다.
+ * checkinReview 가: 체크인마다 그날 자리의 계획선과의 차이를 구해 **추세**를 맞추고,
+ * 3주 이상 · 4번 이상에서 추세가 1kg 넘게 · 흔들림보다 확실하게 벗어나는 일이 두 번
+ * 연속일 때만 조정을 제안합니다(한 번이면 지켜봄). 추세는 지금 단계(감량 · 유지 ·
+ * 증량) 안에서만 봅니다. 그때만 「저장하고 제안 적용」이 나옵니다.
  *
  * 저장한 체크인이 어디에 쓰이는가: 다음 판정(기준점 · 연속 여부), 이 화면의
  * 그래프와 「지난 체크인」, 홈 「이번 주 체크인」의 완료 표시, 추이 탭 체중
@@ -79,7 +80,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
     final expected = core.planWeightAt(plan, todayDay) ?? double.nan;
     final typed = double.tryParse(_weight.text.trim());
     /* 소수점을 빠뜨린 862 같은 값은 기준점으로 들어가면 그 뒤 판정이 다 틀어집니다. */
-    final problem = checkinWeightProblem(app.store, typed);
+    final problem = checkinWeightProblem(app.store, typed, replacing: _sameWeek(app)?['at']);
     final actual = problem == null ? typed : null;
 
     /* 지난 7일 실행 — 기록에서 셉니다. */
@@ -214,7 +215,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
               const SizedBox(height: 6),
               Text('점은 집 체중계로 넣은 체크인입니다. 인바디와 0.5~1kg 다를 수 있어서, '
                   '판정은 계획선과의 거리가 아니라 점들의 추세가 계획선과 얼마나 다르게 '
-                  '가는지로 합니다. 5일 안에 다시 잰 값은 앞의 값을 대신합니다.',
+                  '가는지로 합니다. 같은 주(또는 5일 안)에 다시 잰 값은 앞의 값을 대신합니다.',
                   style: hint),
             ]),
           ),
@@ -413,13 +414,19 @@ class _AdviceCard extends StatelessWidget {
     final dev = review['devKg'];
     final span = review['spanWeeks'];
     final shown = dev is num && !const {'adherence', 'early', 'collecting'}.contains(status);
-    final lead = '${review['since'] != null ? '조정한 뒤 ' : ''}체크인 ${n0(review['weeks'])}번 · ${n1(span)}주의 추세로 보면';
-    final devText = shown
-        ? (dev.abs() < 0.05
+    final from = review['phaseFrom'] != null
+        ? '이번 단계에서 '
+        : (review['since'] != null ? '조정한 뒤 ' : '');
+    final lead = '$from체크인 ${n0(review['weeks'])}번 · ${n1(span)}주의 추세로 보면';
+    final devText = !shown
+        ? null
+        : dev.abs() < 0.05
             ? '$lead 계획선과 같이 가고 있습니다.'
-            : '$lead 그 기간에 계획선보다 ${n2(dev.abs())}kg ${dev > 0 ? '무거워졌습니다' : '가벼워졌습니다'} '
-                '(1kg 까지는 흔들림으로 봅니다).')
-        : null;
+            : review['held'] == true
+                ? '$lead 계획선보다 ${n2(dev.abs())}kg ${dev > 0 ? '무겁지만' : '가볍지만'}, '
+                    '체중 자체는 그대로입니다.'
+                : '$lead 그 기간에 계획선보다 ${n2(dev.abs())}kg ${dev > 0 ? '무거워졌습니다' : '가벼워졌습니다'} '
+                    '(1kg 까지는 흔들림으로 봅니다).';
 
     String? previewText;
     final pv = preview;

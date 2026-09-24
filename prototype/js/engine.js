@@ -1456,16 +1456,20 @@
    *  · **두 번 연속 체크인에서 같은 쪽으로 벗어남**일 때만 조정을 제안합니다.
    *    한 번이면 지켜봅니다.
    *    모의실험(계획대로 가는 사람, 체중 흔들림 σ 0.5kg, 12주): 예전 "±0.5kg 두 번"
-   *    규칙은 30~60% 가 한 번 이상 가짜 조정을 받았고, 이 규칙은 약 5%. 완전 정체는
-   *    체크인 5~6번(중앙값), 절반 정체는 7~8번이면 잡힙니다(재는 요일이 ±2일 흔들릴 때).
+   *    규칙은 30~60% 가 한 번 이상 가짜 조정을 받았고, 이 규칙은 약 5%. 주 0.5kg 감량
+   *    계획에서 완전 정체는 체크인 5~6번(중앙값), 절반 정체는 7~8번이면 잡힙니다(재는 요일이
+   *    ±2일 흔들릴 때). 느린 계획(주 0.2kg)은 정체가 쌓이는 속도도 느려서 더 오래 걸립니다 —
+   *    흔들림과 구분할 만큼 차이가 쌓여야 하기 때문이고, 느린 계획의 정체는 그만큼 덜 급합니다.
    *  · **방향은 그 시점 계획의 단계**(trajectory[].phase — 점 k 의 단계는 k−1 → k
    *    구간의 것이라 x 를 포함하는 구간이 끝나는 점을 봅니다. 없으면 그 자리 기울기).
+   *    **추세도 지금 단계 안에서만** 맞춥니다. 감량 → 유지 → 증량 계획에서 감량 때 정체한
+   *    사람이 증량에 들어가 계획대로 늘자 "빨리 늘고 있다 · 150kcal 줄이기" 를 받았습니다 —
+   *    감량 때 쌓인 차이가 증량 추세로 읽힌 것. 단계가 바뀌면 조정 때처럼 거기서부터 다시 봅니다.
    *    감량: 무거워지면 느림(slow), 가벼워지면 빠름(fast) · 증량: 반대 ·
-   *    유지: 무거움(heavy) · 가벼움(light). 유지 단계는 **그 유지 구간 안의 체중 자체도**
-   *    같은 쪽으로 1kg 넘게 움직였을 때만 — 근육이 붙는다고 계획선이 조금씩 오르는 유지
-   *    계획에서 체중을 그대로 지킨 사람에게 "더 드세요" 가 나오지 않게. 앞선 감량 구간의
-   *    체크인까지 넣어 보면 계획대로 뺀 체중이 "줄고 있다" 로 읽혀서, 유지 구간만 봅니다.
-   *    체중을 지키고 있어서 판정을 거둔 경우는 "계획대로" 입니다(흔들린다고 하지 않음).
+   *    유지: 무거움(heavy) · 가벼움(light). 유지 단계는 **체중 자체도** 같은 쪽으로 1kg
+   *    넘게 움직였을 때만 — 근육이 붙는다고 계획선이 조금씩 오르는 유지 계획에서 체중을
+   *    그대로 지킨 사람에게 "더 드세요" 가 나오지 않게. 체중이 실제로 1kg 안에서 그대로면
+   *    "지키고 있습니다"(held), 그렇지 않으면 "아직 확실하지 않습니다".
    *    칼로리는 **계획보다 무거워지면 −150, 가벼워지면 +150**. 유산소 +40분은 감량 중에
    *    무거워질 때만.
    *  · 식단을 70% 미만으로 지킨 주는 숫자를 건드리지 않습니다(adherence) — 먼저 봅니다.
@@ -1580,21 +1584,25 @@
     if (!(Math.abs(t.drift) >= CHECKIN_DRIFT_KG) || !(Math.abs(t.t) >= CHECKIN_T)) return 0;
     return t.drift > 0 ? 1 : -1;
   }
-  /** 마지막 점이 들어 있는 유지 구간이 시작하는 x. 단계 정보가 없으면 null(전부 봄). */
-  function maintainStartX(tr, x) {
+  /** x 가 들어 있는 단계 구간이 시작하는 x. 단계 정보가 없으면 null(전부 봄).
+      점 k 의 phase 는 k−1 → k 구간의 것이라, 같은 단계가 이어지는 첫 점 k 의 앞 점이 시작. */
+  function phaseStartX(tr, x) {
     var g = -1, i;
     for (i = 0; i < tr.length; i++) { if (trajWeek(tr[i], i) > x) { g = i; break; } }
     if (g < 0) g = tr.length - 1;
-    if (g < 0 || tr[g].phase !== 'maintain') return null;
+    if (g < 0) return null;
+    var ph = tr[g].phase;
+    if (ph !== 'cut' && ph !== 'bulk' && ph !== 'maintain') return null;
     var k = g;
-    while (k - 1 >= 0 && tr[k - 1].phase === 'maintain') k--;
+    while (k - 1 >= 0 && tr[k - 1].phase === ph) k--;
     return k >= 1 ? trajWeek(tr[k - 1], k - 1) : trajWeek(tr[0], 0);
   }
 
   function checkinReview(plan, readings, adherence) {
     var tr = (plan && plan.trajectory) || [];
     var out = { status: 'early', direction: null, devKg: null, rateKg: null, spanWeeks: null,
-                weeks: 0, merged: 0, since: null, suggestions: [], apply: null };
+                weeks: 0, merged: 0, since: null, phaseFrom: null, held: false,
+                suggestions: [], apply: null };
 
     /* 마지막 조정 이후만 — 그 전 체크인은 옛 칼로리로 산 주입니다. */
     var adjs = plan && Array.isArray(plan.adjustments) ? plan.adjustments : [];
@@ -1649,7 +1657,7 @@
             detail: '계획을 바꾼 뒤로는 그때 체크인부터 다시 봅니다.' }
         : (merged
           ? { kind: 'hold', title: '기준 체중을 다시 잡았습니다',
-              detail: '5일 안에 다시 잰 값이라 앞의 값을 이 값으로 바꿔 기준으로 씁니다.' }
+              detail: '같은 주(또는 5일 안)에 다시 잰 값이라 앞의 값을 이 값으로 바꿔 기준으로 씁니다.' }
           : { kind: 'hold', title: '기준 체중을 잡았습니다',
               detail: '첫 체크인은 판정하지 않습니다. 인바디와 집 체중계는 0.5~1kg 다를 수 있어서, ' +
                       '이 값부터 체크인끼리의 흐름으로 계획선과 견줘 봅니다.' }));
@@ -1671,7 +1679,16 @@
     }
     var dir = trajDirectionAt(tr, pts[n - 1].x);
     out.direction = dir;
-    var trend = checkinTrend(pts);
+    /* 지금 단계 안의 체크인만 — 단계가 바뀌면 거기서부터 다시 봅니다. */
+    var segX = phaseStartX(tr, pts[n - 1].x);
+    if (segX != null && pts[0].x < segX) {
+      out.phaseFrom = r1(segX);
+      pts = pts.filter(function (q) { return q.x >= segX; });
+      flat = flat.filter(function (q) { return q.x >= segX; });
+      n = pts.length;
+      out.weeks = n;
+    }
+    var trend = n >= 2 ? checkinTrend(pts) : null;
     if (trend) {
       out.devKg = r2(trend.drift);
       out.rateKg = r2(trend.slope);
@@ -1680,27 +1697,31 @@
 
     if (n < CHECKIN_MIN_N || !trend || !(trend.spanDays >= CHECKIN_MIN_SPAN_DAYS)) {
       out.status = 'collecting';
-      out.suggestions.push({ kind: 'hold', title: '흐름을 모으는 중입니다',
-        detail: '판정은 3주 이상에 걸친 체크인 4번부터 합니다 — 지금 ' + n + '번 · ' +
+      out.suggestions.push({ kind: 'hold',
+        title: out.phaseFrom != null ? '새 단계라 다시 모으는 중입니다' : '흐름을 모으는 중입니다',
+        detail: (out.phaseFrom != null
+                  ? '계획이 ' + ({ cut: '감량', gain: '증량', maintain: '유지' })[dir] + ' 단계로 넘어가 거기서부터 다시 봅니다. '
+                  : '') +
+                '판정은 3주 이상에 걸친 체크인 4번부터 합니다 — 지금 ' + n + '번 · ' +
                 (trend ? r1(trend.spanDays / 7) : 0) + '주. ' +
                 '한 번 한 번의 체중은 ±1kg 흔들려서, 추세가 보일 때까지 계획을 바꾸지 않습니다.' });
       return out;
     }
 
-    /* 유지 단계는 그 유지 구간 안의 체중 자체도 같은 쪽으로 움직였을 때만. */
-    var mStart = dir === 'maintain' ? maintainStartX(tr, pts[n - 1].x) : null;
-    var held = false;          // 유지 확인 때문에 판정을 거뒀는가
+    /* 유지 단계는 체중 자체도 같은 쪽으로 움직였을 때만. */
     function side(p, f) {
       var s = checkinSide(p);
-      if (s !== 0 && dir === 'maintain') {
-        var ff = mStart == null ? f : f.filter(function (q) { return q.x >= mStart; });
-        if (checkinSide(ff) !== s) return 0;
-      }
+      if (s !== 0 && dir === 'maintain' && checkinSide(f) !== s) return 0;
       return s;
     }
     var s1 = side(pts, flat);
     var s0 = side(pts.slice(0, n - 1), flat.slice(0, n - 1));
-    if (s1 === 0 && dir === 'maintain' && checkinSide(pts) !== 0) held = true;
+    /* 체중을 지키고 있어서 거둔 것인가 — 계획선과는 벌어졌지만 체중 자체는 1kg 안에서 그대로. */
+    var sP = checkinSide(pts);
+    var rawT = checkinTrend(flat);
+    var held = s1 === 0 && dir === 'maintain' && sP !== 0 &&
+               !!rawT && Math.abs(rawT.drift) < CHECKIN_DRIFT_KG;
+    out.held = held;
 
     if (s1 === 0) {
       if (held) {
@@ -1708,6 +1729,18 @@
         out.suggestions.push({ kind: 'hold', title: '체중을 지키고 있습니다',
           detail: '유지 기간이라 체중 자체가 그대로면 계획대로입니다. 계획선은 근육이 붙는 만큼 ' +
                   '조금씩 오르게 그려져 있어서 거기서는 벗어나 보이지만, 바꿀 이유는 없습니다.' });
+      } else if (dir === 'maintain' && sP !== 0) {
+        /* 계획선과는 확실히 벌어졌는데 체중 자체는 1kg 넘게 움직였고, 같은 쪽으로
+           확실하지는 않은 경우 — 반대로 움직였거나(계획선이 체중보다 더 오름) 흔들림. */
+        out.status = 'watch';
+        var rs = checkinSide(flat);
+        out.suggestions.push(rs === -sP
+          ? { kind: 'watch', title: '바꾸지 않습니다',
+              detail: '유지 기간이라 체중 자체로 봅니다. 계획선보다는 ' + (sP > 0 ? '무겁지만' : '가볍지만') +
+                      ' 체중은 오히려 ' + (rs > 0 ? '늘고' : '줄고') + ' 있어서 칼로리를 바꿀 이유가 없습니다.' }
+          : { kind: 'watch', title: '아직 확실하지 않습니다',
+              detail: '유지 기간이라 체중 자체로 봅니다. 계획선과 벌어졌고 체중도 움직였지만, 흔들림이 커서 ' +
+                      '한쪽으로 확실하지 않습니다. 다음 체크인까지 봅니다.' });
       } else if (trend && Math.abs(trend.drift) >= CHECKIN_DRIFT_KG) {
         out.status = 'watch';
         out.suggestions.push(trend.rawSigma < CHECKIN_MIN_SIGMA

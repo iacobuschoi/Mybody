@@ -264,6 +264,26 @@ void main() {
     expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '체크인 저장')).onPressed, isNotNull);
   });
 
+  testWidgets('이번 주에 잘못 저장한 값은 고쳐 넣을 수 있다 — 바뀔 값과는 견주지 않는다', (t) async {
+    /* 86.2 를 74.0 으로 잘못 저장(인바디 86.7 에서 15% 안이라 통과). 고쳐 넣는 86.2 를
+       74.0 과 견주면 16% 차이라 막혔습니다 — 그런데 저장하면 바뀔 값이 바로 그 74.0 입니다. */
+    final app = await seeded();
+    final at = _iso(DateTime.now().subtract(const Duration(minutes: 5)));
+    app.store.set({'checkins': [{'at': at, 'weightKg': 74.0}]});
+    expect(checkinWeightProblem(app.store, 86.2), isNotNull);
+    expect(checkinWeightProblem(app.store, 86.2, replacing: at), isNull);
+    expect(checkinWeightProblem(app.store, 862, replacing: at), isNotNull, reason: '범위는 그대로 봅니다');
+    await open(t, app, const CheckinScreen());
+    await t.enterText(find.byType(TextField), '86.2');
+    await t.pump();
+    expect(find.textContaining('너무 많이 다릅니다'), findsNothing);
+    await t.tap(find.text('체크인 저장'));
+    await t.pumpAndSettle();
+    final list = (app.state['checkins'] as List).cast<Map>();
+    expect(list, hasLength(1));
+    expect(list.single['weightKg'], 86.2);
+  });
+
   testWidgets('지난 체크인을 지울 수 있다', (t) async {
     final app = await seeded(weeksAgo: 1);
     app.store.set({'checkins': [
