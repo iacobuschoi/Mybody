@@ -303,6 +303,7 @@ Profiles 에서 App Store 프로파일 내려받기. `base64 -i 파일 | pbcopy`
 | GitHub Release 에 APK 가 올라간 직후 | `node tools/app-version.js --apk=0.2.8` |
 | 플레이 출시가 끝나 받을 수 있게 된 뒤 | `node tools/app-version.js --play=0.2.8` |
 | 앱스토어 심사를 지나 배포가 시작된 뒤 | `node tools/app-version.js --appstore=0.2.8` |
+| TestFlight 빌드가 「처리 완료」 된 뒤 | `node tools/app-version.js --testflight=0.2.10` |
 | 지금 값 보기 | `node tools/app-version.js` |
 
 **가게에 실제로 올라가기 전에는 올리지 마세요.** [업데이트] 단추는 그 가게의 앱
@@ -310,8 +311,9 @@ Profiles 에서 App Store 프로파일 내려받기. `base64 -i 파일 | pbcopy`
 심사 중인 판을 먼저 적으면 심사가 끝날 때까지 아이폰 쓰는 사람 모두가 그 상태입니다.
 그래서 가게마다 따로 적습니다. 잘못 올렸으면 `--appstore=none` 처럼 지우면 됩니다.
 
-TestFlight 로 받은 사람에게는 새 판 안내를 안 합니다 — TestFlight 가 알아서
-알려 줍니다. 앱스토어 값을 같이 보지만, 아래의 최소판 안내만 받습니다.
+TestFlight 로 받은 사람은 `--testflight` 값을 봅니다(0.2.10 부터). TestFlight 도 알아서
+알리지만, 앱 안의 같은 자리에서 보게 하려는 것입니다. 앱스토어 값과는 상관없습니다 —
+시험판과 스토어 판은 번호가 다릅니다. 앱은 새로 켤 때마다 묻고, 돌아올 때는 30분에 한 번 묻습니다.
 
 플레이에 올리는 AAB 는 `STORE=play` 로 만들어져서(`apk.yml`) 누가 깔았든 플레이 안내만
 합니다. 플레이의 출시 전 보고서는 앱을 adb 로 까는데, 그걸 직접 깐 APK 로 보면 플레이

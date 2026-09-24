@@ -15,17 +15,23 @@
  * ========================================================================== */
 'use strict';
 
-const CHANNELS = ['appstore', 'play', 'apk'];
+/* testflight: 아이폰 시험판. TestFlight 는 새 빌드를 스스로 알리지만, 앱 안에서도 "새 판이
+   있다" 를 같은 자리에서 보여 달라는 주인의 요청 — 스토어에 낸 판과 시험판은 번호가 다릅니다. */
+const CHANNELS = ['appstore', 'testflight', 'play', 'apk'];
 
 /* 설정 파일의 키. tools/config.js 의 DEFAULTS 와 이름이 같아야 합니다. */
-const LATEST_KEY = { appstore: 'appLatestAppStore', play: 'appLatestPlay', apk: 'appLatestApk' };
-const URL_KEY = { appstore: 'appUrlAppStore', play: 'appUrlPlay', apk: 'appUrlApk' };
+const LATEST_KEY = { appstore: 'appLatestAppStore', testflight: 'appLatestTestFlight',
+                     play: 'appLatestPlay', apk: 'appLatestApk' };
+const URL_KEY = { appstore: 'appUrlAppStore', testflight: 'appUrlTestFlight',
+                  play: 'appUrlPlay', apk: 'appUrlApk' };
 const MIN_KEY = 'appMin';
 
 /* 업데이트 단추가 여는 곳. 설정에 주소가 없으면 이걸 씁니다.
    APK 는 "최신 릴리스" 주소라서 판마다 고칠 필요가 없습니다. */
 const DEFAULT_URLS = {
   appstore: 'https://apps.apple.com/kr/app/id6815144446',
+  /* TestFlight 앱이 깔린 폰에서는 이 주소가 TestFlight 의 이 앱 화면으로 열립니다. */
+  testflight: 'https://beta.itunes.apple.com/v1/app/6815144446',
   play: 'https://play.google.com/store/apps/details?id=io.github.iacobuschoi.mybody',
   apk: 'https://github.com/iacobuschoi/Mybody/releases/latest'
 };

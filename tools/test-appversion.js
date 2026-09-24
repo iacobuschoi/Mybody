@@ -101,7 +101,7 @@ function writeCfg(file, obj) {
 }
 const readCfg = file => JSON.parse(fs.readFileSync(file, 'utf8'));
 
-const EMPTY = { appstore: '', play: '', apk: '' };
+const EMPTY = { appstore: '', testflight: '', play: '', apk: '' };
 
 async function main() {
   let up = false;
@@ -122,6 +122,7 @@ async function main() {
   ok('urls 는 기본 주소 셋', same(a.json.urls, APPVER.DEFAULT_URLS), a.json.urls);
   ok('기본 주소가 약속한 그대로다', same(APPVER.DEFAULT_URLS, {
     appstore: 'https://apps.apple.com/kr/app/id6815144446',
+    testflight: 'https://beta.itunes.apple.com/v1/app/6815144446',
     play: 'https://play.google.com/store/apps/details?id=io.github.iacobuschoi.mybody',
     apk: 'https://github.com/iacobuschoi/Mybody/releases/latest'
   }), APPVER.DEFAULT_URLS);
@@ -149,7 +150,7 @@ async function main() {
      /최소판\(0\.2\.6\)으로는 아무에게도 안내가 안 뜹니다/.test(t1.out) &&
      !/비어 있습니다/.test(t1.out), t1.out.slice(-400));
   const b = await get('/version');
-  ok('latest 가 바뀌었다', same(b.json.latest, { appstore: '', play: '0.2.7', apk: '0.2.8' }),
+  ok('latest 가 바뀌었다', same(b.json.latest, { appstore: '', testflight: '', play: '0.2.7', apk: '0.2.8' }),
      b.json.latest);
   ok('min 이 바뀌었다', b.json.min === '0.2.6', b.json.min);
   const t2 = tool(['--apk=none']);

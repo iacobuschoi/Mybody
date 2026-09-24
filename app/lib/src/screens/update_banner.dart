@@ -58,8 +58,7 @@ String _howTo(UpdateChannel c) => switch (c) {
       UpdateChannel.apk => '새 APK 를 받아 설치하세요. **지금 앱을 지우지 말고** 그 위에 '
           '설치해야 이 기기의 기록이 남습니다.',
       UpdateChannel.play => '플레이 스토어에서 업데이트합니다. 기록은 그대로 남습니다.',
-      UpdateChannel.testflight => 'TestFlight 에서 새 빌드를 받거나 앱스토어에서 받으세요. '
-          '기록은 그대로 남습니다.',
+      UpdateChannel.testflight => 'TestFlight 앱에서 새 빌드를 받으세요. 기록은 그대로 남습니다.',
       _ => '앱스토어에서 업데이트합니다. 기록은 그대로 남습니다.',
     };
 

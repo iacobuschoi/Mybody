@@ -552,3 +552,22 @@ v0.2.0 이 나갔습니다: https://github.com/iacobuschoi/Mybody/releases/tag/v
    `--apk` · `--appstore` · `--min` 은 그대로 둡니다.
 
 끝나면 "21 끝" + N · 플레이 상태 · TestFlight `my` 그룹 상태 · app-version 값.
+
+## 22. v0.2.10 — 새 판 안내를 켤 때마다 · TestFlight 채널 (서버 재시작 필요)
+
+주인이 0.2.9 를 깔고 "왜 새 판 안내가 안 뜨냐" 고 했습니다. 이유: 앱이 6시간에 한 번만 물었고,
+TestFlight 설치본에는 일부러 안 띄웠습니다. 0.2.10: 새로 켤 때는 늘 묻고(돌아올 때 30분), TestFlight 도
+자기 칸(`--testflight`)을 봅니다. **서버가 `latest.testflight` 를 내보내야 해서 서버를 다시 띄웁니다.**
+
+**시작 조건:** 태그 `v0.2.10` 과 Releases v0.2.10 의 AAB. N = 아래에 적힌 빌드 번호(태그에서 세지 마세요).
+로그인 · 비밀번호 화면이면 멈추고 보고.
+
+1. **서버** — `git pull` → 작업 스케줄러 「Mybody 서버」 끝냈다 다시 실행(20초 끊김) →
+   `node tools/test-appversion.js` 67 통과 → 바깥에서 `/api/version` 에 `latest.testflight` 칸이 있는지.
+2. **플레이** — v0.2.10 AAB → `keytool` SHA-256 `06d945a3…83de11` 확인 → 내부 테스트 → 새 버전 → 출시 노트
+   `play/등록정보.md` 「0.2.10」 → 저장 및 출시 → 「내부 테스터에게 제공됨」. 비공개 · 프로덕션은 안 건드림.
+3. **애플** — TestFlight 에 0.2.10 (N) 「처리 완료」 → 내부 그룹 `my` 에 있는지. friends · App Store 탭은 안 건드림.
+4. **안내 값** — 2 · 3 이 끝난 뒤: `node tools/app-version.js --play=0.2.10 --testflight=0.2.10`.
+   `--apk` · `--appstore` · `--min` 은 그대로.
+
+끝나면 "22 끝" + N · 서버 재시작 시각 · app-version 값.

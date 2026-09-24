@@ -5,6 +5,7 @@
  *   node tools/app-version.js --apk=0.2.8        직접 설치한 APK 의 최신판
  *   node tools/app-version.js --play=0.2.8       플레이 스토어의 최신판
  *   node tools/app-version.js --appstore=0.2.8   앱스토어의 최신판
+ *   node tools/app-version.js --testflight=0.2.10 TestFlight(아이폰 시험판)의 최신판
  *   node tools/app-version.js --min=0.2.9        이보다 낮은 앱은 "서버와 안 맞음"
  *   node tools/app-version.js --apk=none         지웁니다 (빈 값 "" 도 됩니다)
  *
@@ -45,7 +46,7 @@ const CONFIG = require('./config.js');
 const APPVER = require(path.join(__dirname, '..', 'server', 'appversion.js'));
 
 const FILE = CONFIG.FILE();
-const NAME = { appstore: '앱스토어', play: '플레이', apk: 'APK' };
+const NAME = { appstore: '앱스토어', testflight: 'TestFlight', play: '플레이', apk: 'APK' };
 /* 이 판부터 앱이 /api/version 을 묻습니다. 그보다 낮은 앱은 안내가 없습니다. */
 const FIRST_WITH_NOTICE = '0.2.8';
 /* 깃발 이름 ↔ 설정 키. 채널 이름을 그대로 깃발로 씁니다. */
@@ -58,6 +59,7 @@ function usage() {
   console.log('  node tools/app-version.js --apk=0.2.8        APK 최신판');
   console.log('  node tools/app-version.js --play=0.2.8       플레이 최신판');
   console.log('  node tools/app-version.js --appstore=0.2.8   앱스토어 최신판');
+  console.log('  node tools/app-version.js --testflight=0.2.10 TestFlight 최신판');
   console.log('  node tools/app-version.js --min=0.2.9        최소판');
   console.log('  node tools/app-version.js --apk=none         지우기');
   console.log('');
@@ -96,7 +98,7 @@ function parseFlags(av) {
   return out;
 }
 function usageLines() {
-  return ['', '  쓰는 법: node tools/app-version.js --apk=0.2.8   (--appstore · --play · --apk · --min)'];
+  return ['', '  쓰는 법: node tools/app-version.js --apk=0.2.8   (--appstore · --testflight · --play · --apk · --min)'];
 }
 
 /** 받은 값을 저장할 값으로. 지우라는 말이면 '', 판이 아니면 멈춥니다. */

@@ -132,19 +132,22 @@ String channelLabel(UpdateChannel c) => switch (c) {
       UpdateChannel.none => '',
     };
 
-/* 서버 값의 칸 이름. TestFlight 는 따로 칸이 없고 앱스토어 값을 봅니다. */
+/* 서버 값의 칸 이름. TestFlight 는 시험판이라 앱스토어와 번호가 다릅니다 — 칸이 따로 있습니다. */
 String? _slot(UpdateChannel c) => switch (c) {
-      UpdateChannel.appstore || UpdateChannel.testflight => 'appstore',
+      UpdateChannel.appstore => 'appstore',
+      UpdateChannel.testflight => 'testflight',
       UpdateChannel.play => 'play',
       UpdateChannel.apk => 'apk',
       UpdateChannel.none => null,
     };
 
-const _slots = ['appstore', 'play', 'apk'];
+const _slots = ['appstore', 'testflight', 'play', 'apk'];
 
 /// 서버가 주소를 안 줬을 때 여는 곳. 서버의 기본값과 같습니다.
 const kUpdateUrls = {
   'appstore': 'https://apps.apple.com/kr/app/id6815144446',
+  /* TestFlight 가 깔린 폰에서는 TestFlight 의 이 앱 화면으로 열립니다. */
+  'testflight': 'https://beta.itunes.apple.com/v1/app/6815144446',
   'play': 'https://play.google.com/store/apps/details?id=io.github.iacobuschoi.mybody',
   'apk': 'https://github.com/iacobuschoi/Mybody/releases/latest',
 };
@@ -237,8 +240,8 @@ class UpdateNotice {
 ///  - **서버와 안 맞음**: 지금 판 < 최소 판. 「나중에」를 눌렀어도 보입니다.
 ///  - **새 판**: 지금 판 < 이 채널의 최신 판, 그리고 그 판을 접지 않았을 때.
 ///    더 새 판이 나오면 다시 보입니다 — 접은 것은 그 판 하나입니다.
-///  - TestFlight 는 앱스토어 값을 보되 「서버와 안 맞음」만 띄웁니다.
-///    새 빌드는 TestFlight 가 스스로 알립니다. 두 번 알리면 소음입니다.
+///  - TestFlight 는 자기 칸(latest.testflight)을 봅니다. TestFlight 가 스스로 알리긴
+///    하지만 주인이 앱 안에서도 같은 자리에서 보고 싶어 했습니다.
 ///  - 서버 값이 없거나, 판을 모르거나, 모양이 틀리면 아무것도 안 띄웁니다.
 UpdateNotice? decideUpdate({
   required String current,
@@ -256,8 +259,6 @@ UpdateNotice? decideUpdate({
     return UpdateNotice(
         kind: UpdateKind.required, version: info.min, current: now, url: url, channel: channel);
   }
-  if (channel == UpdateChannel.testflight) return null;
-
   final latest = info.latestFor(channel);
   if (latest.isEmpty || latest == cleanVersion(dismissed)) return null;
   final behind = compareVersions(now, latest);
@@ -288,8 +289,9 @@ class UpdateCheck extends ChangeNotifier {
   /// 이 기기에만 있는 칸. 동기화되는 상태(`mybody.state.v1`)와 따로 둡니다.
   static const storageKey = 'mybody.update.v1';
 
-  /// 서버에 묻는 간격. 새 판은 며칠에 한 번 나오고, 서버는 주인 노트북입니다.
-  static const every = Duration(hours: 6);
+  /// 앱으로 **돌아올 때** 서버에 묻는 간격. 새로 켤 때는 늘 묻습니다([start]) —
+  /// 주인이 새 판을 낸 직후 앱을 켰는데 여섯 시간 전 답을 보여 준 적이 있습니다.
+  static const every = Duration(minutes: 30);
 
   Api _api;
   final Future<PackageInfo> Function() _packageInfo;
@@ -373,7 +375,7 @@ class UpdateCheck extends ChangeNotifier {
     /* 지난번 답으로 먼저 띄웁니다 — 서버가 꺼져 있어도 "서버와 안 맞음" 은
        계속 보여야 합니다. */
     _changed();
-    await check();
+    await check(force: true);   // 켤 때는 늘 — 지난 답의 나이와 상관없이
   }
 
   /// 서버에 묻습니다. [every] 안에 이미 물었으면 건너뜁니다.

@@ -33,13 +33,14 @@ const _appstore = 'https://apps.apple.com/kr/app/id6815144446';
 
 Map<String, Object?> _server({
   String appstore = '',
+  String testflight = '',
   String play = '',
   String apk = '',
   String min = '',
 }) =>
     {
       'ok': true,
-      'latest': {'appstore': appstore, 'play': play, 'apk': apk},
+      'latest': {'appstore': appstore, 'testflight': testflight, 'play': play, 'apk': apk},
       'min': min,
       'urls': {'appstore': _appstore, 'play': _play, 'apk': _apk},
     };
@@ -170,12 +171,12 @@ void main() {
     test('약속한 모양을 그대로 읽는다', () {
       final i = _info(appstore: '0.2.8', play: '0.2.9', apk: '0.2.10', min: '0.2.6');
       expect(i.latestFor(UpdateChannel.appstore), '0.2.8');
-      expect(i.latestFor(UpdateChannel.testflight), '0.2.8');
+      expect(i.latestFor(UpdateChannel.testflight), '', reason: 'TestFlight 는 자기 칸이 따로');
       expect(i.latestFor(UpdateChannel.play), '0.2.9');
       expect(i.latestFor(UpdateChannel.apk), '0.2.10');
       expect(i.min, '0.2.6');
       expect(i.urlFor(UpdateChannel.play), _play);
-      expect(i.urlFor(UpdateChannel.testflight), _appstore);
+      expect(i.urlFor(UpdateChannel.testflight), 'https://beta.itunes.apple.com/v1/app/6815144446');
     });
 
     test('틀린 값은 버리고, 주소가 없거나 https 가 아니면 기본 주소', () {
@@ -269,13 +270,17 @@ void main() {
       expect(n.url, _apk);
     });
 
-    test('TestFlight: 앱스토어 값을 보되 required 만 띄운다', () {
+    test('TestFlight: 자기 칸을 보고 available · required 를 띄운다', () {
       final i = _info(appstore: '0.2.9', min: '0.2.8');
       expect(decide('0.2.8', UpdateChannel.testflight, i), isNull,
-          reason: '새 빌드는 TestFlight 가 스스로 알립니다');
+          reason: '앱스토어 값은 TestFlight 와 상관없습니다');
       final n = decide('0.2.7', UpdateChannel.testflight, i)!;
       expect(n.kind, UpdateKind.required);
-      expect(n.url, _appstore);
+      expect(n.url, 'https://beta.itunes.apple.com/v1/app/6815144446');
+      final tf = VersionInfo.fromJson({'latest': {'testflight': '0.2.10'}});
+      final a = decide('0.2.9', UpdateChannel.testflight, tf)!;
+      expect(a.kind, UpdateKind.available);
+      expect(a.version, '0.2.10');
     });
 
     test('지금 판을 모르면 아무것도 안 띄운다', () {
@@ -312,7 +317,7 @@ void main() {
           now: () => clock,
         );
 
-    test('켤 때 한 번 묻고, 6시간 안에는 다시 묻지 않는다', () async {
+    test('켤 때 한 번 묻고, 돌아올 때는 30분 안에는 다시 묻지 않는다', () async {
       server.answer = _server(play: '0.2.8');
       final c = make();
       await c.start();
@@ -320,12 +325,25 @@ void main() {
       expect(c.channel, UpdateChannel.play);
       expect(c.notice?.kind, UpdateKind.available);
 
-      clock = clock.add(const Duration(hours: 5, minutes: 59));
+      clock = clock.add(const Duration(minutes: 29));
       await c.check();
       expect(server.hits, 1);
 
       clock = clock.add(const Duration(minutes: 2));
       await c.check();
+      expect(server.hits, 2);
+    });
+
+    test('새로 켤 때는 지난 답이 얼마나 새것이든 다시 묻는다', () async {
+      server.answer = _server(play: '0.2.8');
+      final c = make();
+      await c.start();
+      expect(server.hits, 1);
+      /* 같은 저장칸으로 다시 켠 앱 — 1분 전에 물었어도 또 묻습니다. 주인이 새 판을
+         낸 직후 앱을 켰는데 옛 답을 보여 준 적이 있습니다. */
+      clock = clock.add(const Duration(minutes: 1));
+      final c2 = make();
+      await c2.start();
       expect(server.hits, 2);
     });
 
@@ -487,7 +505,7 @@ void main() {
       final again = make(api: old.api());
       await again.start();
       expect(again.notice, isNull);
-      expect(old.hits, 1, reason: '404 도 대답이라 6시간 쉽니다');
+      expect(old.hits, 2, reason: '새로 켤 때는 지난 답이 있어도 다시 묻습니다');
     });
 
     test('옮긴 서버가 꺼져 있어도 옛 서버의 답을 버리고, 켜지면 바로 묻는다', () async {
@@ -712,7 +730,7 @@ void main() {
       expect(find.text('업데이트'), findsNothing);
     });
 
-    testWidgets('TestFlight: 새 빌드는 안 알리고, 서버와 안 맞을 때만', (t) async {
+    testWidgets('TestFlight: 앱스토어 칸은 안 보고 자기 칸(testflight)만 본다', (t) async {
       installed('0.2.7', installer: 'com.apple.testflight');
       server.answer = _server(appstore: '0.2.9');
       final (app, check) = await ready(t, platform: TargetPlatform.iOS);
@@ -720,10 +738,19 @@ void main() {
       await t.pump();
       expect(find.textContaining('새 버전'), findsNothing);
 
+      /* 자기 칸에 새 빌드가 적히면 뜹니다 — TestFlight 앱으로 보냅니다 */
+      server.answer = _server(appstore: '0.2.9', testflight: '0.2.10');
+      await t.runAsync(() => check.check(force: true));
+      await t.pump();
+      expect(find.textContaining('새 버전 0.2.10'), findsOneWidget);
+      expect(find.textContaining('TestFlight 앱에서 새 빌드를', findRichText: true), findsOneWidget);
+      expect(find.text('업데이트'), findsOneWidget);
+
       server.answer = _server(appstore: '0.2.9', min: '0.2.8');
       await t.runAsync(() => check.check(force: true));
       await t.pump();
-      expect(find.textContaining('TestFlight 에서 새 빌드를', findRichText: true), findsOneWidget);
+      expect(find.textContaining('서버와 맞지 않습니다', findRichText: true), findsOneWidget);
+      expect(find.textContaining('TestFlight 앱에서 새 빌드를', findRichText: true), findsOneWidget);
       /* 아이폰에서는 안드로이드 쪽 이름이 안 나옵니다 (앱스토어 심사 2.3.10) */
       expect(find.textContaining('플레이', findRichText: true), findsNothing);
       expect(find.textContaining('APK', findRichText: true), findsNothing);

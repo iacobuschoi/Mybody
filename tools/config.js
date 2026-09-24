@@ -55,6 +55,7 @@ const DEFAULTS = {
      릴리스 바로 뒤, 플레이는 출시 뒤, 앱스토어는 심사가 끝난 뒤입니다.
      빈 값이면 그 가게로 깐 사람에게는 새 판 안내를 안 합니다. */
   appLatestAppStore: '',
+  appLatestTestFlight: '',
   appLatestPlay: '',
   appLatestApk: '',
   /* 이보다 낮은 앱은 "이 서버와 안 맞습니다" 를 봅니다(닫을 수 없는 안내).
@@ -65,6 +66,7 @@ const DEFAULTS = {
      저장할 때 이 값들이 파일에 그대로 굳습니다. 그러면 나중에 코드의
      주소를 고쳐도 이미 저장한 사람은 옛 주소를 계속 내보냅니다. */
   appUrlAppStore: '',
+  appUrlTestFlight: '',
   appUrlPlay: '',
   appUrlApk: ''
 };
