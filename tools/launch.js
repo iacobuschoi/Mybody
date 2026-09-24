@@ -177,7 +177,9 @@ function installHint() {
   /* 두 길을 다 보여 주되, **주소가 안 바뀌는 쪽을 먼저** 적습니다.
      빠른 길만 알려 주면 나중에 반드시 다시 옵니다 — 주소가 바뀌어서. */
   const ts = process.platform === 'darwin'
-    ? '    brew install tailscale && sudo tailscale up'
+    /* brew 로 깔면 tailscaled 를 서비스로 켜야 up 이 붙을 데가 있습니다.
+       이 방식은 로그인 없이도 돌아서 상시 서버에 맞습니다(docs/MAC.md). */
+    ? '    brew install tailscale && sudo brew services start tailscale && sudo tailscale up'
     : process.platform === 'win32'
       ? '    winget install --id tailscale.tailscale\n' +
         '    그다음 트레이의 Tailscale 에서 로그인하세요 (개인 계정 무료)'

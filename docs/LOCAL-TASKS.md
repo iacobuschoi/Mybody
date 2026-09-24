@@ -410,3 +410,46 @@ v0.2.0 이 나갔습니다: https://github.com/iacobuschoi/Mybody/releases/tag/v
 4. 심사 기간에는 노트북 서버와 터널을 켜 둡니다(심사용 로그인 · 판독 · 계정 삭제가 서버).
 
 끝나면 "17 끝" + 빌드 번호 · 안 맞는 것.
+
+## 18. 서버를 맥미니로 옮기기 — 노트북 쪽 (맥 준비가 끝나고 주인이 "18 해" 라고 할 때)
+
+주인이 중고 맥미니(M1 · 16GB)를 사서 **서버를 노트북에서 맥으로 옮깁니다.** 전체 순서는
+`docs/MAC.md` 7절이고, 여기는 노트북이 할 몫입니다. **이 절이 15(오라클)를 대신합니다** — 오라클은
+주인이 나중에 다시 고를 때만 합니다.
+
+먼저 확인할 것:
+- **16 이 끝났는지.** 0.2.6 이 이미 나갔거나 곧 나가면 16 부터 합니다. 맥은 최신 코드를 받으므로,
+  옮긴 뒤에는 16 이 저절로 충족됩니다.
+- 주인에게 맥 준비(`docs/MAC.md` 7-1)가 끝났는지 묻습니다. 필요한 것은 세 가지입니다.
+  - 맥의 Tailscale 이름이 `mybody-mac` 입니다.
+  - 맥의 원격 로그인이 켜져 있습니다.
+  - 맥 계정 이름(아래 `OWNER`)을 받습니다.
+
+순서:
+1. 주인에게 **"지금 서버 멈춥니다(10분)"** 라고 말한 뒤, 서버 창에서 Ctrl+C →
+   `tailscale funnel status` 가 비었는지 봅니다. 남아 있으면 `tailscale funnel reset`.
+2. 서버를 끈 **뒤에** 마지막 백업을 합니다(PowerShell):
+   ```powershell
+   node tools/backup.js --out="$HOME\mybody-move"
+   node tools/backup.js --out="$HOME\mybody-move" --list
+   ```
+   계정 수 · 친구 수를 적어 둡니다. 맥에서 되돌린 뒤 이 숫자와 맞춰 봅니다.
+3. 맥으로 보냅니다:
+   ```powershell
+   scp "$HOME\.mybody\config.json" OWNER@mybody-mac:config.json
+   scp "$HOME\mybody-move\mybody-<날짜>.db" OWNER@mybody-mac:last.db
+   ```
+   - `mybody-mac` 이 안 찾아지면 `tailscale status` 에 나온 맥의 100.x 주소를 씁니다.
+   - **git · 메신저 · 클라우드 드라이브로는 보내지 않습니다.** 건강 정보와 비밀 키가 들어 있습니다.
+4. 맥 쪽(`docs/MAC.md` 7-2 의 4~9)은 맥 세션이나 주인이 합니다. 노트북은 기다리다가, 주인이 Tailscale
+   관리 화면에서 **이 노트북 이름을 `laptop` 으로 바꿨는지** `tailscale status` 로 확인합니다.
+5. 노트북 자동 시작이 없는지 한 번 더 봅니다(작업 스케줄러 · `mybody-autostart.cmd` · 시작 프로그램).
+   지난 보고에서는 없었습니다. 있으면 끕니다 — 두 곳에서 서버가 돌면 기록이 갈라집니다.
+6. **이 노트북에서는 더는 `launch.js` 를 돌리지 않습니다.**
+   - `$HOME\mybody-move` 와 노트북의 `server\mybody.db` 는 **2주 동안 되돌리기용으로 두고**,
+     그 뒤에 지웁니다. 건강 정보가 든 사본이 노트북에 남지 않게 하려는 것입니다.
+   - 2주 안에 맥이 이상하면 `docs/MAC.md` 7-2 「되돌리기」를 따릅니다.
+
+끝나면 "18 끝" + 백업의 계정 · 친구 수 + 노트북의 새 Tailscale 이름을 보고합니다.
+**이 뒤로 노트북 세션은 LOCAL-TASKS 를 받지 않고, 맥 세션이 이어받는 것을 기본으로 합니다**
+(`docs/MAC.md` 6절). 스토어 콘솔 올리기(17 같은 일)는 맥이든 노트북이든 브라우저로 됩니다.

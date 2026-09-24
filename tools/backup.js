@@ -36,9 +36,17 @@ const CONFIG = require('./config.js');
 
 const ROOT = path.join(__dirname, '..');
 const args = {};
-process.argv.slice(2).forEach(a => {
+/* 문서마다 `--restore <파일>` 로 띄어 적혀 있는데 `=` 꼴만 읽었습니다. 띄어 쓰면
+   "true" 라는 파일을 찾다가 "그런 파일이 없습니다" 로 멈췄습니다 — 서버를 옮기며
+   되돌리는 바로 그 단계에서. 값을 받는 것은 다음 칸도 봅니다. */
+const VALUED = new Set(['restore', 'out', 'keep']);
+const argv = process.argv.slice(2);
+argv.forEach((a, i) => {
   const m = /^--([a-zA-Z-]+)(?:=([\s\S]*))?$/.exec(a);
-  if (m) args[m[1]] = m[2] == null ? true : m[2];
+  if (!m) return;
+  const next = argv[i + 1];
+  if (m[2] == null && VALUED.has(m[1]) && next != null && !next.startsWith('--')) args[m[1]] = next;
+  else args[m[1]] = m[2] == null ? true : m[2];
 });
 
 const { cfg } = CONFIG.load();

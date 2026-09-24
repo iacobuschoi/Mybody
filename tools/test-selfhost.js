@@ -891,6 +891,20 @@ function hostGet(port, p2, host) {
       d2.close();
       ok('옛 파일을 옆에 치워 둔다',
          fs.readdirSync(dir).some(f => /\.before-/.test(f)), fs.readdirSync(dir));
+
+      /* 문서에는 `--restore <파일>` 로 띄어 적혀 있습니다. 예전에는 = 꼴만 읽어서
+         "true" 라는 파일을 찾다가 멈췄습니다 — 서버를 옮기는 바로 그 단계에서. */
+      const d3 = new DatabaseSync(db);
+      d3.exec('DELETE FROM users');
+      d3.close();
+      /* run() 은 - 로 시작하지 않는 칸 앞에 ROOT 를 붙입니다 — 그래서 ROOT 기준 상대 경로로 넘깁니다. */
+      const r2 = run(['tools/backup.js', '--restore', path.relative(ROOT, path.join(out, made2[0]))],
+        Object.assign(env, { DB: db }));
+      await wait(400);
+      ok('띄어 쓴 --restore <파일> 도 된다', /되돌렸습니다/.test(r2.stdout || ''), (r2.stdout || r2.stderr || '').slice(0, 200));
+      const d4 = new DatabaseSync(db, { readOnly: true });
+      ok('띄어 써서 되돌려도 계정이 살아난다', d4.prepare('SELECT COUNT(*) c FROM users').get().c === 2);
+      d4.close();
     }
     fs.rmSync(dir, { recursive: true, force: true });
   }

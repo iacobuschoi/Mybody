@@ -84,7 +84,10 @@ function add(level, ok, id, detail, todo) {
         '       깐 뒤 **PowerShell 창을 닫고 새로 여세요.** 그래야 PATH 가 바뀝니다.\n' +
         '       그래도 옛 버전이면:  where.exe node   ← 여러 개 깔려 있는지 보세요'
       : process.platform === 'darwin'
-        ? '         brew install node    (또는 https://nodejs.org 에서 LTS · macOS Installer)\n' +
+        ? '         brew install node@24    (또는 https://nodejs.org 에서 LTS · macOS Installer)\n' +
+          '       node@24 는 PATH 에 저절로 안 붙습니다. 한 번:\n' +
+          '         echo \'export PATH="/opt/homebrew/opt/node@24/bin:$PATH"\' >> ~/.zprofile\n' +
+          '       (그냥 node 는 해마다 큰 판으로 뛰어, 서버가 시험 안 된 새 노드로 바뀝니다)\n' +
           '       깐 뒤 터미널을 새로 여세요. 그래도 옛 버전이면:  which -a node'
         : '         https://nodejs.org 의 LTS, 또는 배포판 패키지(nodesource·fnm·nvm)\n' +
           '       깐 뒤 셸을 새로 여세요. 그래도 옛 버전이면:  which -a node';
@@ -105,6 +108,10 @@ function add(level, ok, id, detail, todo) {
             : '이미 쓰이고 있습니다 (' + free.why + ')',
     free.ok ? null
             : '이 서버가 이미 떠 있을 수도 있습니다 — http://localhost:' + PORT + ' 를 열어 보세요.\n' +
+              (process.platform === 'darwin'
+                ? '       자동 시작(launchd)이 띄운 것이면 다시 띄우기는:\n' +
+                  '         sudo launchctl kickstart -k system/com.mybody.server\n'
+                : '') +
               '       다른 프로그램이라면 PORT=' + (PORT + 1) + ' 로 바꿔서 띄우면 됩니다.');
 }
 
