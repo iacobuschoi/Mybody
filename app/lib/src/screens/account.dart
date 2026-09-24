@@ -20,6 +20,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../api.dart';
 import '../theme.dart';
 import '../ui/widgets.dart';
+import 'update_banner.dart';
 
 /// 서버가 받아 주는 건강정보 동의 판. 서버의 `HEALTH_CONSENT_VERSION` 과
 /// **글자까지 같아야** 합니다 — 다르면 가입이 400 으로 거부됩니다.
@@ -445,6 +446,9 @@ class _SignInScreenState extends State<SignInScreen> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          /* 서버가 이 판을 더는 안 받으면 가입 · 로그인이 여기서 먼저 막힙니다.
+             엉뚱한 오류 문구보다 "앱이 낡았다" 를 먼저 보여 줍니다. */
+          const UpdateBanner(requiredOnly: true),
           if (widget.intro != null) ...[
             Text(widget.intro!, style: t.textTheme.bodyMedium),
             const SizedBox(height: 12),

@@ -28,6 +28,7 @@ import 'src/scope.dart';
 import 'src/shell.dart';
 import 'src/theme.dart';
 import 'src/ui/edge.dart';
+import 'src/update.dart';
 
 void main() {
   /* **회색 네모를 없앱니다.**
@@ -130,6 +131,10 @@ class _MyBodyAppState extends State<MyBodyApp> {
     /* 기록을 내 계정에 — 켤 때 받아 보고, 저장하면 올립니다. */
     _cloud = CloudSync(app: app, api: api, queue: _queue)..wire();
     unawaited(_cloud!.pull());
+    /* 새 판 안내 — 켤 때와 돌아올 때 묻습니다. 로그인과 상관없습니다:
+       APK 로 깐 친구는 로그인 없이 쓰더라도 새 판을 알아야 합니다. */
+    _update = UpdateCheck(api: api)..wire();
+    unawaited(_update!.start());
     /* 간식 알림. 못 켜져도 앱은 돕니다. 저장이 바뀌면 다시 계산합니다 —
        먹은 게 늘면 남은 단백질이 줄고, 알림 문구도 바뀌어야 합니다. */
     unawaited(SnackNudge.init().then((_) async {
@@ -158,6 +163,7 @@ class _MyBodyAppState extends State<MyBodyApp> {
   SyncQueue? _queue;
   Timer? _nudgeTimer;
   CloudSync? _cloud;
+  UpdateCheck? _update;
 
   Future<void> _fetchPokes(AppState app, Api api) async {
     final box = app.pokes;
@@ -203,6 +209,8 @@ class _MyBodyAppState extends State<MyBodyApp> {
       _cloud = CloudSync(app: app, api: api, queue: q)..wire();
       unawaited(_cloud!.pull());
     }
+    /* 새 서버에 다시 묻습니다 — 지난 답은 옛 서버의 것입니다. */
+    _update?.api = api;
     if (!mounted) return;
     setState(() { _api = api; _queue = q; });
   }
@@ -238,6 +246,7 @@ class _MyBodyAppState extends State<MyBodyApp> {
       state: _app!,
       api: _api!,
       queue: _queue,
+      update: _update,
       onServerChange: _setServer,
       child: app,
     );

@@ -20,6 +20,7 @@ import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../api.dart';
 import '../scope.dart';
+import '../update.dart';
 import 'account.dart';
 import '../ui/widgets.dart';
 
@@ -208,6 +209,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
           ),
         ]),
+        const _AppVersionLine(),
       ]),
     );
   }
@@ -469,5 +471,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     /* 로그아웃됐으니 밑의 셸은 이미 로그인 화면입니다. 설정을 닫아
        그걸 보여 줍니다 — 안 닫으면 없는 계정의 설정이 계속 떠 있습니다. */
     Navigator.of(context).popUntil((r) => r.isFirst);
+  }
+}
+
+/* 앱 판 · 빌드 번호 · 받은 곳. 친구를 도울 때 "몇 판이야? 어디서 깔았어?"
+   를 묻는 대신 이 줄을 읽어 달라고 하면 됩니다. 받은 곳에 따라 업데이트
+   길이 다릅니다(스토어 · TestFlight · GitHub 의 APK). 아이폰에서 받은 곳이
+   안 적혀 있으면 TestFlight 입니다 — 앱스토어 심사 빌드와 구분이 안 돼서
+   이름을 안 붙입니다(update.dart 의 channelLabel). */
+class _AppVersionLine extends StatelessWidget {
+  const _AppVersionLine();
+
+  @override
+  Widget build(BuildContext context) {
+    final check = Scope.updateOf(context);
+    if (check == null) return const SizedBox.shrink();
+    final t = Theme.of(context);
+    return ListenableBuilder(
+      listenable: check,
+      builder: (context, _) {
+        final p = check.package;
+        if (p == null || p.version.isEmpty) return const SizedBox.shrink();
+        final build = p.buildNumber.isEmpty || p.buildNumber == p.version
+            ? '' : ' (빌드 ${p.buildNumber})';
+        final where = channelLabel(check.channel);
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+          child: Text('앱 버전 ${p.version}$build${where.isEmpty ? '' : ' · $where'}',
+              style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+        );
+      },
+    );
   }
 }

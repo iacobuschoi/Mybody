@@ -154,6 +154,16 @@ else {
     no('커밋 수를 쓰는데 fetch-depth: 0 이 없습니다 — 얕은 클론이라 번호가 언제나 1 입니다');
   else no('빌드 번호를 안 올립니다 — 만든 앱이 전부 1번이 됩니다');
 
+  /* 플레이에 올리는 묶음(AAB)만 STORE=play 로 만듭니다(app/lib/src/update.dart).
+     빠지면 플레이의 출시 전 보고서(adb 설치)에서 앱이 자기를 "직접 깐 APK" 로
+     여기고, GitHub 에서 새 APK 를 받으라고 합니다 — 플레이 정책에 걸립니다. */
+  const aab = (wf.match(/flutter build appbundle[\s\S]*?(?:\n\s*\n|$)/) || [''])[0];
+  const apk = (wf.match(/flutter build apk[\s\S]*?(?:\n\s*\n|$)/) || [''])[0];
+  if (/--dart-define=STORE=play/.test(aab) && !/STORE=play/.test(apk))
+    ok('플레이용 묶음만 STORE=play 로 만듭니다 (업데이트 안내가 플레이 밖을 가리키지 않게)');
+  else no('STORE=play 가 플레이용 묶음에만 있지 않습니다',
+          'AAB 빌드에 --dart-define=STORE=play 가 있고, GitHub 에 올리는 APK 빌드에는 없어야 합니다');
+
   /* `secrets` 는 step 의 `if:` 문맥에 없습니다. 쓰면 빌드가 시작도 못 합니다. */
   const stepIfs = wf.split('\n').filter(l => /^\s+if:/.test(l));
   const bad = stepIfs.filter(l => /secrets\./.test(l));

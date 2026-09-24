@@ -24,6 +24,7 @@ import '../ui/charts.dart';
 import '../ui/fmt.dart';
 import '../ui/symbols.dart';
 import '../ui/widgets.dart';
+import 'update_banner.dart';
 
 /* 아래쪽에 자리를 둡니다 — 떠 있는 "인바디" 버튼이 마지막 줄을 가렸습니다.
    실제로 "칸을 눌러서 정하세요" 의 뒷부분이 버튼에 덮여 있었습니다. */
@@ -42,6 +43,7 @@ class HomeScreen extends StatelessWidget {
 
     if (scans.isEmpty) {
       return ListView(padding: _pad, children: [
+        const UpdateBanner(),
         EmptyState(
           title: '인바디 결과지를 올려주세요',
           detail: '사진 한 장이면 현재 상태를 읽고 계획을 만듭니다.',
@@ -59,6 +61,9 @@ class HomeScreen extends StatelessWidget {
     final pd = prev == null ? null : core.derive(prev, profile);
 
     return ListView(padding: _pad, children: [
+      /* 맨 위에 둡니다 — 서버와 안 맞는 판이면 아래 무엇보다 먼저 알아야
+         로그인 · 동기화가 왜 안 되는지 헤매지 않습니다. */
+      const UpdateBanner(),
       _SummaryCard(d: d, pd: pd, scan: scan, onTap: () => go('scan', scan['id'])),
       if (st['goal'] != null && st['plan'] != null && !app.store.planMatchesGoal())
         Note(

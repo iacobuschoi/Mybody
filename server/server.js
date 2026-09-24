@@ -41,6 +41,7 @@ const path = require('node:path');
 const { open, makeApi, str } = require('./db.js');
 const { runOcr: callOcr } = require('./ocr.js');
 const PUSH = require('./push.js');
+const APPVER = require('./appversion.js');
 
 /* --- 저장해 둔 설정을 읽어 옵니다 ------------------------------------------
  *
@@ -554,6 +555,36 @@ async function handleApi(req, res, url) {
   if (p === '/health') {
     return send(res, 200, { ok: true, now: new Date().toISOString(),
                             openSignup: OPEN_SIGNUP });
+  }
+
+  /* 앱이 "새 판이 나왔나 · 내 판이 너무 낡았나" 를 묻는 곳.
+   *
+   * 로그인 없이 받습니다. 로그인이 안 되는 이유가 바로 "앱이 낡아서" 일
+   * 수 있는데, 그걸 알려 주는 길이 로그인 뒤에 있으면 못 닿습니다.
+   * 내보내는 것은 판 번호와 가게 주소뿐입니다.
+   *
+   * 설정 파일을 **부를 때마다 새로 읽습니다.** 판을 낸 뒤 주인이
+   * tools/app-version.js 를 돌리면 서버를 다시 띄우지 않아도 바로
+   * 나가야 합니다 — 다시 띄우는 걸 잊으면 안내가 조용히 안 나갑니다.
+   * 앱은 몇 시간에 한 번만 물으니 읽는 값은 싸게 칩니다.
+   * tools/ 가 없으면(server/ 만 떼어 옮긴 경우) 전부 빈 값 = 안내 없음.
+   *
+   * **망가진 설정 파일은 빈 값으로 내보내지 않습니다.** 손으로 고치다
+   * 틀렸거나, 도구가 저장하는 바로 그 순간에 읽으면 파일이 JSON 이
+   * 아닙니다. 그걸 빈 값으로 주면 "주인이 전부 지웠다" 와 똑같아서, 그때
+   * 물은 앱은 닫을 수 없는 안내까지 지우고 여섯 시간을 쉽니다. 503 이면
+   * 앱은 지난 답을 들고 다음에 다시 묻습니다(app/lib/src/update.dart). */
+  if (p === '/version' && method === 'GET') {
+    let CONFIG = null;
+    try { CONFIG = require('../tools/config.js'); } catch (e) {}
+    let saved = {};
+    if (CONFIG) {
+      try { saved = CONFIG.readFileStrict(); }
+      catch (e) {
+        return send(res, 503, { ok: false, reason: '서버 설정을 읽지 못했습니다 — 잠시 뒤에 다시 물어 주세요' });
+      }
+    }
+    return send(res, 200, APPVER.versionInfo(saved));
   }
 
   /* 계정 만들기 — 페어링 비밀이 필요합니다.

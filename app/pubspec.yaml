@@ -1,7 +1,7 @@
 name: mybody
 description: "인바디 결과지를 읽어 목표까지의 계획을 세우고, 오차보다 작은 변화를 성과로 세지 않습니다."
 publish_to: none
-version: 0.2.7
+version: 0.2.8
 
 environment:
   sdk: ^3.11.0
@@ -18,6 +18,12 @@ dependencies:
   lucide_icons: ^0.257.0
   mybody_core:
     path: ../packages/mybody_core
+  # 새 판 안내(lib/src/update.dart)가 이 앱의 판과 받은 곳을 읽습니다.
+  # 아이폰에서는 이 플러그인이 파일 시각(설치 · 업데이트 시각)을 읽는데 자기
+  # 개인정보 목록에 이유가 비어 있습니다. 이유 없이 올리면 애플이 ITMS-91053
+  # (이유 누락)을 보내고 판이 막힐 수 있어서 ios/Runner/PrivacyInfo.xcprivacy
+  # 에 적었습니다(C617.1 — 앱 안 파일의 시각. 그 시각은 쓰지도 보내지도 않습니다).
+  package_info_plus: ^10.2.1
   path_provider: ^2.1.6
   shared_preferences: ^2.5.5
   timezone: ^0.11.1

@@ -188,6 +188,7 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | `GET` | `/api/health` | 살아 있는지 (로그인 불필요) |
+| `GET` | `/api/version` | `{latest:{appstore,play,apk}, min, urls:{appstore,play,apk}}` 앱 안 업데이트 안내용. 빈 값이면 안내 없음. `tools/app-version.js` 로 고치고, 부를 때마다 설정을 새로 읽습니다. 설정 파일이 망가졌으면 빈 값 대신 503 (로그인 불필요) |
 | `POST` | `/api/auth/signup` | `{handle, password, displayName, pairSecret, healthConsent}` → `{token, user, recoveryCode}` (로그인 불필요) |
 | `POST` | `/api/auth/signin` | `{handle, password}` → `{token, user}` (로그인 불필요) |
 | `POST` | `/api/auth/signout` | 이 토큰만 폐기 |

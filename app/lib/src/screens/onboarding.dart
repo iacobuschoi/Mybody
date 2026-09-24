@@ -19,6 +19,7 @@ import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../scope.dart';
 import '../ui/widgets.dart';
+import 'update_banner.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({super.key});
@@ -75,6 +76,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       body: ListView(padding: const EdgeInsets.all(16), children: [
         LinearProgressIndicator(value: (_step + 1) / 3, minHeight: 3),
         const SizedBox(height: 14),
+        /* 홈에 닿기 전이라도 서버와 안 맞는 판이면 알립니다 — 동기화가 왜
+           안 되는지 모른 채 설정부터 하게 두지 않습니다. */
+        const UpdateBanner(requiredOnly: true),
         Text(titles[_step].$2,
             style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
         const SizedBox(height: 14),

@@ -130,6 +130,11 @@ class Api extends ChangeNotifier {
 
   Future<ApiResult> health() => _send('GET', '/health');
 
+  /// 채널별 최신 판과 서버가 받아 주는 최소 판 (update.dart).
+  /// 로그인이 필요 없고, 이 앱의 판은 보내지 않습니다 — 비교는 앱이 합니다.
+  /// 이 길이 없는 옛 서버는 404 를 줍니다. 그때는 안내가 없을 뿐입니다.
+  Future<ApiResult> appVersion() => _send('GET', '/version');
+
   /// 친구 한 명의 주간 요약들. `{ok, rows:[{weekStart, keptDays, …}]}`.
   ///
   /// **서버가 공유 설정으로 미리 걸러서** 줍니다 — 친구가 안 켠 항목은

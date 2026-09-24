@@ -28,6 +28,17 @@ on:
   # 배포용 워크플로(release.yml)가 이 빌드를 그대로 불러 씁니다.
   # 빌드 과정을 두 벌로 베껴 두면 한쪽만 고치는 날이 옵니다.
   workflow_call:
+    # 배포(release.yml)를 Actions 탭에서 눌러 낼 때는 태그로 불리지 않아서
+    # GITHUB_REF_NAME 이 가지 이름입니다. 그러면 판 이름이 pubspec 으로
+    # 떨어져, 릴리스 이름(v0.2.8)과 앱 안의 판이 어긋날 수 있습니다. 앱은
+    # 그 판으로 새 판 안내를 정하므로(update.dart) 어긋나면 이미 최신인
+    # 사람에게 "새 버전이 나왔습니다" 가 뜹니다. 그래서 판을 받아 씁니다.
+    inputs:
+      version:
+        description: '판 번호 (예: v0.2.8). 비우면 태그 · pubspec 에서'
+        type: string
+        required: false
+        default: ''
     outputs:
       artifact:
         description: 만들어진 APK 가 담긴 꾸러미 이름
@@ -82,14 +93,18 @@ jobs:
       # 길이 하나고 커밋마다 커집니다. 친구 폰의 8 보다는 이미 큽니다.
       - name: 판 번호(versionCode)
         id: vc
+        env:
+          # 받은 값은 셸에 바로 넣지 않고 환경변수로 건넵니다(글자 그대로).
+          VERSION_IN: ${{ inputs.version }}
         run: |
           n=$(git rev-list --count HEAD)
           echo "code=$n" >> "$GITHUB_OUTPUT"
           echo "versionCode $n"
-          # 판 이름: 태그(v1.2.3)로 만들 때는 태그에서, 아니면 pubspec.yaml 에서.
+          # 판 이름: 배포가 넘겨 준 판(v1.2.3) → 태그 → pubspec.yaml 순서.
           # v0.2.4 태그가 pubspec 의 0.2.3 으로 나간 적이 있습니다.
-          ref="${GITHUB_REF_NAME:-}"
-          if [[ "$ref" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then name="${BASH_REMATCH[1]}"
+          ref="${VERSION_IN:-}"
+          if [ -z "$ref" ]; then ref="${GITHUB_REF_NAME:-}"; fi
+          if [[ "$ref" =~ ^v?([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then name="${BASH_REMATCH[1]}"
           else name=$(sed -n 's/^version:[[:space:]]*\([0-9.]*\).*/\1/p' app/pubspec.yaml); fi
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "versionName $name"
@@ -207,7 +222,8 @@ jobs:
             --build-number=${{ steps.vc.outputs.code }} \
             --build-name=${{ steps.vc.outputs.name }} \
             --split-debug-info=build/symbols \
-            --dart-define=SERVER_URL="$SERVER_URL"
+            --dart-define=SERVER_URL="$SERVER_URL" \
+            --dart-define=STORE=play
 
       - name: 만들어졌는지 확인
         id: find

@@ -31,6 +31,10 @@ jobs:
   # 앱 만들기는 apk.yml 을 그대로 불러 씁니다. 베껴 두면 한쪽만 고치게 됩니다.
   build:
     uses: ./.github/workflows/apk.yml
+    # 판 이름을 넘깁니다. Actions 탭에서 누르면 태그가 아니라 가지 이름으로
+    # 불려서, 안 넘기면 앱 안의 판이 pubspec 값으로 나갑니다.
+    with:
+      version: ${{ github.event.inputs.version || github.ref_name }}
     # **이게 없으면 서명 열쇠가 안 넘어갑니다.**
     #
     # 불러 쓰는 워크플로는 비밀값을 물려받지 않습니다. 따로 넘겨 주지
