@@ -80,25 +80,22 @@
         wrap.appendChild(UI.plainNote({
           uid: 'P06-C10', label: '기간 폭 안내',
           tone: cmp.spanNote.tight ? 'warn' : null,
-          title: cmp.spanWeeks[0] + '~' + cmp.spanWeeks[1] + '주',
-          text: cmp.spanNote.tight
-            ? '이 모드에서 고를 수 있는 폭이 좁습니다. 더 여유롭게 가려면 모드를 바꿔야 합니다.'
-            : '이 안에서 고르시면 됩니다.',
+          title: cmp.spanWeeks[0] === cmp.spanWeeks[1] ? cmp.spanWeeks[0] + '주'
+                                                        : cmp.spanWeeks[0] + '~' + cmp.spanWeeks[1] + '주',
+          text: cmp.spanWeeks[0] === cmp.spanWeeks[1]
+            ? '이 목표에서는 강도를 바꿔도 같은 계획입니다.' +
+              (cmp.mode ? ' 더 여유롭게 가려면 모드를 바꿔야 합니다.' : '')
+            : (cmp.spanNote.tight
+              ? '이 모드에서 고를 수 있는 폭이 좁습니다. 더 여유롭게 가려면 모드를 바꿔야 합니다.'
+              : '이 안에서 고르시면 됩니다.'),
           evidence: cmp.spanNote.tight ? cmp.spanNote.text : null
         }));
       }
 
       /* --- 강도 카드 (같은 계획으로 수렴하면 한 장으로 합친다) --- */
-      var groups = [];
-      cmp.results.forEach(function (r) {
-        var g = null;
-        for (var i = 0; i < groups.length; i++) {
-          if (Math.abs(groups[i].rep.a - r.a) < 0.005 && groups[i].rep.weeks === r.weeks) { g = groups[i]; break; }
-        }
-        if (g) { g.levels.push(r); } else { groups.push({ rep: r, levels: [r] }); }
-      });
+      var groups = UI.levelGroups(cmp.results, cmp.recommended);
       groups.forEach(function (g, i) {
-        wrap.appendChild(levelCard(g.rep, i, cmp, scan, prof, g.levels));
+        wrap.appendChild(levelCard(g.rep, i, cmp, scan, prof, g.levels, g));
       });
       if (groups.length < cmp.results.length) {
         wrap.appendChild(h('div.note', { uid: 'P06-C11', uidLabel: '강도 병합 안내',
@@ -114,10 +111,12 @@
         ]),
         UI.lineChart({
           uid: 'P06-G01', label: '강도별 체지방 궤적', height: 160,
-          series: cmp.results.map(function (r) {
+          /* 같은 계획은 한 줄 — 세 줄을 겹쳐 그리면 선이 하나뿐인데 범례만 셋입니다. */
+          series: groups.map(function (g) {
+            var r = g.rep;
             return {
-              key: r.level, label: r.label + ' · ' + r.weeks + '주',
-              color: COLORS[r.level], dots: false,
+              key: r.level, label: g.names + ' · ' + r.weeks + '주',
+              color: COLORS[g.levels[0].level], dots: false,
               points: r.sim.trajectory.map(function (t) { return { x: t.week, y: t.bfmKg }; })
             };
           }),
@@ -145,7 +144,7 @@
   });
 
   /* ------------------------------------------------------------------ */
-  function levelCard(r, i, cmp, scan, prof, levels) {
+  function levelCard(r, i, cmp, scan, prof, levels, group) {
     levels = levels || [r];
     var isRec = levels.some(function (x) { return cmp.recommended === x.level; });
     var n = i + 1;
@@ -164,7 +163,10 @@
         h('div', [
           h('div.card__title', { text: levels.length > 1
             ? levels.map(function (x) { return x.title; }).join(' = ') : r.title }),
-          h('div.card__sub', { text: r.blurb })
+          /* 합친 카드에 대표(상)의 설명("가장 빠르게 · 식단이 가장 빡빡")을 달면 틀립니다. */
+          h('div.card__sub', { text: levels.length > 1 && group
+            ? '이 목표에서는 ' + group.subj + ' 같은 계획입니다. 기간 · 식단 · 운동이 모두 같아서 한 장으로 합쳤습니다.'
+            : r.blurb })
         ])
       ]),
       isRec ? h('span.badge.badge--accent', { text: '추천' }) : null

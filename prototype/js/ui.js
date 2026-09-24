@@ -489,6 +489,29 @@
     return Promise.resolve(r2);
   }
 
+  /**
+   * 같은 계획이 되는 강도끼리 묶습니다 — 공격성 a 와 기간이 같으면 식단 · 운동 · 궤적까지
+   * 같은 계획입니다(엔진이 같은 점을 고른 것). 유지 계획은 a 가 모두 0 이어도 기간이
+   * 4 · 8 · 12주로 달라서 안 묶입니다. [{ rep, levels, names, subj }]
+   * rep 은 추천이 들어 있으면 추천, 아니면 첫 강도. names 는 '상·중·하', subj 는 조사까지.
+   */
+  function levelGroups(results, recommended) {
+    var groups = [];
+    (results || []).forEach(function (r) {
+      var g = null;
+      for (var i = 0; i < groups.length; i++) {
+        if (Math.abs(groups[i].levels[0].a - r.a) < 0.005 && groups[i].levels[0].weeks === r.weeks) { g = groups[i]; break; }
+      }
+      if (g) g.levels.push(r); else groups.push({ levels: [r] });
+    });
+    groups.forEach(function (g) {
+      g.rep = g.levels.filter(function (x) { return x.level === recommended; })[0] || g.levels[0];
+      g.names = g.levels.map(function (x) { return x.label; }).join('·');
+      g.subj = g.names + (/하$/.test(g.names) ? '가' : '이');
+    });
+    return groups;
+  }
+
   /** 지금 이 화면이 보안 컨텍스트인가 — 아니면 설치·오프라인·복사가 안 됩니다. */
   function isSecure() {
     try { return window.isSecureContext !== false; } catch (e) { return true; }
@@ -499,6 +522,7 @@
     avatar: avatar, firstChar: firstChar, tintOf: tintOf,
     n0: n0, n1: n1, n2: n2, sign: sign, dateK: dateK, dateShort: dateShort, weeksToHuman: weeksToHuman,
     openModal: openModal, closeAllModals: closeAllModals, plainNote: plainNote,
-    lineChart: lineChart, sparkline: sparkline, donut: donut, timeline: timeline
+    lineChart: lineChart, sparkline: sparkline, donut: donut, timeline: timeline,
+    levelGroups: levelGroups
   };
 })(window);

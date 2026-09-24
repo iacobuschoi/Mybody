@@ -8,6 +8,10 @@
  * 근육 목표가 있을 때는 **가장 공격적인 계획이 오히려 더 걸립니다.**
  * 엔진이 그 역설을 찾으면 여기서 그대로 보여 줍니다 — 숨기면 사용자는
  * 무작정 상을 고르고, 그게 제일 느린 길입니다.
+ *
+ * **같은 계획이 되는 강도는 한 장으로 합칩니다.** 모드의 속도 하한에 붙거나
+ * 근육이 기간을 정하는 목표에서는 상 · 중 · 하가 공격성 · 기간 · 식단까지 똑같은
+ * 계획이 됩니다. 똑같은 카드 세 장은 고를 것이 있는 척을 합니다(웹 P06 과 같은 규칙).
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
@@ -88,6 +92,7 @@ class _IntensityScreenState extends State<IntensityScreen> {
     }
 
     final results = (cmp['results'] as List).cast<Map<String, Object?>>();
+    final groups = levelGroups(results, cmp['recommended']);
     final c = mb(context);
 
     return Scaffold(
@@ -95,12 +100,22 @@ class _IntensityScreenState extends State<IntensityScreen> {
       body: ListView(padding: const EdgeInsets.all(16), children: [
         _NotesCard(cmp: cmp),
 
-        for (final r in results) _LevelCard(
-          r: r,
-          selected: _level == r['level'],
-          recommended: cmp['recommended'] == r['level'],
-          onTap: () => setState(() => _level = '${r['level']}'),
+        for (final g in groups) _LevelCard(
+          r: g.rep,
+          levels: g.levels,
+          selected: g.levels.any((r) => r['level'] == _level),
+          recommended: g.levels.any((r) => cmp['recommended'] == r['level']),
+          onTap: () => setState(() => _level = '${g.rep['level']}'),
         ),
+        if (groups.length < results.length)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(
+              '같은 계획이 되는 강도는 한 장으로 합쳤습니다. 이 목표에서는 강도를 바꿔도 '
+              '기간 · 식단 · 운동이 같습니다.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).hintColor, height: 1.5),
+            ),
+          ),
 
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -171,6 +186,44 @@ class _IntensityScreenState extends State<IntensityScreen> {
   }
 }
 
+/// 같은 계획이 되는 강도 묶음. [rep] 은 추천이 들어 있으면 추천, 아니면 첫 강도.
+class LevelGroup {
+  LevelGroup(this.levels, this.rep);
+  final List<Map<String, Object?>> levels;
+  final Map<String, Object?> rep;
+
+  /// '상·중·하'
+  String get names => levels.map((r) => '${r['label']}').join('·');
+
+  /// 조사까지 — '상·중·하가', '상·중이'
+  String get subject => '$names${names.endsWith('하') ? '가' : '이'}';
+}
+
+/// 공격성 a 와 기간이 같으면 같은 계획입니다(엔진이 같은 점을 고른 것). 유지 계획은
+/// a 가 모두 0 이어도 기간이 4 · 8 · 12주로 달라서 안 묶입니다. 웹 UI.levelGroups 와 같은 규칙.
+List<LevelGroup> levelGroups(List<Map<String, Object?>> results, Object? recommended) {
+  final raw = <List<Map<String, Object?>>>[];
+  for (final r in results) {
+    List<Map<String, Object?>>? hit;
+    for (final g in raw) {
+      if ((core.jsToNumber(g.first['a']) - core.jsToNumber(r['a'])).abs() < 0.005 &&
+          core.jsToNumber(g.first['weeks']) == core.jsToNumber(r['weeks'])) {
+        hit = g;
+        break;
+      }
+    }
+    if (hit != null) {
+      hit.add(r);
+    } else {
+      raw.add([r]);
+    }
+  }
+  return [
+    for (final g in raw)
+      LevelGroup(g, g.firstWhere((r) => r['level'] == recommended, orElse: () => g.first)),
+  ];
+}
+
 /* 위쪽 설명 세 덩이(구간 · 주의 · 병목)를 한 장으로. 첫 문장만 두고
    나머지는 「자세히」. 화면을 열자마자 글 세 덩이를 읽게 하면 정작
    골라야 할 카드가 화면 밖으로 밀립니다. */
@@ -228,9 +281,11 @@ class _NotesCardState extends State<_NotesCard> {
 }
 
 class _LevelCard extends StatelessWidget {
-  const _LevelCard({required this.r, required this.selected, required this.recommended,
-      required this.onTap});
+  const _LevelCard({required this.r, required this.levels, required this.selected,
+      required this.recommended, required this.onTap});
   final Map<String, Object?> r;
+  /// 이 카드가 나타내는 강도들 — 둘 이상이면 같은 계획을 합친 카드입니다.
+  final List<Map<String, Object?>> levels;
   final bool selected, recommended;
   final VoidCallback onTap;
 
@@ -242,6 +297,8 @@ class _LevelCard extends StatelessWidget {
     final macros = (r['macros'] as Map).cast<String, Object?>();
     final sim = (r['sim'] as Map).cast<String, Object?>();
     final blocked = feas['verdict'] == 'blocked';
+    final group = LevelGroup(levels, r);
+    final merged = levels.length > 1;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -259,8 +316,10 @@ class _LevelCard extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Row(children: [
-              Text('${r['label']} · ${r['title']}',
-                  style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+              Flexible(
+                child: Text(merged ? '${group.names} · 같은 계획' : '${r['label']} · ${r['title']}',
+                    style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+              ),
               const SizedBox(width: 8),
               if (recommended) const Pill('추천', tone: Tone.ok),
               const Spacer(),
@@ -276,7 +335,12 @@ class _LevelCard extends StatelessWidget {
                   style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
             ]),
             const SizedBox(height: 6),
-            Text('${r['blurb']}',
+            /* 합친 카드에 대표(상)의 설명("가장 빠르게 · 식단이 가장 빡빡")을 달면 틀립니다. */
+            Text(
+                merged
+                    ? '이 목표에서는 ${group.subject} 같은 계획입니다. '
+                        '기간 · 식단 · 운동이 모두 같아서 한 장으로 합쳤습니다.'
+                    : '${r['blurb']}',
                 style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
             const SizedBox(height: 12),
             Row(children: [

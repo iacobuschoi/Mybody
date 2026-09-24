@@ -1016,21 +1016,30 @@ String _s(Object? x) {
 
 /// 이 모드에서 고를 수 있는 기간 폭이 **왜** 이만큼인지 설명합니다.
 /// 좁으면 좁은 이유를 말해야지, 세 장의 카드로 넓은 척하면 안 됩니다.
-Map<String, Object?> spanNote(num minW, num maxW, Map<String, Object?>? modeDef) {
+/// [why] {low, up} — 폭이 좁은 이유. compareLevels 가 가장 빠른 계획에서 읽어 넘깁니다.
+/// 폭이 0 이면(상 · 중 · 하가 같은 계획) "N~N주" 가 아니라 "N주 하나" 라고 말합니다.
+Map<String, Object?> spanNote(num minW, num maxW, Map<String, Object?>? modeDef,
+    [Map<String, String>? why]) {
   final spread = maxW - minW;
   final ratio = minW > 0 ? maxW / minW : 1;
+  final one = spread == 0;
   if (modeDef == null) {
     return {
       'spread': spread,
       'tight': ratio < 1.35,
-      'text': '이 목표는 ${_s(minW)}~${_s(maxW)}주 사이에서 고를 수 있습니다.',
+      'text': one && why != null
+          ? '이 목표는 ${_s(minW)}주 하나입니다. 가장 여유로운 강도로도 가장 빨리 닿아서 '
+              '상·중·하가 같은 계획입니다. ${why['up']}.'
+          : '이 목표는 ${_s(minW)}~${_s(maxW)}주 사이에서 고를 수 있습니다.',
     };
   }
-  var text = '「${_s(modeDef['nameKo'])}」 안에서는 이 목표가 ${_s(minW)}~${_s(maxW)}주입니다.';
+  var text = '「${_s(modeDef['nameKo'])}」 안에서는 이 목표가 '
+      '${one ? '${_s(minW)}주 하나입니다.' : '${_s(minW)}~${_s(maxW)}주입니다.'}';
   if (ratio < 1.35) {
-    text += ' 폭이 좁은 이유는 두 가지입니다 — 아래로는 이 모드가 허용하는 가장 느린 속도(공격성 '
-        '${_s(modeDef['aMin'])})에 이미 닿았고, 위로는 체지방이 하루에 안전하게 내놓을 수 있는 '
-        '에너지 상한에 걸립니다. 더 여유롭게 가고 싶으면 강도가 아니라 모드를 바꿔야 합니다.';
+    text += '${one ? ' 상·중·하가 같은 계획이 되는 이유는 두 가지입니다' : ' 폭이 좁은 이유는 두 가지입니다'}'
+        ' — 아래로는 ${why != null ? why['low'] : '이 모드가 허용하는 가장 느린 속도(공격성 ${_s(modeDef['aMin'])})에 이미 닿았고'}'
+        ', 위로는 ${why != null ? why['up'] : '체지방이 하루에 안전하게 내놓을 수 있는 에너지 상한에 걸립니다'}'
+        '. 더 여유롭게 가고 싶으면 강도가 아니라 모드를 바꿔야 합니다.';
   }
   return {'spread': spread, 'tight': ratio < 1.35, 'text': text};
 }
@@ -1215,6 +1224,25 @@ Map<String, Object?> compareLevels(
     'low': slowWeeks,
   };
 
+  /* 기간 폭이 왜 이만큼인가 — 가장 빠른 계획에서 읽습니다. engine.js 참고. */
+  final fsim = fastest['sim'] as Map<String, Object?>;
+  final fa = jsToNumber(fastest['a']);
+  final lo = con != null && con['aMin'] is num ? con['aMin'] as num : 0;
+  final why = <String, String>{
+    /* 아래쪽은 가장 여유로운 점(하 카드 쪽)이 모드 하한에 닿았는가 — 가장 빠른 점이 아니라. */
+    'low': (jsToNumber(gentlePool[0]['a']) - lo).abs() < 0.005
+        ? '이 모드가 허용하는 가장 느린 속도(공격성 ${_s(lo)})에 이미 닿았고'
+        : '더 여유로운 강도로는 목표에 닿지 않고',
+    'up': (fsim['bottleneck'] == 'muscle' || fsim['bottleneck'] == 'sequence')
+        ? '근육이 붙는 속도가 기간을 정해서 더 세게 해도 빨라지지 않습니다'
+        : (fsim['capped'] == true
+            ? '더 세게 해도 체지방이 하루에 안전하게 내놓을 수 있는 에너지 상한에 걸립니다'
+            : (modeDef != null && modeDef['aMax'] is num &&
+                    (fa - (modeDef['aMax'] as num)).abs() < 0.005
+                ? '이 모드의 속도 상한(공격성 ${_s(modeDef['aMax'])})에 닿습니다'
+                : '더 세게 해도 기간이 거의 줄지 않습니다')),
+  };
+
   final results = kLevelSpec.map((spec) {
     final targetWeeks = target[spec.key]!;
     var chosen = gentlePool[0];
@@ -1258,11 +1286,18 @@ Map<String, Object?> compareLevels(
     };
   }).toList();
 
+  /* 폭은 실제로 고를 수 있는 카드의 기간입니다(곡선의 가장 느린 점이 아니라). */
+  var lastWeeks = results[0]['weeks'];
+  for (final r in results) {
+    if (jsToNumber(r['weeks']) > jsToNumber(lastWeeks)) lastWeeks = r['weeks'];
+  }
+
   // 중복 제거: 세 강도가 같은 a 로 수렴하면 표시로 알립니다.
   final warnings = <String>[];
-  /* JS 객체의 키는 문자열이라 `uniqueA[r.a]` 는 String(a) 로 묶입니다. */
+  /* JS 객체의 키는 문자열이라 `uniqueA[r.a]` 는 String(a) 로 묶입니다.
+     셋이 전부 같으면 spanNote 가 "N주 하나 · 왜" 를 말하므로 여기서는 말하지 않습니다. */
   final uniqueA = <String>{for (final r in results) _s(r['a'])};
-  if (uniqueA.length < 3) {
+  if (uniqueA.length == 2) {
     if (modeDef != null) {
       final atFloor = results
               .where((r) => (jsToNumber(r['a']) - jsToNumber(modeDef['aMin'])).abs() < 0.005)
@@ -1331,8 +1366,8 @@ Map<String, Object?> compareLevels(
     'current': cur, 'goal': goal, 'goalInfo': goalInfo, 'mode': modeDef,
     'startDate': toISODate(start),
     'minWeeks': minWeeks, 'maxWeeks': maxW,
-    'spanWeeks': [minWeeks, slowest['weeks']],
-    'spanNote': spanNote(minWeeks, weeksOf(slowest), modeDef),
+    'spanWeeks': [minWeeks, lastWeeks],
+    'spanNote': spanNote(minWeeks, jsToNumber(lastWeeks), modeDef, why),
     'curve': [for (final c in curve) {'a': c['a'], 'weeks': c['weeks']}],
     'results': results, 'recommended': recommended, 'warnings': warnings,
     'bottleneckNote': bottleneckNote(results, goalInfo),

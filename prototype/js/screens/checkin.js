@@ -483,7 +483,12 @@
           }) : null,
           h('button.btn.btn--ghost.btn--block', {
             text: '강도 변경', uid: 'P08-B05', uidLabel: '강도 변경',
-            onClick: function () { global.MB_MODALS.changeLevel(rebuildWithLevel); }
+            onClick: function () {
+              /* 같은 계획이 되는 강도는 버튼 하나로 — 지금 목표 · 모드로 미리 계산해 봅니다. */
+              var cmp0 = levelComparison();
+              global.MB_MODALS.changeLevel(rebuildWithLevel,
+                cmp0 && cmp0.results.length ? UI.levelGroups(cmp0.results, cmp0.recommended) : null);
+            }
           })
         ]));
         body.appendChild(sCard);
@@ -676,6 +681,18 @@
         return plan2.trajectory && plan2.trajectory.length ? plan2.trajectory[0].weightKg : null;
       }
 
+      /** 지금 목표 · 모드로 다시 계산한 강도 비교. 목표나 측정이 없으면 null. */
+      function levelComparison() {
+        var st2 = S.get(), sc = S.latestScan();
+        if (!sc || !st2.goal) return null;
+        var prof = st2.profile || global.MB_DATA.SEED_PROFILE;
+        /* 고른 모드의 속도 · 단백질 제약을 그대로 겁니다 — 빼면 다시 만든 계획이 모드 밖으로 나갑니다. */
+        var modeDef = (st2.goal.modeId && global.MB_MODES) ? global.MB_MODES.byId(st2.goal.modeId) : null;
+        try {
+          return E.compareLevels(sc, prof, st2.goal, todayISO(), st2.goal.deadlineWeeks || null, modeDef);
+        } catch (e) { return null; }
+      }
+
       function rebuildWithLevel(level) {
         var st2 = S.get(), sc = S.latestScan();
         var prof = st2.profile || global.MB_DATA.SEED_PROFILE;
@@ -683,7 +700,8 @@
           global.MB_UID.toast('목표와 측정 기록이 있어야 다시 만들 수 있습니다');
           return;
         }
-        var cmp = E.compareLevels(sc, prof, st2.goal, todayISO(), st2.goal.deadlineWeeks || null);
+        var cmp = levelComparison();
+        if (!cmp) { global.MB_UID.toast('계획을 다시 계산하지 못했습니다'); return; }
         var np = E.buildPlan(cmp, level, sc, prof);
         if (!np) { global.MB_UID.toast('그 강도로는 목표에 도달하는 계획이 나오지 않습니다'); return; }
         S.setPlan(np);

@@ -782,6 +782,45 @@ void main() {
     expect(t.takeException(), isNull);
   });
 
+  /* 「감량모드」에서 세 강도가 모두 모드의 가장 느린 속도로 모이면 상 · 중 · 하는 공격성 ·
+     기간 · 식단까지 같은 계획입니다. 똑같은 카드 세 장을 보여 주던 것을 한 장으로. */
+  testWidgets('기간 고르기 — 상·중·하가 같은 계획이면 카드 한 장', (t) async {
+    t.view.physicalSize = const Size(1000, 5000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    final app = await seeded();
+    const goal = {'weightKg': 84.5, 'smmKg': 39.0, 'bfmKg': 16.0};
+    final cmp = core.compareLevels({..._scan}, _profile, goal, '2026-03-01', null, core.modeById('fatLoss'));
+    expect({for (final r in (cmp['results'] as List)) (r as Map)['a']}.length, 1,
+        reason: '이 시험의 전제 — 세 강도가 같은 계획');
+    await t.pumpWidget(host(app, const IntensityScreen(goal: goal, modeId: 'fatLoss')));
+    await t.pumpAndSettle();
+    expect(find.text('상·중·하 · 같은 계획'), findsOneWidget);
+    for (final title in ['상 · 최단', '중 · 표준', '하 · 여유']) {
+      expect(find.text(title), findsNothing, reason: title);
+    }
+    expect(find.textContaining('상·중·하가 같은 계획입니다'), findsOneWidget);
+    expect(find.text('추천'), findsOneWidget);
+    expect(find.textContaining('주 하나'), findsOneWidget, reason: '"N~N주" 가 아니라');
+    expect(find.textContaining('~'), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('기간 고르기 — 계획이 다르면 카드 세 장 그대로', (t) async {
+    t.view.physicalSize = const Size(1000, 5000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    final app = await seeded();
+    await t.pumpWidget(host(app, const IntensityScreen(
+        goal: {'weightKg': 80.5, 'smmKg': 39.0, 'bfmKg': 12.0}, modeId: 'cutting')));
+    await t.pumpAndSettle();
+    for (final title in ['상 · 최단', '중 · 표준', '하 · 여유']) {
+      expect(find.text(title), findsOneWidget, reason: title);
+    }
+    expect(find.textContaining('같은 계획'), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+
   testWidgets('고른 모드의 제약이 계획에 실제로 걸린다', (t) async {
     final app = await seeded();
     await t.pumpWidget(host(app, const IntensityScreen(

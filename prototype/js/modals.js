@@ -189,17 +189,27 @@
     });
   };
 
-  /* M10 강도 변경 확인 */
-  M.changeLevel = function (onPick) {
+  /* M10 강도 변경 확인
+   * groups: UI.levelGroups 의 결과(없으면 상 · 중 · 하 셋). 같은 계획이 되는 강도는 버튼 하나로 —
+   * 셋이 전부 같으면 바꿀 것이 없다고 말합니다. 같은 계획으로 "바꾸고" 토스트를 띄우면 거짓말입니다. */
+  M.changeLevel = function (onPick, groups) {
+    var opts = groups ? groups.map(function (g) { return { level: g.rep.level, label: g.names }; })
+                      : [{ level: 'high', label: '상' }, { level: 'mid', label: '중' }, { level: 'low', label: '하' }];
+    if (opts.length < 2) {
+      UI.openModal({
+        uid: 'M10', title: '바꿀 강도가 없습니다',
+        body: h('div', { text: '이 목표에서는 ' + (groups && groups[0] ? groups[0].subj : '상·중·하가') +
+                               ' 같은 계획입니다. 기간 · 식단 · 운동이 모두 같아서 강도를 바꿔도 계획이 그대로입니다.' }),
+        actions: [{ label: '닫기', kind: 'primary' }]
+      });
+      return;
+    }
     UI.openModal({
       uid: 'M10', title: '강도를 바꿀까요?',
       body: h('div', { text: '현재 플랜이 새 강도로 교체됩니다. 측정 기록과 체크인 기록은 그대로 남습니다.' }),
-      actions: [
-        { label: '상', onClick: function () { onPick('high'); } },
-        { label: '중', onClick: function () { onPick('mid'); } },
-        { label: '하', onClick: function () { onPick('low'); } },
-        { label: '취소', kind: 'ghost' }
-      ]
+      actions: opts.map(function (o) {
+        return { label: o.label, onClick: function () { onPick(o.level); } };
+      }).concat([{ label: '취소', kind: 'ghost' }])
     });
   };
 
@@ -214,7 +224,9 @@
             var st = S.get(), scan = S.latestScan();
             var prof = st.profile || global.MB_DATA.SEED_PROFILE;
             if (!scan || !st.goal) return;
-            var cmp = E.compareLevels(scan, prof, st.goal, todayISO(), st.goal.deadlineWeeks || null);
+            /* 고른 모드의 속도 · 단백질 제약을 그대로 겁니다 — 빼면 다시 만든 계획이 모드 밖으로 나갑니다. */
+            var modeDef = (st.goal.modeId && global.MB_MODES) ? global.MB_MODES.byId(st.goal.modeId) : null;
+            var cmp = E.compareLevels(scan, prof, st.goal, todayISO(), st.goal.deadlineWeeks || null, modeDef);
             var plan = E.buildPlan(cmp, st.plan ? st.plan.level : 'mid', scan, prof);
             S.setPlan(plan);
             global.MB_UID.toast('플랜을 다시 만들었습니다');
