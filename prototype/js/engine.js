@@ -1435,51 +1435,58 @@
   /* --- 주간 체크인 판정 ----------------------------------------------------
    * 예전 판정은 이번 주 체중 하나를 계획선에 대 보고 **0.15kg** 만 달라도
    * "빠르다 · 느리다" 를 냈습니다. 체중은 하루에도 ±1kg 흔들립니다. 계획
-   * 다음 날(0주차) 집 체중계로 86.2 를 넣은 사람이 인바디 86.7 과 0.5kg
-   * 다르다는 이유로 "하루 150kcal 늘리기" 를 받았습니다 — 흔들림에 반응한
-   * 제안입니다.
+   * 다음 날 집 체중계로 86.2 를 넣은 사람이 인바디 86.7 과 0.5kg 다르다는
+   * 이유로 "하루 150kcal 늘리기" 를 받았습니다 — 흔들림에 반응한 제안입니다.
    *
-   * 지금 규칙 (검토에서 짚힌 세 가지까지 고친 판):
-   *  · **체크인끼리만** 견줍니다. 인바디와 집 체중계는 0.5~1kg 다를 수 있어서,
-   *    각 체크인의 "계획선과의 차이(잔차)" 를 구하고 그 잔차가 **기준보다**
-   *    얼마나 움직였는지를 봅니다. 체중계 차이는 잔차에 똑같이 들어가 지워집니다.
-   *  · 계획선은 **그날 자리**에서 읽습니다(주 사이는 이어서 계산). 주 단위로
-   *    잘라 읽으면 월요일 기준 · 일요일 체크인처럼 요일이 다를 때 한 주 감량분의
-   *    6/7 까지 차이가 생겨, 계획대로 가는 사람이 "빠릅니다" 를 받았습니다.
-   *  · 기준은 **판정하는 두 번보다 앞선 체크인들의 평균**입니다. 기준이 하루치
-   *    하나면 그날의 흔들림이 뒤의 모든 비교에 똑같이 실려 "두 번 연속" 이 걸러
-   *    주지 못합니다. 그래서 조정 제안은 기준이 두 번 이상 쌓인 뒤(네 번째
-   *    체크인부터)에만 나옵니다. 그 전에 두 번 벗어나면 지켜봅니다.
-   *  · ±0.5kg 안이면 계획대로(onTrack). 한 번 벗어나면 지켜봄(watch).
-   *    두 번 연속 같은 쪽이면 조정 제안(apply).
-   *  · **방향은 그 시점 계획의 단계**로 정합니다(trajectory[].phase — 없으면 그
-   *    주 계획선의 기울기). 끝점끼리 비교하면 감량 → 유지 → 증량 순서의 계획이
-   *    감량 중에도 "증량 계획" 으로 읽혔습니다.
-   *    감량: 무거우면 느림(slow), 가벼우면 빠름(fast)
-   *    증량: 가벼우면 느림, 무거우면 빠름
-   *    유지: 무거움(heavy) · 가벼움(light)
-   *    칼로리는 방향과 상관없이 **계획보다 무거우면 −150, 가벼우면 +150**.
-   *    유산소 +40분은 감량 중에 무거울 때만.
+   * 지금 규칙 (두 차례 독립 검토 + 모의실험으로 정한 판):
+   *  · **체크인끼리만** 봅니다. 체크인마다 "그날 자리의 계획선과의 차이(잔차)" 를
+   *    구하고, 잔차들에 **직선 추세**를 맞춥니다. 체중계와 인바디의 차이(0.5~1kg)는
+   *    잔차에 똑같이 들어가 추세에는 안 나타납니다. 계획선은 주 사이를 이어서
+   *    그날 자리에서 읽습니다(요일이 달라 생기는 가짜 차이가 없게).
+   *  · **5일 안에 다시 잰 값은 앞의 값을 대신합니다.** 일요일 · 월요일 이틀
+   *    연속을 "두 주 연속" 으로 세던 일이 없게.
+   *  · 판정은 체크인 4번 이상 · 3주 이상에 걸쳐 있을 때부터. 그 전엔 모으는 중.
+   *  · 추세가 그 기간 합쳐 **1kg 넘게** 계획선에서 벗어나고, 흔들림에 비해 확실할 때
+   *    (기울기 ÷ 표준오차 ≥ 2.5)만 "벗어남". 흔들림 크기는 잔차에서 재되 0.35kg 밑으로는
+   *    안 봅니다(점이 적을 때 우연히 딱 맞는 것을 확실하다고 믿지 않게).
+   *  · **두 번 연속 체크인에서 같은 쪽으로 벗어남**일 때만 조정을 제안합니다.
+   *    한 번이면 지켜봅니다.
+   *    모의실험(계획대로 가는 사람, 체중 흔들림 σ 0.5kg, 12주): 예전 "±0.5kg 두 번"
+   *    규칙은 30~60% 가 한 번 이상 가짜 조정을 받았고, 이 규칙은 약 5%. 완전 정체는
+   *    체크인 5번(중앙값), 절반 정체는 7번이면 잡힙니다.
+   *  · **방향은 그 시점 계획의 단계**(trajectory[].phase — 점 k 의 단계는 k−1 → k
+   *    구간의 것이라 x 를 포함하는 구간이 끝나는 점을 봅니다. 없으면 그 자리 기울기).
+   *    감량: 무거워지면 느림(slow), 가벼워지면 빠름(fast) · 증량: 반대 ·
+   *    유지: 무거움(heavy) · 가벼움(light). 유지 단계는 **체중 자체도** 같은 쪽으로
+   *    1kg 넘게 움직였을 때만 — 근육이 붙는다고 계획선이 조금씩 오르는 유지 계획에서
+   *    체중을 그대로 지킨 사람에게 "더 드세요" 가 나오지 않게.
+   *    칼로리는 **계획보다 무거워지면 −150, 가벼워지면 +150**. 유산소 +40분은 감량 중에
+   *    무거워질 때만.
    *  · 식단을 70% 미만으로 지킨 주는 숫자를 건드리지 않습니다(adherence) — 먼저 봅니다.
    *  · 조정을 적용하면 그 뒤 체크인만 봅니다(plan.adjustments 의 마지막 at).
-   *    안 그러면 쌓인 차이로 매주 150kcal 씩 하한까지 내려갑니다.
    *
    * readings: [{ week, day?, weightKg, at? }] — 오래된 것부터. day 는 계획 시작일로부터
-   * 며칠째인지(planDayOf). 없으면 week×7 로 봅니다. 날짜 → 날 수는 시간대를 타서
-   * 부르는 쪽이 셉니다.
-   * devKg · prevDevKg: 기준 대비 **계획보다 무거운** kg (+ 무거움, − 가벼움).
+   * 며칠째인지(planDayOf). 없으면 week×7. 날짜 → 날 수는 시간대를 타서 부르는 쪽이 셉니다.
+   * devKg: 관측 기간 동안 추세로 본 **계획보다 무거워진** kg (+ 무거움, − 가벼움).
+   * rateKg: 그 추세의 주당 kg. spanWeeks: 관측 기간(주).
    * ------------------------------------------------------------------------ */
-  var CHECKIN_BAND_KG = 0.5;
+  var CHECKIN_DRIFT_KG = 1.0;
+  var CHECKIN_T = 2.5;
+  var CHECKIN_MIN_SIGMA = 0.35;
+  var CHECKIN_MIN_N = 4;
+  var CHECKIN_MIN_SPAN = 3;
+  var CHECKIN_MERGE_DAYS = 5;
   var CHECKIN_KCAL_STEP = 150;
   var CHECKIN_CARDIO_MIN = 40;
   var CARDIO_NOTE_RE = / \+ 추가 유산소 주 -?\d+(\.\d+)?분 \(체크인 조정\)$/;
+
+  function trajWeek(p, i) { return typeof p.week === 'number' ? p.week : i; }
 
   /** 계획선에서 그 주에 가장 가까운 점. week 칸이 없으면 자리 번호를 주차로 봅니다. */
   function trajAt(tr, wk) {
     var best = null, bestD = Infinity;
     for (var i = 0; i < tr.length; i++) {
-      var w = typeof tr[i].week === 'number' ? tr[i].week : i;
-      var d = Math.abs(w - wk);
+      var d = Math.abs(trajWeek(tr[i], i) - wk);
       if (d < bestD) { best = tr[i]; bestD = d; }
     }
     return best;
@@ -1489,7 +1496,7 @@
   function trajWeightAt(tr, x) {
     var pw = null, py = null;
     for (var i = 0; i < tr.length; i++) {
-      var w = typeof tr[i].week === 'number' ? tr[i].week : i;
+      var w = trajWeek(tr[i], i);
       var y = tr[i].weightKg;
       if (w === x) return y;
       if (w > x) {
@@ -1508,19 +1515,20 @@
     return tr.length ? trajWeightAt(tr, d / 7) : null;
   }
 
-  /** 그 자리의 계획 단계 — 'cut' · 'gain' · 'maintain'. */
+  /** 그 자리의 계획 단계 — 'cut' · 'gain' · 'maintain'. 점 k 의 phase 는 k−1 → k 구간의 것. */
   function trajDirectionAt(tr, x) {
     var pt = null;
     for (var i = 0; i < tr.length; i++) {
-      var w = typeof tr[i].week === 'number' ? tr[i].week : i;
-      if (w <= x || pt === null) pt = tr[i];
-      if (w > x) break;
+      if (trajWeek(tr[i], i) > x) { pt = tr[i]; break; }
     }
+    if (pt === null && tr.length) pt = tr[tr.length - 1];
     var ph = pt && pt.phase;
     if (ph === 'cut') return 'cut';
     if (ph === 'bulk') return 'gain';
     if (ph === 'maintain') return 'maintain';
-    var a = x >= 1 ? x - 1 : 0, b = x >= 1 ? x : 1;
+    var lastW = tr.length ? trajWeek(tr[tr.length - 1], tr.length - 1) : 0;
+    var a = x + 1 <= lastW ? x : x - 1, b = a + 1;
+    if (a < 0) { a = 0; b = 1; }
     var slope = trajWeightAt(tr, b) - trajWeightAt(tr, a);
     return slope <= -0.1 ? 'cut' : (slope >= 0.1 ? 'gain' : 'maintain');
   }
@@ -1541,10 +1549,34 @@
     return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : null;
   }
 
+  /** [{x, e}] 에 직선을 맞춥니다. 점이 한 자리에 몰려 있으면 null. */
+  function checkinTrend(pts) {
+    var n = pts.length, mx = 0, me = 0, i;
+    for (i = 0; i < n; i++) { mx += pts[i].x; me += pts[i].e; }
+    mx /= n; me /= n;
+    var sxx = 0, sxy = 0;
+    for (i = 0; i < n; i++) { var dx = pts[i].x - mx; sxx += dx * dx; sxy += dx * (pts[i].e - me); }
+    if (!(sxx > 0)) return null;
+    var slope = sxy / sxx, sse = 0;
+    for (i = 0; i < n; i++) { var r = pts[i].e - (me + slope * (pts[i].x - mx)); sse += r * r; }
+    var sigma = n > 2 ? Math.sqrt(sse / (n - 2)) : 0;
+    if (!(sigma >= CHECKIN_MIN_SIGMA)) sigma = CHECKIN_MIN_SIGMA;
+    var span = pts[n - 1].x - pts[0].x;
+    return { slope: slope, drift: slope * span, span: span, t: slope / (sigma / Math.sqrt(sxx)) };
+  }
+  /** 그 점들로 "확실히 벗어남" 인가 — +1 무거워짐, −1 가벼워짐, 0 아님. */
+  function checkinSide(pts) {
+    if (pts.length < CHECKIN_MIN_N) return 0;
+    var t = checkinTrend(pts);
+    if (!t || !(t.span >= CHECKIN_MIN_SPAN)) return 0;
+    if (!(Math.abs(t.drift) >= CHECKIN_DRIFT_KG) || !(Math.abs(t.t) >= CHECKIN_T)) return 0;
+    return t.drift > 0 ? 1 : -1;
+  }
+
   function checkinReview(plan, readings, adherence) {
     var tr = (plan && plan.trajectory) || [];
-    var out = { status: 'early', direction: null, devKg: null, prevDevKg: null,
-                weeks: 0, baseWeek: null, baseCount: 0, since: null, suggestions: [], apply: null };
+    var out = { status: 'early', direction: null, devKg: null, rateKg: null, spanWeeks: null,
+                weeks: 0, merged: 0, since: null, suggestions: [], apply: null };
 
     /* 마지막 조정 이후만 — 그 전 체크인은 옛 칼로리로 산 주입니다. */
     var adjs = plan && Array.isArray(plan.adjustments) ? plan.adjustments : [];
@@ -1552,8 +1584,8 @@
     var since = adj && typeof adj === 'object' && typeof adj.at === 'string' && adj.at ? adj.at : null;
     out.since = since;
 
-    /* 한 주에 여러 번이면 그 주의 마지막 값. 이상한 값은 건너뜁니다. */
-    var byWeek = {}, weeks = [];
+    /* 5일 안에 다시 잰 값은 앞의 값을 대신합니다. 이상한 값은 건너뜁니다. */
+    var kept = [], merged = 0;
     (readings || []).forEach(function (r) {
       if (!r) return;
       if (since && typeof r.at === 'string' && r.at < since) return;
@@ -1562,12 +1594,16 @@
       if (typeof w !== 'number' || !isFinite(w) || w <= 0) return;
       wk = Math.max(0, Math.floor(wk));
       var day = typeof r.day === 'number' && isFinite(r.day) ? Math.max(0, r.day) : wk * 7;
-      if (byWeek[wk] == null) weeks.push(wk);
-      byWeek[wk] = { h: w, x: day / 7 };
+      var k = { h: w, day: day };
+      if (kept.length && Math.abs(day - kept[kept.length - 1].day) < CHECKIN_MERGE_DAYS) {
+        kept[kept.length - 1] = k; merged++;
+      } else {
+        kept.push(k);
+      }
     });
-    weeks.sort(function (a, b) { return a - b; });
-    out.weeks = weeks.length;
-    out.baseWeek = weeks.length ? weeks[0] : null;
+    var n = kept.length;
+    out.weeks = n;
+    out.merged = merged;
 
     if (adherence && typeof adherence.dietPct === 'number' && adherence.dietPct < 70) {
       out.status = 'adherence';
@@ -1580,76 +1616,96 @@
         detail: '목표와 계획을 먼저 세우면 체크인을 계획선과 견줘 봅니다.' });
       return out;
     }
-    if (weeks.length < 2) {
+    if (n < 2) {
       out.suggestions.push(since
         ? { kind: 'hold', title: '조정 뒤 기준을 새로 잡았습니다',
-            detail: '계획을 바꾼 뒤로는 그때 체크인을 기준으로 다시 봅니다. 다음 주 체크인부터 판정합니다.' }
-        : { kind: 'hold', title: '기준 체중을 잡았습니다',
-            detail: '첫 체크인은 판정하지 않습니다. 인바디와 집 체중계는 0.5~1kg 다를 수 있어서, ' +
-                    '이 값을 기준으로 다음 주부터 계획선과 견줘 봅니다.' });
+            detail: '계획을 바꾼 뒤로는 그때 체크인부터 다시 봅니다.' }
+        : (merged
+          ? { kind: 'hold', title: '기준 체중을 다시 잡았습니다',
+              detail: '5일 안에 다시 잰 값이라 앞의 값을 이 값으로 바꿔 기준으로 씁니다.' }
+          : { kind: 'hold', title: '기준 체중을 잡았습니다',
+              detail: '첫 체크인은 판정하지 않습니다. 인바디와 집 체중계는 0.5~1kg 다를 수 있어서, ' +
+                      '이 값부터 체크인끼리의 흐름으로 계획선과 견줘 봅니다.' }));
       return out;
     }
 
-    /* 잔차 = 그날 체중 − 그날 자리의 계획선. 기준 = 판정하는 두 번보다 앞선 잔차의 평균. */
-    var res = weeks.map(function (wk) { return byWeek[wk].h - trajWeightAt(tr, byWeek[wk].x); });
-    var n = res.length;
-    var baseN = n >= 3 ? n - 2 : 1;
-    var sum = 0;
-    for (var i = 0; i < baseN; i++) sum += res[i];
-    var base = sum / baseN;
-    out.baseCount = baseN;
-    var last = r2(res[n - 1] - base);
-    var prev = n >= 3 ? r2(res[n - 2] - base) : null;
-    if (!isFinite(last)) {
-      out.suggestions.push({ kind: 'hold', title: '판정하지 않습니다',
-        detail: '계획선을 읽지 못했습니다.' });
-      return out;
+    /* 잔차 = 그날 체중 − 그날 자리의 계획선. 유지 단계 확인용으로 체중 그대로도. */
+    var pts = [], flat = [], i;
+    for (i = 0; i < n; i++) {
+      var x = kept[i].day / 7;
+      pts.push({ x: x, e: kept[i].h - trajWeightAt(tr, x) });
+      flat.push({ x: x, e: kept[i].h });
     }
-    out.devKg = last;
-    out.prevDevKg = prev;
-    var dir = trajDirectionAt(tr, byWeek[weeks[n - 1]].x);
+    for (i = 0; i < n; i++) {
+      if (!isFinite(pts[i].e)) {
+        out.suggestions.push({ kind: 'hold', title: '판정하지 않습니다', detail: '계획선을 읽지 못했습니다.' });
+        return out;
+      }
+    }
+    var dir = trajDirectionAt(tr, pts[n - 1].x);
     out.direction = dir;
-
-    function side(x) {
-      if (x == null) return 0;
-      return x >= CHECKIN_BAND_KG ? 1 : (x <= -CHECKIN_BAND_KG ? -1 : 0);
+    var trend = checkinTrend(pts);
+    if (trend) {
+      out.devKg = r2(trend.drift);
+      out.rateKg = r2(trend.slope);
+      out.spanWeeks = r1(trend.span);
     }
-    var s1 = side(last), s0 = side(prev);
+
+    if (n < CHECKIN_MIN_N || !trend || trend.span < CHECKIN_MIN_SPAN) {
+      out.status = 'collecting';
+      out.suggestions.push({ kind: 'hold', title: '흐름을 모으는 중입니다',
+        detail: '판정은 3주 이상에 걸친 체크인 4번부터 합니다 — 지금 ' + n + '번. ' +
+                '한 번 한 번의 체중은 ±1kg 흔들려서, 추세가 보일 때까지 계획을 바꾸지 않습니다.' });
+      return out;
+    }
+
+    function side(p, f) {
+      var s = checkinSide(p);
+      /* 유지 단계는 체중 자체도 같은 쪽으로 움직였을 때만. */
+      if (s !== 0 && dir === 'maintain' && checkinSide(f) !== s) return 0;
+      return s;
+    }
+    var s1 = side(pts, flat);
+    var s0 = side(pts.slice(0, n - 1), flat.slice(0, n - 1));
+
     if (s1 === 0) {
-      out.status = 'onTrack';
-      out.suggestions.push({ kind: 'hold', title: '계획 유지',
-        detail: '기준 체크인 이후 변화가 계획선과 0.5kg 안에서 맞습니다. 바꾸지 마세요.' });
+      if (trend && Math.abs(trend.drift) >= CHECKIN_DRIFT_KG) {
+        out.status = 'watch';
+        out.suggestions.push({ kind: 'watch', title: '아직 확실하지 않습니다',
+          detail: '계획선에서 벗어나는 쪽으로 보이지만 체중이 많이 흔들려 확실하지 않습니다. ' +
+                  '같은 조건(아침 공복, 화장실 다녀와서)으로 재면 더 빨리 판정할 수 있습니다.' });
+      } else {
+        out.status = 'onTrack';
+        out.suggestions.push({ kind: 'hold', title: '계획 유지',
+          detail: '체크인 ' + n + '번의 추세가 계획선과 1kg 안에서 맞습니다. 바꾸지 마세요.' });
+      }
       return out;
     }
-    if (s0 !== s1 || baseN < 2) {
+    if (s0 !== s1) {
       out.status = 'watch';
-      out.suggestions.push(s0 === s1
-        ? { kind: 'watch', title: '한 번 더 보고 정합니다',
-            detail: '두 번 연속 같은 쪽이지만 기준 체크인이 하나뿐이라, 그날의 흔들림일 수 있습니다. ' +
-                    '다음 체크인까지 보고 정합니다.' }
-        : { kind: 'watch', title: '한 번 더 보고 정합니다',
-            detail: '체중은 하루에도 ±1kg 흔들려서 한 번 벗어난 것으로는 계획을 바꾸지 않습니다. ' +
-                    '다음 체크인에도 같은 쪽이면 그때 조정을 제안합니다.' });
+      out.suggestions.push({ kind: 'watch', title: '한 번 더 보고 정합니다',
+        detail: '추세가 처음으로 계획선에서 1kg 넘게 벗어났습니다. 다음 체크인에서도 같은 쪽이면 ' +
+                '그때 조정을 제안합니다.' });
       return out;
     }
 
-    /* 두 번 연속 같은 쪽, 기준도 두 번 이상 — 이때만 조정합니다. */
+    /* 두 번 연속 같은 쪽 — 이때만 조정합니다. */
     var heavy = s1 > 0;
     var kcal = heavy ? -CHECKIN_KCAL_STEP : CHECKIN_KCAL_STEP;
     var cardio = heavy && dir === 'cut' ? CHECKIN_CARDIO_MIN : 0;
     var detail;
     if (dir === 'cut') {
       out.status = heavy ? 'slow' : 'fast';
-      detail = heavy ? '두 번 연속 계획보다 덜 빠졌습니다.'
-                     : '두 번 연속 계획보다 빨리 빠졌습니다 — 너무 빠르면 근손실 위험이 올라갑니다.';
+      detail = heavy ? '두 번 연속, 추세가 계획보다 덜 빠지고 있습니다.'
+                     : '두 번 연속, 추세가 계획보다 빨리 빠지고 있습니다 — 너무 빠르면 근손실 위험이 올라갑니다.';
     } else if (dir === 'gain') {
       out.status = heavy ? 'fast' : 'slow';
-      detail = heavy ? '두 번 연속 계획보다 빨리 늘었습니다 — 빨리 늘면 지방도 같이 붙습니다.'
-                     : '두 번 연속 계획보다 덜 늘었습니다.';
+      detail = heavy ? '두 번 연속, 추세가 계획보다 빨리 늘고 있습니다 — 빨리 늘면 지방도 같이 붙습니다.'
+                     : '두 번 연속, 추세가 계획보다 덜 늘고 있습니다.';
     } else {
       out.status = heavy ? 'heavy' : 'light';
-      detail = heavy ? '유지 기간인데 두 번 연속 계획보다 무겁습니다.'
-                     : '유지 기간인데 두 번 연속 계획보다 가볍습니다.';
+      detail = heavy ? '유지 기간인데 두 번 연속, 체중이 계획보다 늘고 있습니다.'
+                     : '유지 기간인데 두 번 연속, 체중이 계획보다 줄고 있습니다.';
     }
     out.suggestions.push({ kind: 'kcal',
       title: '하루 ' + CHECKIN_KCAL_STEP + 'kcal ' + (kcal < 0 ? '줄이기' : '늘리기'), detail: detail });

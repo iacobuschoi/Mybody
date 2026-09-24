@@ -596,15 +596,16 @@ function checkinCase(rnd, module) {
     return tr[i].weightKg + (tr[j].weightKg - tr[i].weightKg) * (x - Math.floor(x));
   };
   const readings = [];
-  const count = (rnd() * 8) | 0;
+  const count = (rnd() * 13) | 0;
   const offset = (rnd() - 0.5) * 2;
-  const drift = (rnd() - 0.5) * 0.8;
+  const drift = (rnd() - 0.5) * 1.2;
+  const noise = pick([0.2, 0.5, 0.9]);
   let day = (rnd() * 10) | 0;
   for (let i = 0; i < count; i++) {
     if (i > 0) day += rnd() > 0.15 ? 5 + ((rnd() * 5) | 0) : ((rnd() * 3) | 0);
     if (rnd() > 0.9) day += 10;
     let r = { week: Math.floor(day / 7), day: day,
-              weightKg: Math.round((lineAt(day / 7) + offset + drift * i + (rnd() - 0.5) * 0.9) * 10) / 10 };
+              weightKg: Math.round((lineAt(day / 7) + offset + drift * i + (rnd() - 0.5) * noise) * 10) / 10 };
     if (rnd() > 0.85) delete r.day;
     if (rnd() > 0.2) r.at = '2026-10-' + String(1 + i * 3).padStart(2, '0') + 'T00:00:00.000Z';
     const q = rnd();

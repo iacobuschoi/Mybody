@@ -168,11 +168,12 @@ void main() {
     t.view.devicePixelRatio = 1.0;
     addTearDown(t.view.reset);
     final app = await seeded();
-    /* 지난주 체크인이 하나 있어야 판정이 납니다 — 첫 체크인은 기준점이라
-       판정 자체가 없고, 그때는 "반영 못 했다" 고 말할 판정도 없습니다. */
+    /* 판정은 3주 이상에 걸친 체크인 4번부터 납니다 — 그 전엔 모으는 중이라
+       "반영 못 했다" 고 말할 판정도 없습니다. 지난 3주의 체크인 + 오늘. */
     app.store.set({'checkins': [
-      {'at': DateTime.now().toUtc().subtract(const Duration(days: 8)).toIso8601String(),
-       'weightKg': 86.4},
+      for (final d in [21, 14, 7])
+        {'at': DateTime.now().toUtc().subtract(Duration(days: d)).toIso8601String(),
+         'weightKg': 86.4},
     ]});
     await t.pumpWidget(host(app, const CheckinScreen()));
     await t.pump(const Duration(milliseconds: 200));

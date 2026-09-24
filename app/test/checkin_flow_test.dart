@@ -99,25 +99,29 @@ void main() {
     expect(c['applied'], isFalse);
   });
 
-  testWidgets('두 번 연속 느리면 제안을 적용할 수 있고, 계획의 하루 칼로리가 바뀐다', (t) async {
-    final app = await seeded(weeksAgo: 3);
+  /// 4주 전에 시작한 계획, 매주 계획선보다 0.6kg 씩 더 무거워지는 체크인 4번(0·7·14·21일).
+  Future<AppState> stalled() async {
+    final app = await seeded(weeksAgo: 4);
     final now = DateTime.now();
-    /* 0 · 1주는 계획선 위(기준 두 번) → 2주 0.6 무거움 → 오늘(3주) 0.8 무거움. */
     app.store.set({'checkins': [
-      {'at': _iso(now.subtract(const Duration(days: 21))), 'weightKg': _planW(app, 0)},
-      {'at': _iso(now.subtract(const Duration(days: 14))), 'weightKg': _planW(app, 1)},
-      {'at': _iso(now.subtract(const Duration(days: 7))), 'weightKg': _planW(app, 2) + 0.6},
+      for (var k = 0; k < 4; k++)
+        {'at': _iso(now.subtract(Duration(days: 28 - 7 * k))),
+         'weightKg': double.parse((_planW(app, k) + 0.6 * k).toStringAsFixed(1))},
     ]});
+    return app;
+  }
+
+  testWidgets('추세가 두 번 연속 벗어나면 제안을 적용할 수 있고, 계획의 하루 칼로리가 바뀐다', (t) async {
+    final app = await stalled();
     final before = core.jsToNumber((app.state['plan'] as Map)['macros']['intakeKcal']);
     await open(t, app, const CheckinScreen());
 
     expect(find.text('지난 체크인'), findsOneWidget);
-    await t.enterText(find.byType(TextField), (_planW(app, 3) + 0.8).toStringAsFixed(1));
+    await t.enterText(find.byType(TextField), (_planW(app, 4) + 2.4).toStringAsFixed(1));
     await t.pump();
     expect(find.text('느립니다'), findsOneWidget);
     expect(find.text('하루 150kcal 줄이기'), findsOneWidget);
     /* 누르기 전에 실제로 바뀌는 숫자를 보여 줍니다. */
-    expect(find.textContaining('kcal', findRichText: true), findsWidgets);
     expect(find.textContaining('적용하면', findRichText: true), findsOneWidget);
 
     await t.tap(find.text('저장하고 제안 적용'));
@@ -133,29 +137,54 @@ void main() {
     final adj = (plan['adjustments'] as List).single as Map;
     final last = ((app.state['checkins'] as List).last as Map).cast<String, Object?>();
     expect(last['applied'], isTrue);
-    expect(last['at'], adj['at'], reason: '조정한 체크인이 새 기준점이 되려면 시각이 같아야 합니다');
+    expect(last['at'], adj['at'], reason: '조정한 체크인부터 다시 보려면 시각이 같아야 합니다');
 
-    /* 다음 판정은 조정한 체크인을 기준으로 — 같은 차이로 또 줄이라고 하지 않습니다. */
+    /* 다음 판정은 조정한 체크인부터 — 같은 정체로 또 줄이라고 하지 않습니다. */
     final again = core.checkinReview(plan, readingsFor(app.store, plan), null);
     expect(again['status'], 'early');
   });
 
-  testWidgets('저장만 하면 계획은 그대로', (t) async {
+  testWidgets('한 번 벗어나면 지켜보기만 — 적용 버튼 없음', (t) async {
     final app = await seeded(weeksAgo: 3);
     final now = DateTime.now();
     app.store.set({'checkins': [
-      {'at': _iso(now.subtract(const Duration(days: 21))), 'weightKg': _planW(app, 0)},
-      {'at': _iso(now.subtract(const Duration(days: 14))), 'weightKg': _planW(app, 1)},
-      {'at': _iso(now.subtract(const Duration(days: 7))), 'weightKg': _planW(app, 2) + 0.6},
+      for (var k = 0; k < 3; k++)
+        {'at': _iso(now.subtract(Duration(days: 21 - 7 * k))),
+         'weightKg': double.parse((_planW(app, k) + 0.6 * k).toStringAsFixed(1))},
     ]});
+    await open(t, app, const CheckinScreen());
+    await t.enterText(find.byType(TextField), (_planW(app, 3) + 1.8).toStringAsFixed(1));
+    await t.pump();
+    expect(find.text('지켜보는 중'), findsOneWidget);
+    expect(find.text('저장하고 제안 적용'), findsNothing);
+  });
+
+  testWidgets('저장만 하면 계획은 그대로', (t) async {
+    final app = await stalled();
     final before = core.jsToNumber((app.state['plan'] as Map)['macros']['intakeKcal']);
     await open(t, app, const CheckinScreen());
-    await t.enterText(find.byType(TextField), (_planW(app, 3) + 0.8).toStringAsFixed(1));
+    await t.enterText(find.byType(TextField), (_planW(app, 4) + 2.4).toStringAsFixed(1));
     await t.pump();
     await t.tap(find.text('저장만 하기 — 계획은 그대로'));
     await t.pumpAndSettle();
     expect(core.jsToNumber((app.state['plan'] as Map)['macros']['intakeKcal']), before);
-    expect((app.state['checkins'] as List).length, 4);
+    expect((app.state['checkins'] as List).length, 5);
+  });
+
+  testWidgets('5일 안에 다시 저장하면 앞의 값을 새 값으로 바꾼다 — 목록에 둘 다 남지 않는다', (t) async {
+    final app = await seeded();
+    app.store.set({'checkins': [
+      {'at': _iso(DateTime.now().subtract(const Duration(hours: 2))), 'weightKg': 88.0},
+    ]});
+    await open(t, app, const CheckinScreen());
+    expect(find.textContaining('5일 안에 다시 저장하면', findRichText: true), findsOneWidget);
+    await t.enterText(find.byType(TextField), '86.6');
+    await t.pump();
+    await t.tap(find.text('체크인 저장'));
+    await t.pumpAndSettle();
+    final list = (app.state['checkins'] as List).cast<Map>();
+    expect(list, hasLength(1));
+    expect(list.single['weightKg'], 86.6);
   });
 
   testWidgets('홈 — 이번 주에 체크인했으면 완료로 보인다', (t) async {
@@ -167,6 +196,16 @@ void main() {
       {'at': _iso(DateTime.now()), 'weightKg': 85.4},
     ]});
     await t.pumpAndSettle();
+    expect(find.text('이번 주 체크인 완료 · 85.4kg'), findsOneWidget);
+  });
+
+  testWidgets('계획 주가 바뀌어도 5일 안에 했으면 완료 — 일요일에 하고 월요일에 또 부르지 않는다', (t) async {
+    final app = await seeded(weeksAgo: 2);
+    /* 계획은 14일 전 시작 → 오늘은 2주차 첫날. 어제는 1주차 마지막 날. */
+    app.store.set({'checkins': [
+      {'at': _iso(DateTime.now().subtract(const Duration(days: 1))), 'weightKg': 85.4},
+    ]});
+    await open(t, app, Scaffold(body: HomeScreen(go: (_, [__]) {})));
     expect(find.text('이번 주 체크인 완료 · 85.4kg'), findsOneWidget);
   });
 
@@ -201,10 +240,14 @@ void main() {
     await t.pump();
     expect(find.textContaining('20~300kg'), findsOneWidget);
     expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '체크인 저장')).onPressed, isNull);
-    /* 범위 안이어도 지난 기록(인바디 86.7)에서 15% 넘게 다르면 막습니다. */
+    /* 범위 안이어도 가장 최근 기록에서 너무 다르면 막습니다(어제 체크인 86.2 → 100.2). */
+    app.store.set({'checkins': [
+      {'at': _iso(DateTime.now().subtract(const Duration(days: 1))), 'weightKg': 86.2},
+    ]});
+    await t.pump();
     await t.enterText(find.byType(TextField), '100.2');
     await t.pump();
-    expect(find.textContaining('15% 넘게 다릅니다'), findsOneWidget);
+    expect(find.textContaining('너무 많이 다릅니다'), findsOneWidget);
     expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '체크인 저장')).onPressed, isNull);
     await t.enterText(find.byType(TextField), '86.2');
     await t.pump();
@@ -226,5 +269,16 @@ void main() {
     final left = (app.state['checkins'] as List).cast<Map>();
     expect(left, hasLength(1));
     expect(left.single['weightKg'], 86.1, reason: '목록은 최신부터 — 맨 위(85.9)를 지웠습니다');
+  });
+
+  testWidgets('오래된 체크인보다 최근 인바디를 기준으로 — 몇 달 사이 실제로 뺀 체중을 막지 않는다', (t) async {
+    final app = await seeded();
+    app.store.set({'checkins': [
+      {'at': _iso(DateTime.now().subtract(const Duration(days: 150))), 'weightKg': 95.0},
+    ]});
+    app.store.addScan({..._scan, 'id': 'recent', 'weightKg': 80.5,
+                       'measuredAt': _iso(DateTime.now().subtract(const Duration(days: 1)))});
+    expect(checkinWeightProblem(app.store, 80.5), isNull);
+    expect(checkinWeightProblem(app.store, 805), isNotNull);
   });
 }

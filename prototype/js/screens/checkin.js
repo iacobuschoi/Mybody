@@ -139,8 +139,21 @@
           h('button.btn.btn--ghost.btn--block', {
             text: '이번 주 건너뛰기', uid: 'P08-B02', uidLabel: '이번 주 건너뛰기',
             onClick: function () {
+              /* 「결과 보기」에서 이미 저장했으면 그 체크인을 지우고 건너뜁니다 — 남겨 두면
+                 "건너뛰었다" 는 말과 달리 판정에 들어갑니다. 계획을 바꾼 체크인은 남깁니다. */
+              var msg = '이번 주 체크인을 건너뜁니다';
+              if (savedAt) {
+                var cs = (S.get().checkins || []).slice();
+                var mine = cs.filter(function (c) { return c.at === savedAt; })[0];
+                if (mine && mine.applied) {
+                  msg = '계획을 바꾼 체크인이라 남겨 두고 나갑니다';
+                } else if (mine) {
+                  S.set({ checkins: cs.filter(function (c) { return c.at !== savedAt; }) });
+                  msg = '저장했던 이번 체크인을 지우고 건너뜁니다';
+                }
+              }
               draft = newDraft(); draftDay = todayISO(); savedAt = null; step = 0;
-              global.MB_UID.toast('이번 주 체크인을 건너뜁니다');
+              global.MB_UID.toast(msg);
               A.go('P02');
             }
           })
@@ -162,15 +175,23 @@
       function weightProblem(w) {
         if (w == null) return null;
         if (w < 20 || w > 300) return '20~300kg 사이로 넣어 주세요';
-        var ref = null;
-        var cs = (S.get().checkins || []).filter(function (c) {
-          return typeof c.weightKg === 'number' && c.at !== savedAt;
-        }).sort(function (a, b) { return String(a.at) < String(b.at) ? -1 : 1; });
-        if (cs.length) ref = cs[cs.length - 1].weightKg;
-        else if (scan && scan.weightKg > 0) ref = scan.weightKg;
-        if (!(ref > 0)) return null;
-        if (Math.abs(w - ref) / ref > 0.15) {
-          return '지난 기록(' + UI.n1(ref) + 'kg)과 15% 넘게 다릅니다 — 숫자를 확인해 주세요';
+        /* 견주는 값은 날짜가 가장 최근인 것 — 마지막 체크인과 최근 인바디 중에서. 오래된
+           체크인과 견주면 몇 달 사이 실제로 뺀 체중을 막습니다. 허용 폭은 15% + 주당 1%(최대 40%). */
+        var ref = null, refAt = null;
+        (S.get().checkins || []).forEach(function (c) {
+          if (c.at === savedAt || typeof c.weightKg !== 'number' || c.weightKg < 20 || c.weightKg > 300) return;
+          var t = new Date(c.at).getTime();
+          if (isFinite(t) && (refAt == null || t > refAt)) { ref = c.weightKg; refAt = t; }
+        });
+        if (scan && scan.weightKg >= 20 && scan.weightKg <= 300) {
+          var st = new Date(scan.measuredAt).getTime();
+          if (isFinite(st) && (refAt == null || st > refAt)) { ref = scan.weightKg; refAt = st; }
+        }
+        if (ref == null) return null;
+        var weeks = Math.max(0, (Date.now() - refAt) / 604800000);
+        var tol = Math.min(0.40, 0.15 + 0.01 * weeks);
+        if (Math.abs(w - ref) / ref > tol) {
+          return '지난 기록(' + UI.n1(ref) + 'kg)과 너무 많이 다릅니다 — 숫자를 확인해 주세요';
         }
         return null;
       }
@@ -328,7 +349,7 @@
         /* --- C03 예상 vs 실제 --- */
         var card = h('div.card', { uid: 'P08-C03', uidLabel: '3단계 · 예상 vs 실제 비교' });
         card.appendChild(h('div.card__head', [
-          h('div.card__title', { text: wkIdx + '주차 · 예상 vs 실제' }),
+          h('div.card__title', { text: (wkIdx + 1) + '주차 · 예상 vs 실제' }),
           h('div.card__sub', { text: UI.dateK(plan.startDate) + ' 시작 기준' })
         ]));
         card.appendChild(h('div.stats', [
@@ -337,8 +358,9 @@
           /* devKg 는 + 가 "계획보다 무거움" 입니다(증량 계획이어도 뒤집지 않음).
              느림 · 빠름은 단계에 따라 뜻이 달라서 아래 판정 이름이 말합니다. */
           h('div.stat' + (/^(slow|fast|heavy|light)$/.test(review.status) ? '.stat--fat' : ''), [
-            h('div.stat__k', { text: '기준 대비 계획선과의 차이' }),
-            h('div', [h('span.stat__v', { text: dev == null ? '—' : UI.sign(dev) }), h('span.stat__u', { text: 'kg' })]),
+            h('div.stat__k', { text: '추세로 본 계획선과의 차이' }),
+            h('div', [h('span.stat__v', { text: dev == null || review.status === 'collecting' ? '—' : UI.sign(dev, 2) }),
+                      h('span.stat__u', { text: 'kg' })]),
             h('div.stat__d', { text: statDesc(review) })
           ])
         ]));
@@ -375,7 +397,7 @@
         ]));
         card.appendChild(h('div.field__hint', {
           text: '집 체중계는 인바디와 0.5~1kg 다를 수 있어서, 판정은 계획선과의 거리가 아니라 ' +
-                '기준 체크인 이후 그 거리가 얼마나 움직였는지로 합니다.' }));
+                '체크인들의 추세가 계획선과 얼마나 다르게 가는지로 합니다. 5일 안에 다시 잰 값은 앞의 값을 대신합니다.' }));
         body.appendChild(card);
 
         /* --- C04 제안 --- */
@@ -506,10 +528,10 @@
           text: '체중은 하루 사이에도 ±1kg 흔들립니다. 한 번의 숫자가 아니라 흐름으로 보세요.',
           evidence: '전날 짜게 먹었거나 탄수화물을 몰아 먹었거나 잠이 모자랐으면, ' +
                     '체지방이 전혀 늘지 않아도 숫자는 올라갑니다.\n\n' +
-                    '앱의 판단 기준 — 한 주에 여러 번 넣으면 그 주의 마지막 값을 씁니다. ' +
-                    '체크인마다 그날 자리의 계획선과의 차이를 구하고, 그 차이가 앞선 체크인들의 ' +
-                    '평균(기준)에서 0.5kg 넘게, 두 번 연속 같은 쪽으로 움직였을 때만 계획을 건드립니다. ' +
-                    '기준이 체크인 하나뿐이면 그날의 흔들림일 수 있어 한 번 더 봅니다. ' +
+                    '앱의 판단 기준 — 5일 안에 다시 잰 값은 앞의 값을 대신합니다. 체크인마다 그날 자리의 ' +
+                    '계획선과의 차이를 구하고 그 차이들에 직선 추세를 맞춰, 3주 이상 · 4번 이상의 체크인에서 ' +
+                    '추세가 1kg 넘게 · 흔들림에 비해 확실하게 벗어나는 일이 두 번 연속 체크인에서 보일 때만 ' +
+                    '계획을 건드립니다. 한 번이면 지켜봅니다. ' +
                     '체지방과 골격근이 실제로 어떻게 움직였는지는 인바디로만 확인됩니다.'
         }));
 
@@ -642,7 +664,7 @@
   }
 
   function statusLabel(s) {
-    return ({ early: '기준 잡음', onTrack: '계획대로', watch: '지켜보는 중',
+    return ({ early: '기준 잡음', collecting: '모으는 중', onTrack: '계획대로', watch: '지켜보는 중',
               slow: '두 번 연속 느림', fast: '두 번 연속 빠름',
               heavy: '두 번 연속 무거움', light: '두 번 연속 가벼움', adherence: '실행이 먼저' })[s] || '판정';
   }
@@ -652,24 +674,29 @@
   }
   function statusDesc(s) {
     return ({
-      early: '첫 체크인(또는 조정 직후)이라 판정하지 않습니다. 이 값이 다음 비교의 기준점입니다.',
-      onTrack: '기준 체크인 이후 계획선과의 차이가 0.5kg 안입니다. 이번 주는 바꿀 이유가 없습니다.',
-      watch: '벗어났지만 한 번뿐이거나 기준이 체크인 하나뿐입니다. 체중은 하루에도 ±1kg 흔들려서 한 번 더 보고 정합니다.',
-      slow: '두 번 연속 계획보다 느립니다. 이제는 흔들림이 아니라 추세로 봅니다.',
-      fast: '두 번 연속 계획보다 빠릅니다. 너무 빠르면 근손실(증량이면 지방) 위험이 올라갑니다.',
-      heavy: '유지 기간인데 두 번 연속 계획보다 무겁습니다.',
-      light: '유지 기간인데 두 번 연속 계획보다 가볍습니다.',
+      early: '첫 체크인(또는 조정 직후)이라 판정하지 않습니다. 여기서부터 체크인끼리의 흐름을 봅니다.',
+      collecting: '판정은 3주 이상에 걸친 체크인 4번부터 합니다. 그때까지는 흐름만 모읍니다.',
+      onTrack: '체크인들의 추세가 계획선과 1kg 안에서 같이 갑니다. 이번 주는 바꿀 이유가 없습니다.',
+      watch: '벗어나는 쪽으로 보이지만 아직 한 번이거나 흔들림이 커서 확실하지 않습니다. 다음 체크인까지 봅니다.',
+      slow: '두 번 연속 체크인에서 추세가 계획보다 느립니다. 이제는 흔들림이 아니라 추세로 봅니다.',
+      fast: '두 번 연속 체크인에서 추세가 계획보다 빠릅니다. 너무 빠르면 근손실(증량이면 지방) 위험이 올라갑니다.',
+      heavy: '유지 기간인데 두 번 연속, 체중이 계획보다 늘고 있습니다.',
+      light: '유지 기간인데 두 번 연속, 체중이 계획보다 줄고 있습니다.',
       adherence: '계획이 틀린 게 아니라 실행이 덜 된 주입니다. 숫자를 건드릴 단계가 아닙니다.'
     })[s] || '';
   }
-  /** 「기준 대비 차이」 칸의 한 줄 — 값이 없는 이유를 판정에 맞게 말합니다. */
+  /** 「추세로 본 차이」 칸의 한 줄 — 값이 없는 이유를 판정에 맞게 말합니다. */
   function statDesc(review) {
     var d = review.devKg;
     if (review.status === 'adherence') return '식단 먼저 — 체중 판정 보류';
-    if (review.status === 'early') return review.since ? '조정 뒤 새 기준점' : '첫 체크인 — 기준점';
+    if (review.status === 'early') {
+      return review.since ? '조정 뒤 새 기준' : (review.merged ? '5일 안에 다시 잰 값으로 기준' : '첫 체크인 — 기준');
+    }
+    if (review.status === 'collecting') return '모으는 중 — ' + review.weeks + '/4번';
     if (d == null) return '판정 없음';
-    if (Math.abs(d) < 0.5) return '흔들림 범위(±0.5)';
-    return (d > 0 ? '계획보다 무거움' : '계획보다 가벼움') +
+    var span = review.spanWeeks != null ? UI.n1(review.spanWeeks) + '주 추세 · ' : '';
+    if (Math.abs(d) < 1) return span + '흔들림 범위(±1)';
+    return span + (d > 0 ? '계획보다 무거워짐' : '계획보다 가벼워짐') +
            (review.status === 'watch' ? ' · 지켜봄' : '');
   }
   function dietHint(key) {

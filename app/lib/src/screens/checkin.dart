@@ -120,7 +120,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
       body: ListView(padding: const EdgeInsets.all(16), children: [
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            SectionTitle('계획 ${n0(weeksIn)}주차',
+            SectionTitle('계획 ${n0(weeksIn + 1)}주차',
                 trailing: Text('시작 ${dateK(startDate)}',
                     style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
             Text('계획상 오늘 체중은 ${n1(expected)}kg 입니다.',
@@ -129,7 +129,8 @@ class _CheckinScreenState extends State<CheckinScreen> {
               const SizedBox(height: 8),
               Note(
                 text: '이번 주에 이미 체크인했습니다 (${dateShort(thisWeek['at'])} · '
-                    '${n1(thisWeek['weightKg'])}kg). 다시 저장하면 이번 주 값이 새 값으로 바뀝니다.',
+                    '${n1(thisWeek['weightKg'])}kg). '
+                    '${_recent(app) != null ? '5일 안에 다시 저장하면 그 값을 새 값으로 바꿉니다.' : '다시 저장하면 새 체크인으로 더합니다.'}',
               ),
             ],
             const SizedBox(height: 14),
@@ -197,22 +198,23 @@ class _CheckinScreenState extends State<CheckinScreen> {
                       points: [for (var i = 0; i < traj.length; i++)
                         Pt((traj[i]['week'] is num ? traj[i]['week'] as num : i).toDouble(),
                             core.jsToNumber(traj[i]['weightKg']))]),
+                  /* 점은 판정이 계획선을 읽는 자리(그날)에 찍습니다. */
                   if (past.any((r) => r['weightKg'] is num))
                     Series(label: '체크인', color: c.weight,
                         points: [for (final r in past)
                           if (r['weightKg'] is num)
-                            Pt(core.jsToNumber(r['week']), core.jsToNumber(r['weightKg']))]),
+                            Pt(core.jsToNumber(r['day']) / 7, core.jsToNumber(r['weightKg']))]),
                   if (actual != null)
                     Series(label: '지금', color: c.fat,
-                        points: [Pt(weeksIn.toDouble(), actual)]),
+                        points: [Pt(todayDay / 7, actual)]),
                 ],
-                markers: [Marker(x: weeksIn.toDouble(), label: '지금')],
+                markers: [Marker(x: todayDay / 7, label: '지금')],
                 xTickFmt: (v) => '${v.round()}주',
               ),
               const SizedBox(height: 6),
               Text('점은 집 체중계로 넣은 체크인입니다. 인바디와 0.5~1kg 다를 수 있어서, '
-                  '판정은 계획선과의 거리가 아니라 기준 체크인 이후 계획선과의 차이가 얼마나 '
-                  '움직였는지로 합니다.',
+                  '판정은 계획선과의 거리가 아니라 점들의 추세가 계획선과 얼마나 다르게 '
+                  '가는지로 합니다. 5일 안에 다시 잰 값은 앞의 값을 대신합니다.',
                   style: hint),
             ]),
           ),
@@ -224,7 +226,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
             before: plan,
             caveat: dietPct == null &&
                     core.jsTruthy(ex['hasTarget']) &&
-                    review['status'] != 'early'
+                    !const {'early', 'collecting', 'adherence'}.contains(review['status'])
                 ? '식단 기록이 ${n0(logged)}일뿐이라 실행 여부는 반영하지 못했습니다. 체중만 보고 낸 판정입니다.'
                 : null,
           ),
@@ -265,9 +267,42 @@ class _CheckinScreenState extends State<CheckinScreen> {
         'applied': applied,
       };
 
-  void _save(app, double actual, Map<String, Object?> ex, Map<String, Object?>? review) {
+  /// 5일 안에 한 체크인 — 다시 저장하면 이걸 새 값으로 바꿉니다(판정도 5일 안의
+  /// 두 값을 하나로 봅니다). 목록에 둘 다 남으면 틀린 값이 「지난 체크인」에 계속 보입니다.
+  Map<String, Object?>? _recent(app) {
+    final plan = app.state['plan'];
+    if (plan is! Map) return null;
+    final p = plan.cast<String, Object?>();
+    final list = checkinsInPlan(app.store, p);
+    if (list.isEmpty) return null;
+    final last = list.last;
+    final today = core.planDayOf(p['startDate'], app.store.dayKey());
+    final then = core.planDayOf(p['startDate'], app.store.dayKey(last['at']));
+    return today - then < kCheckinMergeDays ? last : null;
+  }
+
+  /// 새 체크인을 넣거나, 5일 안의 것을 바꿉니다. 바꿀 때 「조정함」 표시와 — 조정에
+  /// 묶인 체크인이면 — 그 시각은 그대로 둡니다(조정 뒤 기준점이 흔들리지 않게).
+  List<Object?> _withEntry(app, Map<String, Object?> entry) {
     final list = [...((app.state['checkins'] as List?) ?? const [])];
-    list.add(_entry(DateTime.now().toUtc().toIso8601String(), actual, ex, review, false));
+    final prev = _recent(app);
+    if (prev == null) return list..add(entry);
+    final plan = app.state['plan'] as Map;
+    final adjs = plan['adjustments'] is List ? plan['adjustments'] as List : const [];
+    final tied = adjs.isNotEmpty && adjs.last is Map && (adjs.last as Map)['at'] == prev['at'];
+    final merged = {
+      ...entry,
+      if (tied) 'at': prev['at'],
+      'applied': entry['applied'] == true || prev['applied'] == true,
+    };
+    final i = list.indexWhere((x) => x is Map && x['at'] == prev['at']);
+    if (i < 0) return list..add(entry);
+    list[i] = merged;
+    return list;
+  }
+
+  void _save(app, double actual, Map<String, Object?> ex, Map<String, Object?>? review) {
+    final list = _withEntry(app, _entry(DateTime.now().toUtc().toIso8601String(), actual, ex, review, false));
     app.store.set({'checkins': list});
     if (!app.store.saved()) {
       toast(context, '기기에 저장하지 못했습니다 — 체크인이 남지 않습니다');
@@ -350,8 +385,15 @@ class _CheckinScreenState extends State<CheckinScreen> {
     );
     if (yes != true || !mounted) return;
 
+    /* 조정과 체크인은 같은 시각 — 바꿔 넣는 경우에도 새 시각으로(새 조정이 기준). */
     final list = [...((app.state['checkins'] as List?) ?? const [])];
-    list.add(_entry(at, actual, ex, review, true));
+    final prev = _recent(app);
+    final i = prev == null ? -1 : list.indexWhere((x) => x is Map && x['at'] == prev['at']);
+    if (i >= 0) {
+      list[i] = _entry(at, actual, ex, review, true);
+    } else {
+      list.add(_entry(at, actual, ex, review, true));
+    }
     app.store.set({'checkins': list});
     app.store.setPlan((res['plan'] as Map).cast<String, Object?>());
     if (!app.store.saved()) {
@@ -381,17 +423,17 @@ class _AdviceCard extends StatelessWidget {
       'slow' || 'fast' || 'heavy' || 'light' => Tone.warn,
       _ => Tone.none,
     };
-    /* 기준이 무엇인지 그대로 말합니다 — 조정 뒤에는 "첫 체크인" 이 아닙니다. */
-    final baseCount = core.jsToNumber(review['baseCount']);
-    final baseName = review['since'] != null
-        ? '조정한 날 이후의 기준'
-        : (baseCount > 1 ? '앞선 체크인 ${n0(baseCount)}번의 평균' : '첫 체크인');
+    /* 추세를 말합니다 — 몇 번 · 몇 주의 체크인으로 본 것인지까지. 모으는 중에는
+       숫자가 흔들림 그 자체라 안 보여 줍니다. */
     final dev = review['devKg'];
-    final devText = dev is num && status != 'adherence'
+    final span = review['spanWeeks'];
+    final shown = dev is num && !const {'adherence', 'early', 'collecting'}.contains(status);
+    final lead = '${review['since'] != null ? '조정한 뒤 ' : ''}체크인 ${n0(review['weeks'])}번 · ${n1(span)}주의 추세로 보면';
+    final devText = shown
         ? (dev.abs() < 0.05
-            ? '$baseName 대비 계획선과의 차이가 그대로입니다.'
-            : '$baseName 대비 계획선보다 ${n1(dev.abs())}kg ${dev > 0 ? '무겁습니다' : '가볍습니다'} '
-                '(±0.5kg 까지는 흔들림으로 봅니다).')
+            ? '$lead 계획선과 같이 가고 있습니다.'
+            : '$lead 그 기간에 계획선보다 ${n2(dev.abs())}kg ${dev > 0 ? '무거워졌습니다' : '가벼워졌습니다'} '
+                '(1kg 까지는 흔들림으로 봅니다).')
         : null;
 
     String? previewText;
