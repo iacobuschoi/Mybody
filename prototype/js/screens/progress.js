@@ -449,7 +449,10 @@
         /* 최신 측정값 + 저장된 목표로 같은 강도를 다시 시뮬레이션한다 */
         var cmp = null, failed = false;
         try {
-          cmp = E.compareLevels(last.scan, prof, goal, todayISO(), goal.deadlineWeeks || null);
+          /* 고른 모드의 제약을 그대로 겁니다 — 빼면 「계획 재조정」(M11)이 실제로 만드는 계획과
+             다른 날짜를 보여 줍니다(모드 없이 57주 · 모드 안에서 187주). */
+          var modeDef = (goal.modeId && global.MB_MODES) ? global.MB_MODES.byId(goal.modeId) : null;
+          cmp = E.compareLevels(last.scan, prof, goal, todayISO(), goal.deadlineWeeks || null, modeDef);
         } catch (e) { failed = true; }
 
         var r = null;

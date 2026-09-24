@@ -1023,23 +1023,19 @@ Map<String, Object?> spanNote(num minW, num maxW, Map<String, Object?>? modeDef,
   final spread = maxW - minW;
   final ratio = minW > 0 ? maxW / minW : 1;
   final one = spread == 0;
-  if (modeDef == null) {
-    return {
-      'spread': spread,
-      'tight': ratio < 1.35,
-      'text': one && why != null
-          ? '이 목표는 ${_s(minW)}주 하나입니다. 가장 여유로운 강도로도 가장 빨리 닿아서 '
-              '상·중·하가 같은 계획입니다. ${why['up']}.'
-          : '이 목표는 ${_s(minW)}~${_s(maxW)}주 사이에서 고를 수 있습니다.',
-    };
-  }
-  var text = '「${_s(modeDef['nameKo'])}」 안에서는 이 목표가 '
-      '${one ? '${_s(minW)}주 하나입니다.' : '${_s(minW)}~${_s(maxW)}주입니다.'}';
-  if (ratio < 1.35) {
+  var text = modeDef != null
+      ? '「${_s(modeDef['nameKo'])}」 안에서는 이 목표가 '
+          '${one ? '${_s(minW)}주 하나입니다.' : '${_s(minW)}~${_s(maxW)}주입니다.'}'
+      : (one
+          ? '이 목표는 ${_s(minW)}주 하나입니다.'
+          : '이 목표는 ${_s(minW)}~${_s(maxW)}주 사이에서 고를 수 있습니다.');
+  if (why != null && (one || (modeDef != null && ratio < 1.35))) {
     text += '${one ? ' 상·중·하가 같은 계획이 되는 이유는 두 가지입니다' : ' 폭이 좁은 이유는 두 가지입니다'}'
-        ' — 아래로는 ${why != null ? why['low'] : '이 모드가 허용하는 가장 느린 속도(공격성 ${_s(modeDef['aMin'])})에 이미 닿았고'}'
-        ', 위로는 ${why != null ? why['up'] : '체지방이 하루에 안전하게 내놓을 수 있는 에너지 상한에 걸립니다'}'
-        '. 더 여유롭게 가고 싶으면 강도가 아니라 모드를 바꿔야 합니다.';
+        ' — 아래로는 ${why['low']}, 위로는 ${why['up']}.${why['tail']}';
+  } else if (why == null && modeDef != null && ratio < 1.35) {
+    text += ' 폭이 좁은 이유는 두 가지입니다 — 아래로는 이 모드가 허용하는 가장 느린 속도(공격성 '
+        '${_s(modeDef['aMin'])})에 이미 닿았고, 위로는 체지방이 하루에 안전하게 내놓을 수 있는 '
+        '에너지 상한에 걸립니다. 더 여유롭게 가고 싶으면 강도가 아니라 모드를 바꿔야 합니다.';
   }
   return {'spread': spread, 'tight': ratio < 1.35, 'text': text};
 }
@@ -1224,25 +1220,6 @@ Map<String, Object?> compareLevels(
     'low': slowWeeks,
   };
 
-  /* 기간 폭이 왜 이만큼인가 — 가장 빠른 계획에서 읽습니다. engine.js 참고. */
-  final fsim = fastest['sim'] as Map<String, Object?>;
-  final fa = jsToNumber(fastest['a']);
-  final lo = con != null && con['aMin'] is num ? con['aMin'] as num : 0;
-  final why = <String, String>{
-    /* 아래쪽은 가장 여유로운 점(하 카드 쪽)이 모드 하한에 닿았는가 — 가장 빠른 점이 아니라. */
-    'low': (jsToNumber(gentlePool[0]['a']) - lo).abs() < 0.005
-        ? '이 모드가 허용하는 가장 느린 속도(공격성 ${_s(lo)})에 이미 닿았고'
-        : '더 여유로운 강도로는 목표에 닿지 않고',
-    'up': (fsim['bottleneck'] == 'muscle' || fsim['bottleneck'] == 'sequence')
-        ? '근육이 붙는 속도가 기간을 정해서 더 세게 해도 빨라지지 않습니다'
-        : (fsim['capped'] == true
-            ? '더 세게 해도 체지방이 하루에 안전하게 내놓을 수 있는 에너지 상한에 걸립니다'
-            : (modeDef != null && modeDef['aMax'] is num &&
-                    (fa - (modeDef['aMax'] as num)).abs() < 0.005
-                ? '이 모드의 속도 상한(공격성 ${_s(modeDef['aMax'])})에 닿습니다'
-                : '더 세게 해도 기간이 거의 줄지 않습니다')),
-  };
-
   final results = kLevelSpec.map((spec) {
     final targetWeeks = target[spec.key]!;
     var chosen = gentlePool[0];
@@ -1292,33 +1269,60 @@ Map<String, Object?> compareLevels(
     if (jsToNumber(r['weeks']) > jsToNumber(lastWeeks)) lastWeeks = r['weeks'];
   }
 
+  /* 기간 폭이 왜 이만큼인가 — 고른 카드와 곡선에서 읽습니다. engine.js 참고.
+     아래: floor(하 카드가 모드 하한) · unreach(더 여유로운 강도는 못 닿음) · long(닿지만 훨씬 오래).
+     위: 가장 빠른 계획이 모드 상한에 붙어 있으면 상한 너머를 한 번 돌려 봅니다. */
+  final lo = con != null && con['aMin'] is num ? con['aMin'] as num : 0;
+  final lowA = jsToNumber(results[results.length - 1]['a']);
+  final gentler = [for (final c in reachable) if (jsToNumber(c['a']) < lowA - 0.005) c];
+  final lowKind = (lowA - lo).abs() < 0.005 ? 'floor' : (gentler.isNotEmpty ? 'long' : 'unreach');
+  num? gentlerMin;
+  for (final c in gentler) {
+    if (gentlerMin == null || weeksOf(c) < gentlerMin) gentlerMin = weeksOf(c);
+  }
+  var ceilBinds = false;
+  if (modeDef != null && modeDef['aMax'] is num && (modeDef['aMax'] as num) < 1 &&
+      (jsToNumber(fastest['a']) - (modeDef['aMax'] as num)).abs() < 0.005) {
+    final probe = bestAt(cur, goal, profile, math.min(1, (modeDef['aMax'] as num) + 0.1), goalInfo, con);
+    ceilBinds = probe['reached'] == true && jsToNumber(probe['weeks']) < minWeeks;
+  }
+  final fsim = fastest['sim'] as Map<String, Object?>;
+  final floorName = modeDef != null
+      ? '이 모드가 허용하는 가장 느린 속도(공격성 ${_s(lo)})'
+      : '가장 여유로운 강도(공격성 0)';
+  final why = <String, String>{
+    'low': lowKind == 'floor'
+        ? '$floorName에 이미 닿았고'
+        : (lowKind == 'long'
+            ? '더 여유로운 강도는 ${_s(gentlerMin)}주 이상 걸려 고르지 않았고'
+            : '더 여유로운 강도로는 목표에 닿지 않고'),
+    'lowS': lowKind == 'floor'
+        ? '$floorName에 이미 닿아 있습니다'
+        : (lowKind == 'long'
+            ? '더 여유로운 강도는 ${_s(gentlerMin)}주 이상 걸려 고르지 않았습니다'
+            : '더 여유로운 강도로는 목표에 닿지 않습니다'),
+    'tail': lowKind == 'floor' && modeDef != null ? ' 더 여유롭게 가고 싶으면 강도가 아니라 모드를 바꿔야 합니다.' : '',
+    'up': ceilBinds
+        ? '이 모드의 속도 상한(공격성 ${_s(modeDef!['aMax'])})에 닿습니다'
+        : ((fsim['bottleneck'] == 'muscle' || fsim['bottleneck'] == 'sequence')
+            ? '근육이 붙는 속도가 기간을 정해서 더 세게 해도 빨라지지 않습니다'
+            : (fsim['capped'] == true
+                ? '더 세게 해도 체지방이 하루에 안전하게 내놓을 수 있는 에너지 상한에 걸립니다'
+                : '더 세게 해도 기간이 거의 줄지 않습니다')),
+  };
+
   // 중복 제거: 세 강도가 같은 a 로 수렴하면 표시로 알립니다.
   final warnings = <String>[];
   /* JS 객체의 키는 문자열이라 `uniqueA[r.a]` 는 String(a) 로 묶입니다.
      셋이 전부 같으면 spanNote 가 "N주 하나 · 왜" 를 말하므로 여기서는 말하지 않습니다. */
   final uniqueA = <String>{for (final r in results) _s(r['a'])};
   if (uniqueA.length == 2) {
-    if (modeDef != null) {
-      final atFloor = results
-              .where((r) => (jsToNumber(r['a']) - jsToNumber(modeDef['aMin'])).abs() < 0.005)
-              .length >= 2;
-      final atCeil = results
-              .where((r) => (jsToNumber(r['a']) - jsToNumber(modeDef['aMax'])).abs() < 0.005)
-              .length >= 2;
-      if (atFloor) {
-        warnings.add('「${_s(modeDef['nameKo'])}」는 이보다 느리게 가지 않습니다. 이 모드가 허용하는 '
-            '가장 여유로운 속도에 이미 닿아 있어서, 중·하가 같은 계획이 됩니다. '
-            '더 천천히 가고 싶으면 모드를 바꿔야 합니다.');
-      } else if (atCeil) {
-        warnings.add('「${_s(modeDef['nameKo'])}」는 이보다 빠르게 가지 않습니다. 이 모드의 속도 상한은 '
-            '장식이 아니라 근육을 지키기 위한 잠금장치입니다.');
-      } else {
-        warnings.add('일부 강도가 같은 계획으로 수렴했습니다. 체지방이 줄면서 안전하게 쓸 수 있는 '
-            '에너지 상한에 먼저 걸려서, 강도를 올려도 속도가 더 나오지 않는 구간입니다.');
-      }
-    } else {
-      warnings.add('일부 강도가 같은 계획으로 수렴했습니다. 목표 변화량이 작아 속도를 더 낮출 여지가 없다는 뜻입니다.');
-    }
+    /* 둘만 같을 때 — 어느 둘인지와 왜인지를 spanNote 와 같은 이유로. engine.js 참고. */
+    final aHigh = _s(results[0]['a']), aMid = _s(results[1]['a']), aLow = _s(results[2]['a']);
+    final withLow = aLow == aMid || aLow == aHigh;
+    warnings.add('${modeDef != null ? '「${_s(modeDef['nameKo'])}」 안에서는 ' : '이 목표에서는 '}'
+        '${withLow ? (aLow == aMid ? '중·하가' : '상·하가') : '상·중이'} 같은 계획입니다 — '
+        '${withLow ? '${why['lowS']}.${why['tail']}' : '그 사이 기간으로 가는 강도가 없어 중에 가장 가까운 계획이 상과 같습니다.'}');
   }
 
   // 역설 탐지 — 제일 빡센 계획이 오히려 더 걸리는 구간

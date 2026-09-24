@@ -110,9 +110,14 @@ class _IntensityScreenState extends State<IntensityScreen> {
         if (groups.length < results.length)
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
+            /* 셋이 다 합쳐졌을 때만 "강도를 바꿔도 같다" — 둘만 합쳐졌으면 바로 위 두 카드가
+               서로 다른데 그렇게 말했습니다. */
             child: Text(
-              '같은 계획이 되는 강도는 한 장으로 합쳤습니다. 이 목표에서는 강도를 바꿔도 '
-              '기간 · 식단 · 운동이 같습니다.',
+              groups.length == 1
+                  ? '같은 계획이 되는 강도는 한 장으로 합쳤습니다. 이 목표에서는 강도를 바꿔도 '
+                      '기간 · 식단 · 운동이 같습니다.'
+                  : '같은 계획이 되는 강도는 한 장으로 합쳤습니다. 이 목표에서는 '
+                      '${groups.firstWhere((g) => g.levels.length > 1).subject} 같은 계획입니다.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).hintColor, height: 1.5),
             ),
           ),

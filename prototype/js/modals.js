@@ -193,11 +193,15 @@
    * groups: UI.levelGroups 의 결과(없으면 상 · 중 · 하 셋). 같은 계획이 되는 강도는 버튼 하나로 —
    * 셋이 전부 같으면 바꿀 것이 없다고 말합니다. 같은 계획으로 "바꾸고" 토스트를 띄우면 거짓말입니다. */
   M.changeLevel = function (onPick, groups) {
-    var opts = groups ? groups.map(function (g) { return { level: g.rep.level, label: g.names }; })
-                      : [{ level: 'high', label: '상' }, { level: 'mid', label: '중' }, { level: 'low', label: '하' }];
+    /* 버튼 번호는 강도에 붙입니다(상 B01 · 중 B02 · 하 B03 · 취소 B04). 자리 순서로 매기면
+       묶였을 때 B02 가 「중」 이었다가 「중·하」 였다가 「취소」 가 됩니다. */
+    var UIDS = { high: 'M10-B01', mid: 'M10-B02', low: 'M10-B03' };
+    var opts = groups ? groups.map(function (g) { return { level: g.rep.level, label: g.names, uid: UIDS[g.levels[0].level] }; })
+                      : [{ level: 'high', label: '상', uid: UIDS.high }, { level: 'mid', label: '중', uid: UIDS.mid },
+                         { level: 'low', label: '하', uid: UIDS.low }];
     if (opts.length < 2) {
       UI.openModal({
-        uid: 'M10', title: '바꿀 강도가 없습니다',
+        uid: 'M54', title: '바꿀 강도가 없습니다',
         body: h('div', { text: '이 목표에서는 ' + (groups && groups[0] ? groups[0].subj : '상·중·하가') +
                                ' 같은 계획입니다. 기간 · 식단 · 운동이 모두 같아서 강도를 바꿔도 계획이 그대로입니다.' }),
         actions: [{ label: '닫기', kind: 'primary' }]
@@ -208,8 +212,8 @@
       uid: 'M10', title: '강도를 바꿀까요?',
       body: h('div', { text: '현재 플랜이 새 강도로 교체됩니다. 측정 기록과 체크인 기록은 그대로 남습니다.' }),
       actions: opts.map(function (o) {
-        return { label: o.label, onClick: function () { onPick(o.level); } };
-      }).concat([{ label: '취소', kind: 'ghost' }])
+        return { label: o.label, uid: o.uid, onClick: function () { onPick(o.level); } };
+      }).concat([{ label: '취소', kind: 'ghost', uid: 'M10-B04' }])
     });
   };
 
@@ -227,7 +231,16 @@
             /* 고른 모드의 속도 · 단백질 제약을 그대로 겁니다 — 빼면 다시 만든 계획이 모드 밖으로 나갑니다. */
             var modeDef = (st.goal.modeId && global.MB_MODES) ? global.MB_MODES.byId(st.goal.modeId) : null;
             var cmp = E.compareLevels(scan, prof, st.goal, todayISO(), st.goal.deadlineWeeks || null, modeDef);
-            var plan = E.buildPlan(cmp, st.plan ? st.plan.level : 'mid', scan, prof);
+            /* 모드 안에서 닿지 않으면 계획이 없습니다 — 그대로 setPlan(null) 하면 멈췄습니다. */
+            var plan = cmp && !cmp.impossible && cmp.results.length
+              ? (E.buildPlan(cmp, st.plan ? st.plan.level : 'mid', scan, prof) ||
+                 E.buildPlan(cmp, cmp.recommended || cmp.results[0].level, scan, prof))
+              : null;
+            if (!plan) {
+              global.MB_UID.toast('「' + (modeDef ? modeDef.nameKo : '지금 설정') +
+                                  '」 안에서는 지금 측정으로 목표에 닿는 계획이 없습니다. 목표나 모드를 바꿔 주세요');
+              return;
+            }
             S.setPlan(plan);
             global.MB_UID.toast('플랜을 다시 만들었습니다');
             global.MB_APP.refresh();

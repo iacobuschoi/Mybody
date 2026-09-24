@@ -89,4 +89,55 @@ void main() {
     }
     expect(sawOne && sawMany, isTrue, reason: '두 경우를 다 밟아야 이 시험이 뭔가를 봅니다');
   });
+
+  group('이유는 그 계획과 곡선에서 (검토에서 나온 경우들)', () {
+    const prof22 = {
+      'sex': 'male', 'age': 22, 'heightCm': 178, 'activityLevel': 'moderate',
+      'trainingAge': 'intermediate', 'daysPerWeek': 4, 'mealsPerDay': 3,
+    };
+
+    test('곡선에 절벽(40주 옆이 169주)이 있으면 "하한에 닿았고" 가 아니라 "더 여유로운 강도는 N주 이상"', () {
+      final c = compareLevels({...scan53}, {...prof53},
+          {'weightKg': 79.5, 'smmKg': 38.8, 'bfmKg': 10.9}, '2026-09-24', null, modeById('muscleGain'));
+      final rs = resultsOf(c);
+      expect({for (final r in rs) r['a']}.length, 1);
+      final text = '${(c['spanNote'] as Map)['text']}';
+      expect(text, contains('더 여유로운 강도는'));
+      expect(text, contains('주 이상 걸려 고르지 않았고'));
+      expect(text, isNot(contains('이미 닿았고')));
+      expect(text, isNot(contains('모드를 바꿔야')), reason: '모드 안에 더 느린 계획이 있습니다');
+    });
+
+    test('가장 빠른 계획이 모드 속도 상한에 붙어 있고 더 세게 하면 빨라지면 "속도 상한"', () {
+      final c = compareLevels({...scanOwner}, {...prof22},
+          {'weightKg': 82.5, 'smmKg': 39.0, 'bfmKg': 14.0}, '2026-09-24', null, modeById('recovery'));
+      final text = '${(c['spanNote'] as Map)['text']}';
+      expect(resultsOf(c).first['a'], closeTo(0.25, 0.005));
+      expect(text, contains('속도 상한(공격성 0.25)'));
+      expect(text, isNot(contains('근육이 붙는 속도')));
+    });
+
+    test('둘만 같을 때 경고는 spanNote 와 같은 이유 — 줄지도 않은 지방의 "에너지 상한" 이 아니라', () {
+      final c = compareLevels({...scan53}, {...prof53},
+          {'weightKg': 81.5, 'smmKg': 39.3, 'bfmKg': 12.1}, '2026-09-24', null, modeById('muscleGain'));
+      final rs = resultsOf(c);
+      expect({for (final r in rs) r['a']}.length, 2, reason: '이 시험의 전제');
+      expect(rs.any((r) => (r['sim'] as Map)['capped'] == true), isFalse);
+      final warns = [for (final w in (c['warnings'] as List)) '$w'];
+      final merge = warns.firstWhere((w) => w.contains('같은 계획'));
+      expect(merge, contains('중·하가 같은 계획'));
+      expect(merge, isNot(contains('에너지 상한')));
+    });
+
+    test('모드 없이 셋이 같아도 "가장 여유로운 강도로도 가장 빨리" 라고 하지 않는다 — 여유로운 강도가 못 닿을 때', () {
+      final c = compareLevels({...scan53}, {...prof22},
+          {'weightKg': 79.1, 'smmKg': 41.3, 'bfmKg': 6.1}, '2026-09-24', null, null);
+      final rs = resultsOf(c);
+      expect({for (final r in rs) r['a']}.length, 1);
+      final text = '${(c['spanNote'] as Map)['text']}';
+      expect(text, contains('주 하나'));
+      expect(text, contains('더 여유로운 강도로는 목표에 닿지 않고'));
+      expect(text, isNot(contains('가장 빨리 닿아서')));
+    });
+  });
 }

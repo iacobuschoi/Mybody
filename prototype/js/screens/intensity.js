@@ -98,9 +98,11 @@
         wrap.appendChild(levelCard(g.rep, i, cmp, scan, prof, g.levels, g));
       });
       if (groups.length < cmp.results.length) {
+        /* 몇 개가 합쳐졌는지는 묶음에서 읽습니다 — 셋이 합쳐졌는데 "그 둘" 이라고 했습니다. */
+        var mergedG = groups.filter(function (g) { return g.levels.length > 1; })[0];
         wrap.appendChild(h('div.note', { uid: 'P06-C11', uidLabel: '강도 병합 안내',
           text: '같은 계획이 되는 강도는 한 장으로 합쳤습니다. 카드 수가 줄었다고 선택지가 사라진 게 아니라, ' +
-                '이 목표에서는 그 둘이 실제로 같은 계획이라는 뜻입니다.' }));
+                '이 목표에서는 ' + mergedG.subj + ' 실제로 같은 계획이라는 뜻입니다.' }));
       }
 
       /* --- G01 3안 비교 차트 --- */

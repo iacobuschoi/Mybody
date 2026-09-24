@@ -806,6 +806,21 @@ void main() {
     expect(t.takeException(), isNull);
   });
 
+  testWidgets('기간 고르기 — 둘만 같으면 두 장, 안내는 "강도를 바꿔도 같다" 가 아니라 어느 둘인지', (t) async {
+    t.view.physicalSize = const Size(1000, 5000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    final app = await seeded();
+    const goal = {'weightKg': 83.6, 'smmKg': 38.5, 'bfmKg': 16.0};
+    await t.pumpWidget(host(app, const IntensityScreen(goal: goal, modeId: 'fatLoss')));
+    await t.pumpAndSettle();
+    expect(find.text('상 · 최단'), findsOneWidget);
+    expect(find.text('중·하 · 같은 계획'), findsOneWidget);
+    expect(find.textContaining('중·하가 같은 계획입니다'), findsWidgets);
+    expect(find.textContaining('강도를 바꿔도'), findsNothing);
+    expect(t.takeException(), isNull);
+  });
+
   testWidgets('기간 고르기 — 계획이 다르면 카드 세 장 그대로', (t) async {
     t.view.physicalSize = const Size(1000, 5000);
     t.view.devicePixelRatio = 1.0;

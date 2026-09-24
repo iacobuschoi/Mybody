@@ -745,23 +745,6 @@
       low: slowWeeks
     };
 
-    /* 기간 폭이 왜 이만큼인가 — 가장 빠른 계획에서 읽습니다. 예전엔 폭이 좁으면 늘
-       "위로는 에너지 상한에 걸린다" 고 했는데, 근육이 기간을 정하는 목표에서는 틀린 말이었습니다. */
-    var fsim = fastest.sim;
-    var lo = con && typeof con.aMin === 'number' ? con.aMin : 0;   // 곡선을 훑은 가장 여유로운 a
-    var why = {
-      /* 아래쪽은 가장 여유로운 점(하 카드 쪽)이 모드 하한에 닿았는가 — 가장 빠른 점이 아니라. */
-      low: Math.abs(gentlePool[0].a - lo) < 0.005
-        ? '이 모드가 허용하는 가장 느린 속도(공격성 ' + lo + ')에 이미 닿았고'
-        : '더 여유로운 강도로는 목표에 닿지 않고',
-      up: (fsim.bottleneck === 'muscle' || fsim.bottleneck === 'sequence')
-        ? '근육이 붙는 속도가 기간을 정해서 더 세게 해도 빨라지지 않습니다'
-        : (fsim.capped ? '더 세게 해도 체지방이 하루에 안전하게 내놓을 수 있는 에너지 상한에 걸립니다'
-        : (modeDef && typeof modeDef.aMax === 'number' && Math.abs(fastest.a - modeDef.aMax) < 0.005
-          ? '이 모드의 속도 상한(공격성 ' + modeDef.aMax + ')에 닿습니다'
-          : '더 세게 해도 기간이 거의 줄지 않습니다'))
-    };
-
     var results = LEVEL_SPEC.map(function (spec) {
       var targetWeeks = TARGET[spec.key];
       var chosen = (spec.key === 'high') ? fastest : gentlePool.reduce(function (best, c) {
@@ -798,6 +781,40 @@
 
     var lastWeeks = Math.max.apply(null, results.map(function (r) { return r.weeks; }));
 
+    /* 기간 폭이 왜 이만큼인가 — 고른 카드와 곡선에서 읽습니다. 예전엔 폭이 좁으면 늘
+       "아래로는 모드 하한 · 위로는 에너지 상한" 이라고 했는데, 둘 다 틀릴 때가 많았습니다.
+       · 아래: 하 카드가 모드 하한인가(floor) · 더 여유로운 강도는 아예 못 닿는가(unreach) ·
+         닿지만 훨씬 오래 걸려 안 골랐는가(long — 곡선에 절벽이 있어 40주 옆이 174주일 때).
+       · 위: 가장 빠른 계획이 모드 속도 상한에 붙어 있으면 상한 너머를 한 번 돌려 봅니다.
+         더 빠르면 막는 것은 상한이고, 아니면 그 계획의 병목(근육 속도 · 에너지 상한)입니다. */
+    var lo = con && typeof con.aMin === 'number' ? con.aMin : 0;
+    var lowA = results[results.length - 1].a;
+    var gentler = reachable.filter(function (c) { return c.a < lowA - 0.005; });
+    var lowKind = Math.abs(lowA - lo) < 0.005 ? 'floor' : (gentler.length ? 'long' : 'unreach');
+    var gentlerMin = gentler.length ? Math.min.apply(null, gentler.map(function (c) { return c.weeks; })) : null;
+    var ceilBinds = false;
+    if (modeDef && typeof modeDef.aMax === 'number' && modeDef.aMax < 1 &&
+        Math.abs(fastest.a - modeDef.aMax) < 0.005) {
+      var probe = bestAt(cur, goal, profile, Math.min(1, modeDef.aMax + 0.1), goalInfo, con);
+      ceilBinds = !!probe.reached && probe.weeks < minWeeks;
+    }
+    var fsim = fastest.sim;
+    var floorName = modeDef ? '이 모드가 허용하는 가장 느린 속도(공격성 ' + lo + ')' : '가장 여유로운 강도(공격성 0)';
+    var why = {
+      low: lowKind === 'floor' ? floorName + '에 이미 닿았고'
+         : (lowKind === 'long' ? '더 여유로운 강도는 ' + gentlerMin + '주 이상 걸려 고르지 않았고'
+                               : '더 여유로운 강도로는 목표에 닿지 않고'),
+      lowS: lowKind === 'floor' ? floorName + '에 이미 닿아 있습니다'
+          : (lowKind === 'long' ? '더 여유로운 강도는 ' + gentlerMin + '주 이상 걸려 고르지 않았습니다'
+                                : '더 여유로운 강도로는 목표에 닿지 않습니다'),
+      tail: lowKind === 'floor' && modeDef ? ' 더 여유롭게 가고 싶으면 강도가 아니라 모드를 바꿔야 합니다.' : '',
+      up: ceilBinds ? '이 모드의 속도 상한(공격성 ' + modeDef.aMax + ')에 닿습니다'
+        : ((fsim.bottleneck === 'muscle' || fsim.bottleneck === 'sequence')
+          ? '근육이 붙는 속도가 기간을 정해서 더 세게 해도 빨라지지 않습니다'
+          : (fsim.capped ? '더 세게 해도 체지방이 하루에 안전하게 내놓을 수 있는 에너지 상한에 걸립니다'
+          : '더 세게 해도 기간이 거의 줄지 않습니다'))
+    };
+
     // 중복 제거: 세 강도가 같은 a로 수렴하면 표시로 알린다
     var warnings = [];
     var uniqueA = {};
@@ -805,27 +822,16 @@
     /* 셋이 전부 같으면 spanNote 가 "N주 하나 · 왜" 를 말합니다. 여기서 또 말하면 같은 설명이
        두 번 나오고 「주의」 숫자만 늘었습니다(게다가 "중·하가 같은 계획" 이라고 틀리게). */
     if (Object.keys(uniqueA).length === 2) {
-      if (modeDef) {
-        var atFloor = results.filter(function (r) {
-          return Math.abs(r.a - modeDef.aMin) < 0.005;
-        }).length >= 2;
-        var atCeil = results.filter(function (r) {
-          return Math.abs(r.a - modeDef.aMax) < 0.005;
-        }).length >= 2;
-        if (atFloor) {
-          warnings.push('「' + modeDef.nameKo + '」는 이보다 느리게 가지 않습니다. 이 모드가 허용하는 ' +
-            '가장 여유로운 속도에 이미 닿아 있어서, 중·하가 같은 계획이 됩니다. ' +
-            '더 천천히 가고 싶으면 모드를 바꿔야 합니다.');
-        } else if (atCeil) {
-          warnings.push('「' + modeDef.nameKo + '」는 이보다 빠르게 가지 않습니다. 이 모드의 속도 상한은 ' +
-            '장식이 아니라 근육을 지키기 위한 잠금장치입니다.');
-        } else {
-          warnings.push('일부 강도가 같은 계획으로 수렴했습니다. 체지방이 줄면서 안전하게 쓸 수 있는 ' +
-            '에너지 상한에 먼저 걸려서, 강도를 올려도 속도가 더 나오지 않는 구간입니다.');
-        }
-      } else {
-        warnings.push('일부 강도가 같은 계획으로 수렴했습니다. 목표 변화량이 작아 속도를 더 낮출 여지가 없다는 뜻입니다.');
-      }
+      /* 둘만 같을 때 — 어느 둘인지와 왜인지를 spanNote 와 같은 이유로 말합니다. 예전엔 모드
+         안에서 하한 · 상한이 아니면 늘 "에너지 상한" 이라고 해서, 같은 화면의 spanNote 와
+         다른 이유를 댔습니다. */
+      /* (r1 · r2 라고 이름 지으면 이 함수 안의 반올림 함수 r1 을 가립니다 — var 는 끌어올려집니다.) */
+      var aHigh = results[0].a, aMid = results[1].a, aLow = results[2].a;
+      var withLow = aLow === aMid || aLow === aHigh;
+      warnings.push((modeDef ? '「' + modeDef.nameKo + '」 안에서는 ' : '이 목표에서는 ') +
+        (withLow ? (aLow === aMid ? '중·하가' : '상·하가') : '상·중이') + ' 같은 계획입니다 — ' +
+        (withLow ? why.lowS + '.' + why.tail
+                 : '그 사이 기간으로 가는 강도가 없어 중에 가장 가까운 계획이 상과 같습니다.'));
     }
 
     // 역설 탐지
@@ -1092,21 +1098,16 @@
     var spread = maxW - minW;
     var ratio = minW > 0 ? maxW / minW : 1;
     var one = spread === 0;
-    if (!modeDef) {
-      return { spread: spread, tight: ratio < 1.35,
-               text: one && why
-                 ? '이 목표는 ' + minW + '주 하나입니다. 가장 여유로운 강도로도 가장 빨리 닿아서 ' +
-                   '상·중·하가 같은 계획입니다. ' + why.up + '.'
-                 : '이 목표는 ' + minW + '~' + maxW + '주 사이에서 고를 수 있습니다.' };
-    }
-    var text = '「' + modeDef.nameKo + '」 안에서는 이 목표가 ' +
-               (one ? minW + '주 하나입니다.' : minW + '~' + maxW + '주입니다.');
-    if (ratio < 1.35) {
+    var text = modeDef
+      ? '「' + modeDef.nameKo + '」 안에서는 이 목표가 ' + (one ? minW + '주 하나입니다.' : minW + '~' + maxW + '주입니다.')
+      : (one ? '이 목표는 ' + minW + '주 하나입니다.' : '이 목표는 ' + minW + '~' + maxW + '주 사이에서 고를 수 있습니다.');
+    if (why && (one || (modeDef && ratio < 1.35))) {
       text += (one ? ' 상·중·하가 같은 계획이 되는 이유는 두 가지입니다' : ' 폭이 좁은 이유는 두 가지입니다') +
-              ' — 아래로는 ' + (why ? why.low : '이 모드가 허용하는 가장 느린 속도(공격성 ' +
-              modeDef.aMin + ')에 이미 닿았고') + ', 위로는 ' +
-              (why ? why.up : '체지방이 하루에 안전하게 내놓을 수 있는 에너지 상한에 걸립니다') +
-              '. 더 여유롭게 가고 싶으면 강도가 아니라 모드를 바꿔야 합니다.';
+              ' — 아래로는 ' + why.low + ', 위로는 ' + why.up + '.' + why.tail;
+    } else if (!why && modeDef && ratio < 1.35) {
+      text += ' 폭이 좁은 이유는 두 가지입니다 — 아래로는 이 모드가 허용하는 가장 느린 속도(공격성 ' +
+              modeDef.aMin + ')에 이미 닿았고, 위로는 체지방이 하루에 안전하게 내놓을 수 있는 ' +
+              '에너지 상한에 걸립니다. 더 여유롭게 가고 싶으면 강도가 아니라 모드를 바꿔야 합니다.';
     }
     return { spread: spread, tight: ratio < 1.35, text: text };
   }
