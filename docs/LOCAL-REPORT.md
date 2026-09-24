@@ -447,3 +447,17 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
   App Store 탭 안 건드림 — 0.2.8 (269) 「심사 대기 중」 그대로.
 - **4. app-version**: `--play=0.2.9` → play **0.2.9** · apk 0.2.8 · appstore "" · min "". 노트북 서버 8080 에서 확인.
 - 로그인 화면은 안 나옴(둘 다 로그인 유지 중).
+
+---
+
+# 22 끝 (2026-09-25 02:58 KST) — 0.2.10 (N = 279) · 서버 재시작 · TestFlight 채널
+
+- **1. 서버**: `git pull`(43560a1) → 작업 「Mybody 서버」 끝냈다 다시 실행 — **02:38:16 재시작**(20초쯤 끊김) →
+  `node tools/test-appversion.js` **66 통과 · 0 실패**(지시엔 67 이라 적혀 있으나 파일의 시험 수가 66) →
+  바깥(WebFetch)에서 `/api/version` 에 `latest.testflight` 칸과 `urls.testflight`(beta.itunes.apple.com/v1/app/6815144446) 확인.
+- **2. 플레이**: v0.2.10 AAB(32.6MB) SHA-256 `06:D9:45:A3 … 83:DE:11` 확인 → 내부 테스트 새 버전 **279 (0.2.10)**,
+  출시 노트 「0.2.10」 → 저장 및 출시 → **「내부 테스터에게 제공됨」 02:42**. 비공개 · 프로덕션 안 건드림.
+- **3. 애플**: TestFlight 0.2.10 (279) 02:31 업로드 → 「완료」(02:5x) → **내부 그룹 `my` 에 자동 배포**(초대 1). friends · App Store 탭 안 건드림
+  (0.2.8 (269) 「심사 대기 중」 그대로).
+- **4. app-version**: `--play=0.2.10 --testflight=0.2.10` → **play 0.2.10 · testflight 0.2.10 · apk 0.2.8 · appstore "" · min ""**.
+- 로그인 화면 없었음.
