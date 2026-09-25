@@ -5,14 +5,22 @@
  * 집습니다. 그 풀에는 바벨과 머신이 섞여 있어서, 집에서 하는 사람이나 머신이
  * 두 대뿐인 동네 헬스장에서는 계획의 반이 "할 수 없는 것" 이 됩니다.
  *
- * 여기서는 종목만 바꿉니다. 세트 · 반복 · 쉬는 시간 · RPE 와 순서는 엔진이
- * 정한 그대로 둡니다 — 그건 몸 상태로 정한 것이고, 기구가 없다고 바뀔 이유가
- * 없습니다. 같은 입력이면 언제나 같은 답입니다 (무작위 없음).
+ * 여기서는 종목을 바꾸고, 정해진 종목에 세트 · 횟수 · 쉬는 시간을 다시 매깁니다
+ * (scheme.dart). 엔진의 5-8 / 10-15 두 칸은 맨몸 스쿼트에 바벨 규칙을 붙였고
+ * 플랭크에 「10-15회」 를 붙였습니다(3차 피드백 31) — 종목이 정해진 뒤에 기구 ·
+ * 움직임 · 경력 · 목표로 숫자를 정해야 맞습니다. RPE 와 순서는 엔진 그대로.
+ * 마지막에 세션 시간(minutes)을 넘으면 쉬는 시간만 줄입니다. 같은 입력이면
+ * 언제나 같은 답입니다 (무작위 없음).
+ *
+ * 화면은 tailorSession 을 직접 부르지 않고 [tailorSessionFor] 로 옵니다 — 프로필의
+ * 경력과 플랜의 국면을 여기서 한 번 읽어 넘깁니다. 플랜 탭과 헬스 화면이 각자
+ * 읽으면 한쪽만 초보 숫자가 되는 날이 옵니다(3차 리뷰).
  * ========================================================================== */
 library;
 
 import 'exercises.dart';
 import 'prefs.dart';
+import 'scheme.dart';
 
 /// 대체한 종목의 메모 앞머리. 화면이 "원래 무엇이었나" 를 이걸로 보여 줍니다.
 const String kSubstitutePrefix = '대체: 원래 ';
@@ -34,6 +42,77 @@ Map<String, Object?> _withId(Map<String, Object?> e) {
   final name = '${out['name'] ?? ''}';
   out['id'] = exerciseByName(name)?.id ?? slugOf(name);
   return out;
+}
+
+/* --- 프로필 · 플랜에서 스킴의 두 축 ------------------------------------------
+ *
+ * scheme.dart 는 경력(trainingAge)과 목표(goalKind)로 숫자를 고릅니다. 그 둘을
+ * state 에서 읽는 곳은 여기 하나 — 플랜 탭 · 헬스 화면 · 「종목 추가」 · 플랜 없는
+ * 날의 기본 종목이 전부 같은 값을 써야 두 화면의 세트 수가 어긋나지 않습니다.
+ * -------------------------------------------------------------------------- */
+
+/// 프로필의 경력 — 'novice' · 'intermediate' · 'advanced'. 없으면 초보(보수적).
+String trainingAgeOf(Map<String, Object?> state) {
+  final profile = state['profile'];
+  final ta = profile is Map ? profile['trainingAge'] : null;
+  return ta is String && ta.isNotEmpty ? ta : 'novice';
+}
+
+/// 지금 국면 — 플랜의 phases 에서 [dateKey] 가 든 단계의 'cut' · 'bulk' · 'maintain'.
+/// 플랜이 끝난 뒤면 마지막 단계, 플랜이나 단계가 없으면 ''. 저장된 플랜에는 goalInfo 가
+/// 없어서(setPlan 이 남기는 키에 없음) 단계표가 "지금 뭘 하는 중인가" 의 유일한 답입니다 —
+/// 분할 전략(감량 → 증량)에서는 증량 주에만 바벨 복합이 근력 구간으로 갑니다.
+String goalKindOf(Map<String, Object?> state, String dateKey) {
+  final plan = state['plan'];
+  if (plan is! Map) return '';
+  final phases = plan['phases'];
+  if (phases is! List || phases.isEmpty) return '';
+  final week = _planWeekOf(plan['startDate'], dateKey);
+  String? last;
+  for (final p in phases) {
+    if (p is! Map) continue;
+    final kind = p['phase'];
+    if (kind is! String || kind.isEmpty) continue;
+    last = kind;
+    final from = _int(p['from']) ?? 0, to = _int(p['to']);
+    if (week >= from && (to == null || week < to)) return kind;
+  }
+  return last ?? '';
+}
+
+/// 'YYYY-MM-DD' 둘 사이의 계획 주차(0부터, 시작 전은 0) — 엔진 planWeekOf 와 같은 셈.
+int _planWeekOf(Object? startKey, String dateKey) {
+  final a = DateTime.tryParse('${startKey ?? ''}T00:00:00Z');
+  final b = DateTime.tryParse('${dateKey}T00:00:00Z');
+  if (a == null || b == null) return 0;
+  final days = b.difference(a).inDays;
+  return days <= 0 ? 0 : days ~/ 7;
+}
+
+/// 화면이 부르는 [tailorSession] — 프로필의 경력과 [dateKey] 의 국면을 채워서.
+List<Map<String, Object?>> tailorSessionFor(
+        Map<String, Object?> state, Map<String, Object?> session, GymPrefs prefs,
+        {required String dateKey}) =>
+    tailorSession(session, prefs,
+        trainingAge: trainingAgeOf(state), goalKind: goalKindOf(state, dateKey));
+
+/// 사전 종목 하나를 계획 줄로 — 세트 · 횟수(또는 초) · 휴식 · 편측을 스킴으로 채워서.
+/// 「종목 추가」 와 플랜 없는 날의 기본 종목이 씁니다. 엔진 힌트가 없으니 사전이 답이고,
+/// 세션 예산(fitRestToBudget)은 여기서 안 합니다 — 세션 minutes 가 없습니다.
+Map<String, Object?> schemeRowFor(Exercise e, {required String trainingAge, required String goalKind}) {
+  final m = <String, Object?>{
+    'id': e.id, 'name': e.name, 'group': e.group, 'equip': e.equip, 'note': e.note,
+  };
+  final s = schemeFor(
+    exercise: e,
+    name: e.name,
+    equip: e.equip,
+    pattern: e.pattern,
+    goalKind: goalKind,
+    trainingAge: trainingAge,
+    isCompound: false,
+  );
+  return _applyScheme(m, s);
 }
 
 /* --- 메모 읽기 ----------------------------------------------------------------
@@ -89,7 +168,16 @@ String? tailorNote(Map<String, Object?> e, {bool original = true}) {
 ///     목표입니다 — 초보 프리셋의 약속이 "머신 4개 + 덤벨" 입니다(2차 피드백 15).
 ///  5. 같은 종목은 두 번 나오지 않습니다. 바꿀 것이 없으면 원래 것을 두고
 ///     '기구가 없으면 건너뛰기' 를 답니다.
-List<Map<String, Object?>> tailorSession(Map<String, Object?> session, GymPrefs prefs) {
+///  6. 정해진 종목마다 스킴(scheme.dart)을 매깁니다 — 'sets' · 'reps' · 'restSec' 를
+///     덮어쓰고, 시간으로 하는 종목은 'seconds' 를 넣고 'reps' 는 ''. 'perSide' ·
+///     'why' 를 더합니다. [trainingAge] 는 프로필의 경력(novice · intermediate ·
+///     advanced), [goalKind] 는 목표('cut' · 'bulk' · 'recomp' · '') — 호출부가
+///     안 넘기면 초보 · 목표 없음으로 봅니다.
+///  7. 세트 × (동작 + 휴식) 의 합이 session['minutes'] 를 넘으면 휴식을 비례로 줄입니다
+///     (바닥 [kMinRestSec]). 동작 시간은 없는 것이라 줄일 수 없고, 세트를 빼면 볼륨이
+///     빠지니까요.
+List<Map<String, Object?>> tailorSession(Map<String, Object?> session, GymPrefs prefs,
+    {String trainingAge = 'novice', String goalKind = ''}) {
   final raw = session['exercises'];
   if (raw is! List || raw.isEmpty || session['rest'] == true) return const [];
 
@@ -197,7 +285,110 @@ List<Map<String, Object?>> tailorSession(Map<String, Object?> session, GymPrefs 
     }
   }
 
-  return [for (final r in rows) r.toMap()];
+  /* 6. 종목이 정해졌으니 숫자를 매깁니다. 엔진의 sets · reps · restSec 는 힌트로 넘깁니다. */
+  final out = [
+    for (final r in rows) _withScheme(r, trainingAge: trainingAge, goalKind: goalKind),
+  ];
+
+  /* 7. 세션 예산. */
+  fitRestToBudget(out, session['minutes']);
+  return out;
+}
+
+Map<String, Object?> _withScheme(_Row r, {required String trainingAge, required String goalKind}) {
+  final m = r.toMap();
+  final engineSets = _int(m['sets']);
+  final engineRest = _int(m['restSec']);
+  final engineReps = m['reps'] == null ? null : '${m['reps']}';
+  final s = schemeFor(
+    exercise: r.lib,
+    name: r.name,
+    equip: r.equip,
+    pattern: r.pattern,
+    goalKind: goalKind,
+    trainingAge: trainingAge,
+    /* 엔진은 복합에만 5-8 · 150초를 줍니다 — 그 표식이 "복합" 의 뜻입니다. */
+    isCompound: engineReps == '5-8' || (engineRest != null && engineRest >= 120),
+    engineSets: engineSets,
+    engineReps: engineReps,
+    engineRestSec: engineRest,
+  );
+  return _applyScheme(m, s);
+}
+
+/// 스킴의 숫자를 계획 줄에 적습니다 — 'sets' · 'reps' · 'restSec' 를 덮어쓰고, 시간 종목은
+/// 'seconds' 를 넣고 아니면 뺍니다. 'perSide' · 'why' 를 더합니다.
+Map<String, Object?> _applyScheme(Map<String, Object?> m, Scheme s) {
+  m['sets'] = s.sets;
+  m['reps'] = s.reps;
+  m['restSec'] = s.restSec;
+  if (s.seconds != null) {
+    m['seconds'] = s.seconds;
+  } else {
+    m.remove('seconds');
+  }
+  m['perSide'] = s.perSide;
+  m['why'] = s.why;
+  return m;
+}
+
+int? _int(Object? v) {
+  if (v is int) return v;
+  if (v is num && v.isFinite) return v.round();
+  if (v is String) return int.tryParse(v.trim());
+  return null;
+}
+
+/// 쉬는 시간의 바닥. 이보다 짧으면 다음 세트가 안 나옵니다.
+const int kMinRestSec = 30;
+
+/// 세션 예산 — 세트 × (동작 + 휴식) 의 합이 [minutes] 분을 넘으면 휴식을 한 비율로
+/// 줄입니다(5초 단위, 바닥 [kMinRestSec]). 바닥에 걸린 줄은 빼고 나머지를 다시 나눕니다 —
+/// 그래야 바닥 때문에 남은 초과가 긴 휴식 쪽으로 갑니다. 제자리에서 고칩니다.
+/// [minutes] 가 없거나 0 이하면 아무것도 안 합니다. 예산 안이면 그대로 — 남는 시간을
+/// 채우려 늘리지 않습니다.
+void fitRestToBudget(List<Map<String, Object?>> exercises, Object? minutes) {
+  final min = minutes is num && minutes.isFinite ? minutes : null;
+  if (min == null || min <= 0 || exercises.isEmpty) return;
+  final budget = (min * 60).round();
+  var work = 0;
+  for (final e in exercises) {
+    work += (_int(e['sets']) ?? 3) * workSecondsOf(e);
+  }
+  /* 한 번에 끝나지 않는 것은 바닥에 걸린 줄 때문입니다 — 줄 수만큼이면 언제나 수렴합니다. */
+  for (var pass = 0; pass <= exercises.length; pass++) {
+    var fixed = 0;
+    var adjustable = 0;
+    for (final e in exercises) {
+      final sets = _int(e['sets']) ?? 3;
+      final r = _int(e['restSec']) ?? 0;
+      if (r <= kMinRestSec) {
+        fixed += sets * r;
+      } else {
+        adjustable += sets * r;
+      }
+    }
+    final over = work + fixed + adjustable - budget;
+    if (over <= 0 || adjustable <= 0) return;
+    final factor = (adjustable - over) / adjustable;
+    for (final e in exercises) {
+      final r = _int(e['restSec']) ?? 0;
+      if (r <= kMinRestSec) continue;
+      final cut = factor <= 0 ? kMinRestSec : (r * factor / 5).floor() * 5;
+      e['restSec'] = cut < kMinRestSec ? kMinRestSec : cut;
+    }
+  }
+}
+
+/// 세션의 계획 시간(초) — 세트 × (동작 + 휴식) 의 합. 예산 규칙의 검산용입니다 —
+/// 화면은 session['minutes'] 를 보여 줍니다(주인이 「상체 A · 7종목 · 60분」 을 골랐습니다).
+int plannedSeconds(List<Map<String, Object?>> exercises) {
+  var total = 0;
+  for (final e in exercises) {
+    final sets = _int(e['sets']) ?? 3;
+    total += sets * (workSecondsOf(e) + (_int(e['restSec']) ?? 0));
+  }
+  return total;
 }
 
 /// 같은 부위에서 되는 것 중 가장 가까운 종목. 없으면 null.

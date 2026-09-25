@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
@@ -24,6 +25,7 @@ import '../update.dart';
 import 'account.dart';
 import 'gym_settings.dart';
 import 'sync_settings.dart';
+import 'workout_tutorial.dart';
 import '../ui/widgets.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -115,6 +117,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 app.store.set({'settings': {...settings, 'snackNudge': on}});
                 setState(() {});
               },
+            ),
+            /* 헬스 화면의 「따라 해 보기」 는 처음 한 번만 뜹니다 — 다시 보는 길은 여기뿐.
+               이름은 열리는 화면의 제목과 같은 상수 — 「도움말」 을 눌렀는데 「따라 해 보기」 가
+               열리면 다른 것을 기대합니다. */
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text(kGymTutorialTitle),
+              trailing: const Icon(LucideIcons.chevronRight, size: 18),
+              onTap: () => WorkoutTutorial.show(context),
             ),
           ]),
         ),

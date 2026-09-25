@@ -6,8 +6,8 @@
  * 여기 있는 것은 그 목록의 읽기 · 쓰기뿐입니다 — 화면은 workout_session.dart.
  *
  * 모양:
- *   state['routines'] = [{id, name, label, exercises: [{name, sets, reps, restSec, kg?}],
- *                         createdAt, updatedAt}]
+ *   state['routines'] = [{id, name, label, exercises: [{name, sets, reps, restSec, kg?,
+ *                         seconds?, perSide?}], createdAt, updatedAt}]
  *   · label 은 플랜 세션 라벨('상체 A'). 같은 라벨의 날에 열면 자동으로 이 루틴을
  *     씁니다 — 사용자가 적게 누르고 앱이 알아서.
  *   · 기기 사이 동기화됩니다(merge.dart 의 mergedLists 에 'routines': 'id' —
@@ -115,14 +115,18 @@ bool deleteRoutine(AppState app, String id) {
   return true;
 }
 
-/// 종목 한 줄을 저장 모양으로 — 이름 · 세트 · 반복 · 쉬는 시간 · (있으면) kg.
+/// 종목 한 줄을 저장 모양으로 — 이름 · 세트 · 반복 · 쉬는 시간 · (있으면) kg · 초 · 편측.
+/// perSide 를 버리면 다시 연 루틴의 런지가 「한쪽씩」 을 잃고(3차 리뷰), seconds 를 버리면
+/// 플랭크의 초가 reps 문자열('30초')로만 남습니다.
 Map<String, Object?> _cleanExercise(Map<String, Object?> x) {
-  final sets = x['sets'], rest = x['restSec'], kg = x['kg'];
+  final sets = x['sets'], rest = x['restSec'], kg = x['kg'], sec = x['seconds'];
   return {
     'name': '${x['name'] ?? ''}',
     'sets': sets is num && sets >= 1 ? sets.round() : 3,
     'reps': '${x['reps'] ?? '10-15'}',
     'restSec': rest is num && rest >= 0 ? rest.round() : 75,
     if (kg is num && kg > 0) 'kg': kg.toDouble(),
+    if (sec is num && sec > 0) 'seconds': sec.round(),
+    if (x['perSide'] == true) 'perSide': true,
   };
 }

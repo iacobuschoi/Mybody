@@ -16,9 +16,11 @@
  * 옵션들의 체지방 궤적은 차트 한 장에 겹쳐서 어느 것이 얼마나 다른지 눈으로 비교하게
  * 합니다.
  *
- * 설명문은 한 줄을 넘기지 않습니다. 기간 카드는 제목 · 주수 · 칩 · 자(− +)뿐이고,
- * 카드와 판의 나머지 글도 숫자 몇 개와 짧은 한 줄입니다 — 화면에 글이 많을수록
- * 정작 골라야 할 카드가 아래로 밀립니다.
+ * 설명문은 한 줄을 넘기지 않습니다. 기간 카드는 제목 · 주수(그 밑에 도달일) · 칩 ·
+ * 자(− +)뿐이고, 카드와 판의 나머지 글도 숫자 몇 개와 짧은 한 줄입니다 — 화면에 글이
+ * 많을수록 정작 골라야 할 카드가 아래로 밀립니다. 도달일은 판 머리에 한 번만입니다 —
+ * 모든 옵션이 같은 날에 닿는데 카드마다 적으면 카드가 그걸로 갈리는 줄 읽힙니다
+ * (운동 횟수를 카드에서 뺀 것과 같은 이유).
  *
  * 고르면 **여기서 바로 계획을 세웁니다** (compareLevels → buildPlan → 저장). 예전에는
  * 고른 뒤 강도 화면(intensity.dart)을 한 번 더 밀어 12 · 18 · 23주 카드를 다시
@@ -120,7 +122,8 @@ class _DurationPanelState extends State<DurationPanel> {
     }
     final profile = app.profile ?? core.kSeedProfile;
     final cur = core.derive(scans.last, profile);
-    final res = _options(scans.last, profile, app.store.dayKey());
+    final today = app.store.dayKey();
+    final res = _options(scans.last, profile, today);
     final options = [
       for (final o in (res['options'] as List?) ?? const [])
         (o as Map).cast<String, Object?>(),
@@ -141,7 +144,10 @@ class _DurationPanelState extends State<DurationPanel> {
     final training = trainingLine(options, profile);
 
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      _WeeksCard(weeks: _weeks, onChanged: (w) => setState(() => _weeks = w)),
+      _WeeksCard(
+          weeks: _weeks,
+          targetDate: durationTargetDate(res, today, _weeks),
+          onChanged: (w) => setState(() => _weeks = w)),
       for (final w in warnings) Note(tone: Tone.warn, text: w),
       if (options.isEmpty)
         (warnings.isEmpty
@@ -306,6 +312,16 @@ class _DurationPanelState extends State<DurationPanel> {
   }
 }
 
+/// 기간 카드의 도달일(YYYY-MM-DD) — 엔진이 표에 적어 보낸 날(`targetDate`)이 먼저이고,
+/// 없으면(손으로 만든 표 · 옛 표) 오늘 + 주×7일. 엔진도 같은 식(addWeeks)으로 세니
+/// 두 길의 날짜가 어긋나지 않습니다. 12주를 고르고 "그게 언제인데?" 를 머리로 세지
+/// 않게 — 달력의 날짜가 있어야 기간이 손에 잡힙니다.
+String durationTargetDate(Map<String, Object?> res, String today, int weeks) {
+  final t = res['targetDate'];
+  if (core.jsTruthy(t) && '$t' != core.invalidDateISO) return '$t';
+  return core.addWeeks(today, weeks);
+}
+
 /// 카드 위에 한 번 두는 운동 처방 — '운동 주 4회 · 회당 60분 — 내 몸 정보 기준'.
 /// 모든 카드가 같은 횟수일 때만 그 줄이고, 카드마다 다르면 null(그때는 카드가 각자 적습니다).
 ///
@@ -416,29 +432,42 @@ String optionTitle(Map<String, Object?> o) {
   return sub.isEmpty ? label : '$label · $sub';
 }
 
-/// 기간 카드 — 제목 · 주수 · 칩(8/12/16/24) · 자. 자의 양옆에 「−」「+」 가 있어
+/// 기간 카드 — 제목 · 주수(그 밑에 도달일) · 칩(8/12/16/24) · 자. 주수만 있으면 "12주가
+/// 언제까지인지" 를 사람이 세야 해서, 오른쪽 주수 바로 아래에 '2026. 12. 18.' 을 작게 —
+/// 주수를 바꾸면 날짜가 같이 바뀝니다. 자의 양옆에 「−」「+」 가 있어
 /// 1주씩 맞출 수 있습니다: 칩은 빠르고 자는 대충이라, 15주 · 20주처럼 그 사이의
 /// 딱 한 주수는 엄지로 자를 끌어 맞추기가 어렵습니다(폰에서 "슬라이더 옆에 − + 를"
 /// 이라고 들었습니다). 끝(8 · 52주)에서는 그쪽 단추가 닫힙니다 — 눌러도 안 움직이는
 /// 단추는 고장으로 보입니다. 설명문은 없습니다: "이 기간 안에 갈 수 있는 몸" 은 밑의
 /// 카드가 보여 주는 것이라 글로 한 번 더 말할 것이 없습니다.
 class _WeeksCard extends StatelessWidget {
-  const _WeeksCard({required this.weeks, required this.onChanged});
+  const _WeeksCard({required this.weeks, required this.targetDate, required this.onChanged});
   final int weeks;
+
+  /// 이 주수로 닿는 날(YYYY-MM-DD). 없으면 주수만 보입니다.
+  final String? targetDate;
   final ValueChanged<int> onChanged;
 
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
+    const tabular = [FontFeature.tabularFigures()];
     final hint = t.textTheme.labelSmall?.copyWith(color: t.hintColor);
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         SectionTitle('기간',
-            trailing: Text('$weeks주',
-                key: const Key('duration-weeks'),
-                style: t.textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    fontFeatures: const [FontFeature.tabularFigures()]))),
+            /* 주수 밑에 도달일 — 오른쪽 끝에 맞춰 두 줄. 제목은 첫 줄(주수)에 맞춥니다. */
+            crossAxisAlignment: CrossAxisAlignment.start,
+            trailing: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+              Text('$weeks주',
+                  key: const Key('duration-weeks'),
+                  style: t.textTheme.titleSmall
+                      ?.copyWith(fontWeight: FontWeight.w800, fontFeatures: tabular)),
+              if (targetDate != null)
+                Text(dateK(targetDate),
+                    key: const Key('duration-target'),
+                    style: hint?.copyWith(fontFeatures: tabular)),
+            ])),
         Wrap(spacing: 8, children: [
           for (final w in kDurationChips)
             ChoiceChip(

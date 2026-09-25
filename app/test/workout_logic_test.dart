@@ -5,6 +5,8 @@
  *   · 사전이 엔진 종목을 하나도 안 빠뜨리는가 (빠지면 대체가 조용히 안 됩니다)
  *   · 기구가 없을 때 같은 부위·같은 움직임으로 바꾸는가, 머신 개수를 지키는가,
  *     잘 아는 종목을 하나만 넣는가, 같은 종목이 두 번 안 나오는가
+ *   · 정해진 종목에 스킴(세트 · 횟수 · 휴식)이 새 규칙으로 붙는가 — 맨몸 스쿼트 15-20,
+ *     플랭크 30초, 바벨 초보 8-12, 머신 8-12, 편측은 한쪽씩 · 60분 예산(3차 피드백 31)
  *   · 칼로리 공식이 손으로 계산한 값과 같은가 (80kg · 30분 · MET 5 = 210)
  *   · 맨몸 루틴이 경력·체중·오늘 분할에 따라 모양을 바꾸는가
  * ========================================================================== */
@@ -16,6 +18,7 @@ import 'package:mybody/src/workout/exercises.dart';
 import 'package:mybody/src/workout/kcal.dart';
 import 'package:mybody/src/workout/planner.dart';
 import 'package:mybody/src/workout/prefs.dart';
+import 'package:mybody/src/workout/scheme.dart';
 import 'package:mybody_core/mybody_core.dart' show kExercises, compareLevels, buildPlan;
 
 /// 엔진이 만든 것과 같은 모양의 세션 — 종목 이름은 data.dart 그대로.
@@ -184,18 +187,32 @@ void main() {
   });
 
   group('tailorSession', () {
-    test('기구가 다 있는 헬스장은 엔진 그대로 · 번호만 붙는다', () {
+    test('기구가 다 있는 헬스장은 종목은 엔진 그대로 · 번호와 스킴이 붙는다', () {
       final out = tailorSession(upperA, const GymPrefs());
       expect(names(out), names(withIds(upperA['exercises'] as List)));
       expect(ids(out), ['bench-press', 'incline-db-press', 'pullup-latpulldown', 'barbell-row',
         'overhead-press', 'barbell-curl', 'incline-db-curl']);
       for (final x in out) {
-        expect(x['sets'], 3);
-        expect(x['reps'], '10-15');
-        expect(x['restSec'], 75);
-        expect(x['rpe'], '7-8');
+        expect(x['sets'], 3, reason: '초보는 3세트');
+        expect(x['rpe'], '7-8', reason: 'RPE 는 엔진 그대로');
         expect(x['note'], '');
+        expect(x['perSide'], isFalse);
+        expect(x.containsKey('seconds'), isFalse);
+        expect('${x['why']}', isNotEmpty);
       }
+      /* 초보(기본값): 바벨 복합 8-12 · 120초, 머신 · 덤벨 복합 8-12 · 90초, 컬 12-15 · 60초.
+         엔진의 10-15 · 75초는 어디에도 남지 않습니다. */
+      final byId = {for (final x in out) '${x['id']}': x};
+      expect(byId['bench-press']!['reps'], '8-12');
+      expect(byId['bench-press']!['restSec'], 120);
+      expect(byId['barbell-row']!['restSec'], 120);
+      expect(byId['incline-db-press']!['reps'], '8-12');
+      expect(byId['incline-db-press']!['restSec'], 90);
+      expect(byId['pullup-latpulldown']!['restSec'], 90);
+      expect(byId['barbell-curl']!['reps'], '12-15');
+      expect(byId['barbell-curl']!['restSec'], 60);
+      expect(byId['incline-db-curl']!['reps'], '12-15');
+      expect(out.any((x) => x['reps'] == '10-15' || x['restSec'] == 75), isFalse);
     });
 
     test('집 — 바벨·머신은 같은 부위·같은 움직임의 덤벨·밴드·맨몸으로', () {
@@ -215,9 +232,128 @@ void main() {
       for (final x in out) {
         expect(kHomeEquipment.contains(x['equip']), isTrue, reason: '${x['name']}');
         expect(x['sets'], 3);
-        expect(x['restSec'], 75);
       }
       expect(names(out).toSet().length, out.length, reason: '겹치지 않습니다');
+      /* 바꾼 종목에는 바꾼 종목의 스킴 — 푸시업은 맨몸 8-12 · 60초, 원암 로우는 한쪽씩. */
+      expect(byOriginal['바벨 벤치프레스']!['reps'], '8-12');
+      expect(byOriginal['바벨 벤치프레스']!['restSec'], 60);
+      expect(byOriginal['바벨 로우']!['perSide'], isTrue);
+      expect(byOriginal['바벨 로우']!['restSec'], 90);
+    });
+
+    test('스킴 — 맨몸 세션: 맨몸 스쿼트 15-20 · 런지 한쪽씩 · 플랭크 30초(reps 는 빈 글) · 글루트 브릿지 15-20', () {
+      final s = session('하체 A', [
+        ['맨몸 스쿼트', 'bodyweight', 'quads'],
+        ['런지', 'bodyweight', 'quads'],
+        ['글루트 브릿지', 'bodyweight', 'hamsGlutes'],
+        ['플랭크', 'bodyweight', 'core'],
+      ]);
+      /* 엔진은 '맨몸 스쿼트' 를 이름 정규식으로 바벨 복합(5-8 · 150초)이라 했었습니다. */
+      final first = (s['exercises'] as List)[0] as Map;
+      first['reps'] = '5-8';
+      first['restSec'] = 150;
+      final out = tailorSession(s, const GymPrefs(place: 'home'));
+      expect(names(out), ['맨몸 스쿼트', '런지', '글루트 브릿지', '플랭크']);
+      expect(out[0]['reps'], '15-20');
+      expect(out[0]['restSec'], 60);
+      expect(out[0]['perSide'], isFalse);
+      expect(out[1]['reps'], '8-12');
+      expect(out[1]['perSide'], isTrue);
+      expect(amountLabel(out[1]), '8-12 한쪽씩');
+      expect(out[2]['reps'], '15-20');
+      expect(out[3]['reps'], '');
+      expect(out[3]['seconds'], 30);
+      expect(out[3]['restSec'], 45);
+      expect(amountLabel(out[3]), '30초');
+      for (final x in out) {
+        expect(x['sets'], 3);
+        expect(x['rpe'], '7-8', reason: 'RPE 는 그대로');
+      }
+      /* 중급 · 고급은 같은 종목이 더 많이. */
+      final mid = tailorSession(s, const GymPrefs(place: 'home'), trainingAge: 'intermediate');
+      expect(mid[0]['reps'], '20-25');
+      expect(mid[3]['seconds'], 45);
+      final adv = tailorSession(s, const GymPrefs(place: 'home'), trainingAge: 'advanced');
+      expect(adv[0]['reps'], '25-30');
+      expect(adv[0]['sets'], 4);
+      expect(adv[3]['seconds'], 60);
+    });
+
+    test('스킴 — 경력 · 목표: 중급 증량이면 바벨 복합은 5-8 · 4세트 · 180초, 고립은 10-15 · 3세트', () {
+      /* 예산(minutes)을 빼고 봅니다 — 중급 4세트 × 180초는 60분을 넘어 휴식이 깎이니까요(다음 테스트). */
+      final upperNoBudget = {...upperA, 'minutes': null};
+      final out = tailorSession(upperNoBudget, const GymPrefs(), trainingAge: 'intermediate', goalKind: 'bulk');
+      final byId = {for (final x in out) '${x['id']}': x};
+      expect(byId['bench-press']!['reps'], '5-8');
+      expect(byId['bench-press']!['sets'], 4);
+      expect(byId['bench-press']!['restSec'], 180);
+      expect(byId['overhead-press']!['reps'], '5-8');
+      expect(byId['incline-db-press']!['reps'], '8-12', reason: '덤벨은 근력 구간으로 안 내립니다');
+      expect(byId['incline-db-press']!['sets'], 4, reason: '중급 복합은 4세트');
+      expect(byId['barbell-curl']!['reps'], '10-15');
+      expect(byId['barbell-curl']!['sets'], 3);
+      /* 감량 · 목표 없음이면 근비대 구간. 초보는 목표와 상관없이 8-12. */
+      final cut = tailorSession(upperNoBudget, const GymPrefs(), trainingAge: 'intermediate', goalKind: 'cut');
+      expect(cut.first['reps'], '6-10');
+      expect(cut.first['restSec'], 150);
+      final novice = tailorSession(upperNoBudget, const GymPrefs(), goalKind: 'bulk');
+      expect(novice.first['reps'], '8-12');
+    });
+
+    test('스킴 — 엔진이 4세트를 줬으면(setsPerMuscle ≥ 16) 유지, 바뀐 종목에도', () {
+      final s = session('하체 A', [
+        ['바벨 스쿼트', 'barbell', 'quads'],
+        ['레그프레스', 'machine', 'quads'],
+      ]);
+      for (final x in (s['exercises'] as List)) {
+        (x as Map)['sets'] = 4;
+        x['reps'] = '5-8';
+        x['restSec'] = 150;
+      }
+      final gym = tailorSession(s, const GymPrefs());
+      expect(gym[0]['sets'], 4);
+      expect(gym[0]['reps'], '8-12', reason: '세트는 두고 횟수는 새 규칙');
+      expect(gym[1]['sets'], 4);
+      final home = tailorSession(s, const GymPrefs(place: 'home', equipment: {'bodyweight'}));
+      expect(home.every((x) => x['equip'] == 'bodyweight'), isTrue);
+      expect(home.every((x) => x['sets'] == 4), isTrue, reason: '볼륨은 기구와 무관');
+      expect(home.any((x) => x['reps'] == '5-8' || x['reps'] == '8-12'), isFalse, reason: '맨몸은 맨몸 규칙');
+    });
+
+    test('60분 예산 — 세트 × (동작 + 휴식) 이 넘으면 휴식만 비례로 줄고, 안 넘으면 그대로', () {
+      /* 초보 상체 A(7종목 · 3세트)는 60분 안 — 아무것도 안 바뀝니다. */
+      final novice = tailorSession(upperA, const GymPrefs());
+      expect(plannedSeconds(novice), lessThanOrEqualTo(60 * 60));
+      expect(novice.map((x) => x['restSec']).toSet(), {120, 90, 60});
+
+      /* 고급 증량 · 바벨 복합 다섯에 4세트 · 180초면 60분을 넘습니다 → 휴식이 줄어 예산 안으로. */
+      final adv = tailorSession(upperA, const GymPrefs(), trainingAge: 'advanced', goalKind: 'bulk');
+      expect(plannedSeconds(adv), lessThanOrEqualTo(60 * 60));
+      expect(adv.first['restSec'], lessThan(180));
+      expect(adv.first['restSec'], greaterThanOrEqualTo(kMinRestSec));
+      expect(adv.first['sets'], 4, reason: '세트 · 횟수는 안 건드립니다');
+      expect(adv.first['reps'], '4-6');
+      /* 예산이 없으면(minutes 없음) 줄이지 않습니다. */
+      final noBudget = tailorSession({...upperA, 'minutes': null}, const GymPrefs(),
+          trainingAge: 'advanced', goalKind: 'bulk');
+      expect(noBudget.first['restSec'], 180);
+
+      /* fitRestToBudget 직접 — 5초 단위, 바닥 30초. */
+      final rows = [
+        {'sets': 4, 'reps': '4-6', 'restSec': 180},
+        {'sets': 3, 'reps': '', 'seconds': 30, 'restSec': 45},
+      ];
+      fitRestToBudget(rows, 10);
+      expect(plannedSeconds(rows), lessThanOrEqualTo(600));
+      expect(rows[1]['restSec'], kMinRestSec, reason: '짧은 휴식은 바닥에 걸리고');
+      expect(rows[0]['restSec'], 85, reason: '남은 초과는 긴 휴식이 더 받습니다: 180 → 90 → 85');
+      expect((rows[0]['restSec'] as int) % 5, 0);
+      fitRestToBudget(rows, 1);
+      expect(rows.every((r) => r['restSec'] == kMinRestSec), isTrue, reason: '도저히 안 되면 바닥');
+      final untouched = [{'sets': 3, 'reps': '8-12', 'restSec': 90}];
+      fitRestToBudget(untouched, null);
+      fitRestToBudget(untouched, 0);
+      expect(untouched.single['restSec'], 90);
     });
 
     test('집 · 하체 — 철봉이 필요한 맨몸 종목도 바꾼다', () {
@@ -388,6 +524,25 @@ void main() {
         }
         /* 덤벨·맨몸도 섞여야 "머신 4개 + 덤벨" 입니다 — 머신만 넷이면 나머지는 프리웨이트. */
         expect(out.any((x) => x['equip'] == 'dumbbell' || x['equip'] == 'bodyweight'), isTrue, reason: label);
+        /* 스킴 — 초보: 머신 · 덤벨 복합 8-12 · 90초, 고립 12-15 · 60초, 맨몸은 맨몸 표. 엔진의
+           5-8 · 150초 / 10-15 · 75초는 하나도 안 남고, 모든 줄이 3세트 · perSide · why 를 갖습니다. */
+        for (final x in out) {
+          final s = '${x['name']} · $label';
+          expect(x['sets'], 3, reason: s);
+          expect(x['restSec'], isNot(anyOf(75, 150)), reason: s);
+          expect(x['perSide'], isA<bool>(), reason: s);
+          expect('${x['why']}', isNotEmpty, reason: s);
+          final lib = exerciseById('${x['id']}')!;
+          if (lib.equip == 'bodyweight') {
+            expect(x['reps'], (kBodyweightReps[lib.id] ?? kBodyweightDefaultReps)[0], reason: s);
+          } else {
+            final compound = const {'squat', 'hinge', 'lunge', 'push-h', 'push-v', 'pull-h', 'pull-v'}
+                .contains(lib.pattern);
+            expect(x['reps'], compound ? '8-12' : '12-15', reason: s);
+            expect(x['restSec'], compound ? 90 : 60, reason: s);
+          }
+        }
+        expect(plannedSeconds(out), lessThanOrEqualTo(60 * 60), reason: label);
       }
 
       /* 상체는 바벨 벤치 → 체스트 프레스 머신, 바벨 로우 → 케이블 로우, 오버헤드 프레스 →
@@ -401,6 +556,10 @@ void main() {
          덤벨 안고 스쿼트 · 바닥 브릿지가 아니라 머신 넷입니다. */
       final lower = tailorSession(sessions[1], prefs);
       expect(names(lower), ['핵 스쿼트', '레그프레스', '힙 쓰러스트 머신', '케이블 풀스루', '행잉 레그레이즈']);
+      /* 행잉 레그레이즈는 고난도 맨몸 — 초보 5-8 · 90초. 엔진은 10-15 · 75초라 했습니다. */
+      expect(lower.last['reps'], '5-8');
+      expect(lower.last['restSec'], 90);
+      expect(lower.last.containsKey('seconds'), isFalse);
     });
 
     test('withIds — 사전 번호, 없으면 이름에서, 이미 있으면 그대로', () {
@@ -445,6 +604,76 @@ void main() {
         tailored++;
       }
       expect(tailored, greaterThan(0));
+    });
+  });
+
+  group('state → 스킴의 두 축 (trainingAgeOf · goalKindOf · schemeRowFor · tailorSessionFor)', () {
+    final plan = {
+      'startDate': '2026-03-01',
+      'phases': [
+        {'name': '1단계 · 감량', 'from': 0, 'to': 12, 'phase': 'cut', 'weeks': 12},
+        {'name': '2단계 · 유지', 'from': 12, 'to': 14, 'phase': 'maintain', 'weeks': 2},
+        {'name': '3단계 · 증량', 'from': 14, 'to': 30, 'phase': 'bulk', 'weeks': 16},
+      ],
+    };
+
+    test('trainingAgeOf — 프로필 값, 없으면 novice', () {
+      expect(trainingAgeOf({'profile': {'trainingAge': 'intermediate'}}), 'intermediate');
+      expect(trainingAgeOf({'profile': {'trainingAge': ''}}), 'novice');
+      expect(trainingAgeOf({'profile': {}}), 'novice');
+      expect(trainingAgeOf({}), 'novice');
+    });
+
+    test('goalKindOf — 날짜가 든 단계의 국면, 끝난 뒤는 마지막 단계, 플랜 없으면 빈 글자', () {
+      final st = {'plan': plan};
+      expect(goalKindOf(st, '2026-03-01'), 'cut');
+      expect(goalKindOf(st, '2026-05-23'), 'cut', reason: '11주 6일');
+      expect(goalKindOf(st, '2026-05-24'), 'maintain', reason: '12주');
+      expect(goalKindOf(st, '2026-06-07'), 'bulk', reason: '14주');
+      expect(goalKindOf(st, '2027-01-01'), 'bulk', reason: '끝난 뒤는 마지막 단계');
+      expect(goalKindOf(st, '2025-01-01'), 'cut', reason: '시작 전은 0주');
+      expect(goalKindOf({}, '2026-03-01'), '');
+      expect(goalKindOf({'plan': {'phases': <Object?>[]}}, '2026-03-01'), '');
+      expect(goalKindOf({'plan': {'goalInfo': {'type': 'bulk'}}}, '2026-03-01'), '',
+          reason: '저장된 플랜에는 goalInfo 가 없습니다 — 단계표만 봅니다');
+    });
+
+    test('schemeRowFor — 사전 종목에 스킴을 매긴 계획 줄: 플랭크는 초, 런지는 한쪽씩, 머신은 8-12 · 90초', () {
+      final plank = schemeRowFor(exerciseById('plank')!, trainingAge: 'novice', goalKind: '');
+      expect(plank['seconds'], 30);
+      expect(plank['reps'], '');
+      expect(plank['restSec'], 45);
+      expect(plank['sets'], 3);
+      expect(amountLabel(plank), '30초');
+      final lunge = schemeRowFor(exerciseById('lunge')!, trainingAge: 'novice', goalKind: '');
+      expect(lunge['perSide'], isTrue);
+      expect(amountLabel(lunge), '8-12 한쪽씩');
+      expect(lunge.containsKey('seconds'), isFalse);
+      final chest = schemeRowFor(exerciseById('chest-press-machine')!, trainingAge: 'novice', goalKind: '');
+      expect(chest['reps'], '8-12');
+      expect(chest['restSec'], 90);
+      expect(chest['id'], 'chest-press-machine');
+      expect(chest['equip'], 'machine');
+      expect(chest['group'], 'chest');
+      /* 중급 증량이면 바벨 복합은 근력 구간 — 종목 추가로 넣은 바벨 스쿼트도 같은 규칙. */
+      final squat = schemeRowFor(exerciseById('barbell-squat')!, trainingAge: 'intermediate', goalKind: 'bulk');
+      expect(squat['reps'], '5-8');
+      expect(squat['sets'], 4);
+      expect(squat['restSec'], 180);
+    });
+
+    test('tailorSessionFor — 프로필 · 플랜을 읽어 tailorSession 에 넘긴다 (두 화면이 같은 값)', () {
+      final st = {'profile': {'trainingAge': 'intermediate'}, 'plan': plan};
+      final noBudget = {...upperA, 'minutes': null};
+      final viaState = tailorSessionFor(st, noBudget, const GymPrefs(), dateKey: '2026-06-07');
+      final direct = tailorSession(noBudget, const GymPrefs(), trainingAge: 'intermediate', goalKind: 'bulk');
+      expect(viaState, direct);
+      expect(viaState.first['reps'], '5-8', reason: '증량 주 · 중급 · 바벨 벤치');
+      expect(tailorSessionFor(st, noBudget, const GymPrefs(), dateKey: '2026-03-01').first['reps'], '6-10',
+          reason: '감량 주면 근비대 구간');
+      final novice = tailorSessionFor({}, noBudget, const GymPrefs(), dateKey: '2026-06-07');
+      expect(novice.first['reps'], '8-12');
+      expect(novice.first['sets'], 3);
     });
   });
 

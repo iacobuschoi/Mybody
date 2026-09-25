@@ -6,16 +6,19 @@
  * 시계는 [WorkoutSessionScreen.clock] 과 store.now 로 세워 둡니다 — 시험이
  * 진짜 40분을 기다릴 수는 없습니다.
  * ========================================================================== */
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:lucide_icons/lucide_icons.dart';
 import 'package:http/testing.dart';
 import 'package:mybody/src/api.dart';
 import 'package:mybody/src/app_state.dart';
 import 'package:mybody/src/nudge.dart';
 import 'package:mybody/src/scope.dart';
 import 'package:mybody/src/screens/workout_session.dart';
+import 'package:mybody/src/screens/workout_tutorial.dart';
 import 'package:mybody/src/theme.dart';
 import 'package:mybody/src/ui/confetti.dart';
 import 'package:mybody/src/ui/fmt.dart';
@@ -57,11 +60,17 @@ void main() {
   });
   tearDown(() => WorkoutSessionScreen.clock = DateTime.now);
 
-  Future<AppState> seeded({bool withPlan = true}) async {
+  /// 시험의 사용자는 헬스 화면을 이미 아는 사람입니다 — 튜토리얼과 첫 줄 힌트를
+  /// 본 것으로 둡니다([fresh] 면 처음 온 사람: 그 둘을 시험할 때만).
+  Future<AppState> seeded({bool withPlan = true, bool fresh = false}) async {
     SharedPreferences.setMockInitialValues({});
     final app = await AppState.boot();
     app.store.now = () => now;
-    app.store.set({'profile': _profile, 'onboarded': true});
+    app.store.set({
+      'profile': _profile,
+      'onboarded': true,
+      if (!fresh) 'settings': {kGymTutorialSeenKey: true, kGymSwipeHintSeenKey: true},
+    });
     app.store.addScan({..._scan});
     if (withPlan) {
       final goal = {'weightKg': 80.5, 'smmKg': 39.0, 'bfmKg': 12.0};
@@ -141,7 +150,9 @@ void main() {
       await t.pump();
       expect(find.text('1/$total 세트'), findsOneWidget);
       expect(find.text('건너뛰기'), findsOneWidget, reason: '세트를 마치면 휴식 카운트다운이 뜹니다');
-      expect(find.text('일시정지'), findsOneWidget, reason: '시작을 안 눌렀어도 세트를 누르면 시간이 갑니다');
+      expect(find.byTooltip('일시정지'), findsOneWidget, reason: '시작을 안 눌렀어도 세트를 누르면 시간이 갑니다');
+      expect(find.text('운동 중'), findsOneWidget);
+      expect(find.text('일시정지'), findsNothing, reason: '도는 동안 그 글자는 단추가 아니라 상태에도 없습니다');
 
       /* 휴식은 시계로 잽니다 — 쉬는 시간이 지나면 사라집니다. */
       final restSec = core.jsToNumber(tailored.first['restSec']).round();
@@ -258,7 +269,7 @@ void main() {
       /* 세트를 누르면 시계가 알아서 켜집니다 — 시계를 안 움직인 채 바로 종료. */
       await t.tap(anySetButton().first);
       await t.pump();
-      expect(find.text('일시정지'), findsOneWidget);
+      expect(find.byTooltip('일시정지'), findsOneWidget);
       await t.tap(find.text('종료'));
       await t.pumpAndSettle();
       expect(find.widgetWithText(TextField, '운동 시간'), findsOneWidget, reason: '0초는 잰 시간이 아닙니다');
@@ -282,6 +293,29 @@ void main() {
       expect(find.text('오늘 플랜에 없는 날 — 전신 기본 종목'), findsOneWidget);
       expect(anySetButton(), findsWidgets);
       expect(find.textContaining(RegExp(r'^0/\d+ 세트$')), findsOneWidget, reason: '아직 한 세트도 안 했습니다');
+    });
+
+    testWidgets('플랜 없는 날 · 집 — 기본 종목에도 스킴이 붙는다: 플랭크는 초, 편측은 한쪽씩, 3 × 10-15 · 75초 고정이 아니다', (t) async {
+      final app = await seeded(withPlan: false);
+      app.store.set({'settings': {
+        ...((app.state['settings'] as Map?) ?? const {}).cast<String, Object?>(),
+        'gym': const GymPrefs(place: 'home').toJson(),
+      }});
+      final rows = gymExercisesFor(app.state, _todayKey);
+      final byName = {for (final r in rows) '${r['name']}': r};
+      expect(byName, contains('플랭크'), reason: '집 프리셋의 코어 첫 종목');
+      expect(byName['플랭크']!['seconds'], 30);
+      expect(byName['플랭크']!['reps'], '');
+      expect(byName['플랭크']!['restSec'], 45);
+      final perSide = rows.where((r) => r['perSide'] == true).toList();
+      expect(perSide, isNotEmpty, reason: '집 하체 첫 종목은 편측(스플릿 스쿼트)');
+      for (final r in rows) {
+        expect(r['restSec'], isNot(75), reason: '${r['name']} — 하드코딩 75초가 아닙니다');
+      }
+      await open(t, app, WorkoutSessionScreen(dateKey: _todayKey, type: 'gym'));
+      expect(t.widget<Text>(find.byKey(ValueKey('plan-${slugOf('플랭크')}'))).data, '3세트 × 30초 · 휴식 45초');
+      expect(t.widget<Text>(find.byKey(ValueKey('plan-${slugOf('${perSide.first['name']}')}'))).data, contains('한쪽씩'));
+      expect(find.textContaining('10-15'), findsNothing);
     });
   });
 
@@ -385,6 +419,25 @@ void main() {
       await t.tap(find.text('닫기'));
       await t.pumpAndSettle();
       expect(find.byType(WorkoutSessionScreen), findsNothing, reason: '축하를 닫으면 화면도 닫힙니다');
+    });
+
+    testWidgets('맨몸 줄 — 계획은 한 줄, 요령은 그 밑 흐린 줄 (헬스 줄과 같은 문법 · 3차 30)', (t) async {
+      final app = await seeded();
+      await open(t, app, WorkoutSessionScreen(dateKey: _todayKey, type: 'bodyweight'));
+      bool keyed(Widget w, String prefix) =>
+          w is Text && w.key is ValueKey<String> && (w.key as ValueKey<String>).value.startsWith(prefix);
+      final plans = find.byWidgetPredicate((w) => keyed(w, 'bw-plan-'));
+      final notes = find.byWidgetPredicate((w) => keyed(w, 'bw-note-'));
+      expect(plans, findsWidgets);
+      for (final el in plans.evaluate()) {
+        final txt = (el.widget as Text).data!;
+        expect(txt, matches(RegExp(r'^\d+세트( × [^·]+)?$')), reason: '계획 줄에 요령이 붙으면 안 됩니다: $txt');
+      }
+      expect(notes, findsWidgets, reason: '요령이 있는 맨몸 종목이 있습니다');
+      final plan = t.widget<Text>(plans.first).style!.color!;
+      final note = t.widget<Text>(notes.first).style!.color!;
+      expect(note.a, lessThan(plan.a), reason: '요령은 흐리게');
+      expect(find.textContaining(RegExp(r'^\d+세트 × .+ · ')), findsNothing, reason: '예전 한 줄 표기가 남으면 안 됩니다');
     });
 
     testWidgets('60% 넘게 했으면 확인을 받고 그만큼만 기록한다', (t) async {
@@ -633,13 +686,18 @@ void main() {
       expect(x['of'], sets);
     });
 
-    testWidgets('「종목 추가」 — 부위 한 번, 종목 한 번이면 3세트 × 10-15 로 붙고 기록에도 남는다', (t) async {
+    testWidgets('「종목 추가」 — 부위 한 번, 종목 한 번이면 스킴(머신 8-12 · 90초)으로 붙고 기록에도 남는다', (t) async {
       final app = await seeded();
       final day = gymDay(app);
       final plan = gymExercisesFor(app.state, day);
       final names = {for (final m in plan) '${m['name']}'};
       final total = plan.fold<int>(0, (a, e) => a + core.jsToNumber(e['sets']).round());
       final pick = exercisesFor('chest', equip: {'machine'}).firstWhere((e) => !names.contains(e.name));
+      /* 붙는 숫자는 「종목 추가」 · 플랜 없는 날이 같이 쓰는 스킴 — 3 × 10-15 · 75초 고정이 아닙니다. */
+      final row = schemeRowFor(pick, trainingAge: 'novice', goalKind: goalKindOf(app.state, day));
+      final line = GymExercise.fromMap(row).planLine;
+      expect(line, isNot(contains('10-15')));
+      expect(row['restSec'], isNot(75));
       await open(t, app, WorkoutSessionScreen(dateKey: day, type: 'gym'));
       expect(exerciseRow(pick.name), findsNothing);
 
@@ -651,8 +709,8 @@ void main() {
       await t.pumpAndSettle();
 
       expect(exerciseRow(pick.name), findsOneWidget);
-      expect(find.descendant(of: exerciseRow(pick.name), matching: find.textContaining('3세트 × 10-15')), findsOneWidget);
-      expect(find.text('0/${total + 3} 세트'), findsOneWidget);
+      expect(find.descendant(of: exerciseRow(pick.name), matching: find.text(line)), findsOneWidget);
+      expect(find.text('0/${total + (row['sets'] as int)} 세트'), findsOneWidget);
       expect(kgChip(pick.name), findsOneWidget, reason: '머신이니 추천 무게가 붙습니다');
 
       /* 같은 종목은 다시 못 고릅니다 — 목록에 있는 것은 고르기에서 빠집니다. */
@@ -671,9 +729,48 @@ void main() {
       await finish(t);
       final xs = (logOf(app, day, 'gym')['exercises'] as List).cast<Map>();
       expect(xs.single['name'], pick.name);
-      expect(xs.single['of'], 3);
-      expect(xs.single['reps'], '10-15');
-      expect(xs.single['restSec'], 75);
+      expect(xs.single['of'], row['sets']);
+      expect(xs.single['reps'], GymExercise.repsOf(row));
+      expect(xs.single['restSec'], row['restSec']);
+    });
+
+    testWidgets('「종목 추가」 로 플랭크 · 런지를 넣으면 「3세트 × 30초 · 휴식 45초」 · 「8-12 한쪽씩」 — 「10-15회」 가 아니다(3차 31)', (t) async {
+      final app = await seeded();
+      final day = gymDay(app);
+      await open(t, app, WorkoutSessionScreen(dateKey: day, type: 'gym'));
+      expect(exerciseRow('플랭크'), findsNothing);
+      expect(exerciseRow('런지'), findsNothing);
+
+      Future<void> add(String group, String id) async {
+        await t.tap(find.byKey(const ValueKey('ex-add')));
+        await t.pumpAndSettle();
+        await t.tap(find.byKey(ValueKey('pick-group-$group')));
+        await t.pumpAndSettle();
+        await t.scrollUntilVisible(find.byKey(ValueKey('pick-$id')), 200,
+            scrollable: find.descendant(of: find.byKey(ValueKey('pick-group-list-$group')), matching: find.byType(Scrollable)));
+        await t.tap(find.byKey(ValueKey('pick-$id')));
+        await t.pumpAndSettle();
+      }
+
+      await add('core', 'plank');
+      final plank = find.byKey(ValueKey('plan-${slugOf('플랭크')}'));
+      expect(t.widget<Text>(plank).data, '3세트 × 30초 · 휴식 45초');
+      expect(find.descendant(of: exerciseRow('플랭크'), matching: find.textContaining('10-15')), findsNothing);
+      await add('quads', 'lunge');
+      expect(t.widget<Text>(find.byKey(ValueKey('plan-${slugOf('런지')}'))).data, '3세트 × 8-12 한쪽씩 · 휴식 1분');
+
+      /* 기록에도 초 · 편측이 남습니다(한 세트라도 한 종목만 기록에 듭니다). */
+      await t.tap(setButton('플랭크'));
+      await t.pump();
+      await t.tap(setButton('런지'));
+      await t.pump();
+      await finish(t);
+      final xs = (logOf(app, day, 'gym')['exercises'] as List).cast<Map>();
+      final saved = xs.firstWhere((x) => x['name'] == '플랭크');
+      expect(saved['reps'], '30초');
+      expect(saved['seconds'], 30);
+      expect(saved['restSec'], 45);
+      expect(xs.firstWhere((x) => x['name'] == '런지')['perSide'], isTrue);
     });
 
     testWidgets('줄을 왼쪽으로 밀면 빠지고, 「되돌리기」 로 제자리에 돌아온다', (t) async {
@@ -854,6 +951,230 @@ void main() {
     });
   });
 
+  group('헬스 — 3차 피드백 (두 줄 표기 · 꾹 눌러 순서 · 첫 줄 힌트 · 시계)', () {
+    /// 종목 줄 하나만 세워 봅니다 — 표기 규칙은 줄의 것이라 화면 전체가 필요 없습니다.
+    Future<void> pumpRow(WidgetTester t, GymExercise ex, {double width = 1000}) async {
+      t.view.physicalSize = Size(width, 800);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(MaterialApp(
+        theme: mbLight(),
+        home: Scaffold(
+          body: ListView(padding: const EdgeInsets.all(16), children: [
+            ExerciseRow(ex: ex, onSet: () {}, onUndo: () {}, onKg: () {}),
+          ]),
+        ),
+      ));
+      await t.pump();
+      expect(t.takeException(), isNull);
+    }
+
+    Finder planLine(String name) => find.byKey(ValueKey('plan-${slugOf(name)}'));
+    Finder noteLine(String name) => find.byKey(ValueKey('note-${slugOf(name)}'));
+
+    testWidgets('세트 × 횟수(+휴식)는 한 줄, 요령은 그 밑 줄 — 한 줄에 이어 붙이지 않는다', (t) async {
+      final ex = GymExercise.fromMap({
+        'name': '바벨 스쿼트', 'sets': 3, 'reps': '5-8', 'restSec': 150, 'note': '발뒤꿈치 붙이고 천천히',
+      });
+      await pumpRow(t, ex);
+      expect(t.widget<Text>(planLine('바벨 스쿼트')).data, '3세트 × 5-8 · 휴식 2분 30초');
+      expect(t.widget<Text>(noteLine('바벨 스쿼트')).data, '발뒤꿈치 붙이고 천천히');
+      expect(find.textContaining('5-8 · 발뒤꿈치'), findsNothing, reason: '세트와 요령이 한 줄에 섞이지 않습니다');
+      /* 요령은 흐리게 — 계획 줄보다 옅은 색. */
+      final plan = t.widget<Text>(planLine('바벨 스쿼트')).style!.color!;
+      final note = t.widget<Text>(noteLine('바벨 스쿼트')).style!.color!;
+      expect(note.a, lessThan(plan.a));
+    });
+
+    testWidgets('등척성은 「3세트 × 30초」 — seconds 가 있으면 reps 가 같이 있어도 시간이 답', (t) async {
+      final ex = GymExercise.fromMap({'name': '플랭크', 'sets': 3, 'reps': '10-15', 'seconds': 30, 'restSec': 60});
+      await pumpRow(t, ex);
+      expect(ex.reps, '30초');
+      expect(t.widget<Text>(planLine('플랭크')).data, '3세트 × 30초 · 휴식 1분');
+      expect(noteLine('플랭크'), findsNothing, reason: '요령이 없으면 둘째 줄도 없습니다');
+      expect(find.textContaining('10-15'), findsNothing);
+    });
+
+    testWidgets('편측은 「3세트 × 10-12 한쪽씩」 — perSide 가 기록 · 루틴 줄에도 남는다', (t) async {
+      final ex = GymExercise.fromMap({'name': '런지', 'sets': 3, 'reps': '10-12', 'perSide': true, 'restSec': 75});
+      await pumpRow(t, ex);
+      expect(t.widget<Text>(planLine('런지')).data, '3세트 × 10-12 한쪽씩 · 휴식 75초');
+      expect(ex.toRoutineRow()['perSide'], isTrue);
+      /* 줄에 perSide 가 없어도 사전이 편측이라 하면 편측 — 0.2.12 에 저장한 루틴을 다시 열 때. */
+      expect(GymExercise.fromMap({'name': '런지', 'sets': 3, 'reps': '10-12'}).perSide, isTrue);
+      expect(GymExercise.fromMap({'name': '레그 컬', 'sets': 3, 'reps': '10-12'}).toRoutineRow().containsKey('perSide'), isFalse);
+      /* 무게 추천은 반복 구간으로 계산합니다 — '한쪽씩' 은 표기일 뿐 reps 에 붙지 않습니다. */
+      expect(ex.reps, '10-12');
+    });
+
+    testWidgets('360px — 긴 요령 · 한쪽씩 · 완료 세트까지 두 줄이 넘치지 않는다', (t) async {
+      final ex = GymExercise.fromMap({
+        'name': '덤벨 불가리안 스플릿 스쿼트', 'sets': 4, 'reps': '10-12', 'perSide': true, 'restSec': 90,
+        'note': '뒷발은 벤치에 · 앞 무릎이 발끝을 넘지 않게 천천히 내려가서 잠깐 멈추고 올라옵니다',
+      }, load: const Load(kg: 12, step: 1, source: 'body', hint: ''));
+      ex.done = 4;
+      await pumpRow(t, ex, width: 360);
+      expect(t.takeException(), isNull);
+      final plan = t.renderObject<RenderParagraph>(planLine(ex.name));
+      expect(plan.size.height, lessThan(24), reason: '계획은 한 줄 — 넘치면 줄임표');
+      final note = t.renderObject<RenderParagraph>(noteLine(ex.name));
+      expect(note.size.height, lessThan(40), reason: '요령은 두 줄까지');
+    });
+
+    testWidgets('실제 화면 — 플랜 종목의 계획 줄은 세트 × 횟수만, 요령은 따로', (t) async {
+      final app = await seeded();
+      final day = gymDay(app);
+      final plan = gymExercisesFor(app.state, day);
+      await open(t, app, WorkoutSessionScreen(dateKey: day, type: 'gym'));
+      for (final m in plan) {
+        final name = '${m['name']}';
+        final ex = GymExercise.fromMap(m);
+        expect(t.widget<Text>(planLine(name)).data, ex.planLine, reason: '$name 의 계획 줄');
+        expect(t.widget<Text>(planLine(name)).data, startsWith('${m['sets']}세트 × '));
+        final tip = tailorNote(m, original: false);
+        if (tip == null) {
+          expect(noteLine(name), findsNothing);
+        } else {
+          expect(t.widget<Text>(noteLine(name)).data, tip);
+          expect(t.widget<Text>(planLine(name)).data, isNot(contains(tip)));
+        }
+      }
+    });
+
+    testWidgets('중급 프로필 — 첫 복합 종목이 4세트: 프로필의 경력이 화면의 스킴에 닿는다', (t) async {
+      final app = await seeded();
+      app.store.set({'profile': {..._profile, 'trainingAge': 'intermediate'}});
+      final day = gymDay(app);
+      final plan = gymExercisesFor(app.state, day);
+      expect(trainingAgeOf(app.state), 'intermediate');
+      expect(plan.first['sets'], 4, reason: '중급 복합은 4세트 — 호출부가 경력을 안 넘기면 3');
+      await open(t, app, WorkoutSessionScreen(dateKey: day, type: 'gym'));
+      expect(t.widget<Text>(planLine('${plan.first['name']}')).data, startsWith('4세트 × '));
+      final total = plan.fold<int>(0, (a, e) => a + core.jsToNumber(e['sets']).round());
+      expect(find.text('0/$total 세트'), findsOneWidget);
+    });
+
+    testWidgets('꾹 눌러 끌면 순서가 바뀌고, 그 순서로 기록 · 내 루틴에 남는다', (t) async {
+      final app = await seeded();
+      final day = gymDay(app);
+      final plan = gymExercisesFor(app.state, day);
+      expect(plan.length, greaterThanOrEqualTo(2));
+      final first = '${plan[0]['name']}', second = '${plan[1]['name']}';
+      await open(t, app, WorkoutSessionScreen(dateKey: day, type: 'gym'));
+      expect(t.getTopLeft(exerciseRow(first)).dy, lessThan(t.getTopLeft(exerciseRow(second)).dy));
+
+      await longPressDrag(t, exerciseRow(first), t.getCenter(exerciseRow(second)) + const Offset(0, 40));
+      expect(t.getTopLeft(exerciseRow(second)).dy, lessThan(t.getTopLeft(exerciseRow(first)).dy),
+          reason: '첫 줄이 둘째 줄 아래로 갔습니다');
+      expect(exerciseRow(first), findsOneWidget, reason: '끌기는 빼는 게 아닙니다');
+      expect(find.text('되돌리기'), findsNothing);
+
+      await t.tap(setButton(first));
+      await t.pump();
+      await t.tap(setButton(second));
+      await t.pump();
+      await t.tap(find.text('종료'));
+      await t.pumpAndSettle();
+      await t.enterText(find.widgetWithText(TextField, '운동 시간'), '30');
+      await t.pump();
+      await t.tap(find.byKey(const ValueKey('routine-save')));
+      await t.pumpAndSettle();
+      await t.tap(find.text('저장'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('닫기'));
+      await t.pumpAndSettle();
+
+      final xs = (logOf(app, day, 'gym')['exercises'] as List).cast<Map>();
+      expect([for (final x in xs) x['name']], [second, first], reason: '기록은 바뀐 순서대로');
+      final routine = routineExercises(routinesOf(app).single);
+      expect(routine.length, plan.length);
+      expect(routine[0]['name'], second);
+      expect(routine[1]['name'], first);
+      expect([for (final x in routine.skip(2)) x['name']], [for (final m in plan.skip(2)) m['name']]);
+    });
+
+    testWidgets('세트를 누르면 시계가 돌고 휴식 중에도 계속 간다 — 「일시정지」 는 정말 멈췄을 때만 보인다', (t) async {
+      final app = await seeded();
+      final day = gymDay(app);
+      final plan = gymExercisesFor(app.state, day);
+      final first = '${plan.first['name']}';
+      final restSec = core.jsToNumber(plan.first['restSec']).round();
+      expect(restSec, greaterThan(5));
+      await open(t, app, WorkoutSessionScreen(dateKey: day, type: 'gym'));
+      expect(t.widget<Text>(find.byKey(const ValueKey('clock-status'))).data, '시작 전');
+
+      await t.tap(setButton(first));
+      await t.pump();
+      now = now.add(const Duration(seconds: 2));
+      await t.pump(const Duration(seconds: 1));
+      /* 캡처의 장면 — 휴식 01:28 카운트 중, 시계 00:02. 시계는 돌고 있어야 합니다. */
+      expect(find.text('00:02'), findsOneWidget);
+      expect(find.text(clockText(Duration(seconds: restSec - 2))), findsOneWidget, reason: '휴식이 카운트 중');
+      expect(t.widget<Text>(find.byKey(const ValueKey('clock-status'))).data, '운동 중');
+      expect(find.text('일시정지'), findsNothing, reason: '도는 시계 옆에 「일시정지」 글자가 있으면 멈춘 것으로 읽힙니다');
+      expect(find.byTooltip('일시정지'), findsOneWidget, reason: '멈추는 단추는 아이콘으로 남습니다');
+
+      /* 3초 더 — 휴식 중에도 시계가 갑니다. */
+      now = now.add(const Duration(seconds: 3));
+      await t.pump(const Duration(seconds: 1));
+      expect(find.text('00:05'), findsOneWidget);
+      expect(find.text('건너뛰기'), findsOneWidget);
+
+      /* 정말 멈추면 그때 「일시정지」 — 상태 줄에. 휴식은 계속 셉니다. */
+      await t.tap(find.byTooltip('일시정지'));
+      await t.pump();
+      expect(t.widget<Text>(find.byKey(const ValueKey('clock-status'))).data, '일시정지');
+      now = now.add(const Duration(seconds: 4));
+      await t.pump(const Duration(seconds: 1));
+      expect(find.text('00:05'), findsOneWidget, reason: '멈춘 시계는 안 갑니다');
+      expect(find.text(clockText(Duration(seconds: restSec - 9))), findsOneWidget, reason: '휴식은 시계와 따로 셉니다');
+      await t.tap(find.text('계속'));
+      await t.pump();
+      expect(t.widget<Text>(find.byKey(const ValueKey('clock-status'))).data, '운동 중');
+    });
+
+    testWidgets('튜토리얼을 건너뛴 사람에게는 첫 줄이 살짝 밀렸다 돌아온다 — 한 번만, 빼지는 않는다', (t) async {
+      final app = await seeded(fresh: true);
+      WorkoutTutorial.markSeen(app);                       // 건너뛴 사람
+      final day = gymDay(app);
+      final plan = gymExercisesFor(app.state, day);
+      final first = '${plan.first['name']}';
+      final total = plan.fold<int>(0, (a, e) => a + core.jsToNumber(e['sets']).round());
+      t.view.physicalSize = const Size(1000, 4000);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(host(app, WorkoutSessionScreen(dateKey: day, type: 'gym')));
+      await t.pump();
+      expect(find.byType(WorkoutTutorial), findsNothing);
+      expect(find.byType(SwipeHint), findsOneWidget);
+      expect(find.descendant(of: find.byType(SwipeHint), matching: exerciseRow(first)), findsOneWidget,
+          reason: '힌트는 첫 줄에');
+      final x0 = t.getTopLeft(exerciseRow(first)).dx;
+
+      /* 기다림이 지나 밀리는 중 — 왼쪽으로 움직였고, 빨간 띠(휴지통)가 비칩니다. */
+      await t.pump(const Duration(milliseconds: 600 + 400));
+      expect(t.getTopLeft(exerciseRow(first)).dx, lessThan(x0 - 30));
+      expect(find.descendant(of: find.byType(SwipeHint), matching: find.byIcon(LucideIcons.trash2)), findsOneWidget);
+      expect(exerciseRow(first), findsOneWidget);
+
+      /* 다 돌아오면 — 줄은 그대로, 세트도 그대로, 본 것으로 적힙니다. */
+      await t.pump(const Duration(milliseconds: 900));
+      await t.pump();
+      expect(exerciseRow(first), findsOneWidget, reason: '힌트는 실제로 빼지 않습니다');
+      expect(find.text('0/$total 세트'), findsOneWidget);
+      expect(find.text('되돌리기'), findsNothing);
+      expect((app.state['settings'] as Map)[kGymSwipeHintSeenKey], isTrue);
+      expect(find.byType(SwipeHint), findsNothing);
+      expect(t.getTopLeft(exerciseRow(first)).dx, x0);
+      expect(t.takeException(), isNull);
+
+      /* 다시 열면 힌트 없음 */
+      await t.pumpWidget(host(app, WorkoutSessionScreen(dateKey: day, type: 'gym')));
+      await t.pump();
+      expect(find.byType(SwipeHint), findsNothing);
+    });
+  });
+
   group('운동 알림 — 헬스를 계획했는데 안 간 날 저녁 8시 반', () {
     final schedule = <String, Object?>{
       '2026-09-24': {'plan': ['gym'], 'done': {}},                       // 오늘 — 안 감
@@ -908,6 +1229,20 @@ void main() {
 Finder exerciseRow(String name) => find.byKey(ValueKey('ex-${slugOf(name)}'));
 Finder setButton(String name) => find.byKey(ValueKey('set-${slugOf(name)}'));
 Finder kgChip(String name) => find.byKey(ValueKey('kg-${slugOf(name)}'));
+
+/// 꾹 눌러(긴 누름) 끌어다 놓기 — ReorderableDelayedDragStartListener 는 kLongPressTimeout 뒤에
+/// 끌기를 시작합니다. 몇 걸음에 나눠 움직여야 목록이 자리를 바꿉니다.
+Future<void> longPressDrag(WidgetTester t, Finder from, Offset to) async {
+  final start = t.getCenter(from);
+  final g = await t.startGesture(start);
+  await t.pump(kLongPressTimeout + const Duration(milliseconds: 50));
+  for (var i = 1; i <= 6; i++) {
+    await g.moveTo(Offset.lerp(start, to, i / 6)!);
+    await t.pump(const Duration(milliseconds: 16));
+  }
+  await g.up();
+  await t.pumpAndSettle();
+}
 
 /// 아무 종목의 「세트」 단추 — 어떤 종목이 나왔는지는 상관없을 때.
 Finder anySetButton() => find.byWidgetPredicate(

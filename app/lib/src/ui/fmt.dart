@@ -41,6 +41,17 @@ String dateShort(Object? iso) {
   return '${l.month}/${l.day}';
 }
 
+/// 쉬는 시간을 사람 말로 — '75초' · '90초' · '1분' · '2분' · '2분 30초'. 정각이면 분,
+/// 2분 아래는 초로 말하고(헬스장에서 "90초 쉬어" 는 자연스럽습니다) 150초부터는 분으로 —
+/// 그건 아무도 안 셉니다. 플랜 탭과 헬스 화면이 같은 종목에 다른 글자를 내면 안 되므로
+/// 둘 다 이 함수입니다(3차 리뷰: 60 → 「60초」/「1분」, 90 → 「1분 30초」/「90초」 로 갈렸습니다).
+String restText(int sec) {
+  final m = sec ~/ 60, s = sec % 60;
+  if (s == 0 && m > 0) return '$m분';
+  if (sec < 120) return '$sec초';
+  return '$m분 $s초';
+}
+
 /// "78주 (약 17개월 4주)" — 주 단위만 주면 사람이 기간을 못 가늠합니다.
 String weeksToHuman(Object? w) {
   if (w == null) return '—';

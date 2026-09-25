@@ -381,12 +381,24 @@ class _SuggestCardState extends State<_SuggestCard> {
         .take(3)
         .toList();
     final tone = sum['tone'] == 'ok' ? Tone.ok : (sum['tone'] == 'warn' ? Tone.warn : Tone.none);
+    /* 끼니는 깔끔한 한 상으로, 모자란 단백질은 간식으로 — 코어가 그 몫을 한 줄로
+       줍니다. 누르면 간식 추천으로 넘어갑니다(간식 모드에서는 코어가 안 줍니다). */
+    final snackHint = _mode == 'snack' ? '' : '${res['snackHint'] ?? ''}';
+    final hintStyle = t.textTheme.labelSmall?.copyWith(color: t.hintColor);
 
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        // 남은 kcal 를 같이 보여야 "658kcal" 이 많은지 적은지 읽힙니다. 글자를 키우면(1.3배)
+        // 360px 에서 제목을 밀어내니 한 줄 · 줄임표로 — 제목이 두 줄로 접히면 안 됩니다.
         SectionTitle('뭘 먹을까',
-            trailing: Text('단백질 ${n0(widget.remainP)}g 남음',
-                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+            trailing: Flexible(
+              child: Text(
+                  '남은 ${n0(math.max(0.0, widget.remainK))}kcal · 단백질 ${n0(widget.remainP)}g',
+                  key: const Key('suggest-remain'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: hintStyle),
+            )),
         Wrap(spacing: 6, children: [
           for (final m in _modes)
             ChoiceChip(
@@ -414,9 +426,9 @@ class _SuggestCardState extends State<_SuggestCard> {
                   style: t.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 Text(
-                  '단백질 ${n0(options[i]['totalP'])}g · ${n0(options[i]['totalKcal'])}kcal'
+                  '${n0(options[i]['totalKcal'])}kcal · 단백질 ${n0(options[i]['totalP'])}g'
                   '${core.jsTruthy(options[i]['shape']) ? ' · ${options[i]['shape']}' : ''}',
-                  style: t.textTheme.labelSmall?.copyWith(color: t.hintColor),
+                  style: hintStyle,
                 ),
                 const SizedBox(height: 6),
                 OutlinedButton(
@@ -440,6 +452,20 @@ class _SuggestCardState extends State<_SuggestCard> {
               ]),
             ),
         ],
+        if (snackHint.isNotEmpty)
+          InkWell(
+            key: const Key('suggest-snack-hint'),
+            onTap: () => setState(() => _mode = 'snack'),
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Row(children: [
+                Icon(LucideIcons.cookie, size: 14, color: t.hintColor),
+                const SizedBox(width: 6),
+                Expanded(child: Text(snackHint, style: hintStyle)),
+                Icon(LucideIcons.chevronRight, size: 14, color: t.hintColor),
+              ]),
+            ),
+          ),
       ]),
     );
   }

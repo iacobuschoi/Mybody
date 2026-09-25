@@ -30,6 +30,25 @@
   var MULTS = [1, 1.5, 2];
 
   /* ---------------------------------------------------------------------- */
+  /* 한 끼의 몫 — 예산과 단백질                                              */
+  /*                                                                         */
+  /* 2026-09 피드백 36: "여전히 다 고열량". 참치김밥+참치캔 2캔(658) ·        */
+  /* 짜장면+참치캔 2캔(1037) 이 떴습니다. 원인 셋: 한 끼 상한이 없었고,      */
+  /* 단백질 몫이 하루 남은 양을 끼니 수로만 나눈 큰 값이었고, 그걸 맞추려고  */
+  /* 편의점 품목을 2단위까지 붙였습니다. 단백질은 간식으로 채워도 되니       */
+  /* 끼니는 **건강식으로 깔끔한 한 상**이면 됩니다.                          */
+  /* ---------------------------------------------------------------------- */
+
+  /** 한 끼 열량 상한 = 남은 kcal ÷ 남은 끼니 × 이 값. 넘는 조합은 후보가 모자랄 때만 뒤에. */
+  var MEAL_CAP_RATIO = 1.15;
+
+  /** 한 끼 단백질 몫의 범위(g). 남은 단백질을 남은 끼니(+간식 1)로 나눈 값을 여기 맞춥니다. */
+  var MEAL_PROTEIN_MIN = 30, MEAL_PROTEIN_MAX = 50;
+
+  /** 끼니 몫을 다 배정하고도 남는 단백질을 간식으로 넘기라는 한 줄의 꼬리. */
+  var SNACK_HINT_TAIL = ' — 그릭요거트 · 단백질 음료 · 훈제란';
+
+  /* ---------------------------------------------------------------------- */
   /* 음식의 역할                                                             */
   /*                                                                         */
   /* 이름으로 추론하지 않고 명시적으로 적습니다. "구이가 들어가면 메인" 같은  */
@@ -72,12 +91,28 @@
   /* 찌개는 밥 없이 나온 값입니다. 식당에서 김치찌개만 먹지 않으므로
    * 사먹기 추천에서는 공기밥을 같이 올립니다.
    * (순대국밥은 이름 그대로 밥이 들어 있고, 삼계탕은 안에 찹쌀이 있습니다) */
-  var NEEDS_RICE = ['김치찌개', '된장찌개', '순두부찌개', '부대찌개', '설렁탕', '갈비탕'];
+  var NEEDS_RICE = ['김치찌개', '된장찌개', '순두부찌개', '부대찌개', '설렁탕', '갈비탕',
+                    // 백반집 메뉴 — 국·찜·구이·조림은 밥과 같이 나옵니다.
+                    '황태해장국', '북엇국', '매운탕', '동태찌개', '알탕', '추어탕', '육개장', '청국장',
+                    '뚝배기불고기', '닭볶음탕', '아귀찜', '해물찜', '불고기(소)',
+                    '오징어볶음', '낙지볶음', '쭈꾸미볶음', '갈매기살 구이 1인분',
+                    '돼지 앞다리살 구이 1인분', '고등어조림', '코다리조림', '두부조림', '모둠회 1인분'];
 
   /* 사먹을 때 옆에 하나 더 붙일 수 있는 것. 편의점에서 집어 드는 것들입니다.
-   * 국밥에 계란 하나, 김밥에 닭가슴살 한 팩 같은 실제 행동입니다. */
+   * 김밥에 계란 하나, 도시락에 닭가슴살 한 팩 같은 실제 행동입니다. 하나만, 한 단위만.
+   * 참치캔은 뺐습니다 — 샌드위치 옆에 캔을 따는 사람은 없습니다(3차 36-보강). */
   var ADD_ON = ['계란(삶음)', '편의점 닭가슴살', '두유(무가당)', '우유', '저지방우유',
-                '그릭요거트 무가당', '프로틴 쉐이크(물)', '참치캔(기름뺀)'];
+                '그릭요거트 무가당', '프로틴 쉐이크(물)'];
+
+  /* 추가를 붙여도 되는 단품 — 편의점 · 분식 · 패스트푸드. 김밥에 계란 하나, 도시락에 두유는
+   * 사먹는 모습이지만 순두부찌개 백반에 참치캔은 아닙니다(3차 36-보강: "깔끔한 한 상").
+   * 식당 상(백반 · 국 · 찜 · 구이 · 조림 · 덮밥 · 초밥 · 면)은 단품 그대로 — 모자란 단백질은
+   * snackHint 가 간식으로 넘깁니다. */
+  var ADD_ON_DISHES = [
+    '김밥', '참치김밥', '편의점 도시락(일반)', '컵라면(소)', '라면', '라면+계란',
+    '서브웨이 15cm(치킨)', '서브웨이 15cm(터키)', '샐러드(닭가슴살) 1볼',
+    '떡볶이 1인분', '만두(고기) 5개', '햄버거(불고기)', '피자 1조각'
+  ];
 
   /** 그 자체로 한 끼가 되는 것. 다른 것과 묶지 않습니다. */
   var ONE_DISH = [
@@ -86,8 +121,30 @@
     '김치찌개', '된장찌개', '순두부찌개', '부대찌개', '설렁탕', '순대국밥', '갈비탕', '삼계탕',
     '편의점 도시락(일반)', '컵라면(소)', '서브웨이 15cm(치킨)', '백반(생선구이)',
     '치킨(후라이드) 반마리', '치킨(양념) 반마리', '피자 1조각', '햄버거(불고기)',
-    '떡볶이 1인분', '만두(고기) 5개', '족발 1인분'
+    '떡볶이 1인분', '만두(고기) 5개', '족발 1인분',
+    // 2026-09 피드백 36 — 메뉴판에 원래 있던 건강식들. 없으니 김밥에 참치캔을 얹었습니다.
+    '회덮밥', '포케', '연어덮밥', '오야코동(닭고기계란덮밥)', '규동(소고기덮밥)', '불고기덮밥',
+    '낙지볶음덮밥', '오징어덮밥', '산채비빔밥', '돌솥비빔밥',
+    '초밥(광어) 10개', '초밥(새우) 10개', '초밥(모둠) 10개', '전복죽', '닭죽',
+    '콩나물국밥', '황태해장국', '북엇국', '매운탕', '동태찌개', '알탕', '추어탕', '육개장', '청국장',
+    '뚝배기불고기', '닭볶음탕', '아귀찜', '해물찜', '불고기(소)', '오징어볶음', '낙지볶음', '쭈꾸미볶음',
+    '갈매기살 구이 1인분', '돼지 앞다리살 구이 1인분', '고등어조림', '코다리조림', '두부조림', '모둠회 1인분',
+    '쌀국수(소고기)', '콩국수', '라멘(쇼유)',
+    '샐러드(닭가슴살) 1볼', '서브웨이 15cm(터키)'
   ];
+
+  /** 사먹기의 건강식 화이트리스트 — 백반 · 구이 · 찜 · 조림 · 비빔밥 · 회 · 초밥 · 샐러드 ·
+   *  포케 · 샌드위치 · 쌀국수 · 맑은 국·탕 · 죽 · 두부. 이 단품은 점수에서 CLEAN_BONUS 를 빼고,
+   *  드레싱·양념 지방까지 숫자로 벌주지 않습니다(닭가슴살 샐러드의 지방 비율 0.39). */
+  var CLEAN_DISH = [
+    '백반(생선구이)', '비빔밥', '산채비빔밥', '돌솥비빔밥', '회덮밥', '포케', '연어덮밥',
+    '오야코동(닭고기계란덮밥)', '초밥(광어) 10개', '초밥(새우) 10개', '초밥(모둠) 10개',
+    '전복죽', '닭죽', '콩나물국밥', '황태해장국', '북엇국', '매운탕', '동태찌개', '알탕', '추어탕',
+    '청국장', '된장찌개', '순두부찌개', '아귀찜', '해물찜',
+    '갈매기살 구이 1인분', '돼지 앞다리살 구이 1인분', '고등어조림', '코다리조림', '두부조림',
+    '모둠회 1인분', '쌀국수(소고기)', '샐러드(닭가슴살) 1볼', '서브웨이 15cm(터키)', '서브웨이 15cm(치킨)'
+  ];
+  var CLEAN_BONUS = 6;
 
   /* 빵·오트밀 바탕에 장조림·미역국을 붙이면 산술은 맞아도 아무도 그렇게 안 먹습니다.
    * 문화적 제약은 점수로 표현하기 어려워서 그냥 못 붙이게 합니다. */
@@ -123,6 +180,11 @@
                 '곱창', '튀김', '마요', '크림', '설렁탕', '순대', '부대', '제육', '후라이',
                 '베이컨', '핫도그'];
 
+  /** 기름에 볶은 정제 탄수 — 짜장면 · 김치볶음밥 · 짬뽕 · 떡볶이. 지방 비율은 상한 아래라
+   *  숫자로는 안 걸리는데(짜장면 0.23) "밥은 건강식으로" 라는 말에는 안 맞습니다.
+   *  GREASY 와 같이 뒤로 빼고 shape 에 '정제 탄수' 를 답니다. */
+  var REFINED = ['볶음밥', '짜장', '짬뽕', '떡볶이', '파스타'];
+
   /** 담백한 조리·재료. 품목마다 HEALTHY_BONUS 만큼 점수를 깎습니다(낮을수록 좋음). */
   var HEALTHY = ['구이', '찜', '샐러드', '잡곡', '현미', '생선', '닭가슴살', '닭안심', '두부',
                  '계란', '그릭', '고구마', '나물', '비빔밥', '회(', '오트밀', '참치캔',
@@ -146,7 +208,8 @@
   }
   function fatRatio(f, kcal) { return kcal > 0 ? (f || 0) * 9 / kcal : 0; }
 
-  /** 이 조합이 기름진가 — 이름으로든 합계 숫자로든. */
+  /** 이 조합이 기름진가 — 이름으로든 합계 숫자로든.
+   *  첫 품목이 화이트리스트 단품이면 숫자는 안 봅니다 — 이름으로 담백하다고 정한 것입니다. */
   function isGreasy(items) {
     var kc = 0, fat = 0;
     for (var i = 0; i < items.length; i++) {
@@ -154,7 +217,14 @@
       kc += (items[i].kcal || 0);
       fat += (items[i].f || 0);
     }
+    if (inList(CLEAN_DISH, items[0].name)) return false;
     return fatRatio(fat, kc) > FAT_KCAL_MAX;
+  }
+
+  /** 이 조합에 정제 탄수 단품이 있는가 — 이름으로만. */
+  function isRefined(items) {
+    for (var i = 0; i < items.length; i++) if (hasKw(items[i].name, REFINED)) return true;
+    return false;
   }
   function healthyCount(items) {
     var n = 0;
@@ -409,24 +479,34 @@
    *  이 서로 다른 선택지로 통과합니다. 한 날 세 줄 중 둘이 순두부찌개였습니다. */
   function dishOf(items) { return items[0].name; }
 
-  /** @param mainKey 조합의 주인공 이름 — 같은 주인공은 한 번만 보입니다(기본 mainOf). */
-  function finish(cands, needP, limit, aim, opts, mainKey) {
+  /** 뒤로 뺀 이유를 shape 에 답니다 — 사용자가 왜 뒤에 있는지 알아야 고를 수 있습니다. */
+  function tagShape(c, tag) { c.shape = c.shape ? c.shape + ' · ' + tag : tag; }
+
+  /**
+   * @param mainKey 조합의 주인공 이름 — 같은 주인공은 한 번만 보입니다(기본 mainOf).
+   * @param cap 한 끼 열량 상한. 없으면(undefined·NaN) 상한 검사가 전부 통과합니다.
+   */
+  function finish(cands, needP, limit, aim, opts, mainKey, cap) {
     var keyOf = mainKey || mainOf;
     cands.forEach(function (c) {
       c.score = score(c.totalP, c.totalKcal, needP, aim, overBudget(c.items, opts)) + (c.extra || 0)
               - healthyCount(c.items) * HEALTHY_BONUS;
       c.coversPct = needP > 0 ? Math.round(c.totalP / needP * 100) : 100;
       c.greasy = isGreasy(c.items);
+      c.refined = isRefined(c.items);
+      c.overCap = c.totalKcal > cap;
     });
     cands.sort(function (a, b) { return a.score - b.score; });
 
     // 주요리가 서로 다른 것만 고릅니다.
     // 같은 음식의 배수 차이나 반찬만 바꾼 조합이 나란히 뜨면 선택지가 아니라 한 가지입니다.
-    // 담백한 것부터, 회전할 수 있게 넉넉히 모읍니다.
+    // 담백하고 한 끼 예산 안에 드는 것부터, 회전할 수 있게 넉넉히 모읍니다.
     var poolSize = Math.max(ROTATE_POOL_MIN, limit * ROTATE_DAYS);
     var seenMain = {}, top = [], i, m;
+    /* 차선(fallback) — 사먹기의 「단품 + 추가」. 단품만으로 한 묶음이 안 될 때만 뒤에 붙습니다 —
+       회전 묶음에 들어가면 「순두부찌개 백반」 옆에 「참치김밥 + 닭가슴살」 이 서는 날이 생깁니다. */
     for (i = 0; i < cands.length && top.length < poolSize; i++) {
-      if (cands[i].greasy) continue;
+      if (cands[i].greasy || cands[i].refined || cands[i].overCap || cands[i].fallback) continue;
       m = keyOf(cands[i].items);
       if (seenMain[m]) continue;
       seenMain[m] = true;
@@ -440,17 +520,61 @@
     var out = good.length >= limit ? rotate(good, limit, dayNumber(opts && opts.seed))
                                    : top.slice(0, limit);
 
-    // 담백한 후보가 모자랄 때만 기름진 것을 뒤에 붙입니다 — 표시를 달고.
+    // 담백한 후보가 모자랄 때만 차선 · 기름진 것 · 정제 탄수 · 예산 넘는 것을 뒤에 붙입니다 — 표시를 달고.
     for (i = 0; i < cands.length && out.length < limit; i++) {
-      if (!cands[i].greasy) continue;
+      if (!cands[i].greasy && !cands[i].refined && !cands[i].overCap && !cands[i].fallback) continue;
       m = keyOf(cands[i].items);
       if (seenMain[m]) continue;
       seenMain[m] = true;
       cands[i].main = m;
-      cands[i].shape = cands[i].shape ? cands[i].shape + ' · 지방 많음' : '지방 많음';
+      if (cands[i].greasy) tagShape(cands[i], '지방 많음');
+      if (cands[i].refined) tagShape(cands[i], '정제 탄수');
+      if (cands[i].overCap) tagShape(cands[i], '열량 높음');
       out.push(cands[i]);
     }
     return out;
+  }
+
+  /* ---------------------------------------------------------------------- */
+  /* 한 끼의 몫                                                              */
+  /* ---------------------------------------------------------------------- */
+
+  /** 남은 끼니 수 — 없으면 1. */
+  function mealsLeftOf(opts) { return Math.max(1, opts.mealsLeft || 1); }
+
+  /** 이번 끼니의 단백질 몫(g). 남은 단백질을 남은 끼니(+간식 1)로 나눠 30~50g 에 맞추되,
+   *  남은 것보다 많이 잡지는 않습니다. 호출부가 aimP 를 주면 그대로입니다. */
+  function mealProtein(dayP, opts) {
+    if (opts.aimP) return opts.aimP;
+    var share = dayP / (mealsLeftOf(opts) + 1);
+    return Math.round(Math.min(dayP, Math.max(MEAL_PROTEIN_MIN, Math.min(MEAL_PROTEIN_MAX, share))));
+  }
+
+  /** 한 끼 열량 상한. 예산이 없으면 NaN — 비교가 전부 거짓이라 상한이 없는 것과 같습니다. */
+  function mealCap(budget, opts) { return budget / mealsLeftOf(opts) * MEAL_CAP_RATIO; }
+
+  /** 이번 끼니가 겨냥하는 칼로리. 호출부가 주면 그걸, 없으면 남은 끼니로 나눈 몫(최대 900). */
+  function mealAim(budget, opts) {
+    var aim = opts.aimKcal || Math.min(budget, Math.round(budget / mealsLeftOf(opts)));
+    return aim > 900 ? 900 : aim;
+  }
+
+  /** 끼니 몫을 남은 끼니에 다 배정하고도 남는 단백질(g) — 간식 몫입니다. */
+  function snackShare(dayP, needP, opts) {
+    return Math.max(0, Math.round(dayP - needP * mealsLeftOf(opts)));
+  }
+
+  /** '단백질 40g 은 간식으로 — 그릭요거트 · 단백질 음료 · 훈제란'. 몫이 작으면 빈 문자열. */
+  function snackHint(gap) {
+    return gap >= MIN_PROTEIN_G ? '단백질 ' + gap + 'g 은 간식으로' + SNACK_HINT_TAIL : '';
+  }
+
+  function mealResult(out, needP, dayP, budget, aim, cap, opts) {
+    var gap = snackShare(dayP, needP, opts);
+    return { options: out, needP: needP, dayP: dayP, budget: budget, aim: aim, mealKcalCap: cap,
+             ceiling: ceilingProtein(budget, opts.avoid),
+             feasible: feasible(out, needP),
+             proteinGapG: gap, snackHint: snackHint(gap) };
   }
 
   /** 보이는 것 중 하나라도 이번 몫의 90% 를 채우면 "채울 수 있다" 입니다.
@@ -522,7 +646,7 @@
     var limit = opts.limit || 3;
     if (dayP <= 0) return { done: true, options: [] };
     if (budget <= 0) return { overBudget: true, needP: dayP, options: [] };
-    var needP = opts.aimP || Math.round(dayP / Math.max(1, opts.mealsLeft || 1));
+    var needP = mealProtein(dayP, opts);
 
     var rice = F.byName ? F.byName('공기밥(백미)') : null;
     if (!rice) F.FOODS.forEach(function (x) { if (x.name === '공기밥(백미)') rice = x; });
@@ -539,31 +663,30 @@
       if (kc > budget) return;
       // 사먹을 때는 "숫자를 맞췄는가"보다 "메뉴가 단백질이 좋은가"가 중요합니다.
       // 이게 없으면 파스타에 프로틴 쉐이크를 얹는 조합이 갈비탕을 이깁니다.
-      var dishPenalty = Math.max(0, 8 - density(d)) * 3;
+      // 건강식 화이트리스트는 그 위에 가산점 — 값이 비슷하면 백반이 김밥보다 앞에 섭니다.
+      var dishPenalty = Math.max(0, 8 - density(d)) * 3 - (inList(CLEAN_DISH, d.name) ? CLEAN_BONUS : 0);
       cands.push({ items: items, totalP: pp, totalKcal: kc, shape: '단품', extra: dishPenalty });
 
-      // 단품 하나로 모자라면 옆에 하나 더. 두 개까지만 — 그 이상은 사먹는 모습이 아닙니다.
+      // 단품 하나로 모자라면 옆에 하나 더. 하나만, 한 단위만 — '참치캔 2캔' 은 사먹는 모습이 아닙니다.
+      // 편의점 · 분식 · 패스트푸드 단품(ADD_ON_DISHES)에만 — 식당 상에 참치캔은 「깔끔한 한 상」 이
+      // 아닙니다(3차 36-보강). 모자란 단백질은 snackHint 가 간식으로 넘깁니다. 붙여도 차선(fallback) —
+      // 단품만으로 한 묶음이 안 될 때만 보입니다.
       if (pp >= needP * 0.95) return;
+      if (!inList(ADD_ON_DISHES, d.name)) return;
       addons.forEach(function (a) {
-        for (var m = 0; m < MULTS.length; m++) {
-          if (!multOk(a, MULTS[m])) continue;
-          var ad = scale(a, MULTS[m]);
-          var kc2 = kc + ad.kcal;
-          if (kc2 > budget) continue;
-          var p2 = Math.round((pp + ad.p) * 10) / 10;
-          // 옆에 하나 더 붙이는 건 차선책입니다. 단품 하나로 되면 그게 낫습니다.
-          cands.push({ items: items.concat([ad]), totalP: p2, totalKcal: kc2,
-                       shape: '단품 + 추가', extra: dishPenalty + 8 });
-        }
+        var ad = scale(a, 1);
+        var kc2 = kc + ad.kcal;
+        if (kc2 > budget) return;
+        var p2 = Math.round((pp + ad.p) * 10) / 10;
+        // 옆에 하나 더 붙이는 건 차선책입니다. 단품 하나로 되면 그게 낫습니다.
+        cands.push({ items: items.concat([ad]), totalP: p2, totalKcal: kc2,
+                     shape: '단품 + 추가', extra: dishPenalty + 8, fallback: true });
       });
     });
 
-    var aim = opts.aimKcal || Math.min(budget, Math.round(budget / Math.max(1, opts.mealsLeft || 1)));
-    if (aim > 900) aim = 900;
-    var out = finish(cands, needP, limit, aim, opts, dishOf);
-    return { options: out, needP: needP, dayP: dayP, budget: budget, aim: aim,
-             ceiling: ceilingProtein(budget, opts.avoid),
-             feasible: feasible(out, needP) };
+    var aim = mealAim(budget, opts), cap = mealCap(budget, opts);
+    var out = finish(cands, needP, limit, aim, opts, dishOf, cap);
+    return mealResult(out, needP, dayP, budget, aim, cap, opts);
   }
 
   /* ---------------------------------------------------------------------- */
@@ -579,8 +702,8 @@
     var limit = opts.limit || 3;
     if (dayP <= 0) return { done: true, options: [] };
     if (budget <= 0) return { overBudget: true, needP: dayP, options: [] };
-    // 남은 끼니 수로 나눕니다. 아침에 하루치를 한 끼에 몰면 현실적인 답이 없습니다.
-    var needP = opts.aimP || Math.round(dayP / Math.max(1, opts.mealsLeft || 1));
+    // 남은 끼니(+간식)로 나눕니다. 아침에 하루치를 한 끼에 몰면 현실적인 답이 없습니다.
+    var needP = mealProtein(dayP, opts);
 
     var bases = pool(BASE, opts.avoid);
     var mains = pool(MAIN, opts.avoid);
@@ -612,14 +735,10 @@
       }
     }
 
-    // 남은 예산이 하루치면 한 끼가 그걸 다 쓰면 안 됩니다.
-    // 호출부가 이번 끼니의 몫을 알려주면 그걸 쓰고, 없으면 700kcal 로 봅니다.
-    var aim = opts.aimKcal || Math.min(budget, Math.round(budget / Math.max(1, opts.mealsLeft || 1)));
-    if (aim > 900) aim = 900;
-    var out = finish(cands, needP, limit, aim, opts);
-    return { options: out, needP: needP, dayP: dayP, budget: budget, aim: aim,
-             ceiling: ceilingProtein(budget, opts.avoid),
-             feasible: feasible(out, needP) };
+    // 남은 예산이 하루치면 한 끼가 그걸 다 쓰면 안 됩니다 — 겨냥은 끼니 몫, 상한은 그 1.15배.
+    var aim = mealAim(budget, opts), cap = mealCap(budget, opts);
+    var out = finish(cands, needP, limit, aim, opts, undefined, cap);
+    return mealResult(out, needP, dayP, budget, aim, cap, opts);
   }
 
   /** 화면에 쓸 한 줄. 상태를 말할 뿐 명령하지 않습니다. */
@@ -656,8 +775,10 @@
     suggestSnack: suggestSnack, suggestMeal: suggestMeal, suggestEatOut: suggestEatOut,
     summaryText: summaryText, portionText: portionText, itemText: itemText, density: density,
     dayNumber: dayNumber, scaleUnit: scaleUnit, countToken: countToken, isGreasy: isGreasy,
+    isRefined: isRefined,
     SNACKABLE: SNACKABLE, BASE: BASE, MAIN: MAIN, SIDE: SIDE, ONE_DISH: ONE_DISH,
-    NEEDS_RICE: NEEDS_RICE, ADD_ON: ADD_ON, GREASY: GREASY, HEALTHY: HEALTHY,
-    MIN_PROTEIN_G: MIN_PROTEIN_G, FAT_KCAL_MAX: FAT_KCAL_MAX
+    NEEDS_RICE: NEEDS_RICE, ADD_ON: ADD_ON, ADD_ON_DISHES: ADD_ON_DISHES, GREASY: GREASY, REFINED: REFINED, HEALTHY: HEALTHY,
+    CLEAN_DISH: CLEAN_DISH, MIN_PROTEIN_G: MIN_PROTEIN_G, FAT_KCAL_MAX: FAT_KCAL_MAX,
+    MEAL_CAP_RATIO: MEAL_CAP_RATIO, MEAL_PROTEIN_MIN: MEAL_PROTEIN_MIN, MEAL_PROTEIN_MAX: MEAL_PROTEIN_MAX
   };
 })(window);

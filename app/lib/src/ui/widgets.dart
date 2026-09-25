@@ -37,15 +37,17 @@ class MbCard extends StatelessWidget {
 
 /// 제목 한 줄. 카드 안에서 쓰는 작은 머리글입니다.
 class SectionTitle extends StatelessWidget {
-  const SectionTitle(this.text, {super.key, this.trailing});
+  const SectionTitle(this.text, {super.key, this.trailing, this.crossAxisAlignment = CrossAxisAlignment.center});
   final String text;
   final Widget? trailing;
+  /// [trailing] 이 두 줄(주수 / 날짜)이면 start — 제목이 두 줄 사이에 걸리지 않게.
+  final CrossAxisAlignment crossAxisAlignment;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Row(children: [
+      child: Row(crossAxisAlignment: crossAxisAlignment, children: [
         Expanded(
           child: Text(text,
               style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),

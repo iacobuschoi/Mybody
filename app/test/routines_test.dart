@@ -119,6 +119,21 @@ void main() {
     expect(xs.first['sets'], 3, reason: '첫 것이 남습니다');
   });
 
+  test('편측(perSide) 과 초(seconds) 는 저장해도 남는다 — 다시 연 루틴의 런지가 「한쪽씩」 을 잃지 않게', () async {
+    final app = await seeded();
+    final r = saveRoutine(app, name: '하체', exercises: [
+      {'name': '런지', 'sets': 3, 'reps': '8-12', 'restSec': 60, 'perSide': true},
+      {'name': '플랭크', 'sets': 3, 'reps': '30초', 'restSec': 45, 'seconds': 30},
+      {'name': '레그 컬', 'sets': 3, 'reps': '10-15', 'restSec': 60, 'perSide': false, 'seconds': 0},
+    ]);
+    expect(r['exercises'], [
+      {'name': '런지', 'sets': 3, 'reps': '8-12', 'restSec': 60, 'perSide': true},
+      {'name': '플랭크', 'sets': 3, 'reps': '30초', 'restSec': 45, 'seconds': 30},
+      {'name': '레그 컬', 'sets': 3, 'reps': '10-15', 'restSec': 60},     // 거짓 · 0 은 칸 없음
+    ]);
+    expect(() => jsonEncode(app.state[kRoutinesKey]), returnsNormally);
+  });
+
   test('빈 이름은 기본 이름, 이상한 값은 기본값 — 저장 모양이 흔들리지 않는다', () async {
     final app = await seeded();
     expect(defaultRoutineName('하체 B'), '하체 B 내 루틴');

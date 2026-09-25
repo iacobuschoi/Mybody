@@ -19,11 +19,13 @@ import 'package:mybody/src/api.dart';
 import 'package:mybody/src/app_state.dart';
 import 'package:mybody/src/scope.dart';
 import 'package:mybody/src/screens/plan.dart';
+import 'package:mybody/src/screens/workout_session.dart';
 import 'package:mybody/src/theme.dart';
 import 'package:mybody/src/ui/charts.dart';
 import 'package:mybody/src/ui/fmt.dart';
 import 'package:mybody/src/workout/planner.dart';
 import 'package:mybody/src/workout/prefs.dart';
+import 'package:mybody/src/workout/scheme.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -45,14 +47,15 @@ final _wednesday = DateTime(2026, 3, 4);
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<AppState> seeded() async {
+  Future<AppState> seeded({String trainingAge = 'novice'}) async {
     SharedPreferences.setMockInitialValues({});
     final app = await AppState.boot();
-    app.store.set({'profile': _profile, 'onboarded': true});
+    final profile = {..._profile, 'trainingAge': trainingAge};
+    app.store.set({'profile': profile, 'onboarded': true});
     app.store.addScan({..._scan});
     final goal = {'weightKg': 80.5, 'smmKg': 39.0, 'bfmKg': 12.0};
-    final cmp = core.compareLevels({..._scan}, _profile, goal, '2026-03-01', null, null);
-    final plan = core.buildPlan(cmp, 'mid', {..._scan}, _profile);
+    final cmp = core.compareLevels({..._scan}, profile, goal, '2026-03-01', null, null);
+    final plan = core.buildPlan(cmp, 'mid', {..._scan}, profile);
     app.store.setGoal(goal);
     app.store.setPlan(plan!);
     return app;
@@ -113,13 +116,18 @@ void main() {
     expect(cardioStat({'cardioPlan': 'Z2 저강도 40분 × 2회 + 추가 유산소 주 -20분 (체크인 조정)'}).delta, '-20분/주');
   });
 
-  test('휴식 시간 — 75초 · 2분 · 2분 30초', () {
+  test('휴식 시간 — 헬스 화면(restText)과 같은 글자: 75초 · 1분 · 90초 · 2분 · 2분 30초', () {
     expect(restLabel(75), '75초');
-    expect(restLabel(90), '1분 30초');
+    expect(restLabel(60), '1분');
+    expect(restLabel(90), '90초');
     expect(restLabel(120), '2분');
     expect(restLabel(150), '2분 30초');
     expect(restLabel(0), '');
     expect(restLabel(null), '');
+    /* 규칙이 둘이었을 때 60 · 90 이 갈렸습니다 — 스킴의 가장 흔한 휴식 둘. */
+    for (final s in [45, 60, 75, 90, 120, 150, 180]) {
+      expect(restLabel(s), restText(s), reason: '$s초');
+    }
   });
 
   test('펼쳐 둘 세션 — 오늘 것, 쉬는 날이면 다음 운동 날, 없으면 null', () {
@@ -201,7 +209,7 @@ void main() {
     expect(find.text('1'), findsWidgets);
     expect(find.text('${first['name']}'), findsOneWidget);
     expect(find.text(equipTag(first)!), findsWidgets);
-    expect(find.textContaining('${first['sets']}세트 × ${first['reps']}'), findsWidgets);
+    expect(find.textContaining('${first['sets']}세트 × ${amountLabel(first)}'), findsWidgets);
     expect(find.textContaining('휴식 ${restLabel(first['restSec'])}'), findsWidgets);
     expect(find.textContaining('휴식 150초'), findsNothing);
 
@@ -248,6 +256,49 @@ void main() {
     final upperFirst = tailorSession(sessions[3], GymPrefs.fromSettings(null)).first;
     /* 상체 A 와 상체 B 는 종목이 같습니다 — 펼쳐진 것이 하나뿐이면 이름도 하나입니다. */
     expect(find.text('${upperFirst['name']}'), findsOneWidget);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('플랭크 · 런지 줄 — 「3세트 × 30초 · 휴식 45초」 「3세트 × 8-12 한쪽씩 · 휴식 1분」, 헬스 화면과 같은 글자', (t) async {
+    final app = await seeded();
+    /* 집 — 헬스장이면 4번 규칙이 런지를 같은 움직임의 머신으로 올릴 수 있습니다. */
+    app.store.set({'settings': {'gym': const GymPrefs(place: 'home').toJson()}});
+    final plan = (app.state['plan'] as Map).cast<String, Object?>();
+    final workout = (plan['workout'] as Map).cast<String, Object?>();
+    final sessions = [for (final s in workout['sessions'] as List) (s as Map).cast<String, Object?>()];
+    sessions[0] = {...sessions[0], 'exercises': [
+      {'name': '플랭크', 'equip': 'bodyweight', 'group': 'core', 'note': '', 'sets': 3, 'reps': '10-15', 'restSec': 75},
+      {'name': '런지', 'equip': 'bodyweight', 'group': 'quads', 'note': '', 'sets': 3, 'reps': '10-15', 'restSec': 75},
+    ]};
+    app.store.setPlan({...plan, 'workout': {...workout, 'sessions': sessions}});
+    await open(t, app);                                   // 월요일 → 이 세션이 펼쳐짐
+    await t.scrollUntilVisible(find.text('플랭크'), 300);
+    expect(find.text('3세트 × 30초 · 휴식 45초'), findsOneWidget);
+    expect(find.text('3세트 × 8-12 한쪽씩 · 휴식 1분'), findsOneWidget);
+    expect(find.textContaining('세트 ×  '), findsNothing, reason: '횟수 칸이 비면 안 됩니다');
+    expect(find.textContaining('10-15'), findsNothing, reason: '플랭크에 엔진의 10-15 가 남으면 안 됩니다');
+    /* 헬스 화면의 계획 줄과 글자 단위로 같습니다. */
+    final prefs = GymPrefs.fromSettings((app.state['settings'] as Map).cast<String, Object?>());
+    for (final e in tailorSession(sessions[0], prefs)) {
+      expect(find.text(GymExercise.fromMap(e).planLine), findsOneWidget, reason: '${e['name']}');
+    }
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('중급 프로필 — 플랜 탭의 세트 · 횟수 · 휴식이 헬스 화면(gymExercisesFor)과 같다 · 복합은 4세트', (t) async {
+    final app = await seeded(trainingAge: 'intermediate');
+    const mondayKey = '2026-03-02';
+    final gym = gymExercisesFor(app.state, mondayKey);
+    expect(gym.first['sets'], 4, reason: '중급 복합은 4세트 — 초보 열(3)만 쓰면 안 됩니다');
+    expect(trainingAgeOf(app.state), 'intermediate');
+    expect(goalKindOf(app.state, mondayKey), isNotEmpty, reason: '플랜의 첫 단계가 국면');
+    await open(t, app);
+    await t.scrollUntilVisible(find.text('상체 A'), 300);
+    for (final e in gym) {
+      final rest = restLabel(e['restSec']);
+      final line = '${e['sets']}세트 × ${amountLabel(e)}${rest.isEmpty ? '' : ' · 휴식 $rest'}';
+      expect(find.text(line), findsWidgets, reason: '${e['name']}');
+    }
     expect(t.takeException(), isNull);
   });
 

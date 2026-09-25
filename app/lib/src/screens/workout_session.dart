@@ -26,6 +26,13 @@
  *     끝나며, 줄을 왼쪽으로 밀면 빠집니다(5초 안에 되돌리기). 오늘 바꾼 구성은
  *     그 날 기록에 그대로 남고, 종료 시트에서 「내 루틴으로 저장」 을 켜면
  *     workout/routines.dart 에 남아 같은 라벨의 날에 자동으로 다시 씁니다.
+ *   · 줄을 꾹 누르면 끌어서 순서를 바꿉니다(3차 피드백 33) — 목록이
+ *     ReorderableListView 이고 줄마다 Dismissible 안에 드래그 손잡이(줄 전체)가
+ *     있습니다. 바뀐 순서가 곧 기록과 루틴의 순서입니다.
+ *   · 처음 온 사람에게는 「따라 해 보기」(workout_tutorial.dart) 를 한 번 띄우고,
+ *     그걸 건너뛴 사람에게는 첫 줄이 살짝 밀렸다 돌아오는 힌트를 한 번 보여 줍니다 —
+ *     밀어서 빼는 길은 눈에 안 보여서 주인이 실기기에서 못 찾았습니다(3차 29).
+ *     둘 다 settings 에 본 것으로 적어 다시 안 뜹니다.
  *
  * 기록은 코어의 setScheduleLog 로 갑니다 — 그 날의 체크(done)까지 같이 남습니다.
  *   헬스   log['gym']    = {kind:'gym', startedAt, minutes, kcal, sets,
@@ -52,7 +59,9 @@ import '../workout/loads.dart';
 import '../workout/planner.dart';
 import '../workout/prefs.dart';
 import '../workout/routines.dart';
+import '../workout/scheme.dart';
 import 'exercise_picker.dart';
+import 'workout_tutorial.dart';
 
 /// 화면 종류. 셸이 `go('workout', (dateKey: …, type: …))` 로 넘깁니다.
 const kWorkoutTypes = ['gym', 'cardio', 'bodyweight'];
@@ -62,6 +71,9 @@ const kFallbackWeightKg = 70.0;
 
 /// 이만큼 했으면 나머지는 다음에 — 확인만 받고 기록합니다.
 const kBodyweightEnoughRatio = 0.6;
+
+/* 휴식 표기(restText)는 ui/fmt.dart 에 — 플랜 탭의 restLabel 과 같은 함수여야 합니다.
+   스와이프 힌트 표(kGymSwipeHintSeenKey)는 workout_tutorial.dart 에 — 튜토리얼 완주가 적습니다. */
 
 /// 'YYYY-MM-DD' → 플랜 세션 칸(월=0). 못 읽으면 null.
 int? weekdayIndexOf(String dateKey) {
@@ -83,17 +95,20 @@ Map<String, Object?>? planSessionFor(Map<String, Object?> state, String dateKey)
 
 /// 오늘 할 헬스 종목. 플랜 세션을 헬스장 기구에 맞춘 것이고, 플랜이 없거나
 /// 쉬는 날이면 부위별 기본 종목 하나씩(같은 모양)입니다 — 헬스장에 왔는데
-/// 빈 화면이면 안 됩니다.
+/// 빈 화면이면 안 됩니다. 세트 · 횟수 · 휴식은 어느 길이든 scheme.dart 가 매깁니다 —
+/// 프로필의 경력과 플랜의 국면을 planner 가 읽어 넘기므로 플랜 탭과 같은 숫자입니다.
 List<Map<String, Object?>> gymExercisesFor(Map<String, Object?> state, String dateKey) {
   final settings = (state['settings'] as Map?)?.cast<String, Object?>();
   final prefs = GymPrefs.fromSettings(settings);
   final session = planSessionFor(state, dateKey);
   if (session != null) {
-    final out = tailorSession(session, prefs);
+    final out = tailorSessionFor(state, session, prefs, dateKey: dateKey);
     if (out.isNotEmpty) return out;
   }
-  /* 부위마다 하나 — 전신. 기구 제한은 그대로 지킵니다. */
+  /* 부위마다 하나 — 전신. 기구 제한은 그대로 지킵니다. 숫자는 「종목 추가」 와 같은 길 —
+     예전엔 3 × 10-15 · 75초 고정이라 집 프리셋의 플랭크가 「10-15회」 였습니다(3차 31 재발). */
   const groups = ['chest', 'back', 'quads', 'shoulder', 'core'];
+  final trainingAge = trainingAgeOf(state), goalKind = goalKindOf(state, dateKey);
   final out = <Map<String, Object?>>[];
   for (final g in groups) {
     /* 집이면 철봉 · 평행봉이 필요한 종목은 뺍니다 — tailorSession 과 같은 규칙. */
@@ -101,11 +116,7 @@ List<Map<String, Object?>> gymExercisesFor(Map<String, Object?> state, String da
         .where((e) => !(e.needsBar && prefs.isHome))
         .toList();
     if (pool.isEmpty) continue;
-    final e = pool.first;
-    out.add({
-      'id': e.id, 'name': e.name, 'group': e.group, 'equip': e.equip, 'note': e.note,
-      'sets': 3, 'reps': '10-15', 'restSec': 75,
-    });
+    out.add(schemeRowFor(pool.first, trainingAge: trainingAge, goalKind: goalKind));
   }
   return withIds(out);
 }
@@ -205,9 +216,10 @@ class _LoadCtx {
   }
 }
 
-/// 종목 한 줄의 진행 상태.
-class _Ex {
-  _Ex({
+/// 종목 한 줄의 진행 상태. 화면(ExerciseRow)과 튜토리얼의 연습 줄이 같이 씁니다 —
+/// 공개인 이유는 그것뿐이고, 만드는 곳은 이 파일과 workout_tutorial.dart 입니다.
+class GymExercise {
+  GymExercise({
     required this.id,
     required this.name,
     required this.sets,
@@ -216,6 +228,8 @@ class _Ex {
     this.note,
     this.equip = 'bodyweight',
     this.load = Load.none,
+    this.perSide = false,
+    this.seconds,
     double? kg,
     this.kgSet = false,
   }) : kg = kg ?? load.kg;
@@ -224,10 +238,16 @@ class _Ex {
   final String name;
   /// 계획한 세트. done 이 이보다 커질 수 있습니다(4/3) — 기록엔 sets: done, of: sets.
   final int sets;
+  /// '5-8' · '10-15' 같은 반복 구간, 시간으로 하는 종목(플랭크)이면 '30초'.
   final String reps;
   final int restSec;
   final String? note;
   final String equip;
+  /// 한쪽씩 하는 종목(런지 · 원암 로우) — 줄에 '10-12 한쪽씩' 으로 씁니다.
+  final bool perSide;
+  /// 시간으로 하는 종목의 초(플랭크 30). 반복 종목이면 null. reps 에 '30초' 로도 있지만
+  /// 루틴 · 기록에는 숫자로도 남겨야 다음에 읽는 쪽이 문자열을 풀지 않습니다.
+  final int? seconds;
   /// 추천(또는 지난 기록) — 칩의 글자와 힌트, 스테퍼의 단위.
   final Load load;
   /// 오늘 쓰는 무게. null 은 맨몸.
@@ -247,32 +267,50 @@ class _Ex {
     return !kgSet && load.source == 'body' ? '추천 ${kgText(k)}kg' : '${kgText(k)}kg';
   }
 
+  /// 줄에 쓰는 '몇 번' — '5-8' · '30초' · '10-12 한쪽씩'.
+  String get amount => perSide ? '$reps 한쪽씩' : reps;
+
+  /// 줄의 첫 줄 — '3세트 × 5-8 · 휴식 2분 30초'. 요령은 그 밑 줄(note)에 따로 —
+  /// 한 줄에 이어 붙였더니 세트 수와 요령이 섞여 읽기 어려웠습니다(3차 피드백 30).
+  String get planLine => '$sets세트 × $amount${restSec > 0 ? ' · 휴식 ${restText(restSec)}' : ''}';
+
+  /// 계획의 '몇 번'. 초 단위 종목(seconds > 0)이면 '30초' — reps 가 같이 있어도
+  /// 시간이 답입니다(플랭크에 '10-15' 가 붙어 있던 것이 3차 피드백 31). 없으면 reps,
+  /// 그것도 없으면 엔진 기본 10-15.
+  static String repsOf(Map<String, Object?> m) {
+    final sec = core.jsToNumber(m['seconds']);
+    if (!sec.isNaN && sec > 0) return '${n0(sec)}초';
+    final r = '${m['reps'] ?? ''}';
+    return r.isEmpty ? '10-15' : r;
+  }
+
   /// planner · exercisesFor · 루틴이 주는 모양에서. 빈 값은 엔진의 기본(3세트 ·
-  /// 10-15 · 75초)으로. 루틴에 저장된 kg 은 지난 기록이 없을 때만 씁니다 —
-  /// 몸이 더 최근에 답한 값이 우선입니다.
-  static _Ex from(Map<String, Object?> m, _LoadCtx ctx) {
+  /// 10-15 · 75초)으로. [load] 는 추천 무게(화면이 _LoadCtx 로 구합니다) — 루틴에
+  /// 저장된 kg 은 지난 기록이 없을 때만 씁니다. 몸이 더 최근에 답한 값이 우선입니다.
+  /// 편측은 줄의 perSide 가 없어도 사전(kPerSideIds)이 답입니다 — 0.2.12 에 저장한
+  /// 루틴에는 그 칸이 없어서 런지가 양쪽 합산 횟수처럼 보였습니다.
+  factory GymExercise.fromMap(Map<String, Object?> m, {Load load = Load.none}) {
     final name = '${m['name'] ?? ''}';
     final rawId = m['id'];
     final lib = (rawId is String && rawId.isNotEmpty ? exerciseById(rawId) : null) ?? exerciseByName(name);
     final sets = core.jsToNumber(m['sets']);
     final rest = core.jsToNumber(m['restSec']);
-    final reps = m['reps'] != null && '${m['reps']}'.isNotEmpty
-        ? '${m['reps']}'
-        : (m['seconds'] != null ? '${n0(m['seconds'])}초' : '10-15');
     /* 엔진 내부 접두어(「대체: 원래 바벨 벤치프레스 · 요령」)는 여기서 걷어냅니다 —
        헬스장에서 보는 건 요령이지 플랜의 사정이 아닙니다. 플랜 탭이 「대체」 표를 답니다. */
     final note = tailorNote(m, original: false) ?? '';
-    final load = ctx.of(name, lib, reps);
     final saved = m['kg'];
     final useSaved = saved is num && saved > 0 && load.source == 'body';
-    return _Ex(
+    final sec = core.jsToNumber(m['seconds']);
+    return GymExercise(
       id: rawId is String && rawId.isNotEmpty ? rawId : (lib?.id ?? slugOf(name)),
       name: name,
       sets: sets.isNaN || sets < 1 ? 3 : sets.round(),
-      reps: reps,
+      reps: repsOf(m),
       restSec: rest.isNaN || rest < 0 ? 75 : rest.round(),
       note: note.isEmpty ? null : note,
       equip: lib?.equip ?? '${m['equip'] ?? 'bodyweight'}',
+      perSide: core.jsTruthy(m['perSide']) || isPerSide(exercise: lib, name: name),
+      seconds: sec.isNaN || sec <= 0 ? null : sec.round(),
       load: load,
       kg: useSaved ? saved.toDouble() : load.kg,
       kgSet: useSaved,
@@ -286,13 +324,106 @@ class _Ex {
         'reps': reps,
         'restSec': restSec,
         'kg': kg,
+        if (seconds != null) 'seconds': seconds,
+        if (perSide) 'perSide': true,
       };
 }
 
+/// 화면이 목록을 만들 때 — 추천 무게까지 붙여서.
+GymExercise _exOf(Map<String, Object?> m, _LoadCtx ctx) {
+  final name = '${m['name'] ?? ''}';
+  final rawId = m['id'];
+  final lib = (rawId is String && rawId.isNotEmpty ? exerciseById(rawId) : null) ?? exerciseByName(name);
+  return GymExercise.fromMap(m, load: ctx.of(name, lib, GymExercise.repsOf(m)));
+}
+
 /// 스테퍼 시트의 답. null 을 "취소" 와 구분하려고 상자에 담습니다.
-class _KgPick {
-  const _KgPick(this.kg);
+class KgPick {
+  const KgPick(this.kg);
   final double? kg;
+}
+
+/// 무게 칩 → 스테퍼. − · 숫자 · +, 「맨몸」 과 「추천」 한 번에. 답은 [KgPick] —
+/// null 은 "닫았다". 헬스 화면과 튜토리얼의 연습 줄이 같은 시트를 씁니다.
+Future<KgPick?> showKgStepper(BuildContext context, GymExercise e) async {
+  final step = e.load.step > 0 ? e.load.step : 2.5;
+  var kg = e.kg;
+  return showModalBottomSheet<KgPick>(
+    context: context,
+    showDragHandle: true,
+    builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+      final t = Theme.of(ctx);
+      final stepNow = kg == null ? step : (stepFor(e.equip, kg!) > 0 ? stepFor(e.equip, kg!) : step);
+      return _Sheet(children: [
+        Text(e.name, style: t.textTheme.titleMedium),
+        if (e.load.hint.isNotEmpty)
+          Text(e.load.hint, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+        const SizedBox(height: 12),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          IconButton.filledTonal(
+            key: const ValueKey('kg-minus'),
+            tooltip: '${kgText(stepNow)}kg 내리기',
+            onPressed: kg == null
+                ? null
+                : () => setSheet(() {
+                      /* 내려서 0 이 되면 맨몸. 단위보다 작은 값(1.25kg)은 헬스장에 없습니다. */
+                      final s = stepFor(e.equip, kg! - 0.001) > 0 ? stepFor(e.equip, kg! - 0.001) : step;
+                      final next = kg! - s;
+                      kg = next <= 0 ? null : next;
+                    }),
+            icon: const Icon(LucideIcons.minus),
+          ),
+          /* 글자 1.3배에서 '117.5 kg' 이 150px 을 넘어 두 줄로 접혔습니다 — 줄여서 한 줄에. */
+          SizedBox(
+            width: 150,
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                kg == null ? '맨몸' : '${kgText(kg!)} kg',
+                key: const ValueKey('kg-value'),
+                maxLines: 1,
+                textAlign: TextAlign.center,
+                style: t.textTheme.headlineMedium?.copyWith(
+                    fontWeight: FontWeight.w800, fontFeatures: const [FontFeature.tabularFigures()]),
+              ),
+            ),
+          ),
+          IconButton.filledTonal(
+            key: const ValueKey('kg-plus'),
+            tooltip: '${kgText(stepNow)}kg 올리기',
+            onPressed: () => setSheet(() => kg = (kg ?? 0) + stepNow),
+            icon: const Icon(LucideIcons.plus),
+          ),
+        ]),
+        const SizedBox(height: 12),
+        Wrap(spacing: 8, alignment: WrapAlignment.center, children: [
+          ChoiceChip(
+            key: const ValueKey('kg-none'),
+            label: const Text('맨몸'),
+            selected: kg == null,
+            onSelected: (_) => setSheet(() => kg = null),
+          ),
+          /* 지난 기록 그대로면 「지난번 55kg」, 다 채워서 올린 값이면 「추천 60kg」 — 60 은 지난번이 아닙니다. */
+          if (e.load.kg != null)
+            ChoiceChip(
+              key: const ValueKey('kg-reco'),
+              label: Text('${e.load.source == 'last' && e.load.kg == e.load.prevKg ? '지난번' : '추천'} ${kgText(e.load.kg!)}kg'),
+              selected: kg == e.load.kg,
+              onSelected: (_) => setSheet(() => kg = e.load.kg),
+            ),
+        ]),
+        const SizedBox(height: 14),
+        SizedBox(
+          height: 52,
+          child: FilledButton(
+            key: const ValueKey('kg-ok'),
+            onPressed: () => Navigator.pop(ctx, KgPick(kg)),
+            child: const Text('확인'),
+          ),
+        ),
+      ]);
+    }),
+  );
 }
 
 class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
@@ -303,7 +434,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
   Timer? _tick;                            // 숫자를 다시 그리는 용도뿐
 
   /* --- 헬스 -------------------------------------------------------------- */
-  List<_Ex>? _gym;
+  List<GymExercise>? _gym;
   DateTime? _restEndsAt;
   int _restTotalSec = 0;
   _LoadCtx? _loads;
@@ -349,6 +480,32 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     super.dispose();
   }
 
+  /* --- 처음 온 사람 ----------------------------------------------------------
+     initState 에서는 Scope 를 못 읽습니다(InheritedWidget 은 그 뒤에 닿습니다).
+     한 번만 보고, 첫 프레임이 그려진 뒤 튜토리얼을 올립니다 — 화면이 서기도 전에
+     길을 올리면 돌아올 자리가 없습니다. */
+  bool _tutorialChecked = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_tutorialChecked) return;
+    _tutorialChecked = true;
+    final app = Scope.of(context);
+    if (widget.type != 'gym' || WorkoutTutorial.seen(app.state)) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _showTutorial(app);
+    });
+  }
+
+  /// 본 것 · 완주(→ 힌트도 본 것)를 적는 일은 WorkoutTutorial.show 가 합니다 — 설정에서
+  /// 열어 완주한 사람에게 첫 헬스 진입 때 힌트가 또 뜨지 않게, 여는 곳이 어디든 같습니다.
+  Future<void> _showTutorial(AppState app) => WorkoutTutorial.show(context);
+
+  bool _swipeHintDue(AppState app) => WorkoutTutorial.seen(app.state) && !WorkoutTutorial.swipeHintSeen(app.state);
+
+  void _markSwipeHintSeen(AppState app) => WorkoutTutorial.markSwipeHintSeen(app);
+
   void _start() {
     if (_running) return;
     setState(() {
@@ -384,7 +541,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
   }
 
   /// 한 세트. 계획을 다 채운 뒤에도 됩니다(4/3) — 더 한 것도 기록입니다.
-  void _completeSet(_Ex e) {
+  void _completeSet(GymExercise e) {
     _start();   // 시작을 잊었어도 세트를 누르면 시간이 갑니다
     setState(() {
       e.done++;
@@ -399,7 +556,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     _syncTick();
   }
 
-  void _undoSet(_Ex e) {
+  void _undoSet(GymExercise e) {
     if (e.done <= 0) return;
     setState(() => e.done--);
   }
@@ -411,6 +568,16 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
 
   /* --- 헬스 목록 고치기 ---------------------------------------------------- */
 
+  /// 꾹 눌러 끌어다 놓은 뒤 — ReorderableListView 의 newIndex 는 "빼기 전" 자리라
+  /// 아래로 옮기면 하나 당깁니다. 목록의 순서가 곧 기록 · 루틴의 순서입니다.
+  void _reorder(int oldIndex, int newIndex) {
+    final list = _gym;
+    if (list == null || oldIndex < 0 || oldIndex >= list.length) return;
+    final to = (newIndex > oldIndex ? newIndex - 1 : newIndex).clamp(0, list.length - 1);
+    if (to == oldIndex) return;
+    setState(() => list.insert(to, list.removeAt(oldIndex)));
+  }
+
   _LoadCtx _loadsOf(AppState app) => _loads ??= _LoadCtx(app, widget.dateKey);
 
   String _sessionLabel(AppState app) {
@@ -420,21 +587,21 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
 
   /// 처음 열 때의 목록. 같은 라벨로 저장한 내 루틴이 있으면 그것 — 저장한 사람은
   /// 다음에 그걸 쓰려고 저장한 것이니 묻지 않습니다(「플랜 종목으로」 가 되돌립니다).
-  List<_Ex> _initialGym(AppState app) {
+  List<GymExercise> _initialGym(AppState app) {
     final ctx = _loadsOf(app);
     final r = routineForLabel(app, _sessionLabel(app));
     if (r != null) {
       _routineName = '${r['name'] ?? ''}';
       _routineId = '${r['id'] ?? ''}';
-      return [for (final m in routineExercises(r)) _Ex.from(m, ctx)];
+      return [for (final m in routineExercises(r)) _exOf(m, ctx)];
     }
-    return [for (final m in gymExercisesFor(app.state, widget.dateKey)) _Ex.from(m, ctx)];
+    return [for (final m in gymExercisesFor(app.state, widget.dateKey)) _exOf(m, ctx)];
   }
 
   /// 목록을 바꿉니다 — 같은 종목의 한 세트 수와 정한 무게는 이어받습니다.
   /// 두 세트 하고 루틴을 바꿨다고 그 두 세트가 사라지면 안 됩니다.
-  void _swapList(List<_Ex> next, {String? routineName, String? routineId}) {
-    final old = {for (final e in _gym ?? const <_Ex>[]) e.id: e};
+  void _swapList(List<GymExercise> next, {String? routineName, String? routineId}) {
+    final old = {for (final e in _gym ?? const <GymExercise>[]) e.id: e};
     for (final e in next) {
       final o = old[e.id];
       if (o == null) continue;
@@ -455,13 +622,13 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
 
   void _applyRoutine(AppState app, Map<String, Object?> r) {
     final ctx = _loadsOf(app);
-    _swapList([for (final m in routineExercises(r)) _Ex.from(m, ctx)],
+    _swapList([for (final m in routineExercises(r)) _exOf(m, ctx)],
         routineName: '${r['name'] ?? ''}', routineId: '${r['id'] ?? ''}');
   }
 
   void _resetToPlan(AppState app) {
     final ctx = _loadsOf(app);
-    _swapList([for (final m in gymExercisesFor(app.state, widget.dateKey)) _Ex.from(m, ctx)]);
+    _swapList([for (final m in gymExercisesFor(app.state, widget.dateKey)) _exOf(m, ctx)]);
   }
 
   /// 「루틴 불러오기」 — 고르면 그 구성으로, 길게 누르면 지웁니다.
@@ -520,29 +687,28 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     _applyRoutine(app, r);
   }
 
-  /// 「종목 추가」 — 부위 → 종목, 두 번 터치. 3세트 × 10-15 · 75초 + 추천 무게로 붙습니다.
+  /// 「종목 추가」 — 부위 → 종목, 두 번 터치. 세트 · 횟수 · 휴식은 스킴(플랭크는 초 · 런지는
+  /// 한쪽씩), 무게는 추천으로 붙습니다 — 3 × 10-15 · 75초 고정이었을 때 플랭크에 「10-15회」
+  /// 가 다시 붙었습니다(3차 31).
   Future<void> _addExercise(AppState app) async {
     final prefs = GymPrefs.fromSettings((app.state['settings'] as Map?)?.cast<String, Object?>());
     final ctx = _loadsOf(app);
     final e = await pickExercise(
       context,
       equip: prefs.equipment,
-      exclude: {for (final x in _gym ?? const <_Ex>[]) x.id},
+      exclude: {for (final x in _gym ?? const <GymExercise>[]) x.id},
       familiar: prefs.familiar,
       recent: ctx.recentIds,
       title: '종목 추가',
     );
     if (e == null || !mounted) return;
-    setState(() {
-      (_gym ??= []).add(_Ex.from({
-        'id': e.id, 'name': e.name, 'equip': e.equip, 'note': e.note,
-        'sets': 3, 'reps': '10-15', 'restSec': 75,
-      }, ctx));
-    });
+    final row = schemeRowFor(e,
+        trainingAge: trainingAgeOf(app.state), goalKind: goalKindOf(app.state, widget.dateKey));
+    setState(() => (_gym ??= []).add(_exOf(row, ctx)));
   }
 
   /// 줄을 밀어서 뺐을 때 — 5초 안에 되돌릴 수 있습니다. 잘못 민 손가락은 흔합니다.
-  void _removeExercise(_Ex e) {
+  void _removeExercise(GymExercise e) {
     final list = _gym!;
     final at = list.indexOf(e);
     if (at < 0) return;
@@ -565,86 +731,9 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
       ));
   }
 
-  /// 무게 칩 → 스테퍼. − · 숫자 · +, 「맨몸」 과 「추천」 한 번에.
-  Future<void> _editKg(_Ex e) async {
-    final step = e.load.step > 0 ? e.load.step : 2.5;
-    var kg = e.kg;
-    final r = await showModalBottomSheet<_KgPick>(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
-        final t = Theme.of(ctx);
-        final stepNow = kg == null ? step : (stepFor(e.equip, kg!) > 0 ? stepFor(e.equip, kg!) : step);
-        return _Sheet(children: [
-          Text(e.name, style: t.textTheme.titleMedium),
-          if (e.load.hint.isNotEmpty)
-            Text(e.load.hint, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-          const SizedBox(height: 12),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            IconButton.filledTonal(
-              key: const ValueKey('kg-minus'),
-              tooltip: '${kgText(stepNow)}kg 내리기',
-              onPressed: kg == null
-                  ? null
-                  : () => setSheet(() {
-                        /* 내려서 0 이 되면 맨몸. 단위보다 작은 값(1.25kg)은 헬스장에 없습니다. */
-                        final s = stepFor(e.equip, kg! - 0.001) > 0 ? stepFor(e.equip, kg! - 0.001) : step;
-                        final next = kg! - s;
-                        kg = next <= 0 ? null : next;
-                      }),
-              icon: const Icon(LucideIcons.minus),
-            ),
-            /* 글자 1.3배에서 '117.5 kg' 이 150px 을 넘어 두 줄로 접혔습니다 — 줄여서 한 줄에. */
-            SizedBox(
-              width: 150,
-              child: FittedBox(
-                fit: BoxFit.scaleDown,
-                child: Text(
-                  kg == null ? '맨몸' : '${kgText(kg!)} kg',
-                  key: const ValueKey('kg-value'),
-                  maxLines: 1,
-                  textAlign: TextAlign.center,
-                  style: t.textTheme.headlineMedium?.copyWith(
-                      fontWeight: FontWeight.w800, fontFeatures: const [FontFeature.tabularFigures()]),
-                ),
-              ),
-            ),
-            IconButton.filledTonal(
-              key: const ValueKey('kg-plus'),
-              tooltip: '${kgText(stepNow)}kg 올리기',
-              onPressed: () => setSheet(() => kg = (kg ?? 0) + stepNow),
-              icon: const Icon(LucideIcons.plus),
-            ),
-          ]),
-          const SizedBox(height: 12),
-          Wrap(spacing: 8, alignment: WrapAlignment.center, children: [
-            ChoiceChip(
-              key: const ValueKey('kg-none'),
-              label: const Text('맨몸'),
-              selected: kg == null,
-              onSelected: (_) => setSheet(() => kg = null),
-            ),
-            /* 지난 기록 그대로면 「지난번 55kg」, 다 채워서 올린 값이면 「추천 60kg」 — 60 은 지난번이 아닙니다. */
-            if (e.load.kg != null)
-              ChoiceChip(
-                key: const ValueKey('kg-reco'),
-                label: Text('${e.load.source == 'last' && e.load.kg == e.load.prevKg ? '지난번' : '추천'} ${kgText(e.load.kg!)}kg'),
-                selected: kg == e.load.kg,
-                onSelected: (_) => setSheet(() => kg = e.load.kg),
-              ),
-          ]),
-          const SizedBox(height: 14),
-          SizedBox(
-            height: 52,
-            child: FilledButton(
-              key: const ValueKey('kg-ok'),
-              onPressed: () => Navigator.pop(ctx, _KgPick(kg)),
-              child: const Text('확인'),
-            ),
-          ),
-        ]);
-      }),
-    );
+  /// 무게 칩 → 스테퍼(showKgStepper). 정하면 '추천' 이 떨어지고 숫자만 남습니다.
+  Future<void> _editKg(GymExercise e) async {
+    final r = await showKgStepper(context, e);
     if (r == null || !mounted) return;
     setState(() {
       e.kg = r.kg;
@@ -732,7 +821,6 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
   Widget _gymBody(BuildContext context, AppState app, bool future) {
     final list = _gym ??= _initialGym(app);
     final t = Theme.of(context);
-    final c = mb(context);
     final doneSets = list.fold<int>(0, (a, e) => a + e.done);
     final totalSets = list.fold<int>(0, (a, e) => a + e.sets);
     final session = planSessionFor(app.state, widget.dateKey);
@@ -749,88 +837,18 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
       ),
       if (_resting) _RestBanner(left: _restLeft, totalSec: _restTotalSec, onSkip: _skipRest),
       Expanded(
-        child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: [
-          if (future) _futureNote(),
-          /* 머리글 — 세션 이름, 몇 세트 했는지, 그 밑에 얇은 진행 막대. 종목이
-             대여섯이면 스크롤하는 동안 전체가 안 보이므로 여기서 한눈에 잡습니다.
-             그 밑 줄은 내 루틴 — 지금 목록이 어느 루틴인지, 다른 루틴 불러오기. */
-          Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                Expanded(
-                  child: Text(
-                    session == null ? '오늘 플랜에 없는 날 — 전신 기본 종목' : '${session['label']}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-                  ),
-                ),
-                Text('$doneSets/$totalSets 세트',
-                    style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-              ]),
-              const SizedBox(height: 6),
-              ClipRRect(
-                borderRadius: BorderRadius.circular(3),
-                child: LinearProgressIndicator(
-                    value: totalSets == 0 ? 0 : (doneSets / totalSets).clamp(0.0, 1.0), minHeight: 4),
-              ),
-              if (_routineName != null || routines.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Wrap(spacing: 8, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                    if (_routineName != null) ...[
-                      Pill('내 루틴: $_routineName', key: const ValueKey('routine-current'), tone: Tone.ok),
-                      InkWell(
-                        key: const ValueKey('routine-reset'),
-                        borderRadius: BorderRadius.circular(6),
-                        onTap: () => _resetToPlan(app),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
-                          child: Text('플랜 종목으로',
-                              style: t.textTheme.labelSmall?.copyWith(
-                                  color: t.colorScheme.primary, decoration: TextDecoration.underline)),
-                        ),
-                      ),
-                    ],
-                    if (routines.isNotEmpty)
-                      ActionChip(
-                        key: const ValueKey('routine-load'),
-                        avatar: const Icon(LucideIcons.bookmark, size: 16),
-                        label: const Text('루틴 불러오기'),
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () => _pickRoutine(app),
-                      ),
-                  ]),
-                ),
-            ]),
-          ),
-          if (list.isEmpty)
-            const EmptyState(
-              title: '오늘 할 종목이 없습니다',
-              detail: '「종목 추가」 로 넣거나 설정에서 기구를 켜 두세요',
-            ),
-          /* 왼쪽으로 밀면 빠집니다. 키는 종목 id — 되돌리면 같은 줄이 다시 섭니다. */
-          for (final e in list)
-            Dismissible(
-              key: ValueKey('dismiss-${e.id}'),
-              direction: DismissDirection.endToStart,
-              onDismissed: (_) => _removeExercise(e),
-              background: Container(
-                alignment: Alignment.centerRight,
-                margin: const EdgeInsets.only(bottom: 10),
-                padding: const EdgeInsets.only(right: 20),
-                decoration: BoxDecoration(color: c.badBg, borderRadius: BorderRadius.circular(14)),
-                child: Icon(LucideIcons.trash2, color: c.bad),
-              ),
-              child: _ExerciseRow(
-                ex: e,
-                onSet: () => _completeSet(e),
-                onUndo: () => _undoSet(e),
-                onKg: () => _editKg(e),
-              ),
-            ),
-          Align(
+        /* 목록은 ReorderableListView — 줄을 꾹 누르면 끌어서 순서를 바꿉니다. 기본
+           손잡이(buildDefaultDragHandles)는 끄고 줄 전체를 손잡이로 씁니다: 기본값은
+           데스크톱에서 ≡ 아이콘을 붙이고 폰에서는 긴 누름인데, 어느 쪽이든 Dismissible
+           바깥에 감겨서 밀어 빼기와 겹칩니다. 머리글과 「종목 추가」 는 header · footer. */
+        child: ReorderableListView.builder(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+          buildDefaultDragHandles: false,
+          onReorder: _reorder,
+          proxyDecorator: gymDragProxy,
+          itemCount: list.length,
+          itemBuilder: (context, i) => _gymRow(app, list[i], i, hint: i == 0 && _swipeHintDue(app)),
+          footer: Align(
             alignment: Alignment.centerLeft,
             child: OutlinedButton.icon(
               key: const ValueKey('ex-add'),
@@ -839,15 +857,108 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
               label: const Text('종목 추가'),
             ),
           ),
-        ]),
+          header: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            if (future) _futureNote(),
+            /* 머리글 — 세션 이름, 몇 세트 했는지, 그 밑에 얇은 진행 막대. 종목이
+               대여섯이면 스크롤하는 동안 전체가 안 보이므로 여기서 한눈에 잡습니다.
+               그 밑 줄은 내 루틴 — 지금 목록이 어느 루틴인지, 다른 루틴 불러오기. */
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Expanded(
+                    child: Text(
+                      session == null ? '오늘 플랜에 없는 날 — 전신 기본 종목' : '${session['label']}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  Text('$doneSets/$totalSets 세트',
+                      style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+                ]),
+                const SizedBox(height: 6),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(3),
+                  child: LinearProgressIndicator(
+                      value: totalSets == 0 ? 0 : (doneSets / totalSets).clamp(0.0, 1.0), minHeight: 4),
+                ),
+                if (_routineName != null || routines.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Wrap(spacing: 8, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                      if (_routineName != null) ...[
+                        Pill('내 루틴: $_routineName', key: const ValueKey('routine-current'), tone: Tone.ok),
+                        InkWell(
+                          key: const ValueKey('routine-reset'),
+                          borderRadius: BorderRadius.circular(6),
+                          onTap: () => _resetToPlan(app),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
+                            child: Text('플랜 종목으로',
+                                style: t.textTheme.labelSmall?.copyWith(
+                                    color: t.colorScheme.primary, decoration: TextDecoration.underline)),
+                          ),
+                        ),
+                      ],
+                      if (routines.isNotEmpty)
+                        ActionChip(
+                          key: const ValueKey('routine-load'),
+                          avatar: const Icon(LucideIcons.bookmark, size: 16),
+                          label: const Text('루틴 불러오기'),
+                          visualDensity: VisualDensity.compact,
+                          onPressed: () => _pickRoutine(app),
+                        ),
+                    ]),
+                  ),
+              ]),
+            ),
+            if (list.isEmpty)
+              const EmptyState(
+                title: '오늘 할 종목이 없습니다',
+                detail: '「종목 추가」 로 넣거나 설정에서 기구를 켜 두세요',
+              ),
+          ]),
+        ),
       ),
     ]);
+  }
+
+  /// 종목 한 줄 — 왼쪽으로 밀면 빠지고(Dismissible), 꾹 누르면 끕니다(줄 전체가
+  /// 손잡이). 키는 종목 id — 되돌리면 같은 줄이 다시 섭니다. [hint] 면 첫 줄이 살짝
+  /// 밀렸다 돌아옵니다(한 번) — 그림만 움직이고 실제로 빼지는 않습니다.
+  Widget _gymRow(AppState app, GymExercise e, int index, {bool hint = false}) {
+    final c = mb(context);
+    final row = ExerciseRow(
+      ex: e,
+      onSet: () => _completeSet(e),
+      onUndo: () => _undoSet(e),
+      onKg: () => _editKg(e),
+    );
+    return Dismissible(
+      key: ValueKey('dismiss-${e.id}'),
+      direction: DismissDirection.endToStart,
+      onDismissed: (_) => _removeExercise(e),
+      background: Container(
+        alignment: Alignment.centerRight,
+        margin: const EdgeInsets.only(bottom: ExerciseRow.gap),
+        padding: const EdgeInsets.only(right: 20),
+        decoration: BoxDecoration(color: c.badBg, borderRadius: BorderRadius.circular(14)),
+        child: Icon(LucideIcons.trash2, color: c.bad),
+      ),
+      child: ReorderableDelayedDragStartListener(
+        index: index,
+        child: hint
+            ? SwipeHint(bottomGap: ExerciseRow.gap, onShown: () => _markSwipeHintSeen(app), child: row)
+            : row,
+      ),
+    );
   }
 
   Future<void> _finishGym(AppState app, bool future) async {
     final wasRunning = _running;
     _pause();
-    final list = _gym ?? const <_Ex>[];
+    final list = _gym ?? const <GymExercise>[];
     final doneSets = list.fold<int>(0, (a, e) => a + e.done);
     final weight = latestWeightKg(app);
     /* 시계를 켰으면 잰 시간이 답입니다 — 초 단위 그대로 쓰고 다시 묻지 않습니다.
@@ -953,12 +1064,17 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
       'seconds': seconds,
       'kcal': kcal,
       'sets': doneSets,
-      /* 한 종목만 — 세트(한 것) · of(계획) · 반복 · 쉬는 시간 · 무게. 다음에 같은
-         종목을 열면 lastLoadsFrom 이 이 kg 을 읽습니다. */
+      /* 한 종목만 — 세트(한 것) · of(계획) · 반복 · 쉬는 시간 · 무게 · (시간 종목) 초 · 편측.
+         다음에 같은 종목을 열면 lastLoadsFrom 이 이 kg 을 읽습니다. 루틴 줄(toRoutineRow)과
+         같은 칸을 남깁니다 — 기록만 초 · 편측을 잃으면 안 됩니다. */
       'exercises': [
         for (final e in list)
           if (e.done > 0)
-            {'name': e.name, 'sets': e.done, 'of': e.sets, 'reps': e.reps, 'restSec': e.restSec, 'kg': e.kg},
+            {
+              'name': e.name, 'sets': e.done, 'of': e.sets, 'reps': e.reps, 'restSec': e.restSec, 'kg': e.kg,
+              if (e.seconds != null) 'seconds': e.seconds,
+              if (e.perSide) 'perSide': true,
+            },
       ],
     });
     if (!ok || !mounted) return;
@@ -1343,9 +1459,14 @@ class _CelebrationScreenState extends State<CelebrationScreen> {
 /// 0.2.9 는 64px 시계 밑에 '시작을 누르면 시간이 갑니다' 한 문장, 그 밑에 56px
 /// 알약 버튼 둘이 나란히 — 화면 위 3분의 1이 시계였습니다. 시계는 보는 것이지
 /// 누르는 것이 아니고, 헬스장에서 실제로 누르는 건 종목 줄이라 그쪽에 자리를
-/// 넘깁니다. 버튼의 글자('시작' · '계속' · '일시정지' · '종료')는 남깁니다 —
-/// 아이콘만 있으면 ▶ 가 시작인지 계속인지 다시 물어보게 되고, 시험도 이 글자로
-/// 누릅니다. 상태는 두 글자씩('시작 전' · '운동 중' · '일시정지'), 문장은 안 씁니다.
+/// 넘깁니다. 버튼의 글자('시작' · '계속' · '종료')는 남깁니다 — 아이콘만 있으면
+/// ▶ 가 시작인지 계속인지 다시 물어보게 되고, 시험도 이 글자로 누릅니다. 상태는
+/// 두 글자씩('시작 전' · '운동 중' · '일시정지'), 문장은 안 씁니다.
+///
+/// 일시정지만은 아이콘입니다. 글자 '일시정지' 가 도는 시계 옆에 단추로 붙어 있으니
+/// 캡처에서 "시계가 00:02 에 일시정지됐다" 로 읽혔습니다(3차 피드백 33) — 시계는
+/// 잘 가고 있었고, 그 글자는 상태가 아니라 단추였습니다. 이제 '일시정지' 는 정말
+/// 멈췄을 때만 상태 줄에 뜨고, 도는 동안은 '운동 중' 이 초록으로 보입니다.
 class _TimerPanel extends StatelessWidget {
   const _TimerPanel({
     required this.elapsed,
@@ -1394,7 +1515,10 @@ class _TimerPanel extends StatelessWidget {
                           fontFeatures: const [FontFeature.tabularFigures()])),
                 ),
                 Text(status,
-                    style: t.textTheme.labelSmall?.copyWith(color: running ? c.ok : t.hintColor)),
+                    key: const ValueKey('clock-status'),
+                    style: t.textTheme.labelSmall?.copyWith(
+                        color: running ? c.ok : (started ? c.warn : t.hintColor),
+                        fontWeight: running || started ? FontWeight.w700 : null)),
               ],
             ),
           ),
@@ -1402,11 +1526,11 @@ class _TimerPanel extends StatelessWidget {
           SizedBox(
             height: 48,
             child: running
-                ? FilledButton.tonalIcon(
+                ? IconButton.filledTonal(
+                    tooltip: '일시정지',
                     onPressed: onPause,
-                    style: _tight,
-                    icon: const Icon(LucideIcons.pause, size: 18),
-                    label: const Text('일시정지'))
+                    style: IconButton.styleFrom(fixedSize: const Size(48, 48)),
+                    icon: const Icon(LucideIcons.pause, size: 20))
                 : FilledButton.icon(
                     onPressed: onStart,
                     style: _tight,
@@ -1469,8 +1593,13 @@ class _RestBanner extends StatelessWidget {
   }
 }
 
-/// 종목 한 줄 — 왼쪽 동그라미(다 하면 초록 체크), 이름과 '3세트 × 5-8 · 메모',
-/// 오른쪽에 세트 점과 작은 「세트」 단추.
+/// 종목 한 줄 — 왼쪽 동그라미(다 하면 초록 체크), 이름, 그 밑에 '3세트 × 5-8 · 휴식
+/// 2분 30초' 한 줄과 요령 한 줄(흐리게), 오른쪽에 세트 점과 작은 「세트」 단추.
+/// 세트 수와 요령을 한 줄에 이어 붙였더니("3세트 × 5-8 · 발뒤꿈치 붙이고 천천히")
+/// 어디까지가 계획인지 읽기 어려웠습니다(3차 피드백 30) — 줄을 나눕니다.
+///
+/// 튜토리얼(workout_tutorial.dart)의 연습 줄도 이 위젯입니다 — 배우는 줄과 실제 줄이
+/// 같아야 "저 줄이었구나" 가 됩니다. 콜백만 연습용입니다.
 ///
 /// 0.2.9 는 줄마다 두 층짜리 카드에 폭 가득한 보라색 '세트 완료 (0/3)' 버튼이
 /// 있어 목록이 버튼 더미로 보였습니다. 헬스장에서 보는 건 종목 이름과 "몇 세트
@@ -1487,12 +1616,15 @@ class _RestBanner extends StatelessWidget {
 ///
 /// 키(ex-… · set-… · kg-…)는 종목 이름의 slug — 시험이 줄과 단추를 찾는 손잡이입니다.
 /// 같은 종목은 한 세션에 두 번 안 나오므로(planner 규칙 4) 이름이면 충분합니다.
-class _ExerciseRow extends StatelessWidget {
-  const _ExerciseRow({required this.ex, required this.onSet, required this.onUndo, required this.onKg});
-  final _Ex ex;
+class ExerciseRow extends StatelessWidget {
+  const ExerciseRow({super.key, required this.ex, required this.onSet, required this.onUndo, required this.onKg});
+  final GymExercise ex;
   final VoidCallback onSet;
   final VoidCallback onUndo;
   final VoidCallback onKg;
+
+  /// 줄 사이 틈(줄 자신의 아래 여백). 밀어 빼는 바탕과 힌트의 빨간 띠가 같은 높이여야 합니다.
+  static const double gap = 10;
 
   @override
   Widget build(BuildContext context) {
@@ -1500,9 +1632,8 @@ class _ExerciseRow extends StatelessWidget {
     final c = mb(context);
     final slug = slugOf(ex.name);
     final done = ex.complete;
-    final detail = '${ex.sets}세트 × ${ex.reps}${ex.note == null ? '' : ' · ${ex.note}'}';
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: gap),
       /* MbCard 는 바탕색을 못 바꿉니다 — 다 한 줄을 물들여야 해서 같은 모양(모서리
          14 · 테두리)을 여기서 그립니다. Material 이라야 줄을 누를 때 잉크가 보입니다. */
       child: Material(
@@ -1528,10 +1659,19 @@ class _ExerciseRow extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 2),
-                  Text(detail,
-                      maxLines: 2,
+                  /* 계획 한 줄 — 좁은 폰에서 넘치면 뒤(휴식)부터 줄임표. 세트 × 횟수가 앞입니다. */
+                  Text(ex.planLine,
+                      key: ValueKey('plan-$slug'),
+                      maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
+                  if (ex.note != null)
+                    Text(ex.note!,
+                        key: ValueKey('note-$slug'),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: t.textTheme.labelSmall
+                            ?.copyWith(color: t.hintColor.withValues(alpha: t.hintColor.a * 0.7))),
                   if (ex.weighted)
                     Padding(
                       padding: const EdgeInsets.only(top: 6),
@@ -1632,6 +1772,20 @@ class _SetDots extends StatelessWidget {
   }
 }
 
+/// 끌고 있는 줄 — 살짝 커지고 그림자 없이. 기본 장식은 네모난 Material 그림자라
+/// 둥근 카드 밖으로 각진 그늘이 비칩니다. 튜토리얼의 연습 목록도 이걸 씁니다 —
+/// 배우는 줄과 실제 줄이 같아야 합니다.
+Widget gymDragProxy(Widget child, int index, Animation<double> animation) {
+  return AnimatedBuilder(
+    animation: animation,
+    builder: (context, child) => Transform.scale(
+      scale: 1 + 0.03 * Curves.easeInOut.transform(animation.value),
+      child: child,
+    ),
+    child: Material(type: MaterialType.transparency, child: child),
+  );
+}
+
 /// 맨몸 종목 한 줄 — 체크 하나.
 class _BodyweightRow extends StatelessWidget {
   const _BodyweightRow({required this.ex, required this.checked, required this.onChanged});
@@ -1643,8 +1797,10 @@ class _BodyweightRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     final sets = n0(ex['sets'] ?? 1);
-    final amount = ex['seconds'] != null ? '${n0(ex['seconds'])}초' : '${ex['reps'] ?? ''}';
+    final amount = amountLabel(ex);
     final note = '${ex['note'] ?? ''}';
+    final slug = slugOf('${ex['name'] ?? ''}');
+    final hint = t.textTheme.bodySmall?.copyWith(color: t.hintColor);
     return MbCard(
       padding: EdgeInsets.zero,
       child: CheckboxListTile(
@@ -1654,10 +1810,19 @@ class _BodyweightRow extends StatelessWidget {
         onChanged: (v) => onChanged(v ?? false),
         title: Text('${ex['name'] ?? ''}',
             style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-        subtitle: Text(
-          '$sets세트 × $amount${note.isEmpty ? '' : ' · $note'}',
-          style: t.textTheme.bodySmall?.copyWith(color: t.hintColor),
-        ),
+        /* 헬스 줄(ExerciseRow)과 같은 문법 — 계획 한 줄, 요령은 그 밑 흐리게. 한 줄에 이어 붙이면
+           「3세트 × 30초 · 엉덩이가 처지지 않게」 가 한 문장으로 읽힙니다(3차 피드백 30). */
+        subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(amount.isEmpty ? '$sets세트' : '$sets세트 × $amount',
+              key: ValueKey('bw-plan-$slug'), maxLines: 1, overflow: TextOverflow.ellipsis, style: hint),
+          if (note.isNotEmpty)
+            Text(note,
+                key: ValueKey('bw-note-$slug'),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: t.textTheme.labelSmall
+                    ?.copyWith(color: t.hintColor.withValues(alpha: t.hintColor.a * 0.7))),
+        ]),
       ),
     );
   }

@@ -325,7 +325,7 @@ void main() {
     expect(kDurationChips, [8, 12, 16, 24]);
     expect(asked, [8], reason: '4주로 열어도 8주로 올려서 계산합니다');
     expect(t.widget<Text>(find.byKey(const Key('duration-weeks'))).data, '8주');
-    /* 기간 카드에 설명문은 없습니다 — 제목 · 주수 · 칩 · 자뿐. */
+    /* 기간 카드에 설명문은 없습니다 — 제목 · 주수(밑에 도달일) · 칩 · 자뿐. */
     expect(find.textContaining('갈 수 있는 몸'), findsNothing);
     expect(find.textContaining('보여 줍니다'), findsNothing);
   });
@@ -398,6 +398,64 @@ void main() {
     expect(pressOf(plus), isNotNull);
     expect(find.byType(ErrorWidget), findsNothing);
     expect(t.takeException(), isNull);
+  });
+
+  /* 피드백 37 — 주수만 있으면 "12주가 언제까지인지" 를 사람이 세야 합니다. 오른쪽 주수
+     바로 아래에 도달일을 작게, 주수를 바꾸면 날짜가 같이. 손으로 만든 표에는 도달일이
+     없어서 오늘 + 주×7일이고, 엔진이 표에 적어 보내면 그 날입니다. 판 머리에 한 번만 —
+     카드에는 없습니다. */
+  testWidgets('기간 — 주수 아래에 도달일이 있고, 주수를 바꾸면 날짜가 같이 바뀐다', (t) async {
+    tall(t);
+    final app = await seeded();
+    app.store.now = () => DateTime(2026, 9, 25, 9);
+    expect(app.store.dayKey(), '2026-09-25', reason: '시험의 시계');
+    await t.pumpWidget(host(app, DurationScreen(compute: _fixture)));
+    await t.pump(const Duration(milliseconds: 200));
+    final target = find.byKey(const Key('duration-target'));
+    final weeks = find.byKey(const Key('duration-weeks'));
+    String date() => t.widget<Text>(target).data!;
+    expect(date(), '2026. 12. 18.', reason: '표에 도달일이 없으면 오늘 + 12주');
+    /* 주수 바로 아래, 오른쪽 끝을 맞춰서 */
+    expect(t.getTopLeft(target).dy, greaterThanOrEqualTo(t.getBottomLeft(weeks).dy - 1));
+    expect(t.getBottomRight(target).dx, moreOrLessEquals(t.getBottomRight(weeks).dx, epsilon: 1));
+    expect(t.getTopLeft(target).dy, lessThan(t.getTopLeft(find.byType(Slider)).dy),
+        reason: '자보다 위 — 기간 카드의 머리에');
+
+    await t.tap(find.widgetWithText(ChoiceChip, '24주'));
+    await t.pump();
+    expect(date(), '2027. 3. 12.');
+    await t.tap(find.byKey(const Key('duration-plus')));
+    await t.pump();
+    expect(t.widget<Text>(weeks).data, '25주');
+    expect(date(), '2027. 3. 19.');
+    /* 판 머리에 한 번만 — 카드에는 날짜가 없습니다. */
+    expect(find.textContaining('2027.'), findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byKey(const ValueKey('option-cut-mid')), matching: find.textContaining('2027')),
+        findsNothing);
+    expect(find.byType(ErrorWidget), findsNothing);
+    expect(t.takeException(), isNull);
+
+    /* 엔진이 도달일을 적어 보내면 그 날 — 주수로 다시 세지 않습니다. */
+    await t.pumpWidget(host(
+        app,
+        DurationScreen(
+            key: const Key('engine-date'),
+            compute: (w) => {..._fixture(w), 'targetDate': '2027-01-01'})));
+    await t.pump(const Duration(milliseconds: 200));
+    expect(date(), '2027. 1. 1.');
+    expect(t.takeException(), isNull);
+  });
+
+  test('durationTargetDate — 표의 도달일이 먼저, 없거나 못 쓰는 값이면 오늘 + 주×7일', () {
+    expect(durationTargetDate({'targetDate': '2026-12-11'}, '2026-09-25', 12), '2026-12-11');
+    expect(durationTargetDate(const {}, '2026-09-25', 12), '2026-12-18');
+    expect(durationTargetDate({'targetDate': null}, '2026-09-25', 1), '2026-10-02');
+    expect(durationTargetDate({'targetDate': ''}, '2026-09-25', 8), '2026-11-20');
+    expect(durationTargetDate({'targetDate': core.invalidDateISO}, '2026-09-25', 52), '2027-09-24');
+    /* 해를 넘겨도 달력대로 */
+    expect(durationTargetDate(const {}, '2026-12-01', 8), '2027-01-26');
   });
 
   /* 엔진이 증량을 강도 없이 한 장(label '증량', levels [low, mid, high])으로 주면
@@ -568,6 +626,9 @@ void main() {
     expect(t.getTopLeft(find.byKey(const Key('duration-minus'))).dx, greaterThanOrEqualTo(0));
     expect(t.getBottomRight(find.byKey(const Key('duration-plus'))).dx, lessThanOrEqualTo(360));
     expect(t.getSize(find.byType(Slider)).width, greaterThan(150), reason: '자가 끌 만큼은 남습니다');
+    /* 주수 밑의 도달일도 카드 안에 — 오른쪽 끝이 화면을 안 넘습니다. */
+    expect(find.byKey(const Key('duration-target')), findsOneWidget);
+    expect(t.getBottomRight(find.byKey(const Key('duration-target'))).dx, lessThanOrEqualTo(360));
     await t.tap(find.byKey(const Key('duration-plus')));
     await t.pump();
     expect(t.widget<Text>(find.byKey(const Key('duration-weeks'))).data, '13주');

@@ -221,8 +221,10 @@ void main() {
       expect(find.text('익숙한 종목'), findsWidgets, reason: '시트 제목');
       await t.tap(find.byKey(const ValueKey('pick-group-chest')));                 // 터치 1
       await t.pumpAndSettle();
-      /* 초보 프리셋의 기구만 보입니다 — 바벨 벤치는 없고 머신 · 덤벨은 있습니다. */
-      expect(find.byKey(const ValueKey('pick-bench-press')), findsNothing);
+      /* 모든 기구가 보이되 바벨은 「내 기구 아님」 표 + 흐리게(3차 피드백 32) — 머신 · 덤벨은 내 기구. */
+      expect(find.byKey(const ValueKey('pick-notmine-barbell')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pick-dim-barbell')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pick-notmine-machine')), findsNothing);
       expect(find.byKey(const ValueKey('pick-chest-press-machine')), findsOneWidget);
       await t.tap(find.byKey(const ValueKey('pick-chest-press-machine')));         // 터치 2
       await t.pump();

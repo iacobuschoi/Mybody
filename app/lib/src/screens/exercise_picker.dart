@@ -6,10 +6,14 @@
  * 나오고, 종목을 누르면(2) 끝입니다. 검색은 보조 — 별칭('이너싸이' ·
  * 'Smith Squat')까지 찾습니다.
  *
- * 기본은 내가 가진 기구(equip)의 종목만 보입니다 — 없는 머신 스무 개를 넘기며
- * 찾게 하지 않으려고요. 「다른 기구도 보기」 로 전부 봅니다. 맨몸은 언제나
- * 있는 것으로 칩니다(planner 와 같은 규칙). 최근 · 익숙한 종목은 맨 위 한 줄에서
- * 한 번에 고릅니다.
+ * 기구 섹션은 처음부터 전부 보입니다 — 내 기구가 덤벨뿐이라고 머신을 토글 뒤에
+ * 숨겼더니 헬스장에서 머신을 못 찾았습니다(3차 피드백 32). 순서는 내 기구 섹션이
+ * 먼저(그 안에서 머신 → 케이블 → 바벨 → 덤벨 → 맨몸 → 밴드 → 케틀벨), 내 기구가
+ * 아닌 섹션은 그 뒤에 머리글에 「내 기구 아님」 표를 달고 살짝 흐리게 — 고를 수는
+ * 있고, 「내 기구만」 을 켜면 빠집니다. 헬스장 사용자에게 머신은 여전히 첫 섹션이고,
+ * 집 사용자는 흐린 머신 · 케이블 · 바벨 스무 줄을 넘기지 않아도 자기 종목이 먼저 옵니다.
+ * 맨몸은 언제나 있는 것으로 칩니다(planner 와 같은 규칙). 최근 · 익숙한 종목은
+ * 맨 위 한 줄에서 한 번에 고릅니다.
  *
  * 두 가지로 씁니다: pickExercise(하나 → 탭하면 닫힘), pickExercises(여러 개 →
  * 체크하고 「완료」). 위젯(ExercisePicker) 자체는 시트 밖에서도 쓸 수 있습니다.
@@ -31,6 +35,9 @@ const List<(String, List<String>)> kPickerAreas = [
 const List<String> kPickerEquipOrder = [
   'machine', 'cable', 'barbell', 'dumbbell', 'bodyweight', 'band', 'kettlebell',
 ];
+
+/// 내 기구가 아닌 섹션의 흐림 정도. 읽히되 내 것과 구별되는 선.
+const double kPickerDimOpacity = 0.6;
 
 /// 종목 하나 고르기. 탭하면 그 종목으로 닫히고, 그냥 내리면 null.
 Future<Exercise?> pickExercise(
@@ -102,7 +109,7 @@ class ExercisePicker extends StatefulWidget {
     this.onDone,
   }) : assert(selected == null ? onPick != null : onDone != null);
 
-  /// 내가 가진 기구. null 이면 전부.
+  /// 내가 가진 기구. null 이면 전부 내 것으로 칩니다(표 · 토글 없음).
   final Set<String>? equip;
   /// 목록에서 뺄 종목(이미 세션에 있는 것).
   final Set<String> exclude;
@@ -121,7 +128,8 @@ class ExercisePicker extends StatefulWidget {
 class _ExercisePickerState extends State<ExercisePicker> {
   final _query = TextEditingController();
   String? _group;
-  bool _showAll = false;
+  /// 「내 기구만」 — 기본은 꺼짐(전부 보임). 시트 안에서 부위를 오가도 유지됩니다.
+  bool _mineOnly = false;
   /// 고른 순서를 지킵니다 — 세션에 넣을 때 그 순서가 됩니다.
   late final List<String> _chosen = [...?widget.selected];
 
@@ -135,8 +143,10 @@ class _ExercisePickerState extends State<ExercisePicker> {
 
   bool _visible(Exercise e) => !widget.exclude.contains(e.id);
 
-  bool _hasEquip(Exercise e) =>
-      widget.equip == null || _showAll || e.equip == 'bodyweight' || widget.equip!.contains(e.equip);
+  /// 이 기구가 내 것인가. equip 을 안 주면 전부, 맨몸은 언제나.
+  bool _mineEquip(String k) => widget.equip == null || k == 'bodyweight' || widget.equip!.contains(k);
+
+  bool _mine(Exercise e) => _mineEquip(e.equip);
 
   List<Exercise> _lookup(List<String> ids) => [
         for (final id in ids)
@@ -203,12 +213,9 @@ class _ExercisePickerState extends State<ExercisePicker> {
             key: const ValueKey('pick-back'),
             tooltip: '부위 목록',
             icon: const Icon(LucideIcons.arrowLeft),
-            /* 「다른 기구도 보기」 는 그 부위 화면 안의 일입니다 — 나가면 끕니다. 켠 채
-               돌아오면 부위 칩의 숫자(내 기구로 되는 종목 수)가 8 → 19 로 뛰어 다른 뜻이 됩니다. */
-            onPressed: () => setState(() {
-              _group = null;
-              _showAll = false;
-            }),
+            /* 「내 기구만」 은 끄지 않습니다 — 부위 칩의 숫자는 전체 종목 수라 토글에 흔들리지
+               않고, 켠 사람은 다음 부위에서도 내 기구만 보고 싶어 합니다(한 번 덜 누름). */
+            onPressed: () => setState(() => _group = null),
           ),
         Expanded(
           child: Text(
@@ -228,9 +235,11 @@ class _ExercisePickerState extends State<ExercisePicker> {
     );
   }
 
-  Widget _label(ThemeData t, String text, {Key? key}) => Padding(
+  TextStyle? _labelStyle(ThemeData t) => t.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700);
+
+  Widget _label(ThemeData t, String text) => Padding(
         padding: const EdgeInsets.fromLTRB(0, 12, 0, 6),
-        child: Text(text, key: key, style: t.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700)),
+        child: Text(text, style: _labelStyle(t)),
       );
 
   /* ---- 첫 화면: 최근 · 익숙한 종목 · 부위 ---------------------------------- */
@@ -279,9 +288,9 @@ class _ExercisePickerState extends State<ExercisePicker> {
         ],
       );
 
-  /// 부위 칩 — 이름과, 내 기구로 되는 종목 수.
+  /// 부위 칩 — 이름과 종목 수. 기구를 가리지 않은 전체라 「내 기구만」 에 흔들리지 않습니다.
   Widget _groupTile(ThemeData t, String g) {
-    final n = exercisesFor(g).where((e) => _visible(e) && _hasEquip(e)).length;
+    final n = exercisesFor(g).where(_visible).length;
     return Material(
       color: mb(context).accentSub,
       borderRadius: BorderRadius.circular(12),
@@ -306,14 +315,20 @@ class _ExercisePickerState extends State<ExercisePicker> {
 
   Widget _groupList(ThemeData t, String g) {
     final all = exercisesFor(g).where(_visible).toList();
-    final shown = all.where(_hasEquip).toList();
+    final shown = _mineOnly ? all.where(_mine).toList() : all;
     final sections = <String, List<Exercise>>{};
     for (final e in shown) {
       sections.putIfAbsent(e.equip, () => []).add(e);
     }
-    final order = [
+    /* 내 기구 먼저, 그 안에서는 기구 순서. 내 기구가 아닌 것은 뒤로 — 집 사용자가 흐린
+       머신 · 케이블 · 바벨 스무 줄을 넘겨야 자기 종목이 나오면 안 됩니다. */
+    final known = [
       ...kPickerEquipOrder,
       for (final k in sections.keys) if (!kPickerEquipOrder.contains(k)) k,
+    ];
+    final order = [
+      for (final k in known) if (_mineEquip(k)) k,
+      for (final k in known) if (!_mineEquip(k)) k,
     ];
     return ListView(
       key: ValueKey('pick-group-list-$g'),
@@ -323,22 +338,51 @@ class _ExercisePickerState extends State<ExercisePicker> {
           Align(
             alignment: Alignment.centerRight,
             child: FilterChip(
-              key: const ValueKey('pick-all-equip'),
-              label: const Text('다른 기구도 보기'),
-              selected: _showAll,
-              onSelected: (v) => setState(() => _showAll = v),
+              key: const ValueKey('pick-mine-only'),
+              label: const Text('내 기구만'),
+              selected: _mineOnly,
+              onSelected: (v) => setState(() => _mineOnly = v),
             ),
           ),
+        /* 토글이 꺼져 있는데도 비었으면 exclude(이미 세션에 다 든 부위)입니다 — 그때 「꺼 보세요」 는 헛말. */
         if (shown.isEmpty)
-          const EmptyState(title: '내 기구로 되는 종목이 없습니다', detail: '「다른 기구도 보기」 를 켜 보세요.'),
-        /* 기구별 섹션 안에서는 줄마다 기구 표를 또 달지 않습니다 — 머리글이 이미 말했습니다. */
+          EmptyState(
+              title: _mineOnly ? '내 기구로 되는 종목이 없습니다' : '이 부위 종목은 이미 다 들어 있습니다',
+              detail: _mineOnly ? '「내 기구만」 을 꺼 보세요.' : '다른 부위에서 골라 보세요.'),
         for (final k in order)
-          if (sections.containsKey(k)) ...[
-            _label(t, kEquipLabel[k] ?? k, key: ValueKey('pick-sec-$k')),
-            for (final e in sections[k]!) _row(t, e, withEquip: false),
-          ],
+          if (sections[k] case final xs?) _section(t, k, xs),
       ],
     );
+  }
+
+  /// 기구 섹션 하나. 내 기구가 아니면 머리글에 「내 기구 아님」 표를 달고 전체를 살짝
+  /// 흐리게 — 그래도 누르면 골라집니다(오늘만 빌려 쓰는 머신도 있습니다).
+  /* 섹션 안 줄마다 기구 표를 또 달지 않습니다 — 머리글이 이미 말했습니다. */
+  Widget _section(ThemeData t, String k, List<Exercise> xs) {
+    final mine = _mineEquip(k);
+    final body = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(0, 12, 0, 6),
+        child: Row(children: [
+          Text(kEquipLabel[k] ?? k, key: ValueKey('pick-sec-$k'), style: _labelStyle(t)),
+          if (!mine) ...[
+            const SizedBox(width: 6),
+            Container(
+              key: ValueKey('pick-notmine-$k'),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+              decoration: BoxDecoration(
+                border: Border.all(color: t.dividerColor),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text('내 기구 아님', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+            ),
+          ],
+        ]),
+      ),
+      for (final e in xs) _row(t, e, withEquip: false),
+    ]);
+    if (mine) return body;
+    return Opacity(key: ValueKey('pick-dim-$k'), opacity: kPickerDimOpacity, child: body);
   }
 
   /* ---- 검색: 부위 · 기구 가리지 않고 ------------------------------------ */

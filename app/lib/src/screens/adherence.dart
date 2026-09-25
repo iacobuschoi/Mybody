@@ -372,11 +372,20 @@ class _AdherenceBodyState extends State<AdherenceBody> {
 
 /* --- 일별 막대 ---------------------------------------------------------------
  *
- * 목표가 막대 높이의 70% 자리입니다. 목표를 넘으면 그만큼 더 올라가고(최대
- * 100%), 목표선은 그 높이에 **점선** + 오른쪽 끝 「목표 149g」 라벨로
- * 그립니다. 축선은 바닥에 하나 — 예전엔 목표선이 실선으로 막대 위에 떠
- * 있어서 축인지 목표인지 몰랐습니다. 기록 없는 날은 막대 없이 요일 글자만
- * 흐리게 — "·" 는 무슨 뜻인지 물어보게 만듭니다. */
+ * 축선은 바닥에 하나, 막대는 거기서 위로. 목표선은 축선에서 70% 높이의
+ * **점선** + 오른쪽 끝 「목표 149g」 라벨이고, 막대 높이 = min(값/목표, 1.4)
+ * × 목표선 높이 — 목표를 넘으면 그만큼 더 솟되 카드 밖으로는 안 나갑니다
+ * (1.4 × 0.7 = 0.98). 요일 글자는 막대 바로 밑, 기록 없는 날은 막대 없이
+ * 글자만 흐리게 — "·" 는 무슨 뜻인지 물어보게 만듭니다.
+ *
+ * 0.2.12 버그(피드백 35)의 원인: 막대 Row 가 Stack 의 Positioned 가 아닌
+ * 자식이었습니다. Stack 은 그런 자식에 느슨한 제약을 주고 기본 정렬
+ * (topStart)로 놓기 때문에, Row 높이가 가장 큰 막대만큼으로 줄고 그 Row 가
+ * Stack **꼭대기**에 붙었습니다 — 높이(0.39 × 0.7 × 84 = 23px)는 맞았는데
+ * 시작점이 축선이 아니라 위였던 것. 그래서 막대가 목표 점선 위에 매달리고
+ * 축선까지 비었습니다. 지금은 Positioned.fill 로 Stack 을 꽉 채우고
+ * CrossAxisAlignment.end 로 바닥에 붙입니다. 기하는 week_marks_test 가
+ * RenderBox 로 잽니다(막대 bottom == 축선, 높이 비율, 목표 초과). */
 class _DayBars extends StatelessWidget {
   const _DayBars({required this.days, required this.field, required this.target,
       required this.color, required this.unit});
@@ -388,6 +397,7 @@ class _DayBars extends StatelessWidget {
 
   static const double height = 84;
   static const double targetFrac = 0.7;
+  static const double maxRatio = 1.4;
   static const double gap = 3, dowHeight = 10;
 
   @override
@@ -395,38 +405,51 @@ class _DayBars extends StatelessWidget {
     final t = Theme.of(context);
     final labelStyle = t.textTheme.labelSmall?.copyWith(color: t.hintColor, fontSize: 10, height: 1);
     final lineColor = t.hintColor.withValues(alpha: 0.6);
-    final scale = target > 0 ? targetFrac / target : 0.0;
 
     final bars = SizedBox(
+      key: ValueKey('daybars-chart-$field'),
       height: height,
       child: Stack(children: [
-        Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-          for (final d in days)
-            Expanded(
-              child: Builder(builder: (_) {
-                if (!core.jsTruthy(d['logged'])) return const SizedBox.shrink();
-                final v = core.jsToNumber(d[field] ?? 0);
-                final frac = (v * scale).clamp(0.0, 1.0);
-                return Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: Container(
-                    height: math.max(2.0, frac * height),
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: v >= target * 0.9 ? 1 : 0.55),
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
+        /* 막대 — Positioned.fill 이라 Row 가 Stack 높이를 다 차지하고, end 정렬로
+           막대가 바닥에 섭니다. 이걸 빼면 위의 버그가 돌아옵니다. */
+        Positioned.fill(
+          child: Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            for (final d in days)
+              Expanded(
+                child: Builder(builder: (_) {
+                  if (!core.jsTruthy(d['logged'])) return const SizedBox.shrink();
+                  final v = core.jsToNumber(d[field] ?? 0);
+                  final ratio = target > 0 ? v / target : 0.0;
+                  final frac = math.min(ratio, maxRatio) * targetFrac;
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 2),
+                    child: Container(
+                      key: ValueKey('daybar-$field-${d['date']}'),
+                      height: math.max(2.0, frac * height),
+                      decoration: BoxDecoration(
+                        color: color.withValues(alpha: v >= target * 0.9 ? 1 : 0.55),
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(3)),
+                      ),
                     ),
-                  ),
-                );
-              }),
-            ),
-        ]),
-        /* 목표선 — 점선. 막대와 같은 스케일이라 "넘었나" 가 바로 보입니다. */
+                  );
+                }),
+              ),
+          ]),
+        ),
+        /* 목표선 — 축선에서 70% 높이의 점선. 막대와 같은 스케일이라 "넘었나" 가
+           바로 보입니다. */
         Positioned(
           left: 0, right: 0, bottom: height * targetFrac,
-          child: CustomPaint(size: const Size(double.infinity, 1), painter: _DashPainter(lineColor)),
+          child: CustomPaint(
+              key: ValueKey('daybars-target-$field'),
+              size: const Size(double.infinity, 1), painter: _DashPainter(lineColor)),
         ),
         /* 축선 — 바닥에. */
-        Positioned(left: 0, right: 0, bottom: 0, child: Container(height: 1, color: t.dividerColor)),
+        Positioned(
+          left: 0, right: 0, bottom: 0,
+          child: Container(
+              key: ValueKey('daybars-axis-$field'), height: 1, color: t.dividerColor),
+        ),
       ]),
     );
 
@@ -450,7 +473,8 @@ class _DayBars extends StatelessWidget {
           bars, const SizedBox(height: gap), dows,
         ]),
       ),
-      /* 라벨은 선의 오른쪽 끝, 자기 칸에 — 막대를 가리지 않습니다. */
+      /* 라벨은 선의 오른쪽 끝, 자기 칸에 — 막대를 가리지 않습니다. 세로 자리는
+         목표선과 같은 비율(위에서 30%)에 가운데를 맞춥니다. */
       Column(mainAxisSize: MainAxisSize.min, children: [
         SizedBox(
           height: height,

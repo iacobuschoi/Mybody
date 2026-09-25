@@ -28,6 +28,7 @@ import '../ui/widgets.dart';
 import '../workout/exercises.dart';
 import '../workout/planner.dart';
 import '../workout/prefs.dart';
+import '../workout/scheme.dart';
 import 'gym_settings.dart';
 
 /// 진행 규칙 한 줄. 엔진의 「더블 프로그레션 — 목표 반복 상단에 도달하면 다음
@@ -54,15 +55,12 @@ final RegExp _cardioAddedRe = RegExp(r'추가 유산소 주 (-?\d+(?:\.\d+)?)분
   return (value: n0(workout['cardioMinPerWeek']), unit: '분/주', delta: null);
 }
 
-/// 세트 사이 쉬는 시간. 「150초」 는 시계를 보며 세야 합니다 — 「2분 30초」.
-/// 90초 미만은 초 그대로(75초). 값이 없거나 0 이면 빈 글자.
+/// 세트 사이 쉬는 시간 — 헬스 화면과 같은 restText(fmt.dart). 값이 없거나 0 이면 빈 글자.
+/// 규칙이 둘이었을 때 같은 종목이 플랜 탭 「휴식 60초」, 헬스 화면 「휴식 1분」 이었습니다.
 String restLabel(Object? sec) {
   final s = core.jsToNumber(sec);
   if (s.isNaN || s <= 0) return '';
-  final n = s.round();
-  if (n < 90) return '$n초';
-  final m = n ~/ 60, r = n % 60;
-  return r == 0 ? '$m분' : '$m분 $r초';
+  return restText(s.round());
 }
 
 /// 첫 진입에 펼쳐 둘 세션의 자리(sessions 의 index). 오늘 요일(월=0)의 세션,
@@ -158,7 +156,9 @@ class _PlanScreenState extends State<PlanScreen> {
     final diet = (plan['diet'] as Map?)?.cast<String, Object?>();
     final feas = (plan['feasibility'] as Map?)?.cast<String, Object?>();
     final goal = (plan['goal'] as Map?)?.cast<String, Object?>();
-    final todayIdx = (widget.today ?? DateTime.now()).weekday - 1;
+    final today = widget.today ?? DateTime.now();
+    final todayIdx = today.weekday - 1;
+    final todayKey = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
 
     return ListView(padding: const EdgeInsets.all(16), children: [
       picker,
@@ -234,6 +234,9 @@ class _PlanScreenState extends State<PlanScreen> {
         _WorkoutCard(
             workout: workout,
             prefs: GymPrefs.fromSettings((st['settings'] as Map?)?.cast<String, Object?>()),
+            /* 세트 · 횟수는 경력과 지금 국면으로 — 헬스 화면(gymExercisesFor)과 같은 두 함수. */
+            trainingAge: trainingAgeOf(st),
+            goalKind: goalKindOf(st, todayKey),
             todayIdx: todayIdx),
       if (diet != null) _DietCard(diet: diet),
       if (plan['milestones'] != null) _MilestoneCard(
@@ -339,11 +342,21 @@ class _TrajChart extends StatelessWidget {
 }
 
 class _WorkoutCard extends StatelessWidget {
-  const _WorkoutCard({required this.workout, required this.prefs, required this.todayIdx});
+  const _WorkoutCard({
+    required this.workout,
+    required this.prefs,
+    required this.trainingAge,
+    required this.goalKind,
+    required this.todayIdx,
+  });
   final Map<String, Object?> workout;
 
   /// 운동 장소 · 기구 · 익숙한 종목. 종목 목록은 이 설정을 거쳐서 보입니다.
   final GymPrefs prefs;
+
+  /// 프로필의 경력 · 지금 국면 — 세트 × 반복 · 휴식이 이 둘로 정해집니다(scheme.dart).
+  final String trainingAge;
+  final String goalKind;
 
   /// 오늘 요일(월=0). 그 날의 세션만 펼쳐 둡니다.
   final int todayIdx;
@@ -402,6 +415,8 @@ class _WorkoutCard extends StatelessWidget {
               key: ValueKey('session-${sessions[i]['day'] ?? i}'),
               session: sessions[i],
               prefs: prefs,
+              trainingAge: trainingAge,
+              goalKind: goalKind,
               initiallyOpen: i == open,
               isToday: _dayOf(sessions[i], i) == todayIdx,
             ),
@@ -457,11 +472,15 @@ class _SessionCard extends StatefulWidget {
     super.key,
     required this.session,
     required this.prefs,
+    required this.trainingAge,
+    required this.goalKind,
     required this.initiallyOpen,
     required this.isToday,
   });
   final Map<String, Object?> session;
   final GymPrefs prefs;
+  final String trainingAge;
+  final String goalKind;
   final bool initiallyOpen;
   final bool isToday;
 
@@ -475,7 +494,8 @@ class _SessionCardState extends State<_SessionCard> {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
-    final exercises = tailorSession(widget.session, widget.prefs);
+    final exercises = tailorSession(widget.session, widget.prefs,
+        trainingAge: widget.trainingAge, goalKind: widget.goalKind);
     /* 설정을 한 번도 안 만진 사람(초보 프리셋)에게 「4종목 바꿈」「대체」「원래 바벨 …」 은
        앱 내부 사정이지 정보가 아닙니다 — 고른 적 없는 사람에게 "원래" 는 없습니다.
        표는 사용자가 기구를 바꾼 뒤에만 뜻이 있습니다. */
@@ -531,7 +551,8 @@ class _SessionCardState extends State<_SessionCard> {
 }
 
 /// 종목 한 줄(~두 줄): 「1  바벨 벤치프레스 [바벨] [대체]」 그 밑에
-/// 「3세트 × 5-8 · 휴식 2분 30초」, 요령은 한 줄 더(길면 줄임 — 자세한 건 헬스 화면).
+/// 「3세트 × 8-12 · 휴식 90초」, 요령은 한 줄 더(길면 줄임 — 자세한 건 헬스 화면).
+/// 「몇 번」 은 amountLabel — 플랭크는 「30초」, 런지는 「8-12 한쪽씩」, 헬스 화면과 같은 글자.
 /// RPE 는 없습니다 — 초보자에게 숫자 하나 더는 물음표 하나 더입니다.
 class _ExerciseRow extends StatelessWidget {
   const _ExerciseRow({required this.index, required this.exercise, this.showTags = true});
@@ -551,8 +572,9 @@ class _ExerciseRow extends StatelessWidget {
     final rest = restLabel(e['restSec']);
     /* 건너뛸 수도 있는 종목은 경고색 — 기구가 없으면 없는 것입니다. */
     final skip = '${e['note'] ?? ''}'.contains(kSkipNote);
+    final amount = amountLabel(e);
     final detail = [
-      '${n0(e['sets'])}세트 × ${e['reps']}',
+      amount.isEmpty ? '${n0(e['sets'])}세트' : '${n0(e['sets'])}세트 × $amount',
       if (rest.isNotEmpty) '휴식 $rest',
     ].join(' · ');
     final small = t.textTheme.labelSmall?.copyWith(color: skip ? c.warn : t.hintColor, height: 1.4);
