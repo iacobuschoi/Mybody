@@ -487,3 +487,16 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
 - **3. app-version**: `--play=0.2.12 --testflight=0.2.12` → **play 0.2.12 · testflight 0.2.12 · apk 0.2.8 · appstore "" · min ""**.
   (testflight 는 웹 확인 없이 CI 업로드 성공 기준으로 올림 — 처리 실패가 나오면 되돌려야 함.)
 - 서버 손대지 않음(git pull 만, 7e56699).
+
+---
+
+# 25 진행 중 — 막힘 (2026-09-25 14:40 KST) — 0.2.13 (N = 288): 플레이 업로드는 Chrome 확장 복구 대기
+
+- **시작 조건 확인**: Releases v0.2.13 `mybody-v0.2.13-playstore.aab`(32.9MB) 내려받아 SHA-256 `f0948fcf…d2ee` 일치, keytool 서명
+  인증서 SHA-256 `06:D9:45:A3 … 83:DE:11` 일치. CI 「친구들에게 줄 앱」(05:28Z) · 「아이폰 TestFlight」(05:24Z) 둘 다 success.
+- **1. 플레이 — 아직**: 노트북의 Claude in Chrome 확장 브리지가 12:00쯤부터 끊겨(Chrome 창·확장 프로세스는 살아 있음, 데스크톱 앱 쪽에서
+  「browser not connected」) Play Console 을 못 만집니다. 사용자가 Chrome 에서 Claude 사이드패널을 열면 바로 붙음 — 붙는 대로 업로드.
+  출시 노트 「0.2.13」 304자 준비됨.
+- **2. 애플**: ASC 웹 로그인 풀림 + 로컬에 Issuer ID 없어 API 조회 불가 → CI 로그로만 확인: `Build Number: 288`, `UPLOAD SUCCEEDED`,
+  Delivery UUID 98cd0b9e…(05:24Z). 「처리 완료」·`my` 그룹은 웹에서 못 봄.
+- **3. app-version**: 1·2 뒤에 실행 예정(아직 0.2.12).
