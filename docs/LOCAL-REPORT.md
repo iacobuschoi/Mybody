@@ -500,3 +500,18 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
 - **2. 애플**: ASC 웹 로그인 풀림 + 로컬에 Issuer ID 없어 API 조회 불가 → CI 로그로만 확인: `Build Number: 288`, `UPLOAD SUCCEEDED`,
   Delivery UUID 98cd0b9e…(05:24Z). 「처리 완료」·`my` 그룹은 웹에서 못 봄.
 - **3. app-version**: 1·2 뒤에 실행 예정(아직 0.2.12).
+
+---
+
+# 25 끝 (2026-09-25 15:10 KST) — 0.2.13 (N = 288) 을 TestFlight 내부 · 플레이 내부 테스트에만
+
+- **1. 플레이**: Chrome 확장이 15:00쯤 다시 붙어 진행. Releases v0.2.13 AAB(32.9MB) SHA-256 `f0948fcf…d2ee` · 서명 인증서
+  `06:D9:45:A3 … 83:DE:11` 확인 → 내부 테스트 새 버전 **288 (0.2.13)**(API 24+, 타겟 SDK 36) → 출시 노트 `play/등록정보.md`
+  「0.2.13」 그대로(304자, 1개 언어) → 저장 및 출시 → **「내부 테스터에게 제공됨」 15:06**. 비공개 · 프로덕션 안 건드림.
+  (조각 업로드 중 Play 쪽 업로더가 조각 파일을 가로채 「chunk_00~03」 오류 항목이 생겼다가 전부 지웠음 — 최종 목록엔 AAB 하나뿐.)
+- **2. 애플**: ASC 웹 로그인 풀림(주인 지시: 무시) + 로컬에 Issuer ID 없음 → CI 로그로만 확인: 「아이폰 TestFlight」 run(05:19Z, 7d3079e)
+  `Build Number: 288` · `UPLOAD SUCCEEDED`(05:24Z). 내부 그룹 `my` 는 자동 배포라 처리 뒤 들어감 — 웹에서 「처리 완료」는 못 봄.
+  friends · App Store 탭 안 건드림.
+- **3. app-version**: `--play=0.2.13 --testflight=0.2.13` → **play 0.2.13 · testflight 0.2.13 · apk 0.2.8 · appstore "" · min ""**
+  (스크립트가 8080 서버 응답까지 확인). testflight 는 CI 업로드 성공 기준 — 처리 실패가 나오면 되돌려야 함.
+- 서버 손대지 않음(git pull 만, 88dba70). 로그인 화면: Play 없음 · ASC 있음(무시).
