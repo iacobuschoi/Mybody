@@ -282,16 +282,26 @@ class _ServerScreenState extends State<ServerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('서버 주소')),
-      body: Padding(
+      /* 스크롤되는 본문 — 키보드가 올라오면 Scaffold 가 본문을 그만큼 줄이는데,
+         고정 Column 이면 큰 글자 · 오류 두 줄에서 세로로 넘칩니다. 목록을 끌면
+         키보드도 내려갑니다. */
+      body: ListView(
         padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        children: [
           const Text('이 앱은 주인의 컴퓨터에 있는 서버를 봅니다.\n'
               '주소를 받으셨으면 여기에 넣어 주세요.'),
           const SizedBox(height: 16),
           TextField(
             controller: _c,
             autocorrect: false,
+            enableSuggestions: false,
             keyboardType: TextInputType.url,
+            autofillHints: const [AutofillHints.url],
+            /* 자판의 「이동」 키가 「연결」 과 같은 일을 합니다 — 주소 하나 넣고
+               버튼까지 손을 옮길 이유가 없습니다. */
+            textInputAction: TextInputAction.go,
+            onSubmitted: (_) { if (!_busy) _go(); },
             decoration: InputDecoration(
               border: const OutlineInputBorder(),
               hintText: '받은 주소를 붙여넣으세요',
@@ -303,7 +313,7 @@ class _ServerScreenState extends State<ServerScreen> {
             onPressed: _busy ? null : _go,
             child: Text(_busy ? '확인하는 중…' : '연결'),
           ),
-        ]),
+        ],
       ),
     );
   }
@@ -445,6 +455,9 @@ class _SignInScreenState extends State<SignInScreen> {
       appBar: AppBar(title: const Text('계정')),
       body: ListView(
         padding: const EdgeInsets.all(16),
+        /* 목록을 끌면 키보드가 내려갑니다. 글자 자판은 return 키로도 닫히지만,
+           가입 모드는 동의 카드가 길어 버튼까지 스크롤할 때 키보드가 걸립니다. */
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         children: [
           /* 서버가 이 판을 더는 안 받으면 가입 · 로그인이 여기서 먼저 막힙니다.
              엉뚱한 오류 문구보다 "앱이 낡았다" 를 먼저 보여 줍니다. */
@@ -467,56 +480,81 @@ class _SignInScreenState extends State<SignInScreen> {
           ),
           const SizedBox(height: 18),
 
-          TextField(
-            controller: _handle,
-            autocorrect: false,
-            decoration: const InputDecoration(
-                labelText: '아이디', border: OutlineInputBorder()),
+          /* 칸들은 한 AutofillGroup — 아이디 · 비밀번호를 한 쌍으로 폰의 비밀번호
+             저장소가 알아보고, 다음에 로그인할 때 채워 줍니다. 「다음」 키는 바로
+             아래 칸으로, 마지막 칸의 「완료」 는 로그인 · 복구에서 곧 제출입니다.
+             가입에서는 제출하지 않습니다 — 아래 동의 상자를 먼저 읽어야 하고,
+             그냥 키보드를 내리려던 사람에게 "동의해야" 오류를 띄우면 안 됩니다. */
+          AutofillGroup(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              TextField(
+                controller: _handle,
+                autocorrect: false,
+                enableSuggestions: false,
+                autofillHints: const [AutofillHints.username],
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(
+                    labelText: '아이디', border: OutlineInputBorder()),
+              ),
+              const SizedBox(height: 10),
+
+              if (signUp) ...[
+                TextField(
+                  controller: _name,
+                  autofillHints: const [AutofillHints.nickname],
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                      labelText: '친구에게 보일 이름',
+                      hintText: '비워 두면 아이디를 씁니다',
+                      border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 10),
+              ],
+
+              if (recover) ...[
+                TextField(
+                  controller: _code,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  textInputAction: TextInputAction.next,
+                  decoration: const InputDecoration(
+                      labelText: '복구 코드',
+                      hintText: '가입할 때 받은 코드',
+                      border: OutlineInputBorder()),
+                ),
+                const SizedBox(height: 10),
+              ],
+
+              TextField(
+                controller: _pw,
+                obscureText: true,
+                /* newPassword 는 가입 칸에만 — 아이폰은 이 힌트가 있는 칸에 커서가 오면
+                   「강력한 암호」 제안 시트를 덮어 씌워 「나만의 암호 선택」 을 눌러야 직접
+                   칠 수 있습니다. 복구는 코드를 넣고 새 비밀번호를 치는 자리라 그 한 겹이
+                   더 헷갈리게 해서 보통 비밀번호 칸으로 둡니다. */
+                autofillHints: [signUp ? AutofillHints.newPassword : AutofillHints.password],
+                textInputAction: needPair ? TextInputAction.next : TextInputAction.done,
+                onSubmitted: signUp ? null : (_) { if (!_busy) _go(); },
+                decoration: InputDecoration(
+                    labelText: recover ? '새 비밀번호' : '비밀번호',
+                    border: const OutlineInputBorder()),
+              ),
+
+              if (needPair) ...[
+                const SizedBox(height: 10),
+                TextField(
+                  controller: _pair,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  textInputAction: TextInputAction.done,
+                  decoration: const InputDecoration(
+                      labelText: '가입 코드',
+                      hintText: '이 서버를 띄운 사람에게 받으세요',
+                      border: OutlineInputBorder()),
+                ),
+              ],
+            ]),
           ),
-          const SizedBox(height: 10),
-
-          if (signUp) ...[
-            TextField(
-              controller: _name,
-              decoration: const InputDecoration(
-                  labelText: '친구에게 보일 이름',
-                  hintText: '비워 두면 아이디를 씁니다',
-                  border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 10),
-          ],
-
-          if (recover) ...[
-            TextField(
-              controller: _code,
-              autocorrect: false,
-              decoration: const InputDecoration(
-                  labelText: '복구 코드',
-                  hintText: '가입할 때 받은 코드',
-                  border: OutlineInputBorder()),
-            ),
-            const SizedBox(height: 10),
-          ],
-
-          TextField(
-            controller: _pw,
-            obscureText: true,
-            decoration: InputDecoration(
-                labelText: recover ? '새 비밀번호' : '비밀번호',
-                border: const OutlineInputBorder()),
-          ),
-
-          if (needPair) ...[
-            const SizedBox(height: 10),
-            TextField(
-              controller: _pair,
-              autocorrect: false,
-              decoration: const InputDecoration(
-                  labelText: '가입 코드',
-                  hintText: '이 서버를 띄운 사람에게 받으세요',
-                  border: OutlineInputBorder()),
-            ),
-          ],
 
           if (_err != null) ...[
             const SizedBox(height: 12),

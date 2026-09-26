@@ -509,6 +509,31 @@ const VAPID = (process.env.VAPID_PUBLIC && process.env.VAPID_PRIVATE) ? {
     : (process.env.ORIGIN || 'https://example.invalid')
 } : null;
 
+/* 친구 요청 · 수락 알림의 둘째 줄 — 받는 사람이 친구에게 **보여 주게 될 것**.
+ *
+ * 예전엔 "서로의 운동 체크가 보입니다 · 몸 숫자는 기본 비공개" 로 못 박혀
+ * 있었습니다. 기본값을 사람마다 바꿀 수 있게 된 뒤로는 거짓말이 될 수 있고,
+ * 하필 수락을 누를지 정하는 순간의 문장입니다 — 기본값에서 체중을 켜 둔
+ * 사람이 "기본 비공개" 를 믿고 수락하면 곧바로 체중이 나갑니다. 그래서 그
+ * 사람의 실제 값(s)으로 씁니다. 몸 쪽이 하나라도 켜져 있으면 그걸 먼저
+ * 말합니다. lead 는 '수락하면 상대에게' · '친구에게'. */
+const NOTICE_BODY = [['weightTrend', '체중 변화'], ['smmTrend', '골격근 변화'],
+                     ['bfmTrend', '체지방 변화'], ['planProgress', '목표 진행률'],
+                     ['absolute', '실제 수치']];
+function shareNotice(s, lead) {
+  const f = s || {};
+  const body = NOTICE_BODY.filter(([k]) => f[k] === true).map(([, l]) => l);
+  if (body.length) return lead + ' 내 ' + body.join(' · ') + '도 보입니다 (기본 공유 설정)';
+  const act = [];
+  if (f.streak === true || f.schedule === true) act.push('운동 체크');
+  if (f.diet === true) act.push('식단');
+  if (!act.length) return lead + ' 내 기록은 안 보입니다 (기본 공유 설정)';
+  const last = act[act.length - 1];
+  const code = last.charCodeAt(last.length - 1) - 0xAC00;
+  const josa = code >= 0 && code < 11172 && code % 28 ? '이' : '가';
+  return lead + ' 내 ' + act.join(' · ') + josa + ' 보입니다 · 몸 숫자는 기본 비공개';
+}
+
 /** 한 사람의 기기 전부에게 보냅니다. 죽은 주소는 정리합니다. */
 async function pushToUser(userId, payload) {
   if (!VAPID) return;
@@ -696,11 +721,14 @@ async function handleApi(req, res, url) {
     if (r.ok && r.otherId) {
       const who = api.me(me);
       const name = (who && who.displayName) || '누군가';
+      /* 둘째 줄은 **알림을 받는 사람이 보여 주게 될 것** — 그 사람의 실제 값으로.
+         요청이면 아직 관계가 없으니 그 사람의 기본값(수락하면 그대로 복사됩니다),
+         맞요청으로 방금 친구가 됐으면 이미 복사된 그 방향의 행. */
       const msg = r.status === 'accepted'
         ? { t: name + '님과 친구가 되었습니다',
-            b: '서로의 운동 체크가 보입니다 · 몸 숫자는 기본 비공개' }
+            b: shareNotice(api.shareFields(r.otherId, me), '친구에게') }
         : { t: name + '님이 친구 요청을 보냈습니다',
-            b: '수락하면 서로의 운동 체크가 보입니다 · 몸 숫자는 기본 비공개' };
+            b: shareNotice(api.shareDefaults(r.otherId), '수락하면 상대에게') };
       pushToUser(r.otherId, JSON.stringify(Object.assign(msg, { u: '/#P15' })))
         .catch(() => {});
     }
@@ -729,7 +757,7 @@ async function handleApi(req, res, url) {
       const name = (who && who.displayName) || '상대';
       pushToUser(uid, JSON.stringify({
         t: name + '님이 친구 요청을 수락했습니다',
-        b: '서로의 운동 체크가 보입니다 · 몸 숫자는 기본 비공개',
+        b: shareNotice(api.shareFields(uid, me), '친구에게'),
         u: '/#P15'
       })).catch(() => {});
     }
@@ -760,6 +788,25 @@ async function handleApi(req, res, url) {
   if (m && method === 'GET') return send(res, 200, { ok: true, share: api.shareFields(me, m[1]) });
   if (m && method === 'PUT') {
     const b = await readBody(req); return send(res, 200, api.setShare(me, m[1], b || {}));
+  }
+
+  /* 새 친구에게 기본으로 보여 주는 것 — 친구를 맺는 순간 그 관계로 복사됩니다.
+     이 길을 모르는 옛 앱은 부르지 않을 뿐이고, 그때도 accept 는 이 값을
+     씁니다(안 정했으면 blankShare() 그대로 — 예전과 같은 동작).
+     거절을 200 으로 보내지 않습니다 — 앱이 성공으로 읽고 스위치를 켠 채로 둡니다.
+     apply 의 {expect} 가 저장된 값과 다르면 409 — 사람이 본 것과 다른 값을
+     친구 전원에게 쓰지 않습니다(db.js applyShareDefaults). */
+  if (p === '/share-defaults' && method === 'GET') {
+    return send(res, 200, { ok: true, defaults: api.shareDefaults(me) });
+  }
+  if (p === '/share-defaults' && method === 'PUT') {
+    const r = api.setShareDefaults(me, await readBody(req));
+    return send(res, r.ok ? 200 : 400, r);
+  }
+  if (p === '/share-defaults/apply' && method === 'POST') {
+    const b = await readBody(req);
+    const r = api.applyShareDefaults(me, b && typeof b === 'object' ? b.expect : undefined);
+    return send(res, r.ok ? 200 : (r.conflict ? 409 : 400), r);
   }
 
   /* --- 운동 독촉 ------------------------------------------------------- */

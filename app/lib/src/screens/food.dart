@@ -17,6 +17,7 @@ import 'package:mybody_core/mybody_core.dart' as core;
 import '../briefing.dart' show mealNow;
 import '../scope.dart';
 import '../nudge.dart' show mealFromReminder;
+import '../ui/edge.dart' show dismissKeyboard;
 import '../ui/fmt.dart';
 import '../ui/widgets.dart';
 
@@ -833,7 +834,13 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
               style: const ButtonStyle(visualDensity: VisualDensity.compact),
               segments: [for (final m in _meals) ButtonSegment(value: m, label: Text(m))],
               selected: {_meal},
-              onSelectionChanged: (s) => setState(() => _meal = s.first),
+              /* 끼니 · 분류를 고르는 손가락은 이미 칸 밖에 있습니다 — 버튼은 자기 탭을
+                 먼저 받아 전역 「바깥 탭」 이 안 오므로, 여기서 키보드를 내립니다.
+                 아이폰 숫자 패드처럼 완료 키가 없어도 목록이 넓게 보여야 고릅니다. */
+              onSelectionChanged: (s) {
+                dismissKeyboard();
+                setState(() => _meal = s.first);
+              },
             ),
             const SizedBox(height: 8),
             SizedBox(
@@ -847,7 +854,10 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
                       selected: _cat == c,
                       showCheckmark: false,
                       visualDensity: VisualDensity.compact,
-                      onSelected: (_) => setState(() => _cat = c),
+                      onSelected: (_) {
+                        dismissKeyboard();
+                        setState(() => _cat = c);
+                      },
                     ),
                   ),
               ]),
@@ -855,7 +865,12 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
           ]),
         ),
         Expanded(
-          child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 16), children: [
+          child: ListView(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+              /* 목록을 끌면 키보드가 내려갑니다 — 검색 키보드가 뜬 채로는 결과가 몇 줄밖에
+                 안 보이는데, 끌기는 「더 보고 싶다」 는 뜻입니다. */
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              children: [
             if (favs.isNotEmpty && q.isEmpty) ...[
               label('즐겨찾기'),
               Wrap(spacing: 6, runSpacing: 6, children: [
@@ -956,8 +971,14 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
     );
   }
 
-  /* 직접 입력 — 목록에 없는 것. 원본 customFood 모달과 같은 칸. */
+  /* 직접 입력 — 목록에 없는 것. 원본 customFood 모달과 같은 칸.
+     칸은 이름 → 칼로리 → 단백질 → 탄수화물 → 지방 순으로 「다음」 키가 옮겨 주고,
+     마지막 칸의 완료는 「추가」 와 같습니다. 숫자 칸은 소수점이 있는 패드 — 아이폰
+     숫자 패드에는 '.' 이 없어 12.5g 을 넣을 수 없었습니다. */
   Future<void> _custom() async {
+    /* 검색 칸의 키보드는 먼저 내립니다 — 안 내리면 다이얼로그가 닫힐 때 포커스가
+       검색 칸으로 돌아와 키보드가 다시 튀어 오릅니다. */
+    dismissKeyboard();
     final name = TextEditingController();
     final kcal = TextEditingController();
     final p = TextEditingController();
@@ -969,11 +990,26 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
         title: const Text('직접 입력'),
         content: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: name, decoration: const InputDecoration(labelText: '이름', hintText: '예: 회사 구내식당 점심')),
-            TextField(controller: kcal, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '칼로리 (kcal)')),
-            TextField(controller: p, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '단백질 (g)')),
-            TextField(controller: c, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '탄수화물 (g)')),
-            TextField(controller: f, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: '지방 (g)')),
+            TextField(
+              controller: name,
+              autofocus: true,
+              textInputAction: TextInputAction.next,
+              decoration: const InputDecoration(labelText: '이름', hintText: '예: 회사 구내식당 점심'),
+            ),
+            for (final (ctl, label) in [(kcal, '칼로리 (kcal)'), (p, '단백질 (g)'), (c, '탄수화물 (g)')])
+              TextField(
+                controller: ctl,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                textInputAction: TextInputAction.next,
+                decoration: InputDecoration(labelText: label),
+              ),
+            TextField(
+              controller: f,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => Navigator.pop(ctx, true),
+              decoration: const InputDecoration(labelText: '지방 (g)'),
+            ),
           ]),
         ),
         actions: [
@@ -994,16 +1030,24 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
 
   /* 양 고르기 — 시트 하나. 이름 · 기준 · 편차 안내 · 배수 버튼 · 즐겨찾기. */
   Future<void> _pick(Map<String, Object?> food) async {
+    /* 행을 누른 손가락은 칸 밖에 있습니다 — 여기서 키보드를 내리지 않으면 시트가
+       닫힐 때 포커스가 검색 칸으로 돌아와 키보드가 다시 떠서, 담은 것과 「저장」 을
+       키보드 위 좁은 틈에서 봐야 했습니다. 다음 음식을 찾을 사람은 칸을 다시 누릅니다. */
+    dismissKeyboard();
     final app = Scope.of(context);
     final mult = await showModalBottomSheet<double>(
       context: context,
       showDragHandle: true,
+      /* 360 폭에서는 양 버튼(「1인분 · 280kcal」)이 한 줄에 하나씩 서서 시트가 기본
+         최대 높이(화면의 9/16)를 49px 넘쳤습니다 — 마지막 버튼이 잘려 못 눌렀습니다.
+         높이 제한을 풀고, 작은 화면에서 그래도 넘치면 스크롤합니다. */
+      isScrollControlled: true,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
         final t = Theme.of(ctx);
         final fav = ((app.state['foodFavorites'] as List?) ?? const []).contains(food['name']);
         final note = '${(core.kConfLabel['${food['conf']}'] as Map?)?['note'] ?? ''}';
         return SafeArea(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [

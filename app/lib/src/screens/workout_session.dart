@@ -38,7 +38,8 @@
  *   헬스   log['gym']    = {kind:'gym', startedAt, minutes, kcal, sets,
  *                           exercises:[{name, sets(한 것), of(계획), reps, restSec, kg(맨몸 null)}]}
  *   맨몸   log['gym']    = {kind:'bodyweight', minutes, kcal, exercises:[이름…]}
- *   유산소 log['cardio'] = {kind:'walk'|'run'|'bike'|'cardio', startedAt, minutes, km, kcal}
+ *   유산소 log['cardio'] = {kind:'walk'|'run'|'bike'|'cardio'|'pilates'…(kcal.dart kSports 의 id),
+ *                           startedAt, minutes, km(거리 있는 종목만), kcal}
  * ========================================================================== */
 import 'dart:async';
 
@@ -453,6 +454,8 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
   final _minutesCtl = TextEditingController();
   final _kmCtl = TextEditingController();
   final _nameCtl = TextEditingController();
+  /// 유산소 시트의 거리 칸 — 분 칸의 「다음」 키가 여기로 옮겨 줍니다.
+  final _kmFocus = FocusNode();
 
   static DateTime _now() => WorkoutSessionScreen.clock();
 
@@ -477,6 +480,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     _minutesCtl.dispose();
     _kmCtl.dispose();
     _nameCtl.dispose();
+    _kmFocus.dispose();
     super.dispose();
   }
 
@@ -779,7 +783,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     final app = Scope.of(context);
     final future = widget.dateKey.compareTo(app.store.dayKey()) > 0;
     final title = switch (widget.type) {
-      'cardio' => '유산소',
+      'cardio' => '유산소 · 스포츠',
       'bodyweight' => '집에서 맨몸 운동',
       _ => '헬스',
     };
@@ -1002,6 +1006,10 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
               controller: minutesCtl,
               keyboardType: TextInputType.number,
               autofocus: true,
+              /* 마지막 숫자 칸 — 완료 키(안드로이드)로 키보드가 내려갑니다. 아이폰 숫자
+                 패드에는 그 키가 없어 시트 안 빈 곳을 탭해 내리고, 「저장」 은 어차피
+                 키보드 위에 보입니다(_Sheet 가 viewInsets 만큼 밀어 올립니다). */
+              textInputAction: TextInputAction.done,
               onChanged: (_) => setSheet(() {}),
               decoration: const InputDecoration(
                   labelText: '운동 시간', suffixText: '분', border: OutlineInputBorder(),
@@ -1105,9 +1113,9 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
       Expanded(
         child: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: [
           if (future) _futureNote(),
-          /* 한 줄로 — 종류(걷기 · 달리기 · 자전거)와 거리는 종료 시트가 물으니 여기서
+          /* 한 줄로 — 종목(걷기 · 필라테스 · 탁구 …)과 거리는 종료 시트가 물으니 여기서
              미리 설명하지 않습니다. 360px 폰에서 두 줄로 접히던 문장이었습니다. */
-          Text('끝나면 「종료」 — 종류와 거리는 그때 적습니다.',
+          Text('끝나면 「종료」 — 종목과 거리는 그때 고릅니다.',
               style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
           const SizedBox(height: 10),
           /* 이미 하고 온 사람 — 시계 없이 분만 넣습니다. 목록 폭을 다 채우는 버튼은
@@ -1137,7 +1145,31 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     final timed = _timed && _elapsedSeconds > 0;
     final minutesCtl = _minutesCtl..clear();
     final kmCtl = _kmCtl..clear();
-    var kind = kCardioKinds.first;
+    /* 최근 30일에 두 번 이상 한 종목이 기본 선택입니다 — 필라테스를 다니는 사람은 시트를
+       열면 이미 필라테스라 「저장」 한 번이면 끝. 기록하려는 그 날의 기록과 한 번 해 본
+       종목은 기본값이 되지 않습니다(defaultSportId) — 어제 테니스를 쳤다고 오늘 걸은 것이
+       「저장」 한 번에 테니스로 남으면 안 됩니다. 걷기 · 달리기 · 자전거 옆에 최근 종목
+       셋까지 칩으로 올리고, 나머지는 「다른 종목」 한 번 더(칩 → 타일, 두 번 터치).
+       최근은 **오늘** 기준 — 지난 날을 채울 때도 지금 하는 종목이 올라옵니다. */
+    final schedule = ((app.state['schedule'] as Map?) ?? const {}).cast<String, Object?>();
+    final today = app.store.dayKey();
+    final recent = recentSportIds(schedule, today);
+    final quick = [...kQuickSports, ...recent.where((id) => !kQuickSports.contains(id)).take(3)];
+    var kind = defaultSportId(schedule, today, skip: widget.dateKey);
+    String? picked;                        // 「다른 종목」 에서 고른 것 — 칩 줄 끝에 남습니다
+    /* 유산소 기록은 하루에 하나(log['cardio']) — 저장하면 앞의 것이 바뀝니다. 자전거 출퇴근
+       + 저녁 배드민턴 같은 날, 말없이 앞 기록이 사라지지 않게 시트 맨 위에 한 줄. */
+    final prevLog = (app.store.scheduleDay(widget.dateKey)['log'] as Map?)?['cardio'];
+    final prevText = prevLog is Map
+        ? '${sportLabel(prevLog['kind'] is String ? prevLog['kind'] as String : null)}'
+            '${prevLog['minutes'] is num ? ' ${n0(prevLog['minutes'])}분' : ''}'
+        : null;
+    /* 종목을 바꾸면 거리 단위가 바뀔 수 있습니다(수영은 m). 단위가 바뀌면 칸을 비웁니다 —
+       걷기에 넣은 3(km)이 수영의 3m 가 되면 안 됩니다. */
+    void setKind(String id) {
+      if ((sportOf(id)?.meters ?? false) != (sportOf(kind)?.meters ?? false)) kmCtl.clear();
+      kind = id;
+    }
 
     final r = await showModalBottomSheet<({String kind, int seconds, double? km})>(
       context: context,
@@ -1145,32 +1177,58 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
       isScrollControlled: true,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
         final sec = timed ? _elapsedSeconds : (int.tryParse(minutesCtl.text.trim()) ?? 0) * 60;
-        final km = double.tryParse(kmCtl.text.trim());
+        /* 거리는 거리가 있는 종목만 — 칸이 숨었는데 전에 넣은 km 가 kcal 을 바꾸면 안 됩니다.
+           칸의 글자는 지우지 않습니다(걷기로 돌아오면 그대로). */
+        final hasDistance = sportOf(kind)?.hasDistance ?? false;
+        final meters = sportOf(kind)?.meters ?? false;
+        final raw = double.tryParse(kmCtl.text.trim());
+        final km = hasDistance && raw != null && raw > 0 ? (meters ? raw / 1000 : raw) : null;
         final kcal = sec > 0
             ? workoutKcal(
                 weightKg: weight ?? kFallbackWeightKg,
                 duration: Duration(seconds: sec),
                 kind: kind,
-                km: km != null && km > 0 ? km : null)
+                km: km)
             : 0.0;
         final kmField = TextField(
+          /* 단위가 바뀌면 키보드(소수점 유무)도 바뀌어야 합니다 — 새 칸으로. */
+          key: ValueKey('distance-${meters ? 'm' : 'km'}'),
           controller: kmCtl,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          focusNode: _kmFocus,
+          keyboardType: TextInputType.numberWithOptions(decimal: !meters),
+          textInputAction: TextInputAction.done,
           onChanged: (_) => setSheet(() {}),
-          decoration: const InputDecoration(
-              labelText: '거리', suffixText: 'km', border: OutlineInputBorder(),
+          decoration: InputDecoration(
+              labelText: '거리', suffixText: meters ? 'm' : 'km', border: const OutlineInputBorder(),
               helperText: '몰라도 됩니다'),
         );
         return _Sheet(children: [
-          Text('오늘 유산소', style: Theme.of(ctx).textTheme.titleMedium),
+          Text('오늘 유산소 · 스포츠', style: Theme.of(ctx).textTheme.titleMedium),
           const SizedBox(height: 12),
-          Wrap(spacing: 8, children: [
-            for (final k in kCardioKinds)
+          if (prevText != null)
+            Note(tone: Tone.warn, text: '이미 $prevText — 저장하면 바뀝니다'),
+          /* 360px 에서 칩 일곱 개는 한 줄에 안 들어갑니다 — 넘치면 다음 줄로. */
+          Wrap(spacing: 8, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+            for (final k in [...quick, if (picked != null && !quick.contains(picked)) picked!])
               ChoiceChip(
-                label: Text(cardioKindLabel(k)),
+                key: ValueKey('sport-chip-$k'),
+                label: Text(sportLabel(k)),
                 selected: kind == k,
-                onSelected: (_) => setSheet(() => kind = k),
+                onSelected: (_) => setSheet(() => setKind(k)),
               ),
+            ActionChip(
+              key: const ValueKey('sport-more'),
+              avatar: const Icon(LucideIcons.layoutGrid, size: 16),
+              label: const Text('다른 종목'),
+              onPressed: () async {
+                final id = await _pickSport(ctx, kind);
+                if (id == null || !ctx.mounted) return;
+                setSheet(() {
+                  setKind(id);
+                  picked = id;
+                });
+              },
+            ),
           ]),
           const SizedBox(height: 14),
           if (timed)
@@ -1182,9 +1240,19 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
             Row(children: [
               Expanded(
                 child: TextField(
+                  /* 떠 있는 키보드는 「다음/완료」 가 바뀐 것을 모릅니다 — EditableText 는
+                     keyboardType 이 바뀔 때만 설정을 다시 보냅니다. 칩으로 종목을 바꿔
+                     거리 칸이 생기거나 없어지면 새 칸으로 갈아 끼워 새로 연결합니다
+                     (글자는 컨트롤러에, 포커스는 autofocus 로 이어집니다). */
+                  key: ValueKey('minutes-$hasDistance'),
                   controller: minutesCtl,
                   keyboardType: TextInputType.number,
                   autofocus: true,
+                  /* 분 → 「다음」 → 거리. 손으로 다음 칸을 짚지 않아도 됩니다.
+                     onEditingComplete 가 기본 nextFocus 를 대신해 한 번만 옮깁니다.
+                     거리 칸이 없는 종목이면 분 칸이 마지막 — 완료 키로 키보드가 내려갑니다. */
+                  textInputAction: hasDistance ? TextInputAction.next : TextInputAction.done,
+                  onEditingComplete: hasDistance ? () => _kmFocus.requestFocus() : null,
                   onChanged: (_) => setSheet(() {}),
                   decoration: const InputDecoration(
                       labelText: '시간', suffixText: '분', border: OutlineInputBorder()),
@@ -1193,8 +1261,10 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
               const SizedBox(width: 10),
               Expanded(child: Stat(label: '추정', value: n0(kcal), unit: 'kcal')),
             ]),
-          const SizedBox(height: 12),
-          kmField,
+          if (hasDistance) ...[
+            const SizedBox(height: 12),
+            kmField,
+          ],
           if (weight == null)
             Text('측정이 없어 체중 ${n0(kFallbackWeightKg)}kg 기준으로 계산했습니다.',
                 style: Theme.of(ctx).textTheme.labelSmall?.copyWith(color: Theme.of(ctx).hintColor)),
@@ -1204,7 +1274,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
             height: 52,
             child: FilledButton(
               onPressed: sec > 0 && !future
-                  ? () => Navigator.pop(ctx, (kind: kind, seconds: sec, km: km != null && km > 0 ? km : null))
+                  ? () => Navigator.pop(ctx, (kind: kind, seconds: sec, km: km))
                   : null,
               child: const Text('저장'),
             ),
@@ -1233,10 +1303,75 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     });
     if (!ok || !mounted) return;
     await _celebrate(kcal,
-        detail: '${cardioKindLabel(r.kind)} ${timeText(r.seconds, timed: timed)}'
+        detail: '${sportLabel(r.kind)} ${timeText(r.seconds, timed: timed)}'
             '${r.km == null ? '' : ' · ${n1(r.km)}km'}');
     if (mounted) Navigator.of(context).pop();
   }
+
+  /// 「다른 종목」 — 묶음(유산소 · 요가·필라테스 · 라켓 …)별 타일로 전부. 누르면 그 종목으로
+  /// 닫히고, 그냥 내리면 null. 타일 폭은 칸 수로 나눠 360px 에서도 셋씩 들어갑니다.
+  Future<String?> _pickSport(BuildContext context, String selected) => showModalBottomSheet<String>(
+        context: context,
+        showDragHandle: true,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (ctx) {
+          final t = Theme.of(ctx);
+          final c = mb(ctx);
+          return FractionallySizedBox(
+            heightFactor: 0.85,
+            child: LayoutBuilder(builder: (ctx, box) {
+              const gap = 8.0;
+              final inner = box.maxWidth - 32;
+              final cols = (inner / 110).floor().clamp(3, 5);
+              final w = (inner - gap * (cols - 1)) / cols;
+              return ListView(
+                key: const ValueKey('sport-grid'),
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
+                children: [
+                  for (final (g, name) in kSportGroups)
+                    if (kSports.any((s) => s.group == g)) ...[
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(0, 12, 0, 6),
+                        child: Text(name,
+                            style: t.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700)),
+                      ),
+                      Wrap(spacing: gap, runSpacing: gap, children: [
+                        for (final s in kSports.where((s) => s.group == g))
+                          SizedBox(
+                            width: w,
+                            height: 48,
+                            child: Material(
+                              color: s.id == selected ? t.colorScheme.primary : c.accentSub,
+                              borderRadius: BorderRadius.circular(12),
+                              child: InkWell(
+                                key: ValueKey('sport-${s.id}'),
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () => Navigator.pop(ctx, s.id),
+                                child: Center(
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                                    /* 긴 이름(태권도·무술)은 줄이지 자르지 않습니다. */
+                                    child: FittedBox(
+                                      fit: BoxFit.scaleDown,
+                                      child: Text(s.label,
+                                          style: t.textTheme.titleSmall?.copyWith(
+                                              fontWeight: FontWeight.w700,
+                                              color: s.id == selected ? t.colorScheme.onPrimary : null)),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ]),
+                    ],
+                ],
+              );
+            }),
+          );
+        },
+      );
 
   /* --- 집에서 맨몸 ---------------------------------------------------------- */
 

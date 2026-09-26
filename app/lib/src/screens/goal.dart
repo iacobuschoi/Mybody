@@ -51,6 +51,9 @@ class _GoalScreenState extends State<GoalScreen> {
   /// 체지방**률**(%)로 받습니다. 사람은 "15%" 로 생각하지 "12.1kg" 으로
   /// 생각하지 않습니다. 저장은 여전히 kg 입니다 — 엔진과 백업 판이 그걸 봅니다.
   final _p = TextEditingController();
+  /* 키보드의 「다음」 이 체중 → 골격근 → 체지방 순으로 옮겨 가게. */
+  final _sFocus = FocusNode();
+  final _pFocus = FocusNode();
   int? _deadlineWeeks;
   String? _manualModeId;
   bool _seeded = false;
@@ -98,6 +101,8 @@ class _GoalScreenState extends State<GoalScreen> {
     _w.dispose();
     _s.dispose();
     _p.dispose();
+    _sFocus.dispose();
+    _pFocus.dispose();
     super.dispose();
   }
 
@@ -165,7 +170,12 @@ class _GoalScreenState extends State<GoalScreen> {
 
     return Scaffold(
       appBar: AppBar(title: Text(saved == null ? '목표 설정' : '목표 변경')),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
+      body: ListView(
+          padding: const EdgeInsets.all(16),
+          /* 끌어 내리면 키보드도 내려갑니다 — 아이폰 숫자 패드에는 완료 키가 없고,
+             세 칸을 채운 뒤 아래 모드 · 마감 카드를 봐야 합니다. */
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          children: [
         _chooser(),
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -241,9 +251,9 @@ class _GoalScreenState extends State<GoalScreen> {
                 style: Theme.of(context).textTheme.bodySmall
                     ?.copyWith(color: Theme.of(context).hintColor, height: 1.5)),
           ),
-          _num(_w, 'w', '목표 체중', 'kg'),
-          _num(_s, 's', '목표 골격근량', 'kg'),
-          _num(_p, 'p', '목표 체지방률', '%'),
+          _num(_w, 'w', '목표 체중', 'kg', next: _sFocus),
+          _num(_s, 's', '목표 골격근량', 'kg', focus: _sFocus, next: _pFocus),
+          _num(_p, 'p', '목표 체지방률', '%', focus: _pFocus),
           if (goalInfo != null) ...[
             Wrap(spacing: 6, runSpacing: 6, children: [
               /* 이건 숫자가 가리키는 **방향**이고, 아래 모드는 규칙이 고른
@@ -340,13 +350,20 @@ class _GoalScreenState extends State<GoalScreen> {
     ];
   }
 
-  Widget _num(TextEditingController c, String key, String label, String unit) {
+  /// [next] 가 있으면 키보드의 「다음」 이 그 칸으로, 없으면(마지막 칸) 「완료」 가
+  /// 키보드를 내립니다. 아이폰 숫자 패드에는 둘 다 없어 바깥 탭 · 끌기로 내립니다.
+  /// 옮기기는 onEditingComplete 로 — 기본 동작(nextFocus)을 대신해 한 번만 움직입니다.
+  Widget _num(TextEditingController c, String key, String label, String unit,
+      {FocusNode? focus, FocusNode? next}) {
     final auto = _auto == key;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextField(
         controller: c,
+        focusNode: focus,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        textInputAction: next == null ? TextInputAction.done : TextInputAction.next,
+        onEditingComplete: next == null ? null : () => next.requestFocus(),
         onChanged: (_) => _edited(key),
         decoration: InputDecoration(
           labelText: auto ? '$label (자동)' : label,

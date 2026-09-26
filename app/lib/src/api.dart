@@ -25,6 +25,13 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+/// 계정에 딸린 화면 캐시의 열쇠 앞머리 — 친구 목록 · 친구별 공유 · 기본 공유
+/// (social.dart · share_defaults.dart). 로그인이 끝나면(로그아웃 · 세션 만료 ·
+/// 「이 기기에서 전부 지우기」) 지웁니다. 열쇠에 계정이 없어서, 남겨 두면 같은
+/// 기기에서 다른 계정으로 로그인한 뒤 서버에 못 닿을 때 앞 사람의 설정이
+/// 「마지막으로 본 설정」 으로 보이고 스위치가 그 값을 기준으로 움직입니다.
+const kAccountCachePrefixes = ['mybody.share.', 'mybody.friends.cache.'];
+
 class ApiResult {
   final int status;
   final Map<String, dynamic> body;
@@ -78,10 +85,22 @@ class Api extends ChangeNotifier {
       final sp = await SharedPreferences.getInstance();
       if (t == null) {
         await sp.remove(_tokenKey);
+        await clearAccountCaches();
       } else {
         await sp.setString(_tokenKey, t);
       }
     } catch (_) {/* 못 적어도 이번 실행 동안은 씁니다 */}
+  }
+
+  /// [kAccountCachePrefixes] 의 캐시를 전부 지웁니다. 로그인이 끝날 때와
+  /// 「이 기기에서 전부 지우기」(로그인 안 한 채로 눌러도)가 부릅니다.
+  static Future<void> clearAccountCaches() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      for (final k in sp.getKeys().toList()) {
+        if (kAccountCachePrefixes.any(k.startsWith)) await sp.remove(k);
+      }
+    } catch (_) {/* 못 지워도 로그아웃은 됩니다 */}
   }
 
   /// 확장(extension)에서도 부릅니다 — 친구·공유 호출이 여기 묶여 있습니다.
@@ -250,6 +269,22 @@ extension ApiSocial on Api {
   Future<ApiResult> getShare(String userId) => send('GET', '/share/$userId');
   Future<ApiResult> setShare(String userId, Map<String, dynamic> flags) =>
       send('PUT', '/share/$userId', flags);
+
+  /// 새 친구에게 기본으로 보여 주는 것. `{ok, defaults:{streak, …}}`.
+  /// 친구를 맺는 순간 서버가 이 값을 그 관계로 복사합니다 — 이미 맺은
+  /// 친구는 [applyShareDefaults] 로만 바뀝니다. 이 길이 없는 옛 서버는 404.
+  Future<ApiResult> getShareDefaults() => send('GET', '/share-defaults');
+
+  /// 바꾼 스위치만 보냅니다 — 캐시에서 본 옛 값으로 나머지를 덮지 않게.
+  /// 서버가 합친 결과를 `defaults` 로 돌려줍니다.
+  Future<ApiResult> setShareDefaults(Map<String, bool> patch) =>
+      send('PUT', '/share-defaults', patch);
+
+  /// 지금 친구 모두의 "내가 보여 주는 것" 을 기본값으로 덮습니다. `{ok, applied}`.
+  /// [expect] 는 사람이 확인 창에서 본 값 — 서버에 저장된 기본값과 다르면
+  /// 서버가 아무것도 안 바꾸고 409 `{conflict, defaults}` 를 줍니다.
+  Future<ApiResult> applyShareDefaults({Map<String, bool>? expect}) =>
+      send('POST', '/share-defaults/apply', expect == null ? null : {'expect': expect});
 
   /// 운동 독촉 — 친구에게 "오늘 운동 어때요" 한 번(하루 한 번).
   Future<ApiResult> poke(String userId) => _send('POST', '/pokes', {'userId': userId, 'kind': 'workout'});

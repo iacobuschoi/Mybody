@@ -67,6 +67,11 @@ class SyncQueue {
   /// 아직 못 보낸 개수. 화면이 이걸 보여 줍니다.
   int get pending => _queue.length;
 
+  /// 그 종류([op])의 일 중 아직 못 보낸 개수. 「모두에게 적용」 은 친구별
+  /// 공유 변경(setShare)이 남아 있으면 적용하지 않습니다 — 나중에 도착한
+  /// 옛 변경이 방금 적용한 값을 조용히 되돌립니다(share_defaults.dart).
+  int pendingOf(String op) => _queue.where((j) => j.op == op).length;
+
   final _changed = StreamController<void>.broadcast();
   Stream<void> get changes => _changed.stream;
   void _emit() { if (!_changed.isClosed) _changed.add(null); }

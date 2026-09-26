@@ -337,4 +337,67 @@ void main() {
     expect(checkinWeightProblem(app.store, 80.5), isNull);
     expect(checkinWeightProblem(app.store, 805), isNotNull);
   });
+
+  /* ---------------------------------------------------------------- 키보드 */
+
+  /* 아이폰 숫자 패드에는 완료 키가 없습니다. 키보드는 viewInsets 300px 로 흉내 내고
+     — 시험에는 진짜 키보드가 없어 탭은 어디든 닿으니 — 단추의 자리(rect)가 키보드
+     위인지를 따로 봅니다. 바깥 탭으로 내리는 것은 앱 전체에 한 번 걸려
+     keyboard_global_test 가 봅니다. */
+  void phone(WidgetTester t, Size size, {double keyboard = 0}) {
+    t.view.physicalSize = size;
+    t.view.devicePixelRatio = 1.0;
+    t.view.viewInsets = FakeViewPadding(bottom: keyboard);
+    addTearDown(t.view.reset);
+  }
+
+  testWidgets('키보드가 떠 있어도 「체크인 저장」 은 스크롤로 키보드 위에 오고 눌린다', (t) async {
+    for (final size in const [Size(360, 740), Size(390, 844)]) {
+      phone(t, size);
+      final app = await seeded();
+      await t.pumpWidget(host(app, const CheckinScreen()));
+      await t.tap(find.text('열기'));
+      await t.pumpAndSettle();
+      await t.enterText(find.byType(TextField), '86.2');
+      t.view.viewInsets = const FakeViewPadding(bottom: 300);
+      await t.pumpAndSettle();
+
+      await t.dragUntilVisible(find.text('체크인 저장'), find.byType(ListView), const Offset(0, -200));
+      await t.pumpAndSettle();
+      final r = t.getRect(find.widgetWithText(FilledButton, '체크인 저장'));
+      expect(r.bottom, lessThanOrEqualTo(size.height - 300),
+          reason: '$size 단추가 키보드(아래 300px) 뒤에 있으면 못 누릅니다: $r');
+      expect(r.top, greaterThanOrEqualTo(0));
+
+      await t.tap(find.text('체크인 저장'));
+      await t.pumpAndSettle();
+      expect(((app.state['checkins'] as List).single as Map)['weightKg'], 86.2, reason: '$size');
+      expect(t.takeException(), isNull);
+      await t.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
+  testWidgets('체중 칸 — 완료 키와 목록 끌기로 키보드가 내려간다', (t) async {
+    phone(t, const Size(360, 740), keyboard: 300);
+    final app = await seeded();
+    await t.pumpWidget(host(app, const CheckinScreen()));
+    await t.tap(find.text('열기'));
+    await t.pumpAndSettle();
+    final focus = t.widget<EditableText>(find.byType(EditableText)).focusNode;
+
+    await t.showKeyboard(find.byType(TextField));
+    await t.pumpAndSettle();
+    expect(focus.hasFocus, isTrue);
+    await t.testTextInput.receiveAction(TextInputAction.done);
+    await t.pumpAndSettle();
+    expect(focus.hasFocus, isFalse, reason: '칸이 하나라 완료는 키보드를 내립니다');
+
+    await t.showKeyboard(find.byType(TextField));
+    await t.pumpAndSettle();
+    expect(focus.hasFocus, isTrue);
+    await t.drag(find.byType(ListView), const Offset(0, -80));
+    await t.pumpAndSettle();
+    expect(focus.hasFocus, isFalse, reason: '끌기(onDrag)로 내려가야 합니다');
+    expect(t.takeException(), isNull);
+  });
 }

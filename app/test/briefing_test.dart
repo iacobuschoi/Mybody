@@ -211,7 +211,7 @@ void main() {
 
     var b = buildBriefing(app, now: now);
     expect(b.primary?.label, '운동 시작');
-    expect(labels(b.secondary).first, '유산소 시작');
+    expect(labels(b.secondary).first, '유산소 · 스포츠 시작');
     expect(b.secondary.first.arg, {'date': key, 'type': 'cardio'});
     /* 한 줄에 접습니다 — "오늘은 하체 A 하는 날 · 60분 · 유산소 N분". */
     expect(texts(b), anyElement(allOf(startsWith('오늘은 $label 하는 날'), contains('유산소'))));
@@ -219,7 +219,7 @@ void main() {
     app.store.setScheduleDone(key, 'gym', true);
     b = buildBriefing(app, now: now);
     expect(b.headline, '유산소만 남았어요');
-    expect(b.primary?.label, '유산소 시작');
+    expect(b.primary?.label, '유산소 · 스포츠 시작');
     expect(b.lines.first.text, '$label 완료');
     expect(b.lines.first.done, isTrue);
     expect(b.lines.first.icon, 'done');
@@ -582,7 +582,7 @@ void main() {
     expect(t.takeException(), isNull);
     expect(find.byType(ErrorWidget), findsNothing);
     expect(find.widgetWithText(FilledButton, '운동 시작'), findsOneWidget);
-    expect(find.widgetWithText(FilledButton, '유산소 시작'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '유산소 · 스포츠 시작'), findsOneWidget);
   });
 
   testWidgets('홈 — 인바디 없음: 브리핑이 올리기 버튼 하나만 든다', (t) async {

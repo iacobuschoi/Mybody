@@ -1,10 +1,12 @@
 /* =============================================================================
  * social.dart — P15 친구 · P16 친구 상세
  *
- * **몸 숫자는 기본이 비공개입니다.** 친구가 되어도 서로 보이는 것은 "이번 주에
- * 운동했는가" 뿐이고, 체중·근육·체지방은 그 친구에게 따로 켜야 나갑니다.
- * 그리고 켜고 끄는 것은 화면에서 가리는 것이 아니라 **서버가 안 보내는**
- * 것입니다 — 권한 판정은 언제나 서버가 합니다.
+ * **친구에게 무엇이 보이는지는 각자의 「기본 공유」 가 정합니다.** 친구를 맺는
+ * 순간 서버가 그 값을 복사하고(처음 값은 몸 숫자 꺼짐), 그 뒤로는 친구마다
+ * 따로 켜고 끕니다. 그래서 화면은 "몸 숫자는 기본 비공개" 라고 단정하지 않고,
+ * 수락 버튼 옆에 내 기본값으로 실제로 나갈 것을 보여 줍니다.
+ * 켜고 끄는 것은 화면에서 가리는 것이 아니라 **서버가 안 보내는** 것입니다 —
+ * 권한 판정은 언제나 서버가 합니다.
  *
  * 점(배지)은 두 가지에만 켭니다: 받은 친구 요청(내가 답해야 하는 일)과
  * 친구 소식(친구가 운동했다는 좋은 소식). **안 한 것에는 절대 안 켭니다** —
@@ -28,6 +30,7 @@ import '../ui/symbols.dart';
 import '../ui/widgets.dart';
 import 'adherence.dart' show DayMark, DayMarkLegend, dayMarkState;
 import 'news.dart';
+import 'share_defaults.dart';
 
 class SocialScreen extends StatefulWidget {
   const SocialScreen({super.key, required this.go});
@@ -45,6 +48,9 @@ class _SocialScreenState extends State<SocialScreen> {
   bool _busy = false;
   /// 서버에 못 닿아서 마지막으로 본 목록을 보여 주는 중인가.
   bool _fromCache = false;
+  /// 내 「기본 공유」 — 받은 요청의 수락 버튼 옆에 "수락하면 보여 줄 것" 으로.
+  /// 못 받았으면(옛 서버 · 오프라인) null 이고, 그때는 그 줄이 없습니다.
+  Map<String, bool>? _myDefaults;
 
   Future<void> _remember(Map<String, dynamic> friends) async {
     try {
@@ -81,9 +87,10 @@ class _SocialScreenState extends State<SocialScreen> {
       if (!mounted) return;
       if (cached != null) setState(() { _friends = cached; _fromCache = true; });
     }
-    final both = await Future.wait([api.me(), api.friends()]);
+    final both = await Future.wait([api.me(), api.friends(), api.getShareDefaults()]);
     final me = both[0];
     final f = both[1];
+    final d = both[2];
     if (!mounted) return;
     var friends = f.ok ? (f.body['friends'] as Map?)?.cast<String, dynamic>() : null;
     var fromCache = false;
@@ -109,6 +116,7 @@ class _SocialScreenState extends State<SocialScreen> {
       _friends = friends;
       _fromCache = fromCache;
       _error = f.ok ? null : f.reason;
+      if (d.ok && d.body['defaults'] is Map) _myDefaults = shareFlagsFrom(d.body['defaults']);
     });
   }
 
@@ -226,7 +234,7 @@ class _SocialScreenState extends State<SocialScreen> {
 
         if (incoming.isNotEmpty) ...[
           const SectionTitle('받은 요청'),
-          for (final p in incoming) _RequestRow(person: p, onDone: _load),
+          for (final p in incoming) _RequestRow(person: p, onDone: _load, defaults: _myDefaults),
         ],
         if (outgoing.isNotEmpty) ...[
           const SectionTitle('보낸 요청'),
@@ -240,11 +248,25 @@ class _SocialScreenState extends State<SocialScreen> {
             ),
         ],
 
-        const SectionTitle('친구'),
+        /* 새 친구에게 기본으로 보여 줄 것 — 설정의 카드와 같은 것을 여기서도.
+           친구 목록 바로 위라 "누구에게 무엇이 나가나" 를 찾는 사람이 닿습니다.
+           돌아오면 목록을 다시 받습니다 — 「모두에게 적용」 이 목록의 공유
+           요약(iShare)을 바꿨을 수 있습니다. */
+        SectionTitle('친구',
+            trailing: TextButton.icon(
+              style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+              onPressed: () async {
+                await Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const ShareDefaultsScreen()));
+                if (mounted) unawaited(_load());
+              },
+              icon: const Icon(LucideIcons.slidersHorizontal, size: 16),
+              label: const Text('기본 공유'),
+            )),
         if (accepted.isEmpty)
           const EmptyState(
             title: '아직 친구가 없습니다',
-            detail: '초대 코드를 주고받으면 운동 체크가 보입니다 — 몸 숫자는 기본 비공개',
+            detail: '무엇이 보일지는 「기본 공유」에서 정합니다',
           )
         else
           for (final p in accepted)
@@ -266,6 +288,12 @@ class _SocialScreenState extends State<SocialScreen> {
         content: TextField(
           controller: ctrl,
           autofocus: true,
+          /* 코드(ab12cd)는 낱말이 아닙니다 — 자동 교정 · 추천이 켜져 있으면 키보드가
+             멋대로 고쳐 보냅니다. 완료 키는 곧 「요청 보내기」. */
+          autocorrect: false,
+          enableSuggestions: false,
+          textInputAction: TextInputAction.done,
+          onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
           decoration: const InputDecoration(hintText: '예: ab12cd', border: OutlineInputBorder()),
         ),
         actions: [
@@ -284,44 +312,59 @@ class _SocialScreenState extends State<SocialScreen> {
 }
 
 class _RequestRow extends StatelessWidget {
-  const _RequestRow({required this.person, required this.onDone});
+  const _RequestRow({required this.person, required this.onDone, this.defaults});
   final dynamic person;
   final Future<void> Function() onDone;
+  /// 내 기본 공유 — 수락하면 이 값이 그대로 그 친구에게 가는 쪽이 됩니다.
+  final Map<String, bool>? defaults;
 
   @override
   Widget build(BuildContext context) {
     final api = Scope.apiOf(context);
+    final t = Theme.of(context);
     return MbCard(
-      child: Row(children: [
-        Avatar(displayName: '${person['displayName']}', id: '${person['id']}',
-            avatarUrl: person['avatar'] as String?, size: 36),
-        const SizedBox(width: 10),
-        Expanded(child: Text('${person['displayName']}')),
-        TextButton(
-          onPressed: () async {
-            final id = '${person['id']}';
-            final q = Scope.queueOf(context);
-            final r = await api.declineFriend(id);
-            if (!r.ok && q != null && _worthRetrying(r)) {
-              q.add('decline', {'userId': id});
-            }
-            await onDone();
-          },
-          child: const Text('거절'),
-        ),
-        FilledButton(
-          onPressed: () async {
-            final id2 = '${person['id']}';
-            final q2 = Scope.queueOf(context);
-            final r = await api.acceptFriend(id2);
-            if (!r.ok && q2 != null && _worthRetrying(r)) {
-              q2.add('accept', {'userId': id2});
-            }
-            if (context.mounted && !r.ok) toast(context, r.reason);
-            await onDone();
-          },
-          child: const Text('수락'),
-        ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Avatar(displayName: '${person['displayName']}', id: '${person['id']}',
+              avatarUrl: person['avatar'] as String?, size: 36),
+          const SizedBox(width: 10),
+          Expanded(child: Text('${person['displayName']}')),
+          TextButton(
+            onPressed: () async {
+              final id = '${person['id']}';
+              final q = Scope.queueOf(context);
+              final r = await api.declineFriend(id);
+              if (!r.ok && q != null && _worthRetrying(r)) {
+                q.add('decline', {'userId': id});
+              }
+              await onDone();
+            },
+            child: const Text('거절'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              final id2 = '${person['id']}';
+              final q2 = Scope.queueOf(context);
+              final r = await api.acceptFriend(id2);
+              if (!r.ok && q2 != null && _worthRetrying(r)) {
+                q2.add('accept', {'userId': id2});
+              }
+              if (context.mounted && !r.ok) toast(context, r.reason);
+              await onDone();
+            },
+            child: const Text('수락'),
+          ),
+        ]),
+        /* 수락을 누르는 그 순간에 무엇이 나가는지 — 기본 공유에서 몸 숫자를 켜
+           둔 사람이 "기본 비공개" 를 믿고 누르면 곧바로 체중이 나갑니다. */
+        if (defaults != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: ShareReach(
+                flags: defaults!,
+                lead: '수락하면 보여 줄 것',
+                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+          ),
       ]),
     );
   }
@@ -467,19 +510,9 @@ class _PokeButtonState extends State<_PokeButton> {
 
 /* --- P16 친구 상세 ---------------------------------------------------------- */
 
-/// 공유 스위치 — **서버가 아는 이름 그대로** (server/db.js 의 SHARE_FIELDS).
-/// 예전엔 weight·smm 같은 다른 이름으로 보내서, 켜도 서버가 버렸습니다 —
-/// 스위치는 켜졌는데 나가는 건 없었습니다.
-const _shareFields = [
-  ('streak', '기록 여부 · 스트릭'),
-  ('schedule', '이번 주 운동 (요일별 계획·체크)'),
-  ('diet', '오늘 식단 (칼로리·탄단지)'),
-  ('weightTrend', '체중 변화'),
-  ('smmTrend', '골격근 변화'),
-  ('bfmTrend', '체지방 변화'),
-  ('absolute', '변화량이 아니라 실제 수치까지'),
-  ('planProgress', '목표 진행률'),
-];
+/* 공유 스위치 이름은 share_defaults.dart 의 kShareFields — 「기본으로 보여
+   주는 것」 카드와 같은 상수를 씁니다. 두 화면에서 같은 스위치가 다른
+   이름이면 다른 것으로 읽힙니다. */
 
 /// 친구 한 사람. **친구에 대한 것**이 먼저입니다 — 스트릭, 오늘 할 일,
 /// 오늘 식단, 이번 주 운동. 내가 뭘 보여 주는지는 아래에 접어 둡니다.
@@ -498,8 +531,10 @@ class _FriendDetailScreenState extends State<FriendDetailScreen> {
   bool _started = false;
   /// 서버에 못 닿아 마지막으로 본 공유 설정을 보여 주는 중인가.
   bool _shareFromCache = false;
+  /// 스위치를 빨리 여럿 누르면 답이 뒤바뀌어 올 수 있습니다 — 마지막 것의 답만 씁니다.
+  int _shareSeq = 0;
 
-  String get _shareKey => 'mybody.share.cache.v1.${widget.person['id']}';
+  String get _shareKey => shareCacheKey('${widget.person['id']}');
 
   /* 공유 설정도 캐시합니다. 비행기 모드에서 "0개 켜짐" 에 스위치가 전부
      꺼진 채로 보이면, 사람은 "다 꺼졌네" 하고 다시 켭니다 — 실제로는 셋이
@@ -571,7 +606,7 @@ class _FriendDetailScreenState extends State<FriendDetailScreen> {
     final streaks = (snap['streaks'] as Map?)?.cast<String, dynamic>();
     final today = (snap['today'] as Map?)?.cast<String, dynamic>();
     final week = (snap['week'] as Map?)?.cast<String, dynamic>();
-    final onCount = _shareFields.where((f) => core.jsTruthy(_share?[f.$1])).length;
+    final onCount = kShareFields.where((f) => core.jsTruthy(_share?[f.$1])).length;
 
     return Scaffold(
       appBar: AppBar(title: Text('${widget.person['displayName']}')),
@@ -599,37 +634,54 @@ class _FriendDetailScreenState extends State<FriendDetailScreen> {
                   style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
               children: [
                 RichishText(
-                  '끄면 **서버가 안 보냅니다** — 몸 숫자는 기본으로 꺼져 있습니다',
+                  '끄면 **서버가 안 보냅니다**',
                   style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5),
                 ),
                 const SizedBox(height: 8),
                 if (_busy)
                   const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator())
                 else
-                  for (final f in _shareFields)
+                  for (final f in kShareFields)
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       dense: true,
                       title: Text(f.$2),
                       value: core.jsTruthy(_share?[f.$1]),
                       onChanged: (on) async {
-                        final next = {...?_share, f.$1: on};
-                        setState(() => _share = next.cast<String, dynamic>());
-                        unawaited(_rememberShare(next.cast<String, dynamic>()));
+                        final next = <String, dynamic>{...?_share, f.$1: on};
+                        /* 서버와 같은 규칙 — 몸 항목이 하나도 없으면 「실제 수치까지」 는 꺼짐. */
+                        if (!const ['weightTrend', 'smmTrend', 'bfmTrend']
+                            .any((k) => core.jsTruthy(next[k]))) {
+                          next['absolute'] = false;
+                        }
+                        setState(() => _share = next);
+                        unawaited(_rememberShare(next));
                         final id = '${widget.person['id']}';
                         final queue = Scope.queueOf(context);
-                        final r = await Scope.apiOf(context)
-                            .setShare(id, next.cast<String, dynamic>());
+                        /* **바꾼 스위치 하나만** 보냅니다. 화면의 _share 는 캐시에서 온
+                           옛 값일 수 있고, 통째로 보내면(특히 큐에 남았다가 나중에
+                           가면) 그 사이 「모두에게 적용」 한 값을 옛 값으로 되돌립니다 —
+                           껐던 체중이 다시 켜집니다. 웹 앱(backend.js)도 patch 만 보냅니다. */
+                        final patch = <String, Object?>{f.$1: on};
+                        final seq = ++_shareSeq;
+                        final r = await Scope.apiOf(context).setShare(id, patch);
                         if (!context.mounted) return;
-                        if (r.ok) return;
+                        if (r.ok) {
+                          /* 서버가 합친 결과가 답입니다 — 캐시에서 본 나머지를 바로잡습니다. */
+                          final got = (r.body['share'] as Map?)?.cast<String, dynamic>();
+                          if (got != null && seq == _shareSeq) {
+                            setState(() { _share = got; _shareFromCache = false; });
+                            unawaited(_rememberShare(got));
+                          }
+                          return;
+                        }
 
                         /* **껐는데 계속 나가는 것**이 이 앱에서 제일 나쁜
                            고장입니다. 껐다고 믿는 사람은 다시 확인하지
                            않습니다. 그래서 지금 못 닿았으면 되돌리지 않고
                            큐에 맡깁니다 — 망이 돌아오면 알아서 갑니다. */
                         if (queue != null && _worthRetrying(r)) {
-                          queue.add('setShare',
-                              {'userId': id, 'patch': next.cast<String, Object?>()});
+                          queue.add('setShare', {'userId': id, 'patch': patch});
                           toast(context, '지금 서버에 못 닿아서 나중에 보냅니다.');
                           return;
                         }

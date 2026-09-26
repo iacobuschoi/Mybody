@@ -1281,6 +1281,207 @@ function hostGet(port, p2, host) {
     fs.rmSync(home, { recursive: true, force: true });
   }
 
+  console.log('\n[8-7] 새 친구에게 기본으로 보여 주는 것 (share-defaults)');
+  {
+    /* 주인의 규칙(피드백 40): 체성분은 기본 꺼짐, 나머지는 기본 켜짐. 사람마다
+       그 기본값을 바꿀 수 있고, 친구를 맺는 순간 **각자의** 기본값이 그 방향의
+       공유가 됩니다. 이미 맺은 관계는 「지금 친구 모두에게 적용」 을 눌렀을
+       때만 바뀝니다. */
+    const port = await freePort();
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-sd-'));
+    const dbFile = path.join(dir, 'sd.db');
+    const srv = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')],
+      { cwd: ROOT, env: Object.assign(baseEnv(), {
+          PORT: String(port), PAIR_SECRET: 'sd-secret', DB: dbFile, LOG: '0',
+          STATIC: path.join(ROOT, 'release') }) });
+    let errOut = '';
+    srv.stderr.on('data', d => { errOut += d; });
+    let up = false;
+    for (let i = 0; i < 60; i++) {
+      try { if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) { up = true; break; } } catch (e) {}
+      await wait(200);
+    }
+    if (!up) { ok('기본값 검사용 서버가 뜬다', false, errOut.slice(-200)); }
+    else {
+      const call = (m, p2, b, tok) => fetch(`http://127.0.0.1:${port}/api${p2}`, {
+        method: m,
+        headers: Object.assign({ 'content-type': 'application/json' },
+                               tok ? { authorization: 'Bearer ' + tok } : {}),
+        body: b === undefined ? undefined : JSON.stringify(b)
+      }).then(async r => ({ status: r.status, json: await r.json().catch(() => ({})) }));
+      const mk = async (h) => (await call('POST', '/auth/signup', {
+        handle: h, password: 'share-default-1', displayName: h,
+        pairSecret: 'sd-secret', healthConsent: '2026-09-22' })).json;
+      const befriend = async (x, y) => {
+        await call('POST', '/friends/request', { inviteCode: y.user.inviteCode }, x.token);
+        return call('POST', '/friends/accept', { userId: x.user.id }, y.token);
+      };
+      const BODY = ['weightTrend', 'smmTrend', 'bfmTrend', 'planProgress', 'absolute'];
+      const REST = ['streak', 'schedule', 'diet'];
+
+      const A = await mk('sda'), B = await mk('sdb'), C = await mk('sdc'), D = await mk('sdd');
+      ok('계정 넷이 만들어진다', !!(A.token && B.token && C.token && D.token));
+
+      /* 인증 — 이웃 엔드포인트와 같은 문을 지납니다 */
+      const noAuth = await Promise.all([
+        call('GET', '/share-defaults'),
+        call('PUT', '/share-defaults', { weightTrend: true }),
+        call('POST', '/share-defaults/apply')]);
+      ok('로그인 없이는 셋 다 401', noAuth.every(r => r.status === 401), noAuth.map(r => r.status));
+
+      /* 초기값 = 주인의 규칙 */
+      const g0 = await call('GET', '/share-defaults', undefined, A.token);
+      const d0 = g0.json.defaults || {};
+      ok('조회가 된다', g0.status === 200 && g0.json.ok === true, g0);
+      ok('처음엔 체성분(몸 넷 + 실제 수치)이 꺼져 있다', BODY.every(k => d0[k] === false), d0);
+      ok('처음엔 나머지(기록 · 일정 · 식단)가 켜져 있다', REST.every(k => d0[k] === true), d0);
+
+      /* 잘못된 값 — 문자열 "false" 가 true 가 되던 자리 */
+      const bad1 = await call('PUT', '/share-defaults', { streak: 'false' }, A.token);
+      ok('문자열 "false" 는 거절한다 (400)', bad1.status === 400 && bad1.json.ok === false, bad1);
+      const bad2 = await call('PUT', '/share-defaults', { weightTrend: true, smmTrend: 1 }, A.token);
+      ok('숫자 1 도 거절한다', bad2.status === 400, bad2);
+      const g1 = (await call('GET', '/share-defaults', undefined, A.token)).json.defaults || {};
+      ok('거절된 요청은 반도 안 먹는다', g1.weightTrend === false && g1.streak === true, g1);
+      const bad3 = await call('PUT', '/share-defaults', 'streak', A.token);
+      ok('객체가 아닌 본문도 500 이 아니다', bad3.status < 500, bad3);
+
+      const abs = await call('PUT', '/share-defaults', { absolute: true }, A.token);
+      ok('몸 항목 없이 "실제 수치" 만 켜면 꺼진 채로 남는다',
+         abs.status === 200 && abs.json.defaults && abs.json.defaults.absolute === false, abs);
+
+      /* C 는 기본값을 바꾸기 **전에** A 와 친구가 됩니다 — 나중에 적용으로만 바뀌어야 */
+      const fc = await befriend(A, C);
+      ok('A · C 가 친구가 된다', fc.json.ok === true, fc);
+
+      const put = await call('PUT', '/share-defaults',
+        { weightTrend: true, absolute: true, diet: false, unknownKey: 'x' }, A.token);
+      const pd = put.json.defaults || {};
+      ok('바꾼 값이 돌아온다', put.status === 200 && pd.weightTrend === true && pd.absolute === true
+         && pd.diet === false && pd.streak === true, put);
+      ok('모르는 이름은 저장하지 않는다', !('unknownKey' in pd), pd);
+      const g2 = (await call('GET', '/share-defaults', undefined, A.token)).json.defaults || {};
+      ok('다시 읽어도 그대로', g2.weightTrend === true && g2.diet === false, g2);
+
+      const gb = (await call('GET', '/share-defaults', undefined, B.token)).json.defaults || {};
+      ok('다른 사람의 기본값은 그대로', gb.weightTrend === false && gb.diet === true, gb);
+
+      /* 새 친구 — 각 방향이 그 방향 주인의 기본값 */
+      const fb = await befriend(A, B);
+      ok('A · B 가 친구가 된다', fb.json.ok === true, fb);
+      const ab = (await call('GET', '/share/' + B.user.id, undefined, A.token)).json.share || {};
+      ok('새 친구는 내 기본값을 받는다 (몸 켜 둔 사용자 → 체중 공유 켜짐)',
+         ab.weightTrend === true && ab.absolute === true && ab.diet === false && ab.streak === true, ab);
+      const ba = (await call('GET', '/share/' + A.user.id, undefined, B.token)).json.share || {};
+      ok('반대 방향은 친구 자신의 기본값', ba.weightTrend === false && ba.diet === true, ba);
+
+      /* 기본값을 바꿔도 이미 맺은 관계는 안 바뀜 */
+      const ac = (await call('GET', '/share/' + C.user.id, undefined, A.token)).json.share || {};
+      ok('기본값을 바꿔도 먼저 맺은 친구는 그대로', ac.weightTrend === false && ac.diet === true, ac);
+
+      /* 적용 — 받은 요청(아직 친구 아님)은 세지 않습니다 */
+      await call('POST', '/friends/request', { inviteCode: A.user.inviteCode }, D.token);
+      await call('PUT', '/share/' + B.user.id, { schedule: false }, A.token);
+      const ap = await call('POST', '/share-defaults/apply', undefined, A.token);
+      ok('적용하면 친구 수를 돌려준다 (요청 중인 사람은 빼고)',
+         ap.status === 200 && ap.json.ok === true && ap.json.applied === 2, ap);
+      const ac2 = (await call('GET', '/share/' + C.user.id, undefined, A.token)).json.share || {};
+      const ab2 = (await call('GET', '/share/' + B.user.id, undefined, A.token)).json.share || {};
+      ok('먼저 맺은 친구도 기본값으로 덮인다', ac2.weightTrend === true && ac2.diet === false, ac2);
+      ok('따로 바꿔 둔 친구도 덮인다', ab2.schedule === true && ab2.weightTrend === true, ab2);
+      const ba2 = (await call('GET', '/share/' + A.user.id, undefined, B.token)).json.share || {};
+      ok('친구가 나에게 보여 주는 쪽은 안 건드린다', ba2.weightTrend === false && ba2.diet === true, ba2);
+      const ca = (await call('GET', '/share/' + A.user.id, undefined, C.token)).json.share || {};
+      ok('다른 친구의 방향도 그대로', ca.weightTrend === false, ca);
+      const gb2 = (await call('GET', '/share-defaults', undefined, B.token)).json.defaults || {};
+      ok('적용해도 다른 사람의 기본값은 그대로', gb2.weightTrend === false && gb2.diet === true, gb2);
+
+      const lone = await call('POST', '/share-defaults/apply', undefined, D.token);
+      ok('친구가 없으면 0명', lone.status === 200 && lone.json.applied === 0, lone);
+
+      /* 차단 — 친구였다가 차단된 관계(내가 막았든 상대가 막았든)는 적용에서
+         빠지고, 차단하며 지운 shares 행이 되살아나지 않아야 합니다. GET /share
+         는 행이 없으면 처음 값을 돌려주므로 DB 를 직접 봅니다. */
+      const { DatabaseSync: Dbs } = require('node:sqlite');
+      const shareRow = (owner, viewer) => {
+        try {
+          const d = new Dbs(dbFile, { readOnly: true });
+          const n = d.prepare('SELECT COUNT(*) c FROM shares WHERE owner_id=? AND viewer_id=?')
+                     .get(owner, viewer).c;
+          d.close();
+          return n;
+        } catch (e) { return 'ERR ' + e.message; }
+      };
+      const E1 = await mk('sde1'), E2 = await mk('sde2');
+      await befriend(A, E1);
+      await befriend(A, E2);
+      ok('차단 전에는 A → E1 행이 있다', shareRow(A.user.id, E1.user.id) === 1);
+      await call('POST', '/friends/block', { userId: E1.user.id }, A.token);
+      await call('POST', '/friends/block', { userId: A.user.id }, E2.token);
+      const apb = await call('POST', '/share-defaults/apply', undefined, A.token);
+      ok('차단된 관계는 적용에서 빠진다 (내가 막은 쪽 · 상대가 막은 쪽 둘 다)',
+         apb.status === 200 && apb.json.applied === 2, apb);
+      ok('내가 차단한 상대에게 공유 행이 되살아나지 않는다', shareRow(A.user.id, E1.user.id) === 0,
+         shareRow(A.user.id, E1.user.id));
+      ok('나를 차단한 상대에게도 공유 행이 되살아나지 않는다', shareRow(A.user.id, E2.user.id) === 0,
+         shareRow(A.user.id, E2.user.id));
+
+      /* 맞요청 — sendRequest 안에서 accept(me=G, other=F) 로 곧바로 친구가
+         되는 길. 방향을 뒤집어 복사하면 서로 남의 기본값을 받습니다. */
+      const F = await mk('sdf'), G = await mk('sdg');
+      await call('PUT', '/share-defaults', { weightTrend: true, diet: false }, F.token);
+      await call('PUT', '/share-defaults', { smmTrend: true, streak: false }, G.token);
+      await call('POST', '/friends/request', { inviteCode: G.user.inviteCode }, F.token);
+      const mutual = await call('POST', '/friends/request', { inviteCode: F.user.inviteCode }, G.token);
+      ok('맞요청은 곧바로 친구', mutual.json.ok === true && mutual.json.status === 'accepted', mutual);
+      const fg = (await call('GET', '/share/' + G.user.id, undefined, F.token)).json.share || {};
+      const gf = (await call('GET', '/share/' + F.user.id, undefined, G.token)).json.share || {};
+      ok('맞요청 — F → G 는 F 의 기본값',
+         fg.weightTrend === true && fg.diet === false && fg.smmTrend === false && fg.streak === true, fg);
+      ok('맞요청 — G → F 는 G 의 기본값',
+         gf.smmTrend === true && gf.streak === false && gf.weightTrend === false && gf.diet === true, gf);
+
+      /* expect — 사람이 확인 창에서 본 값과 저장된 기본값이 다르면 덮어쓰지 않습니다.
+         캐시에서 본 "몸 꺼짐" 을 믿고 눌렀는데 서버의 "몸 켜짐" 이 친구 전원에게
+         나가면 안 됩니다. */
+      const fDefaults = (await call('GET', '/share-defaults', undefined, F.token)).json.defaults;
+      const stale = Object.assign({}, fDefaults, { weightTrend: false });
+      const cx = await call('POST', '/share-defaults/apply', { expect: stale }, F.token);
+      ok('본 값과 저장된 값이 다르면 409', cx.status === 409 && cx.json.ok === false
+         && cx.json.conflict === true, cx);
+      ok('409 는 저장된 기본값을 같이 돌려준다',
+         !!(cx.json.defaults && cx.json.defaults.weightTrend === true), cx.json.defaults);
+      await call('PUT', '/share/' + G.user.id, { weightTrend: false }, F.token);
+      const fg2 = (await call('GET', '/share/' + G.user.id, undefined, F.token)).json.share || {};
+      await call('POST', '/share-defaults/apply', { expect: stale }, F.token);
+      const fg3 = (await call('GET', '/share/' + G.user.id, undefined, F.token)).json.share || {};
+      ok('409 면 아무 친구도 안 바뀐다', fg2.weightTrend === false && fg3.weightTrend === false, fg3);
+      const cbad = await call('POST', '/share-defaults/apply',
+        { expect: Object.assign({}, fDefaults, { diet: 'false' }) }, F.token);
+      ok('expect 에 참/거짓이 아닌 값이면 400', cbad.status === 400, cbad);
+      const cgood = await call('POST', '/share-defaults/apply',
+        { expect: Object.assign({}, fDefaults, { unknownKey: true }) }, F.token);
+      const fg4 = (await call('GET', '/share/' + G.user.id, undefined, F.token)).json.share || {};
+      ok('본 값이 같으면 적용된다 (모르는 이름은 무시)',
+         cgood.status === 200 && cgood.json.applied === 1 && fg4.weightTrend === true, cgood);
+
+      /* 탈퇴하면 기본값도 같이 사라집니다 */
+      await call('PUT', '/share-defaults', { bfmTrend: true }, D.token);
+      await call('DELETE', '/me', undefined, D.token);
+      const { DatabaseSync } = require('node:sqlite');
+      let left = null;
+      try {
+        const d = new DatabaseSync(dbFile, { readOnly: true });
+        left = d.prepare('SELECT COUNT(*) c FROM share_defaults WHERE owner_id=?').get(D.user.id).c;
+        d.close();
+      } catch (e) { left = 'ERR ' + e.message; }
+      ok('탈퇴하면 기본값 행도 사라진다', left === 0, left);
+    }
+    srv.kill();
+    await wait(300);
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
   console.log('\n[9] 자동 시작 · 더블클릭 실행');
   {
     /* 자동 시작은 평소 쓰는 PATH 도 HOME 도 안 물려받습니다. 손으로 적은

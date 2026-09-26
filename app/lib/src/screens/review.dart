@@ -82,6 +82,10 @@ class ReviewScreen extends StatefulWidget {
 
 class _ReviewScreenState extends State<ReviewScreen> {
   late final Map<String, TextEditingController> _ctrl;
+  /* 칸마다 포커스를 따로 들고 「다음」 키로 바로 아래 칸에 갑니다. 기본 이동
+     (nextFocus)은 읽기 순서로 다음 것을 고르는데, 핵심 세 칸과 나머지 칸 사이에
+     「펼치기/접기」 버튼이 끼어 있어 거기로 갑니다. */
+  late final Map<String, FocusNode> _focus;
   bool _showMore = false;
   /// 같이 저장할 지난 측정(measuredAt). 처음엔 전부.
   late final Set<String> _histOn = {for (final h in widget.history) h.measuredAt};
@@ -123,12 +127,16 @@ class _ReviewScreenState extends State<ReviewScreen> {
         f.key: TextEditingController(
             text: widget.draft[f.key] == null ? '' : core.toFixed(core.jsToNumber(widget.draft[f.key]), f.dec)),
     };
+    _focus = {for (final f in _all) f.key: FocusNode(debugLabel: f.key)};
   }
 
   @override
   void dispose() {
     for (final c in _ctrl.values) {
       c.dispose();
+    }
+    for (final f in _focus.values) {
+      f.dispose();
     }
     super.dispose();
   }
@@ -191,80 +199,94 @@ class _ReviewScreenState extends State<ReviewScreen> {
         .toList();
     final involved = (check['involved'] as List?);
 
+    /* 지금 보이는 칸의 순서 — 「다음」 키가 이 순서로 옮겨 다니고, 마지막 칸만 「완료」. */
+    final visible = _showMore ? _all : _core;
+    _F? after(_F f) {
+      final i = visible.indexWhere((x) => x.key == f.key);
+      return i + 1 < visible.length ? visible[i + 1] : null;
+    }
+
     return Scaffold(
       appBar: AppBar(title: const Text('판독 결과 확인')),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
-        if (twin)
-          const Note(
-            tone: Tone.ok,
-            title: '이미 있는 기록과 같습니다.',
-            text: ' 저장하면 그 기록을 갱신합니다.',
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        /* 목록을 끌면 키보드를 내립니다 — 아이폰 숫자 패드에는 닫는 키가 없습니다.
+           칸이 열 개 안팎이라 키보드 위 좁은 영역에서 스크롤만으로 옮겨 다니게
+           두면 힘듭니다. 저장 버튼은 본문 끝이라 스크롤하면 닿습니다. */
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        children: [
+          if (twin)
+            const Note(
+              tone: Tone.ok,
+              title: '이미 있는 기록과 같습니다.',
+              text: ' 저장하면 그 기록을 갱신합니다.',
+            ),
+          if (same != null && !twin) ...[
+            Note(
+              tone: Tone.warn,
+              title: '같은 시각의 측정이 이미 있습니다.',
+              text: ' ${dateK(same['measuredAt'])} · 체중 ${n1(same['weightKg'])}kg — '
+                  '다른 측정이면 그대로 저장, 고쳐 넣는 것이면 덮어쓰기를 켜세요.',
+            ),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _overwrite,
+              onChanged: (v) => setState(() => _overwrite = v),
+              title: const Text('이미 있는 기록을 덮어쓰기'),
+            ),
+          ],
+          if (invalid != null)
+            Note(
+              tone: Tone.bad,
+              title: '물리적으로 맞지 않는 값이 있습니다.',
+              text: (invalid['reasons'] as List).join(' '),
+            ),
+          for (final c in checks)
+            Note(tone: Tone.bad, title: '${c['label']}', text: ' ${c['why'] ?? ''}'),
+          if (involved != null && involved.length > 1)
+            Note(
+              tone: Tone.warn,
+              title: '어느 칸이 틀렸는지는 결과지만으로 알 수 없습니다.',
+              /* 용의자를 못 고르면 **못 고른다고 말합니다.** 하나를 찍어서
+                 고치라고 하면, 그게 틀렸을 때 두 칸이 틀립니다. */
+              text: ' ${involved.map(_labelOf).join(' · ')} 중 하나입니다. 결과지를 다시 보세요.',
+            ),
+          /* 범위·변화량 경고는 문장 자체가 이미 칸 이름을 품고 있습니다 —
+             앞에 라벨을 또 붙이면 "체중 체중 86.7kg 은…" 이 됩니다. */
+          for (final i in [...rangeIssues, ...deltaIssues])
+            Note(
+              tone: i['level'] == 'bad' ? Tone.bad : Tone.warn,
+              text: '${i['why'] ?? ''}',
+            ),
+          if (invalid == null && checks.isEmpty && rangeIssues.isEmpty && deltaIssues.isEmpty)
+            const Note(tone: Tone.ok, text: '검산을 통과했습니다'),
+  
+          MbCard(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const SectionTitle('핵심 세 칸'),
+              for (final f in _core) _field(f, next: after(f)),
+            ]),
           ),
-        if (same != null && !twin) ...[
-          Note(
-            tone: Tone.warn,
-            title: '같은 시각의 측정이 이미 있습니다.',
-            text: ' ${dateK(same['measuredAt'])} · 체중 ${n1(same['weightKg'])}kg — '
-                '다른 측정이면 그대로 저장, 고쳐 넣는 것이면 덮어쓰기를 켜세요.',
+          MbCard(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SectionTitle('나머지 칸',
+                  trailing: TextButton(
+                    onPressed: () => setState(() => _showMore = !_showMore),
+                    child: Text(_showMore ? '접기' : '펼치기'),
+                  )),
+              Text('비워 두면 핵심 세 칸에서 계산해 채웁니다.',
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: Theme.of(context).hintColor)),
+              if (_showMore) ...[
+                const SizedBox(height: 12),
+                for (final f in [..._derived, ..._composition]) _field(f, next: after(f)),
+              ],
+            ]),
           ),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            value: _overwrite,
-            onChanged: (v) => setState(() => _overwrite = v),
-            title: const Text('이미 있는 기록을 덮어쓰기'),
-          ),
+          if (widget.history.isNotEmpty) _historyCard(context),
+          FilledButton(onPressed: () => _save(app, profile), child: const Text('저장하기')),
         ],
-        if (invalid != null)
-          Note(
-            tone: Tone.bad,
-            title: '물리적으로 맞지 않는 값이 있습니다.',
-            text: (invalid['reasons'] as List).join(' '),
-          ),
-        for (final c in checks)
-          Note(tone: Tone.bad, title: '${c['label']}', text: ' ${c['why'] ?? ''}'),
-        if (involved != null && involved.length > 1)
-          Note(
-            tone: Tone.warn,
-            title: '어느 칸이 틀렸는지는 결과지만으로 알 수 없습니다.',
-            /* 용의자를 못 고르면 **못 고른다고 말합니다.** 하나를 찍어서
-               고치라고 하면, 그게 틀렸을 때 두 칸이 틀립니다. */
-            text: ' ${involved.map(_labelOf).join(' · ')} 중 하나입니다. 결과지를 다시 보세요.',
-          ),
-        /* 범위·변화량 경고는 문장 자체가 이미 칸 이름을 품고 있습니다 —
-           앞에 라벨을 또 붙이면 "체중 체중 86.7kg 은…" 이 됩니다. */
-        for (final i in [...rangeIssues, ...deltaIssues])
-          Note(
-            tone: i['level'] == 'bad' ? Tone.bad : Tone.warn,
-            text: '${i['why'] ?? ''}',
-          ),
-        if (invalid == null && checks.isEmpty && rangeIssues.isEmpty && deltaIssues.isEmpty)
-          const Note(tone: Tone.ok, text: '검산을 통과했습니다'),
-
-        MbCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SectionTitle('핵심 세 칸'),
-            for (final f in _core) _field(f),
-          ]),
-        ),
-        MbCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            SectionTitle('나머지 칸',
-                trailing: TextButton(
-                  onPressed: () => setState(() => _showMore = !_showMore),
-                  child: Text(_showMore ? '접기' : '펼치기'),
-                )),
-            Text('비워 두면 핵심 세 칸에서 계산해 채웁니다.',
-                style: Theme.of(context).textTheme.bodySmall
-                    ?.copyWith(color: Theme.of(context).hintColor)),
-            if (_showMore) ...[
-              const SizedBox(height: 12),
-              for (final f in [..._derived, ..._composition]) _field(f),
-            ],
-          ]),
-        ),
-        if (widget.history.isNotEmpty) _historyCard(context),
-        FilledButton(onPressed: () => _save(app, profile), child: const Text('저장하기')),
-      ]),
+      ),
     );
   }
 
@@ -304,12 +326,18 @@ class _ReviewScreenState extends State<ReviewScreen> {
     );
   }
 
-  Widget _field(_F f) {
+  /// [next] 가 있으면 「다음」 키로 그 칸에, 없으면(마지막 칸) 「완료」 로 키보드만
+  /// 내립니다. 완료가 곧 저장은 아닙니다 — 이 화면은 검산 결과를 **읽고** 저장하는
+  /// 곳이라, 키보드를 내린 뒤 위의 경고를 보고 사람이 「저장하기」 를 누릅니다.
+  Widget _field(_F f, {_F? next}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
       child: TextField(
         controller: _ctrl[f.key],
+        focusNode: _focus[f.key],
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        textInputAction: next == null ? TextInputAction.done : TextInputAction.next,
+        onEditingComplete: next == null ? null : () => _focus[next.key]!.requestFocus(),
         onChanged: (_) => setState(() {}),
         decoration: InputDecoration(
           labelText: f.label,

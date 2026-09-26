@@ -1166,4 +1166,79 @@ void main() {
       expect(s.contains('**'), isFalse);
     }
   });
+
+  /* ---------------------------------------------------------------- 키보드 */
+
+  /* 아이폰 숫자 패드에는 완료 키가 없습니다. 키보드는 viewInsets 300px 로 흉내 내고
+     — 시험에는 진짜 키보드가 없어 탭은 어디든 닿으니 — 단추의 자리(rect)가 키보드
+     위인지를 따로 봅니다. 바깥 탭으로 내리는 것은 앱 전체에 한 번 걸려
+     keyboard_global_test 가 보고, 여기서는 이 화면의 몫(칸 순서 · 끌어서 닫기 ·
+     단추가 닿는가)만 봅니다. */
+  void phone(WidgetTester t, Size size, {double keyboard = 0}) {
+    t.view.physicalSize = size;
+    t.view.devicePixelRatio = 1.0;
+    t.view.viewInsets = FakeViewPadding(bottom: keyboard);
+    addTearDown(t.view.reset);
+  }
+
+  FocusNode focusOf(WidgetTester t, String label) => t
+      .widget<EditableText>(find.descendant(
+          of: find.widgetWithText(TextField, label), matching: find.byType(EditableText)))
+      .focusNode;
+
+  testWidgets('목표 — 키보드가 떠 있어도 「기간 계산하기」 는 스크롤로 키보드 위에 오고 눌린다', (t) async {
+    for (final size in const [Size(360, 740), Size(390, 844)]) {
+      phone(t, size);
+      final app = await seeded();
+      await t.pumpWidget(host(app, const GoalScreen()));
+      await t.pump(const Duration(milliseconds: 200));
+      await t.enterText(find.widgetWithText(TextField, '목표 체중'), '78');
+      await t.enterText(find.widgetWithText(TextField, '목표 골격근량'), '40');
+      t.view.viewInsets = const FakeViewPadding(bottom: 300);
+      await t.pumpAndSettle();
+
+      await t.dragUntilVisible(find.text('기간 계산하기'), find.byType(ListView), const Offset(0, -200));
+      await t.pumpAndSettle();
+      final r = t.getRect(find.widgetWithText(FilledButton, '기간 계산하기'));
+      expect(r.bottom, lessThanOrEqualTo(size.height - 300),
+          reason: '$size 단추가 키보드(아래 300px) 뒤에 있으면 못 누릅니다: $r');
+      expect(r.top, greaterThanOrEqualTo(0));
+
+      await t.tap(find.text('기간 계산하기'));
+      await t.pumpAndSettle();
+      expect(find.byType(IntensityScreen), findsOneWidget, reason: '$size 탭이 강도 화면으로 가야 합니다');
+      expect(t.takeException(), isNull);
+      await t.pumpWidget(const SizedBox.shrink());
+    }
+  });
+
+  testWidgets('목표 — 세 칸은 다음 → 다음 → 완료로 옮겨 가고, 목록을 끌면 키보드가 내려간다', (t) async {
+    phone(t, const Size(360, 740), keyboard: 300);
+    final app = await seeded();
+    await t.pumpWidget(host(app, const GoalScreen()));
+    await t.pump(const Duration(milliseconds: 200));
+
+    await t.showKeyboard(find.widgetWithText(TextField, '목표 체중'));
+    /* 「다음」 은 onEditingComplete 로 기본 nextFocus 를 대신해 한 번만 옮깁니다.
+       마지막 칸(체지방)은 기본 동작(완료 → 내림)을 그대로 씁니다. */
+    expect(t.widget<TextField>(find.widgetWithText(TextField, '목표 체중')).onEditingComplete, isNotNull);
+    expect(t.widget<TextField>(find.widgetWithText(TextField, '목표 체지방률 (자동)')).onEditingComplete, isNull);
+    await t.testTextInput.receiveAction(TextInputAction.next);
+    await t.pumpAndSettle();
+    expect(focusOf(t, '목표 골격근량').hasFocus, isTrue, reason: '체중 → 골격근');
+    await t.testTextInput.receiveAction(TextInputAction.next);
+    await t.pumpAndSettle();
+    expect(focusOf(t, '목표 체지방률 (자동)').hasFocus, isTrue, reason: '골격근 → 체지방');
+    await t.testTextInput.receiveAction(TextInputAction.done);
+    await t.pumpAndSettle();
+    expect(focusOf(t, '목표 체지방률 (자동)').hasFocus, isFalse, reason: '마지막 칸의 완료는 키보드를 내립니다');
+
+    await t.showKeyboard(find.widgetWithText(TextField, '목표 체중'));
+    await t.pumpAndSettle();
+    expect(focusOf(t, '목표 체중').hasFocus, isTrue);
+    await t.drag(find.byType(ListView), const Offset(0, -80));
+    await t.pumpAndSettle();
+    expect(focusOf(t, '목표 체중').hasFocus, isFalse, reason: '끌기(onDrag)로 내려가야 합니다');
+    expect(t.takeException(), isNull);
+  });
 }

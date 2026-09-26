@@ -118,7 +118,12 @@ class _CheckinScreenState extends State<CheckinScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text('주간 체크인')),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
+      body: ListView(
+          padding: const EdgeInsets.all(16),
+          /* 끌어 내리면 키보드도 내려갑니다 — 체중을 넣으면 아래 그래프 · 제안 카드가
+             다시 그려지는데, 아이폰 숫자 패드에는 완료 키가 없어 그걸 볼 길이 없었습니다. */
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          children: [
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             SectionTitle('계획 ${n0(weeksIn + 1)}주차',
@@ -138,6 +143,8 @@ class _CheckinScreenState extends State<CheckinScreen> {
             TextField(
               controller: _weight,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              /* 칸이 하나라 「완료」 는 키보드만 내립니다(안드로이드). */
+              textInputAction: TextInputAction.done,
               onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
                 labelText: '지금 체중',

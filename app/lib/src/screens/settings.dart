@@ -24,8 +24,10 @@ import '../scope.dart';
 import '../update.dart';
 import 'account.dart';
 import 'gym_settings.dart';
+import 'share_defaults.dart';
 import 'sync_settings.dart';
 import 'workout_tutorial.dart';
+import '../ui/edge.dart';
 import '../ui/widgets.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -185,6 +187,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ]),
         ),
 
+        /* 새 친구에게 기본으로 보여 주는 것 — 친구 탭의 「기본 공유」 와 같은 카드. */
+        if (api.signedIn) const ShareDefaultsCard(),
+
         /* 동기화 — 두 기기의 기록을 합치는 것. 상태와 「지금 동기화」 는 여기서. */
         SyncSettingsCard(cloud: Scope.cloudOf(context), api: api),
 
@@ -263,68 +268,104 @@ class _SettingsScreenState extends State<SettingsScreen> {
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSheet) => DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.85,
-          builder: (ctx, sc) => ListView(controller: sc, padding: const EdgeInsets.all(20),
-            children: [
-              Text('내 몸 정보', style: Theme.of(ctx).textTheme.titleMedium),
-              const SizedBox(height: 4),
-              Text('계획의 기준값입니다 — 나이를 비우면 보수적으로 잡습니다',
-                  style: Theme.of(ctx).textTheme.bodySmall
-                      ?.copyWith(color: Theme.of(ctx).hintColor, height: 1.5)),
-              const SizedBox(height: 16),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'male', label: Text('남성')),
-                  ButtonSegment(value: 'female', label: Text('여성')),
-                ],
-                selected: {sex},
-                onSelectionChanged: (s) => setSheet(() => sex = s.first),
-              ),
-              const SizedBox(height: 14),
-              TextField(controller: height, keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                      labelText: '키', suffixText: 'cm', border: OutlineInputBorder())),
-              const SizedBox(height: 14),
-              TextField(controller: age, keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(
-                      labelText: '나이', suffixText: '세', border: OutlineInputBorder())),
-              const SizedBox(height: 14),
-              DropdownButtonFormField<String>(
-                initialValue: activity,
-                decoration: const InputDecoration(labelText: '활동량', border: OutlineInputBorder()),
-                items: [
-                  for (final e in core.kPal.entries)
-                    DropdownMenuItem(value: e.key, child: Text(e.value.label)),
-                ],
-                onChanged: (v) => setSheet(() => activity = v ?? activity),
-              ),
-              const SizedBox(height: 14),
-              DropdownButtonFormField<String>(
-                initialValue: trainingAge,
-                decoration: const InputDecoration(labelText: '운동 경력', border: OutlineInputBorder()),
-                items: [
-                  for (final e in core.kMuscleBase.entries)
-                    DropdownMenuItem(value: e.key, child: Text(e.value.label)),
-                ],
-                onChanged: (v) => setSheet(() => trainingAge = v ?? trainingAge),
-              ),
-              const SizedBox(height: 14),
-              Text('주당 저항운동 일수: $days일',
-                  style: Theme.of(ctx).textTheme.bodySmall),
-              Slider(
-                value: days.toDouble(), min: 0, max: 7, divisions: 7,
-                label: '$days일',
-                onChanged: (v) => setSheet(() => days = v.round()),
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('저장'),
-              ),
-            ]),
+      /* **키보드가 올라오면 시트를 그만큼 밀어 올립니다.** 모달 시트는 스스로
+         키보드를 피하지 않아서, 안 하면 시트 아래쪽 — 「저장」 이 있는 곳 — 이
+         키보드 뒤에 깔립니다. 끝까지 스크롤해도 시트의 뷰포트 자체가 키보드
+         뒤까지 뻗어 있어 꺼낼 수 없습니다. 아이폰 숫자 패드에는 완료 키가 없어
+         그러면 저장으로 갈 길이 없고, 탈출은 시트 바깥 탭 — 넣은 것이 사라집니다. */
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(ctx).bottom),
+        /* 시트가 다 펴질 때까지(0.85 → 1.0)는 끌기가 목록을 스크롤하지 않고 시트를
+           키우는 데 쓰여 ListView 의 onDrag 가 반응하지 못합니다 — 첫 끌기에서
+           키보드가 남습니다. 시트 크기가 바뀌는 알림을 받아 그때도 내립니다.
+           이 알림은 손으로 끌 때(와 그 관성)만 오고, 키보드가 올라와 시트가
+           밀릴 때는 오지 않습니다(availablePixels 만 바뀜). */
+        child: NotificationListener<DraggableScrollableNotification>(
+          onNotification: (_) {
+            dismissKeyboard();
+            return false;
+          },
+          child: StatefulBuilder(
+            builder: (ctx, setSheet) => DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.85,
+              builder: (ctx, sc) => ListView(
+                controller: sc,
+                padding: const EdgeInsets.all(20),
+                /* 목록을 끌면 키보드를 내립니다 — 숫자 패드는 달리 닫을 키가 없습니다. */
+                keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+                children: [
+                  Text('내 몸 정보', style: Theme.of(ctx).textTheme.titleMedium),
+                  const SizedBox(height: 4),
+                  Text('계획의 기준값입니다 — 나이를 비우면 보수적으로 잡습니다',
+                      style: Theme.of(ctx).textTheme.bodySmall
+                          ?.copyWith(color: Theme.of(ctx).hintColor, height: 1.5)),
+                  const SizedBox(height: 16),
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment(value: 'male', label: Text('남성')),
+                      ButtonSegment(value: 'female', label: Text('여성')),
+                    ],
+                    selected: {sex},
+                    onSelectionChanged: (s) => setSheet(() => sex = s.first),
+                  ),
+                  const SizedBox(height: 14),
+                  /* 키 → 「다음」 으로 나이 칸에, 나이 → 「완료」 로 키보드를 내립니다
+                     (안드로이드 숫자판에 있는 키. 아이폰 숫자 패드에는 없어서 거기서는
+                     바깥 탭 · 목록 끌기로 닫습니다). */
+                  TextField(
+                      controller: height,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.next,
+                      decoration: const InputDecoration(
+                          labelText: '키', suffixText: 'cm', border: OutlineInputBorder())),
+                  const SizedBox(height: 14),
+                  TextField(
+                      controller: age,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.done,
+                      decoration: const InputDecoration(
+                          labelText: '나이', suffixText: '세', border: OutlineInputBorder())),
+                  const SizedBox(height: 14),
+                  /* isExpanded — 라벨이 길어("매우 활동적 (육체노동/2회 운동)") 360 폭
+                     화면에서 오른쪽으로 넘칩니다. 늘려 두면 칸 폭에 맞춰 줄입니다. */
+                  DropdownButtonFormField<String>(
+                    initialValue: activity,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: '활동량', border: OutlineInputBorder()),
+                    items: [
+                      for (final e in core.kPal.entries)
+                        DropdownMenuItem(value: e.key, child: Text(e.value.label)),
+                    ],
+                    onChanged: (v) => setSheet(() => activity = v ?? activity),
+                  ),
+                  const SizedBox(height: 14),
+                  DropdownButtonFormField<String>(
+                    initialValue: trainingAge,
+                    isExpanded: true,
+                    decoration: const InputDecoration(labelText: '운동 경력', border: OutlineInputBorder()),
+                    items: [
+                      for (final e in core.kMuscleBase.entries)
+                        DropdownMenuItem(value: e.key, child: Text(e.value.label)),
+                    ],
+                    onChanged: (v) => setSheet(() => trainingAge = v ?? trainingAge),
+                  ),
+                  const SizedBox(height: 14),
+                  Text('주당 저항운동 일수: $days일',
+                      style: Theme.of(ctx).textTheme.bodySmall),
+                  Slider(
+                    value: days.toDouble(), min: 0, max: 7, divisions: 7,
+                    label: '$days일',
+                    onChanged: (v) => setSheet(() => days = v.round()),
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('저장'),
+                  ),
+                ]),
+            ),
+          ),
         ),
       ),
     );
@@ -466,6 +507,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     app.store.reset();
     queue?.clear();
+    /* 친구 목록 · 공유 설정 캐시도 — 로그아웃이 지우지만, 로그인 안 한 채로
+       눌렀을 때 예전 판이 남긴 것까지. */
+    await Api.clearAccountCaches();
     if (!context.mounted) return;
     toast(context, '지웠습니다');
     Navigator.of(context).popUntil((r) => r.isFirst);

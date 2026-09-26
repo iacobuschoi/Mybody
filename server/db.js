@@ -58,6 +58,16 @@ function open(file) {
       updated_at TEXT NOT NULL,
       PRIMARY KEY (owner_id, viewer_id)
     );
+    /* 사람마다 "새 친구에게 기본으로 보여 줄 것". 친구를 맺는 순간 이 값이
+       그 관계의 shares 행으로 복사됩니다. 행이 없으면 blankShare() 입니다.
+       관계별 행과 따로 둡니다 — 기본값을 바꿔도 이미 맺은 관계는 그대로여야
+       하고(그 사람에게 이미 보여 준 문장이 있습니다), 한꺼번에 덮는 것은
+       본인이 「지금 친구 모두에게 적용」 을 눌렀을 때뿐입니다. */
+    CREATE TABLE IF NOT EXISTS share_defaults (
+      owner_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      fields TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS snapshots (
       owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       week_start TEXT NOT NULL,
@@ -151,11 +161,12 @@ function open(file) {
 
   /* 공유 설정에 **나중에 생긴 항목이 조용히 켜지지 않게** 못을 박습니다.
    *
-   * shareFields() 는 Object.assign(blankShare(), 저장된값) 으로 읽습니다.
-   * 저장된 행에 없는 키는 blankShare() 의 기본값이 그대로 남습니다.
-   * 그래서 기본 켜짐인 항목을 새로 만들면, 그 항목이 생기기 전에 저장된
-   * **모든 기존 관계에서 저절로 켜집니다.** "전부 끄기" 를 눌러 둔
-   * 사람까지 포함해서.
+   * 예전 shareFields() 는 Object.assign(blankShare(), 저장된값) 으로
+   * 읽었습니다. 저장된 행에 없는 키는 blankShare() 의 기본값이 그대로
+   * 남았고, 그래서 기본 켜짐인 항목을 새로 만들면 그 항목이 생기기 전에
+   * 저장된 **모든 기존 관계에서 저절로 켜졌습니다.** "전부 끄기" 를 눌러
+   * 둔 사람까지 포함해서. (지금 shareFields 는 저장된 행을 그대로 읽고
+   * 없는 키는 false 입니다 — 이 못은 그 전에 저장된 행을 위한 것입니다.)
    *
    * 실제로 그렇게 됐습니다. schedule 을 기본 켜짐으로 넣자, 저장된 행이
    * {… streak:false, absolute:false} 인 사람(전부 끈 사람)의 읽은 값이
@@ -166,8 +177,9 @@ function open(file) {
    * 규칙: **사용자가 본 적 없는 항목은 켜져 있을 수 없습니다.** 동의는
    * 읽은 문장에 대해 하는 것이지 코드에 대해 하는 것이 아닙니다.
    * 그래서 저장된 행에 없는 키는 전부 false 로 명시해 둡니다. 새로
-   * 맺는 관계는 blankShare() 를 그대로 쓰므로 기본 켜짐이 살아 있습니다 —
-   * 그 사람은 지금 화면에 적힌 문장을 읽고 친구를 맺은 사람입니다.
+   * 맺는 관계는 **각 방향 주인의 shareDefaults** 를 씁니다(정한 적이
+   * 없으면 blankShare()) — 그 사람이 「기본 공유」 카드에서 직접 보고
+   * 정한 값이거나, 지금 화면에 적힌 처음 값입니다.
    *
    * 여러 번 돌아도 안전합니다. 한 번 지나가면 모든 행이 모든 키를
    * 명시하고 있어서 그 뒤로는 아무것도 안 바뀝니다. */
@@ -340,9 +352,33 @@ function blankShare() {
   // diet(오늘 식단 — 먹은 칼로리·탄단지와 목표)도 몸이 아니라 본인이 적은
   // 행동이라 기본 켜짐입니다. 이 항목이 생기기 전의 관계는 위 마이그레이션
   // 규칙대로 꺼진 채 시작합니다 — 본 적 없는 문장에 동의한 사람은 없습니다.
+  //
+  // 주인의 규칙(피드백 40)과 같습니다: 체성분은 기본 꺼짐, 나머지는 기본 켜짐.
+  // planProgress(목표 달성률)는 이름은 계획이지만 체지방량으로 계산한 값이라
+  // (지금 체지방이 시작과 목표 사이 어디인가) 체성분 쪽입니다. absolute 는
+  // 몸 수치를 숫자로 여는 스위치라 당연히 체성분 쪽입니다.
+  // 사람마다 이 값을 바꿀 수 있습니다(shareDefaults) — 이건 바꾸기 전의 값입니다.
   return { weightTrend: false, smmTrend: false, bfmTrend: false,
            planProgress: false, streak: true, schedule: true, absolute: false,
            diet: true };
+}
+
+/* 공유 스위치 묶음(cur)에 바깥에서 온 patch 를 얹습니다. 관계별 설정과
+   기본값이 **같은 검사**를 지나게 한 곳에 둡니다. 거절이면 이유 문자열,
+   통과면 null. cur 는 제자리에서 바뀝니다. */
+function patchShare(cur, patch) {
+  const p = (patch && typeof patch === 'object') ? patch : {};
+  // !! 강제변환이면 문자열 "false" 가 true 가 됩니다. 이 앱에서 가장 민감한
+  // 스위치가 한쪽 방향으로만(= 더 열리는 쪽으로만) 실패하던 자리입니다.
+  // 하나라도 틀리면 아무것도 안 바꿉니다 — 반만 먹은 채로 저장되지 않게
+  // 먼저 전부 봅니다.
+  for (const k of SHARE_FIELDS) {
+    if (k in p && typeof p[k] !== 'boolean') return '공유 설정은 true/false 여야 합니다';
+  }
+  for (const k of SHARE_FIELDS) if (k in p) cur[k] = p[k];
+  // absolute 는 "켠 몸 항목을 숫자로" 라는 뜻이라 몸 항목이 하나도 없으면 뜻이 없습니다.
+  if (cur.absolute && !cur.weightTrend && !cur.smmTrend && !cur.bfmTrend) cur.absolute = false;
+  return null;
 }
 
 function makeApi(db) {
@@ -382,6 +418,10 @@ function makeApi(db) {
       'INSERT INTO shares (owner_id,viewer_id,fields,updated_at) VALUES (?,?,?,?) ' +
       'ON CONFLICT(owner_id,viewer_id) DO UPDATE SET fields=excluded.fields, updated_at=excluded.updated_at'),
     deleteShare: db.prepare('DELETE FROM shares WHERE owner_id=? AND viewer_id=?'),
+    getShareDefaults: db.prepare('SELECT * FROM share_defaults WHERE owner_id=?'),
+    upsertShareDefaults: db.prepare(
+      'INSERT INTO share_defaults (owner_id,fields,updated_at) VALUES (?,?,?) ' +
+      'ON CONFLICT(owner_id) DO UPDATE SET fields=excluded.fields, updated_at=excluded.updated_at'),
 
     bumpOcr: db.prepare(
       'INSERT INTO ocr_usage (day, who, n) VALUES (?,?,1) ' +
@@ -724,9 +764,12 @@ function makeApi(db) {
          구분되지 않고, 앱은 그 구분으로 "친구가 되었습니다 — 지금 보이는
          것은 둘입니다" 안내를 띄울지 정합니다. 시각을 넣어 두면 그 안내가
          아무에게도 안 뜨거나(서버 기준) 누구에게나 다시 뜹니다(거울 기준).
-         빈 문자열을 쓰는 이유는 컬럼이 NOT NULL 이기 때문입니다. */
-      q.upsertShare.run(me, otherId, JSON.stringify(blankShare()), '');
-      q.upsertShare.run(otherId, me, JSON.stringify(blankShare()), '');
+         빈 문자열을 쓰는 이유는 컬럼이 NOT NULL 이기 때문입니다.
+         값은 **각자의 기본값**입니다. 내가 친구에게 보여 주는 것은 내가
+         정해 둔 것이고, 친구가 나에게 보여 주는 것은 친구가 정해 둔
+         것입니다 — 한쪽의 기본값이 다른 쪽 방향을 정하면 안 됩니다. */
+      q.upsertShare.run(me, otherId, JSON.stringify(this.shareDefaults(me)), '');
+      q.upsertShare.run(otherId, me, JSON.stringify(this.shareDefaults(otherId)), '');
       return { ok: true, status: 'accepted' };
     },
     decline(me, otherId) {
@@ -837,17 +880,78 @@ function makeApi(db) {
       if (!this.exists(me) || !this.exists(viewerId)) return { ok: false, reason: '없는 계정입니다' };
       if (!this.areFriends(me, viewerId)) return { ok: false, reason: '친구가 아닙니다' };
       const cur = this.shareFields(me, viewerId);
-      // !! 강제변환이면 문자열 "false" 가 true 가 됩니다. 이 앱에서 가장 민감한
-      // 스위치가 한쪽 방향으로만(= 더 열리는 쪽으로만) 실패하던 자리입니다.
-      for (const k of SHARE_FIELDS) {
-        if (!(k in patch)) continue;
-        if (typeof patch[k] !== 'boolean')
-          return { ok: false, reason: '공유 설정은 true/false 여야 합니다' };
-        cur[k] = patch[k];
-      }
-      if (cur.absolute && !cur.weightTrend && !cur.smmTrend && !cur.bfmTrend) cur.absolute = false;
+      const why = patchShare(cur, patch);
+      if (why) return { ok: false, reason: why };
       q.upsertShare.run(me, viewerId, JSON.stringify(cur), nowISO());
       return { ok: true, share: cur };
+    },
+
+    /* --- 새 친구에게 기본으로 보여 주는 것 --------------------------------
+     * 친구를 맺을 때(accept) 이 값이 그 관계로 복사됩니다. 읽는 규칙은
+     * shareFields 와 같습니다 — 저장된 행이 있으면 **그 행이 전부**이고,
+     * 없는 키는 false 입니다. 나중에 기본 켜짐 항목이 새로 생겨도, 기본값을
+     * 한 번이라도 정해 둔 사람에게는 그 항목이 저절로 켜지지 않습니다.
+     * 행이 아예 없으면(한 번도 안 정함) blankShare() 입니다. */
+    shareDefaults(me) {
+      const r = q.getShareDefaults.get(me);
+      if (!r) return blankShare();
+      try {
+        const saved = JSON.parse(r.fields) || {};
+        const out = {};
+        for (const k of SHARE_FIELDS) out[k] = saved[k] === true;
+        return out;
+      } catch { return blankShare(); }
+    },
+    setShareDefaults(me, patch) {
+      if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다' };
+      const cur = this.shareDefaults(me);
+      const why = patchShare(cur, patch);
+      if (why) return { ok: false, reason: why };
+      q.upsertShareDefaults.run(me, JSON.stringify(cur), nowISO());
+      return { ok: true, defaults: cur };
+    },
+    /* 지금 친구 모두에게 기본값을 덮어씁니다. 본인이 확인하고 누른 것이라
+       updated_at 에 지금 시각을 넣습니다 — "아직 아무도 고른 적 없음" 이
+       아닙니다. 친구 목록(edges)을 기준으로 돕니다: shares 행이 없는 옛
+       관계도 친구면 같이 받습니다. 한 트랜잭션이라 반쯤 바뀐 채로 남지
+       않습니다.
+
+       expect 는 **사람이 확인 창에서 본 값**입니다. 저장된 기본값과 다르면
+       덮어쓰지 않고 conflict 로 돌려보냅니다. 화면이 캐시에서 읽은 옛 값
+       (몸 꺼짐)을 보여 주는 동안 서버에는 다른 기기에서 켠 값(몸 켜짐)이
+       있으면, 사람은 "다 끄려고" 눌렀는데 친구 전원에게 몸 숫자가 열립니다.
+       본 것과 다른 것을 친구 전원에게 쓰지 않습니다. 모르는 이름은 버리고
+       참/거짓이 아니면 거절합니다(patchShare 와 같은 검사). expect 가 없으면
+       (옛 앱) 예전처럼 저장된 값을 씁니다. */
+    applyShareDefaults(me, expect) {
+      if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다' };
+      const cur = this.shareDefaults(me);
+      if (expect !== undefined && expect !== null) {
+        if (typeof expect !== 'object' || Array.isArray(expect))
+          return { ok: false, reason: 'expect 는 공유 설정 묶음이어야 합니다' };
+        const seen = Object.assign({}, cur);
+        const why = patchShare(seen, expect);
+        if (why) return { ok: false, reason: why };
+        if (SHARE_FIELDS.some(k => seen[k] !== cur[k]))
+          return { ok: false, conflict: true, defaults: cur,
+                   reason: '기본값이 방금 바뀌었습니다 — 다시 확인해 주세요' };
+      }
+      const d = JSON.stringify(cur);
+      const at = nowISO();
+      let n = 0;
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        for (const e of q.edgesOf.all(me, me)) {
+          if (e.status !== 'accepted') continue;
+          q.upsertShare.run(me, e.a_id === me ? e.b_id : e.a_id, d, at);
+          n++;
+        }
+        db.exec('COMMIT');
+      } catch (e) {
+        try { db.exec('ROLLBACK'); } catch {}
+        throw e;
+      }
+      return { ok: true, applied: n };
     },
 
     exists(uid) { return !!(uid && q.userById.get(uid)); },

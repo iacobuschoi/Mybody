@@ -15,8 +15,17 @@ import 'package:mybody/src/api.dart';
 import 'package:mybody/src/app_state.dart';
 import 'package:mybody/src/scope.dart';
 import 'package:mybody/src/screens/social.dart';
+import 'package:mybody/src/sync_queue.dart';
 import 'package:mybody/src/theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+class _MemQueue implements QueueStorage {
+  String? v;
+  @override
+  String? read() => v;
+  @override
+  void write(String raw) => v = raw;
+}
 
 /// server/db.js 의 SHARE_FIELDS 그대로.
 const _serverShareKeys = [
@@ -105,8 +114,46 @@ void main() {
     expect(puts, hasLength(1));
     expect(puts.first.keys.every(_serverShareKeys.contains), isTrue,
         reason: '서버가 모르는 이름으로 보내면 켜도 안 켜집니다: ${puts.first.keys}');
-    expect(puts.first['weightTrend'], isTrue);
-    expect(puts.first['diet'], isTrue, reason: '이미 켜진 것은 그대로 같이 갑니다');
+    expect(puts.first, {'weightTrend': true},
+        reason: '바꾼 것 하나만 — 캐시에서 본 나머지로 서버를 덮지 않게(「모두에게 적용」 을 되돌림)');
+  });
+
+  /* 결함: 오프라인에서 스위치 하나를 바꾸면 화면의 _share 전체가 큐에 들어갔고,
+     그게 나중에 도착해 그 사이 「모두에게 적용」 으로 끈 체중을 다시 켰습니다. */
+  testWidgets('친구 상세 — 오프라인에서 바꾸면 바꾼 스위치 하나만 큐에 남는다', (t) async {
+    t.view.physicalSize = const Size(1000, 4000);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    SharedPreferences.setMockInitialValues({
+      'mybody.share.cache.v1.f1': jsonEncode({
+        for (final k in _serverShareKeys) k: k != 'absolute' && k != 'planProgress',
+      }),
+    });
+    final app = await AppState.boot();
+    final api = Api(baseUrl: 'https://x.test',
+        client: MockClient((_) async => throw Exception('no network')));
+    await api.setToken('tok');
+    final store = _MemQueue();
+    final q = SyncQueue(api: api, storage: store);
+    await t.pumpWidget(Scope(
+      state: app, api: api, queue: q, onServerChange: (_) async {},
+      child: MaterialApp(theme: mbLight(), home: const FriendDetailScreen(
+          person: {'id': 'f1', 'displayName': '나린'})),
+    ));
+    await t.pumpAndSettle();
+    await t.tap(find.text('내가 이 친구에게 보여 주는 것'));
+    await t.pumpAndSettle();
+    expect(t.widget<SwitchListTile>(find.widgetWithText(SwitchListTile, '체중 변화')).value, isTrue,
+        reason: '캐시에서 본 값');
+
+    await t.tap(find.widgetWithText(SwitchListTile, '오늘 식단 (칼로리·탄단지)'));
+    await t.pumpAndSettle();
+    final jobs = (jsonDecode(store.v!) as List).cast<Map>();
+    expect(jobs, hasLength(1));
+    expect(jobs.single['op'], 'setShare');
+    expect(jobs.single['args'], {'userId': 'f1', 'patch': {'diet': false}},
+        reason: '캐시의 weightTrend:true 가 같이 실려 가면 적용한 값을 되돌립니다');
+    q.dispose();
   });
 
   testWidgets('친구 상세 — 아무것도 공유 안 한 친구도 선다', (t) async {

@@ -202,12 +202,15 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 | `POST` | `/api/me/consent` | `{healthConsent}` 현재 판으로 건강정보 동의를 다시 받음 → `{user}` |
 | `GET` | `/api/friends` | 친구 · 받은 요청 · 보낸 요청 · 차단 |
 | `POST` | `/api/friends/request` | `{inviteCode}` |
-| `POST` | `/api/friends/accept` | `{userId}` |
+| `POST` | `/api/friends/accept` | `{userId}` 수락. 각 방향은 **그 방향 주인의 기본값**(`/api/share-defaults`)으로 시작 — 맞요청으로 곧바로 친구가 될 때도 같음 |
 | `POST` | `/api/friends/decline` | `{userId}` |
 | `POST` | `/api/friends/block` | `{userId}` |
 | `DELETE` | `/api/friends/:userId` | 친구 끊기 |
 | `GET` | `/api/share/:userId` | 내가 그 사람에게 공유하는 항목 |
 | `PUT` | `/api/share/:userId` | 항목별 on/off |
+| `GET` | `/api/share-defaults` | 새 친구에게 기본으로 보여 줄 것 → `{defaults}`. 정한 적이 없으면 처음 값(몸 쪽 넷 · `absolute` 꺼짐, `streak` · `schedule` · `diet` 켜짐) |
+| `PUT` | `/api/share-defaults` | 바꾼 스위치만 `{weightTrend:true}` → `{defaults}`. 참/거짓이 아니면 400(하나라도 틀리면 아무것도 안 바뀜), 모르는 이름은 무시, 몸 항목이 하나도 없으면 `absolute` 는 꺼짐. 이미 맺은 친구는 안 바뀜 |
+| `POST` | `/api/share-defaults/apply` | `{expect}`(화면에서 본 값, 옛 앱은 생략) → `{applied}`. **수락된 친구에게 내가 보여 주는 쪽**만 기본값으로 덮음 — 대기 · 차단 · 끊은 관계는 빼고, 친구별로 따로 정한 것도 덮음. `expect` 가 저장된 기본값과 다르면 409 `{conflict, defaults}` 로 아무것도 안 바꿈 |
 | `POST` | `/api/snapshots` | `{weekStart, payload}` 내 주간 요약 올리기 |
 | `GET` | `/api/snapshots/:ownerId` | 친구가 **나에게 허용한 항목만** |
 | `POST` | `/api/sync/push` | `{records:[{kind,id,updatedAt,deleted,payload}]}` |

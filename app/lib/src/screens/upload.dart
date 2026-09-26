@@ -76,6 +76,12 @@ class _UploadScreenState extends State<UploadScreen> {
   final _ctrl = <String, TextEditingController>{
     for (final q in _quick) q.key: TextEditingController(),
   };
+  /* 칸마다 포커스를 따로 들고 「다음」 키로 바로 아래 칸에 갑니다. 기본 이동
+     (nextFocus)은 읽기 순서로 다음 것을 고르는데, 그게 늘 아래 칸이라는 보장이
+     없습니다 — 사이에 버튼이 끼면 거기로 갑니다. */
+  final _focus = <String, FocusNode>{
+    for (final q in _quick) q.key: FocusNode(debugLabel: q.key),
+  };
   late DateTime _measuredAt = DateTime.now();
 
   /* 결과지 사진. **이 기기에만** 남습니다. */
@@ -270,6 +276,9 @@ class _UploadScreenState extends State<UploadScreen> {
     for (final c in _ctrl.values) {
       c.dispose();
     }
+    for (final f in _focus.values) {
+      f.dispose();
+    }
     super.dispose();
   }
 
@@ -325,100 +334,120 @@ class _UploadScreenState extends State<UploadScreen> {
     final t = Theme.of(context);
     return Scaffold(
       appBar: AppBar(title: const Text('인바디 올리기')),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
-        const Note(text: '숫자 세 개만 넣으면 됩니다 — 나머지는 자동으로 계산합니다'),
-        MbCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SectionTitle('결과지 사진'),
-            if (_photoFile != null) ...[
-              ClipRRect(
-                borderRadius: BorderRadius.circular(10),
-                child: Image.file(_photoFile!,
-                    height: 190, width: double.infinity, fit: BoxFit.cover),
-              ),
-              const SizedBox(height: 10),
-            ],
-            Wrap(spacing: 8, runSpacing: 8, children: [
-              OutlinedButton.icon(
-                onPressed: _reading ? null : () => _pick(ImageSource.camera),
-                icon: const Icon(LucideIcons.camera, size: 18),
-                label: const Text('찍기'),
-              ),
-              OutlinedButton.icon(
-                onPressed: _reading ? null : () => _pick(ImageSource.gallery),
-                icon: const Icon(LucideIcons.image, size: 18),
-                label: const Text('앨범에서'),
-              ),
-              if (_photoId != null)
-                FilledButton.icon(
-                  onPressed: _reading ? null : _read,
-                  icon: _reading
-                      ? const SizedBox(
-                          width: 14, height: 14,
-                          child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(LucideIcons.wand2, size: 18),
-                  label: Text(_reading ? '읽는 중…' : '사진에서 읽기'),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        /* 목록을 끌면 키보드를 내립니다. 아이폰 숫자 패드에는 닫는 키가 없어서,
+           바깥 탭(앱 전체)과 이것이 키보드를 치우는 길입니다. 버튼은 본문 끝에
+           있고 Scaffold 가 본문을 키보드만큼 줄이므로 스크롤하면 닿습니다. */
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        children: [
+          const Note(text: '숫자 세 개만 넣으면 됩니다 — 나머지는 자동으로 계산합니다'),
+          MbCard(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const SectionTitle('결과지 사진'),
+              if (_photoFile != null) ...[
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Image.file(_photoFile!,
+                      height: 190, width: double.infinity, fit: BoxFit.cover),
                 ),
+                const SizedBox(height: 10),
+              ],
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                OutlinedButton.icon(
+                  onPressed: _reading ? null : () => _pick(ImageSource.camera),
+                  icon: const Icon(LucideIcons.camera, size: 18),
+                  label: const Text('찍기'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _reading ? null : () => _pick(ImageSource.gallery),
+                  icon: const Icon(LucideIcons.image, size: 18),
+                  label: const Text('앨범에서'),
+                ),
+                if (_photoId != null)
+                  FilledButton.icon(
+                    onPressed: _reading ? null : _read,
+                    icon: _reading
+                        ? const SizedBox(
+                            width: 14, height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(LucideIcons.wand2, size: 18),
+                    label: Text(_reading ? '읽는 중…' : '사진에서 읽기'),
+                  ),
+              ]),
+              if (_ocrNote != null) ...[
+                const SizedBox(height: 10),
+                RichishText(_ocrNote!,
+                    style: t.textTheme.bodySmall?.copyWith(height: 1.5)),
+              ],
             ]),
-            if (_ocrNote != null) ...[
-              const SizedBox(height: 10),
-              RichishText(_ocrNote!,
-                  style: t.textTheme.bodySmall?.copyWith(height: 1.5)),
-            ],
-          ]),
-        ),
-        MbCard(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SectionTitle('측정일'),
-            InkWell(
-              onTap: () async {
-                final picked = await showDatePicker(
-                  context: context,
-                  initialDate: _measuredAt,
-                  firstDate: DateTime(2015),
-                  lastDate: DateTime.now(),
-                  helpText: '결과지에 찍힌 날짜',
-                );
-                if (picked != null) setState(() => _measuredAt = picked);
-              },
-              child: InputDecorator(
-                decoration: const InputDecoration(border: OutlineInputBorder()),
-                child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-                  Text(dateK(_measuredAt.toIso8601String())),
-                  const Icon(LucideIcons.calendar, size: 18),
-                ]),
-              ),
-            ),
-            const SizedBox(height: 16),
-            for (final q in _quick) ...[
-              TextField(
-                controller: _ctrl[q.key],
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  labelText: q.label,
-                  suffixText: q.unit,
-                  helperText: q.hint,
-                  border: const OutlineInputBorder(),
+          ),
+          MbCard(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              const SectionTitle('측정일'),
+              InkWell(
+                onTap: () async {
+                  final picked = await showDatePicker(
+                    context: context,
+                    initialDate: _measuredAt,
+                    firstDate: DateTime(2015),
+                    lastDate: DateTime.now(),
+                    helpText: '결과지에 찍힌 날짜',
+                  );
+                  if (picked != null) setState(() => _measuredAt = picked);
+                },
+                child: InputDecorator(
+                  decoration: const InputDecoration(border: OutlineInputBorder()),
+                  child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                    Text(dateK(_measuredAt.toIso8601String())),
+                    const Icon(LucideIcons.calendar, size: 18),
+                  ]),
                 ),
               ),
-              const SizedBox(height: 14),
-            ],
-          ]),
-        ),
-        FilledButton(
-          onPressed: _ready ? _next : null,
-          child: const Text('다음 — 검산하기'),
-        ),
-        const SizedBox(height: 8),
-        /* 사진이 어디로 가는지 **먼저** 말합니다. 사진을 넣은 다음에
-           알려 주면 늦습니다. */
-        Text(
-          '사진은 이 기기에만 남습니다. 「사진에서 읽기」를 누를 때만 서버를 거쳐 '
-          'Anthropic 의 AI(Claude)로 판독되고, 서버는 그 사진을 보관하지 않습니다.',
-          style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5),
-        ),
-      ]),
+              const SizedBox(height: 16),
+              /* 앞 두 칸은 「다음」 으로 아래 칸에, 마지막 칸은 「완료」 — 세 칸이 다
+                 차 있으면 곧장 검산으로 넘어갑니다(어차피 바로 아래 버튼이 하는 일).
+                 안드로이드 숫자판에 있는 키입니다. 아이폰 숫자 패드에는 없어서
+                 거기서는 바깥 탭 · 목록 끌기로 키보드를 내리고 버튼을 누릅니다. */
+              for (final (i, q) in _quick.indexed) ...[
+                TextField(
+                  controller: _ctrl[q.key],
+                  focusNode: _focus[q.key],
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  textInputAction:
+                      i == _quick.length - 1 ? TextInputAction.done : TextInputAction.next,
+                  onEditingComplete: i == _quick.length - 1
+                      ? null
+                      : () => _focus[_quick[i + 1].key]!.requestFocus(),
+                  onSubmitted: i == _quick.length - 1
+                      ? (_) { if (_ready) _next(); }
+                      : null,
+                  onChanged: (_) => setState(() {}),
+                  decoration: InputDecoration(
+                    labelText: q.label,
+                    suffixText: q.unit,
+                    helperText: q.hint,
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 14),
+              ],
+            ]),
+          ),
+          FilledButton(
+            onPressed: _ready ? _next : null,
+            child: const Text('다음 — 검산하기'),
+          ),
+          const SizedBox(height: 8),
+          /* 사진이 어디로 가는지 **먼저** 말합니다. 사진을 넣은 다음에
+             알려 주면 늦습니다. */
+          Text(
+            '사진은 이 기기에만 남습니다. 「사진에서 읽기」를 누를 때만 서버를 거쳐 '
+            'Anthropic 의 AI(Claude)로 판독되고, 서버는 그 사진을 보관하지 않습니다.',
+            style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -724,7 +724,7 @@ void main() {
     });
 
     test('이름표', () {
-      expect(kCardioKinds.map(cardioKindLabel), ['걷기', '달리기', '자전거', '유산소']);
+      expect([...kQuickSports, 'cardio'].map(cardioKindLabel), ['걷기', '달리기', '자전거', '유산소']);
       expect(cardioKindLabel('gym'), '헬스');
       expect(cardioKindLabel('???'), '유산소');
     });

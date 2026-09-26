@@ -1,0 +1,406 @@
+<title>Mybody 패치노트</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=Gowun+Batang:wght@400;700&display=swap">
+<style>
+  :root {
+    --bg: #f6f6fb;
+    --surface: #ffffff;
+    --surface-2: #eeeef8;
+    --ink: #1c1c2e;
+    --ink-2: #55556b;
+    --ink-3: #8a8aa3;
+    --line: #dcdcec;
+    --accent: #4f46e5;
+    --accent-ink: #ffffff;
+    --accent-soft: #e6e5fb;
+    --fat: #d9652f;
+    --muscle: #2f7be8;
+    --ok: #2e9e5b;
+    --ok-soft: #e1f3e8;
+    --warn: #b8860b;
+    --warn-soft: #fbf1d3;
+    --shadow: 0 1px 2px rgba(28, 28, 46, .06), 0 8px 24px rgba(28, 28, 46, .06);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --bg: #121220;
+      --surface: #1b1b2c;
+      --surface-2: #24243a;
+      --ink: #ececf6;
+      --ink-2: #b4b4cc;
+      --ink-3: #7e7e9a;
+      --line: #33334d;
+      --accent: #8b87ff;
+      --accent-ink: #0f0f1e;
+      --accent-soft: #2a2856;
+      --fat: #f08a55;
+      --muscle: #6aa3ff;
+      --ok: #57c584;
+      --ok-soft: #1c3a2a;
+      --warn: #e2b53d;
+      --warn-soft: #3a3116;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .35);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #121220;
+    --surface: #1b1b2c;
+    --surface-2: #24243a;
+    --ink: #ececf6;
+    --ink-2: #b4b4cc;
+    --ink-3: #7e7e9a;
+    --line: #33334d;
+    --accent: #8b87ff;
+    --accent-ink: #0f0f1e;
+    --accent-soft: #2a2856;
+    --fat: #f08a55;
+    --muscle: #6aa3ff;
+    --ok: #57c584;
+    --ok-soft: #1c3a2a;
+    --warn: #e2b53d;
+    --warn-soft: #3a3116;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Noto Sans KR", system-ui, sans-serif;
+    font-size: 15px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 760px;
+    margin: 0 auto;
+    padding-inline: 20px;
+    padding-block: 28px 64px;
+  }
+
+  /* --- 머리 ------------------------------------------------------------ */
+  header.top { display: grid; gap: 14px; margin-bottom: 26px; }
+  .eyebrow {
+    font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink-3);
+  }
+  h1 {
+    margin: 0;
+    font-family: "Gowun Batang", "Nanum Myeongjo", serif;
+    font-weight: 700;
+    font-size: clamp(30px, 6vw, 40px);
+    line-height: 1.15;
+    text-wrap: balance;
+  }
+  .lede { margin: 0; color: var(--ink-2); max-width: 60ch; }
+
+  .latest {
+    display: grid; grid-template-columns: auto 1fr; gap: 6px 18px; align-items: baseline;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    padding: 14px 18px; box-shadow: var(--shadow);
+  }
+  .latest .k { color: var(--ink-3); font-size: 12px; font-weight: 600; letter-spacing: .04em; }
+  .latest .v { font-variant-numeric: tabular-nums; }
+  .latest .v strong { font-family: "Gowun Batang", serif; font-size: 22px; }
+
+  /* --- 걸러 보기 -------------------------------------------------------- */
+  .tools { display: grid; gap: 10px; margin-bottom: 26px; }
+  .search {
+    width: 100%; padding: 10px 14px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    font: inherit;
+  }
+  .search:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink-2);
+    border-radius: 999px; padding: 4px 11px; font: inherit; font-size: 13px; cursor: pointer;
+  }
+  .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .versions { display: flex; flex-wrap: wrap; gap: 6px; }
+  .versions a {
+    font-variant-numeric: tabular-nums; font-size: 13px; color: var(--ink-2);
+    text-decoration: none; border-bottom: 1px dotted var(--line); padding: 2px 1px;
+  }
+  .versions a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* --- 판 하나 --------------------------------------------------------- */
+  .release { display: grid; grid-template-columns: 112px 1fr; gap: 0 22px; padding-block: 26px; border-top: 1px solid var(--line); }
+  .release .rail { position: sticky; top: env(safe-area-inset-top, 0px); align-self: start; padding-top: 4px; }
+  .release .num {
+    font-family: "Gowun Batang", serif; font-weight: 700; font-size: 26px; line-height: 1;
+    font-variant-numeric: tabular-nums; letter-spacing: -.01em;
+  }
+  .release .meta { margin-top: 8px; display: grid; gap: 3px; font-size: 12.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+  .release h2 { margin: 0 0 8px; font-size: 19px; font-weight: 700; line-height: 1.35; text-wrap: balance; }
+  .release .intro { margin: 0 0 14px; color: var(--ink-2); }
+  .badge {
+    display: inline-block; font-size: 11.5px; font-weight: 600; letter-spacing: .03em;
+    border-radius: 999px; padding: 2px 9px; vertical-align: middle;
+  }
+  .badge.now { background: var(--ok-soft); color: var(--ok); }
+  .badge.soon { background: var(--warn-soft); color: var(--warn); }
+  .badge.first { background: var(--accent-soft); color: var(--accent); }
+
+  ul.items { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+  ul.items li { display: grid; grid-template-columns: 56px 1fr; gap: 10px; align-items: start; }
+  .area {
+    font-size: 11.5px; font-weight: 600; letter-spacing: .04em; text-align: center;
+    border-radius: 6px; padding: 3px 0; margin-top: 3px;
+    background: var(--surface-2); color: var(--ink-2);
+  }
+  .area[data-a="운동"] { color: var(--muscle); }
+  .area[data-a="식단"] { color: var(--fat); }
+  .area[data-a="버그"] { color: var(--warn); }
+  .area[data-a="친구"] { color: var(--ok); }
+  li p { margin: 0; }
+  li p b { font-weight: 600; }
+  .known { margin-top: 14px; padding: 10px 14px; border-left: 3px solid var(--line); color: var(--ink-2); font-size: 14px; }
+  .known b { color: var(--ink); font-weight: 600; }
+  .empty { color: var(--ink-3); padding-block: 24px; }
+
+  footer { margin-top: 32px; color: var(--ink-3); font-size: 12.5px; }
+
+  @media (max-width: 560px) {
+    .release { grid-template-columns: 1fr; gap: 10px; }
+    .release .rail { position: static; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
+    .release .meta { margin-top: 0; display: flex; flex-wrap: wrap; gap: 0 10px; }
+    ul.items li { grid-template-columns: 48px 1fr; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .chip, .versions a { transition: color .15s, background-color .15s; }
+  }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="eyebrow">Mybody · 내부 테스터용</div>
+    <h1>Mybody 패치노트</h1>
+    <p class="lede">판마다 무엇이 바뀌었는지 한 곳에 모아 둡니다. 새 판이 나올 때마다 여기에 더해집니다. 플레이 내부 테스트와 TestFlight 에 같은 판이 올라갑니다.</p>
+    <div class="latest" id="latest"></div>
+  </header>
+
+  <section class="tools" aria-label="걸러 보기">
+    <input class="search" id="q" type="search" placeholder="내용으로 찾기 (예: 루틴, 키보드, 뭘 먹을까)" aria-label="패치 내용 찾기">
+    <div class="chips" id="areas" role="group" aria-label="영역"></div>
+    <nav class="versions" id="vnav" aria-label="판 바로가기"></nav>
+  </section>
+
+  <main id="list"></main>
+
+  <footer>빌드 번호는 저장소 커밋 수이고, 판 번호는 스토어에 보이는 번호입니다. 스토어에 나가는 판은 따로 표시합니다.</footer>
+</div>
+
+<script>
+  /* 판 목록 — 최신이 위. 새 판이 나오면 맨 앞에 하나 더합니다.
+     area: 운동 · 식단 · 플랜 · 추이 · 친구 · 홈 · 설정 · 버그 · 앱 (앱 = 알림·동기화·업데이트 같은 바탕) */
+  const RELEASES = [
+    {
+      v: '0.2.14', build: null, date: '준비 중', status: 'soon',
+      channels: '플레이 내부 · TestFlight → 비공개 테스트',
+      title: '아이폰 키보드 버그 · 친구 기본 공유값 · 스포츠 기록',
+      intro: '아이폰 TestFlight 에서 찾은 버그(첫 설정의 키·나이 입력에서 키보드가 안 사라져 「확인」을 못 누름)를 근본부터 고칩니다.',
+      items: [
+        ['버그', '<b>키보드 바깥을 누르면 키보드가 닫힙니다</b> — 앱의 모든 입력 화면. 숫자 칸에는 완료·다음 키, 확인 버튼은 늘 키보드 위에 보이고, 스크롤해도 닫힙니다.'],
+        ['버그', '입력이 있는 화면 전부를 아이폰 키보드 높이로 검사해 가려지는 버튼을 고칩니다 — 설정 「내 몸 정보」 시트 · 식단 양 시트(잘림) · 운동 종료 시트. 설정 시트의 활동량 목록이 360 폭에서 옆으로 넘치던 것도.'],
+        ['버그', '복구 화면의 새 비밀번호 칸에 아이폰 「강력한 암호」 제안 시트가 덮이지 않습니다(가입 화면에만 남김).'],
+        ['친구', '<b>친구에게 기본으로 보여 주는 것</b>을 설정(과 친구 탭 「기본 공유」)에서 정합니다. 몸 수치(체중·골격근·체지방 변화·목표 진행률·실제 수치)는 기본 비공개, 기록·이번 주 운동·오늘 식단은 기본 공개. 새 친구에게 자동 적용, 「지금 친구 모두에게 적용」(보여 줄 항목을 한 번 확인).'],
+        ['친구', '친구 요청·수락 알림 문구가 실제 공유 값대로 바뀝니다. 로그아웃하면 공유 캐시를 지웁니다.'],
+        ['운동', '<b>스포츠 34종</b> — 필라테스·요가·탁구·배드민턴·테니스·스쿼시·축구·풋살·농구·배구·야구·골프·볼링·수영·등산·클라이밍·크로스핏·줄넘기·복싱·무술·스키·스노보드·댄스·스피닝·로잉 등, 종목별 소모 kcal(2011 Compendium MET).'],
+        ['운동', '유산소 종료 시트: 걷기·달리기·자전거 + 최근 종목 칩, 「다른 종목」은 묶음별 그리드(두 번 터치). 거리는 걷기·달리기·자전거·등산(km)·수영(m)만. 같은 날 두 번째 기록은 덮어쓴다고 먼저 알려 줌.'],
+      ],
+      known: '친구 기본 공유값은 서버 업데이트 뒤에 켜집니다(그 전에는 카드에 「서버를 업데이트하면 쓸 수 있습니다」).',
+    },
+    {
+      v: '0.2.13', build: 288, date: '2026-09-25', status: 'now',
+      channels: '플레이 내부 · TestFlight my',
+      title: '운동 처방을 다시 정하고, 헬스 화면을 따라 해 보게',
+      intro: '세트·횟수·휴식이 종목 종류와 경력·목표에 따라 정해집니다(NSCA·ACSM 가이드라인 기준).',
+      items: [
+        ['운동', '<b>세트·횟수·휴식 규칙</b> — 맨몸 스쿼트 15~20회 · 푸시업 8~12회 · 글루트 브릿지 15~20회 · 플랭크 30초(초보 기준). 바벨 복합은 초보 8~12회, 중급 6~10회, 증량 국면 중급 이상 5~8회. 머신·덤벨 8~12, 고립 12~15. 런지는 「한쪽씩」. 60분을 넘으면 휴식을 줄여 맞춤.'],
+        ['운동', '헬스 화면: 세트×횟수(+휴식)는 한 줄, 요령은 그 아래 흐린 줄. <b>꾹 눌러 순서 바꾸기</b>. 옆으로 밀면 빠짐(처음 한 번 살짝 밀리는 힌트).'],
+        ['운동', '처음 들어가면 <b>따라 해 보는 4단계 안내</b>(세트 → 무게 칩 → 밀어서 빼기 → 꾹 눌러 옮기기). 건너뛸 수 있고 설정에서 다시 볼 수 있음.'],
+        ['운동', '종목 고르기: 부위를 누르면 모든 기구가 바로 보임(내 기구 먼저, 나머지는 흐리게). 「내 기구만」 스위치.'],
+        ['버그', '달성률의 단백질·칼로리·탄수화물 막대가 목표선 위에 떠 있던 문제. 막대는 바닥에서, 목표선은 70% 높이.'],
+        ['식단', '뭘 먹을까: 한 끼 열량 상한(남은 kcal ÷ 남은 끼니 × 1.15). 백반·구이·찜·덮밥·포케·샐러드 같은 깔끔한 한 상이 먼저. 억지 단백질 추가 없이, 모자란 단백질은 「간식으로 +N g」.'],
+        ['플랜', '기간으로 정하기: 주수 아래에 도달일(예: 12주 · 2026. 12. 18.).'],
+      ],
+      known: '엔진(계획 원본)은 아직 맨몸 종목에 5~8회를 주지만 앱 화면은 새 규칙으로 덮어 씁니다.',
+    },
+    {
+      v: '0.2.12', build: 285, date: '2026-09-25', status: 'now',
+      channels: '플레이 내부 · TestFlight my',
+      title: '종목 사전 174개, 내 루틴, 무게 추천, 기구 설정 새 화면',
+      items: [
+        ['운동', '<b>종목 사전 174개</b> — 헬스장 머신 카탈로그(Life Fitness · Hammer Strength · Technogym 등)를 조사해 100개 추가, 별칭 831개로 검색.'],
+        ['운동', '종목 고르기는 부위 → 종목 두 번 터치. 익숙한 종목·최근 종목이 맨 위.'],
+        ['운동', '헬스 화면에서 종목 추가·빼기, 계획보다 세트 더 하기. 끝낼 때 <b>「내 루틴으로 저장」</b> — 같은 세션은 다음에 자동 적용.'],
+        ['운동', '종목마다 <b>시작 무게 추천</b>(체중·골격근·성별·경력·반복 구간). 지난 무게가 있으면 그걸로, 다 채웠으면 한 단계 올려서.'],
+        ['운동', '「운동 장소와 기구」 재설계 — 장소 카드, 기구 타일, <b>하루에 쓸 머신 수</b>, 부위별 익숙한 종목. 처음 쓰는 사람 기본 = 머신 4개 + 덤벨 1시간 루틴.'],
+        ['플랜', '운동 카드는 타일 3개 + 접힌 「왜 이렇게 짰나요?」. 세션은 순서·기구·세트·휴식·요령이 보이는 따라하기 카드. 궤적은 체중·골격근·체지방률 3개 그래프.'],
+        ['플랜', '달성률 요일 표시를 체크/× 아이콘과 범례로(홈·친구 카드도 같게). 식단 막대에 점선 목표선.'],
+        ['식단', '뭘 먹을까: 기름진 음식 제외, 건강식 가산, 날마다 다른 메뉴. 「1개 × 2」 → 「2개」.'],
+        ['플랜', '기간으로 정하기: −/+ 로 1주씩. 변화량 글씨 조정.'],
+        ['앱', '19개 화면의 긴 설명문을 한 줄 이하로. 다크 테마 강조색 대비 개선.'],
+      ],
+    },
+    {
+      v: '0.2.11', build: 282, date: '2026-09-25', status: 'now',
+      channels: '플레이 내부 · TestFlight my',
+      title: '잰 시간은 그대로, 폭죽 축하, 헬스 화면 새 디자인',
+      items: [
+        ['운동', '타이머로 잰 시간은 그대로 저장 — 다시 묻지 않고 1분 미만도 남음. 시간 칸은 시작을 안 눌렀을 때만.'],
+        ['운동', '저장하면 폭죽과 진동으로 축하(헬스·유산소·맨몸 공통).'],
+        ['운동', '헬스 화면 새 디자인: 작은 시계 카드, 종목 목록이 주인공, 세트는 작은 점.'],
+        ['플랜', '기간 카드 단순화(체지방·골격근 변화가 크게). 옵션 하나를 고르면 바로 계획이 세워짐.'],
+        ['추이', '세 그래프에 플랜의 예상선(점선)을 겹쳐 실제와 비교.'],
+        ['친구', '친구 상세에 「오늘」 카드(헬스·유산소·식단·체크인, 한 것은 체크). 친구 목록 줄에도 요약.'],
+        ['플랜', '플랜 탭에 기구·익숙한 종목 설정 요약과 「기구 설정」 버튼. 종목 목록이 설정대로 바뀐 것이 보임.'],
+        ['운동', '하루 유산소 분이 처방 회수대로 나뉨(한 날에 96분이 몰리던 것 → 48분).'],
+      ],
+    },
+    {
+      v: '0.2.10', build: 279, date: '2026-09-25', status: 'now',
+      channels: '플레이 내부 · TestFlight my',
+      title: '새 판 안내를 켤 때마다',
+      items: [
+        ['앱', '새 버전 안내를 앱을 켤 때마다 바로 확인(돌아올 때는 30분에 한 번). TestFlight 설치본에도 새 빌드 안내.'],
+      ],
+    },
+    {
+      v: '0.2.9', build: 274, date: '2026-09-24', status: 'now',
+      channels: '플레이 내부 · TestFlight my',
+      title: '홈 브리핑, 헬스장 운동 기록, 기간으로 목표 정하기, 계정 동기화',
+      items: [
+        ['홈', '홈 맨 위 「오늘」 카드 — 오늘 할 운동, 남은 칼로리·단백질, 지금 당장 할 일 하나.'],
+        ['운동', '헬스장 운동 기록: 시작·종료 타이머, 세트 카운터와 휴식 타이머, 유산소는 거리(km)까지, 소모 kcal 추정.'],
+        ['운동', '있는 기구·기구 수·익숙한 종목을 설정하면 그날 종목이 거기에 맞춰짐.'],
+        ['운동', '헬스 가기로 한 날 저녁까지 기록이 없으면 15분 맨몸 운동 알림. 끝내면 소모 kcal 와 함께 축하.'],
+        ['플랜', '목표를 「기간으로」 정하기 — 8·12·16·24주에 가능한 몸을 그림으로 비교. 6개월 넘는 계획은 기간별 계획을 권함.'],
+        ['앱', '계정 동기화: 두 기기에서 따로 적은 기록이 합쳐짐(지워진 것은 지워진 채로). 앱을 다시 열 때마다 맞춤.'],
+        ['추이', '체중·골격근·체지방률을 따로 그림.'],
+      ],
+    },
+    {
+      v: '0.2.8', build: 269, date: '2026-09-24', status: 'now',
+      channels: '플레이 내부 · TestFlight friends(베타 심사) · App Store 심사 제출',
+      title: '새 버전 알림',
+      items: [
+        ['앱', '새 버전이 나오면 홈에서 알려 줌. 서버와 맞지 않는 옛 판이면 무엇이 안 되는지와 업데이트할 곳을 보여 줌.'],
+        ['설정', '설정 맨 아래에 앱 버전과 받은 곳 표시.'],
+        ['추이', '주간 체크인 체중을 점선으로 구분.'],
+      ],
+    },
+    {
+      v: '0.2.7', build: 262, date: '2026-09-24', status: 'now',
+      channels: '플레이 내부 · TestFlight',
+      title: '끼니 알림과 주간 체크인',
+      items: [
+        ['식단', '끼니 기록 알림: 10시 아침 · 13시 점심 · 19시 저녁. 이미 적은 끼니는 알리지 않고, 설정에서 끌 수 있음.'],
+        ['플랜', '주간 체크인: 집 체중계 값을 몇 주 모아 추세로 보고, 계획과 꾸준히 어긋날 때만 칼로리를 바꾸자고 함.'],
+        ['버그', '닿을 수 있는 목표가 「도달하지 않음」으로 나오던 기간 계산.'],
+        ['플랜', '기간 고르기: 상·중·하가 같은 계획이면 한 장으로.'],
+        ['앱', '로그인 없이 쓰기, 사진 판독 전 동의, 바뀐 동의 문구 다시 묻기, 「전부 지우기」 고침.'],
+      ],
+    },
+    {
+      v: '0.2.6', build: null, date: '2026-09-24', status: 'now',
+      channels: '릴리스만',
+      title: '기간 고르기 교차 검토 반영',
+      items: [
+        ['플랜', '기간 고르기에서 폭이 좁던 이유, 합친 카드 안내, 모드가 빠진 재계산을 고침.'],
+      ],
+    },
+    {
+      v: '0.2.4', build: 237, date: '2026-09-23', status: 'first',
+      channels: '플레이 내부 · TestFlight',
+      title: '첫 판',
+      items: [
+        ['앱', '인바디 결과지 판독, 목표 도달 예측, 주차별 운동·식단 계획, 친구 기능.'],
+      ],
+    },
+    {
+      v: '0.2.0 ~ 0.2.3', build: null, date: '2026-09-22 ~ 23', status: 'first',
+      channels: '시험판(APK)',
+      title: '스토어 전 시험판',
+      items: [
+        ['앱', '서명된 APK 릴리스, 로그인·동기화 점검, 같은 결과지를 두 번 넣어도 한 줄로, 오늘 넣은 측정은 지금 시각으로.'],
+      ],
+    },
+  ];
+
+  const AREAS = ['운동', '식단', '플랜', '추이', '친구', '홈', '설정', '앱', '버그'];
+  const STATUS = { now: '내부 테스트 중', soon: '준비 중', first: '초기' };
+
+  const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const idOf = r => 'v' + r.v.replace(/[^0-9a-z]+/gi, '-');
+
+  let area = null;
+  let query = '';
+
+  function render() {
+    const q = query.trim().toLowerCase();
+    const list = document.getElementById('list');
+    let html = '';
+    let shown = 0;
+    for (const r of RELEASES) {
+      const items = r.items.filter(([a, t]) =>
+        (!area || a === area) && (!q || t.replace(/<[^>]+>/g, '').toLowerCase().includes(q) || r.title.toLowerCase().includes(q)));
+      if (!items.length) continue;
+      shown++;
+      const badge = r.status === 'soon' ? 'soon' : (r.status === 'first' ? 'first' : 'now');
+      html += `<article class="release" id="${idOf(r)}">
+        <div class="rail">
+          <div class="num">${esc(r.v)}</div>
+          <div class="meta">
+            ${r.build ? `<span>빌드 ${r.build}</span>` : ''}
+            <span>${esc(r.date)}</span>
+            <span>${esc(r.channels)}</span>
+          </div>
+        </div>
+        <div>
+          <h2>${esc(r.title)} <span class="badge ${badge}">${STATUS[r.status]}</span></h2>
+          ${r.intro ? `<p class="intro">${esc(r.intro)}</p>` : ''}
+          <ul class="items">
+            ${items.map(([a, t]) => `<li><span class="area" data-a="${a}">${a}</span><p>${t}</p></li>`).join('')}
+          </ul>
+          ${r.known ? `<div class="known"><b>알려진 것</b> · ${esc(r.known)}</div>` : ''}
+        </div>
+      </article>`;
+    }
+    list.innerHTML = html || '<p class="empty">맞는 항목이 없습니다.</p>';
+  }
+
+  function renderChips() {
+    const box = document.getElementById('areas');
+    box.innerHTML = ['전체', ...AREAS].map(a =>
+      `<button type="button" class="chip" data-area="${a === '전체' ? '' : a}" aria-pressed="${(a === '전체' && !area) || a === area}">${a}</button>`).join('');
+    box.querySelectorAll('.chip').forEach(b => b.addEventListener('click', () => {
+      area = b.dataset.area || null;
+      renderChips();
+      render();
+    }));
+  }
+
+  function renderNav() {
+    document.getElementById('vnav').innerHTML = RELEASES.map(r => `<a href="#${idOf(r)}">${esc(r.v)}</a>`).join('');
+  }
+
+  function renderLatest() {
+    const cur = RELEASES.find(r => r.status === 'now');
+    const next = RELEASES.find(r => r.status === 'soon');
+    document.getElementById('latest').innerHTML = `
+      <span class="k">지금 받는 판</span><span class="v"><strong>${esc(cur.v)}</strong> · 빌드 ${cur.build} · ${esc(cur.date)}</span>
+      <span class="k">받는 곳</span><span class="v">${esc(cur.channels)}</span>
+      ${next ? `<span class="k">다음 판</span><span class="v">${esc(next.v)} — ${esc(next.title)}</span>` : ''}`;
+  }
+
+  document.getElementById('q').addEventListener('input', e => { query = e.target.value; render(); });
+  renderLatest();
+  renderChips();
+  renderNav();
+  render();
+</script>

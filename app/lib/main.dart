@@ -224,7 +224,8 @@ class _MyBodyAppState extends State<MyBodyApp> {
       theme: mbLight(),
       darkTheme: mbDark(),
       debugShowCheckedModeBanner: false,
-      /* 아래 시스템 막대 밑으로 버튼이 안 들어가게 — 모든 화면 한 번에. */
+      /* 아래 시스템 막대 밑으로 버튼이 안 들어가게, 그리고 입력칸 밖을 탭하면
+         키보드가 내려가게 — 모든 화면 한 번에(ui/edge.dart). */
       builder: edgeSafe,
       /* 서버가 없어도 바로 들어갑니다 — 주소와 로그인은 나중 일입니다. */
       home: !_ready

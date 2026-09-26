@@ -43,6 +43,7 @@ import 'package:mybody_core/mybody_core.dart' as core;
 import 'app_state.dart';
 import 'checkins.dart';
 import 'ui/fmt.dart';
+import 'workout/kcal.dart';
 
 /// 버튼 하나. route · arg 는 셸의 go(route, arg) 에 그대로 넘깁니다.
 class BriefAction {
@@ -176,7 +177,7 @@ Briefing buildBriefing(AppState app, {DateTime? now}) {
     /* 헬스 줄에 못 접은 유산소 — 둘 중 하나라도 끝났으면 따로 한 줄. */
     if (cardioPlanned && (gymDone || cardioDone)) {
       if (cardioDone) {
-        lines.add(BriefLine(icon: 'done', text: _withLog('유산소 완료', _map(log?['cardio'])), done: true));
+        lines.add(BriefLine(icon: 'done', text: _cardioDone(_map(log?['cardio'])), done: true));
       } else {
         lines.add(BriefLine(icon: 'cardio', text: '$cardioText 남았어요'));
         workoutHead = '유산소만 남았어요';
@@ -184,10 +185,12 @@ Briefing buildBriefing(AppState app, {DateTime? now}) {
     }
   } else if (cardioPlanned) {
     if (cardioPending) {
-      lines.add(BriefLine(icon: 'cardio', text: '오늘은 유산소 하는 날${cardioMin == null ? '' : ' · ${n0(cardioMin)}분'}'));
+      /* 줄은 「유산소 · 스포츠」 — 필라테스 · 탁구도 여기서 적는다는 걸 이름이 말합니다.
+         머리글은 큰 글씨라 360px 에서 두 줄로 접히지 않게 짧은 이름 그대로. */
+      lines.add(BriefLine(icon: 'cardio', text: '오늘은 유산소 · 스포츠 하는 날${cardioMin == null ? '' : ' · ${n0(cardioMin)}분'}'));
       workoutHead = '오늘은 유산소 하는 날';
     } else {
-      lines.add(BriefLine(icon: 'done', text: _withLog('유산소 완료', _map(log?['cardio'])), done: true));
+      lines.add(BriefLine(icon: 'done', text: _cardioDone(_map(log?['cardio'])), done: true));
     }
   } else if (plan == null) {
     if (hasScans) lines.add(const BriefLine(icon: 'gym', text: '운동 계획이 아직 없어요'));
@@ -242,7 +245,7 @@ Briefing buildBriefing(AppState app, {DateTime? now}) {
       route: 'workout',
       arg: {'date': dateKey, 'type': late ? 'bodyweight' : 'gym'});
   final cardioAct = BriefAction(
-      label: '유산소 시작', route: 'workout', arg: {'date': dateKey, 'type': 'cardio'});
+      label: '유산소 · 스포츠 시작', route: 'workout', arg: {'date': dateKey, 'type': 'cardio'});
   final mealAct = BriefAction(label: '$meal 기록', route: 'food');
   const checkinAct = BriefAction(label: '이번 주 체크인', route: 'checkin');
   const goalAct = BriefAction(label: '목표 정하기', route: 'goal');
@@ -335,6 +338,13 @@ Map<String, Object?>? _map(Object? x) => x is Map ? x.cast<String, Object?>() : 
 /// 아니라 '맨몸 운동 완료' 입니다 — 하체 A 를 한 게 아니니까요.
 String _gymDone(String label, Map<String, Object?>? e) =>
     _withLog(e?['kind'] == 'bodyweight' ? '맨몸 운동 완료' : '$label 완료', e);
+
+/// 유산소 칸의 완료 줄 — 한 종목의 이름으로('필라테스 완료 · 45분 · 약 150kcal').
+/// 기록이 없거나 종목을 모르면 '유산소 완료'. 판단(끝났는가)은 done 칸이 합니다.
+String _cardioDone(Map<String, Object?>? e) {
+  final kind = e?['kind'];
+  return _withLog('${sportLabel(kind is String ? kind : null)} 완료', e);
+}
 
 /// 운동 기록(분 · km · kcal)을 문구 뒤에 붙입니다. 기록은 운동 화면이 남기고
 /// 여기서는 있으면 읽고 없으면 넘어갑니다.

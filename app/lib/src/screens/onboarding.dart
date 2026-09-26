@@ -33,6 +33,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   String _sex = 'male';
   final _height = TextEditingController();
   final _age = TextEditingController();
+  /// 키 칸의 「다음」 키가 이 칸으로 옮겨 옵니다.
+  final _ageFocus = FocusNode();
   String _activity = 'moderate';
   String _trainingAge = 'novice';
   int _days = 4;
@@ -47,6 +49,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   void dispose() {
     _height.dispose();
     _age.dispose();
+    _ageFocus.dispose();
     super.dispose();
   }
 
@@ -76,7 +79,11 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 onPressed: () => setState(() => _step--),
               ),
       ),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
+      body: ListView(
+          padding: const EdgeInsets.all(16),
+          /* 끌어 내리면 키보드도 내려갑니다 — 아이폰 숫자 패드에는 완료 키가 없습니다. */
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          children: [
         LinearProgressIndicator(value: (_step + 1) / 3, minHeight: 3),
         const SizedBox(height: 14),
         /* 홈에 닿기 전이라도 서버와 안 맞는 판이면 알립니다 — 동기화가 왜
@@ -89,12 +96,20 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         if (_step == 1) _training(),
         if (_step == 2) _consent(),
       ]),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: FilledButton(
-            onPressed: _canGo() ? _next : null,
-            child: Text(_step == 2 ? '시작하기' : '다음'),
+      bottomNavigationBar: Padding(
+        /* **키보드 위로 띄웁니다.** Scaffold 는 bottomNavigationBar 를 늘 화면 맨
+           아래에 두고 본문만 키보드만큼 줄입니다 — 그래서 키보드가 뜨면 이 단추가
+           키보드 뒤에 깔렸습니다. 아이폰 숫자 패드는 완료 키가 없어 키보드를 못
+           내리니 키·나이를 넣고 「다음」 에 영영 못 닿았습니다(실제 아이폰 보고).
+           키보드 높이(viewInsets)만큼 띄우면 늘 키보드 바로 위에 보입니다. */
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: FilledButton(
+              onPressed: _canGo() ? _next : null,
+              child: Text(_step == 2 ? '시작하기' : '다음'),
+            ),
           ),
         ),
       ),
@@ -158,6 +173,12 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           TextField(
             controller: _height,
             keyboardType: TextInputType.number,
+            /* 안드로이드 키보드의 「다음」 은 나이 칸으로(아이폰 숫자 패드에는 이 키가 없어
+               바깥 탭 · 끌기로 내립니다 — ui/edge.dart). onEditingComplete 로 기본 동작
+               (읽기 순서의 다음 노드로 nextFocus)을 대신합니다 — onSubmitted 에 두면
+               기본 이동이 먼저 돌고 한 번 더 옮겨 포커스가 두 번 움직입니다. */
+            textInputAction: TextInputAction.next,
+            onEditingComplete: () => _ageFocus.requestFocus(),
             onChanged: (_) => setState(() {}),
             decoration: const InputDecoration(
                 labelText: '키', suffixText: 'cm', border: OutlineInputBorder()),
@@ -165,7 +186,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
           const SizedBox(height: 14),
           TextField(
             controller: _age,
+            focusNode: _ageFocus,
             keyboardType: TextInputType.number,
+            /* 마지막 칸의 「완료」 는 키보드를 내리고, 값이 맞으면 곧 「다음」 입니다. */
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) {
+              if (_basicsOk) _next();
+            },
             onChanged: (_) => setState(() {}),
             decoration: const InputDecoration(
                 labelText: '나이', suffixText: '세', border: OutlineInputBorder(),

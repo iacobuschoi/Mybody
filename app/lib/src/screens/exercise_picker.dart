@@ -183,6 +183,8 @@ class _ExercisePickerState extends State<ExercisePicker> {
           key: const ValueKey('pick-search'),
           controller: _query,
           onChanged: (_) => setState(() {}),
+          /* 돋보기 키 — 누르면 키보드가 내려가고 결과만 남습니다. */
+          textInputAction: TextInputAction.search,
           decoration: InputDecoration(
             hintText: '이름 · 별칭으로 찾기',
             isDense: true,
@@ -246,12 +248,17 @@ class _ExercisePickerState extends State<ExercisePicker> {
 
   /* 세 목록(첫 화면 · 부위 · 검색)은 같은 자리의 ListView 라 키가 없으면 Flutter 가
      스크롤 위치를 물려줍니다 — 첫 화면을 내리고 부위를 누르면 부위 목록이 맨 끝부터
-     열렸습니다. 키를 달리 주면 목록마다 새 위치(0)에서 섭니다. */
+     열렸습니다. 키를 달리 주면 목록마다 새 위치(0)에서 섭니다.
+     셋 다 끌면 키보드가 내려갑니다([_dismissOnDrag]) — 키보드가 뜬 채 90% 시트는
+     목록이 몇 줄밖에 안 보이고, 끌기는 「더 보고 싶다」 는 뜻입니다. */
+  static const _dismissOnDrag = ScrollViewKeyboardDismissBehavior.onDrag;
+
   Widget _home(ThemeData t) {
     final recent = _lookup(widget.recent);
     final familiar = _lookup(widget.familiar);
     return ListView(
       key: const ValueKey('pick-home'),
+      keyboardDismissBehavior: _dismissOnDrag,
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
         if (recent.isNotEmpty) _quickRow(t, '최근', recent),
@@ -332,6 +339,7 @@ class _ExercisePickerState extends State<ExercisePicker> {
     ];
     return ListView(
       key: ValueKey('pick-group-list-$g'),
+      keyboardDismissBehavior: _dismissOnDrag,
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [
         if (widget.equip != null)
@@ -396,6 +404,7 @@ class _ExercisePickerState extends State<ExercisePicker> {
     }
     return ListView(
       key: const ValueKey('pick-search-list'),
+      keyboardDismissBehavior: _dismissOnDrag,
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
       children: [for (final e in hits) _row(t, e, withGroup: true)],
     );
