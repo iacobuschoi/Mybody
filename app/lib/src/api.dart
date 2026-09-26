@@ -309,3 +309,47 @@ extension ApiSocial on Api {
       send('POST', '/auth/recovery-code', {'password': password});
   Future<ApiResult> signOutEverywhere() => send('POST', '/auth/signout-all');
 }
+
+/* --- 앱 알림(FCM) ------------------------------------------------------------
+ *
+ * 이 기기의 알림 주소(FCM 토큰)를 내 로그인에 묶어 둡니다(native_push.dart).
+ * 서버는 그 로그인이 끝나면(로그아웃 · 비밀번호 변경 · 탈퇴) 행을 같이 지웁니다.
+ * 이 길이 없는 옛 서버는 404 를 줍니다 — 그때 앱은 켤 때 · 돌아올 때 가져오기로 삽니다.
+ * -------------------------------------------------------------------------- */
+extension ApiPush on Api {
+  /// `{ok, fcm}` — fcm 은 서버가 실제로 보낼 수 있는가(설정 파일이 있는가).
+  /// 서버가 FCM 을 아직 안 켰어도 저장은 합니다 — 켜는 날 바로 씁니다.
+  /// [permission] 은 'granted' · 'denied' — 거절된 기기는 서버가 크롬(웹) 알림을 계속 보냅니다.
+  /// [secret] 은 이 설치가 이 서버에 쓰는 난수 비밀 — 다른 계정이 토큰만으로 이 기기를
+  /// 옮겨 가지 못하게 서버가 봅니다(맞지 않으면 409).
+  Future<ApiResult> registerPushDevice({
+    required String token,
+    required String platform,
+    String? appVersion,
+    String? permission,
+    String? secret,
+  }) =>
+      send('POST', '/push/device', {
+        'token': token,
+        'platform': platform,
+        if (appVersion != null && appVersion.isNotEmpty) 'appVersion': appVersion,
+        if (permission != null) 'permission': permission,
+        if (secret != null && secret.isNotEmpty) 'secret': secret,
+      });
+
+  /// 이 기기를 알림 받는 곳에서 뺍니다. 로그아웃 직전에 부릅니다 — 토큰이 없으면 말을 못 합니다.
+  Future<ApiResult> removePushDevice(String token) =>
+      send('DELETE', '/push/device', {'token': token});
+
+  /// 설정 화면의 알림 줄. `{ok, fcm, web, devices, webSubs, webMuted}`.
+  Future<ApiResult> pushStatus() => send('GET', '/push/status');
+
+  /// 이 계정의 크롬(웹) 알림 구독을 전부 지웁니다. `{ok, removed}`.
+  /// 서버 판에 따라 이름이 둘이라(설계는 /push/web, 먼저 알린 이름은 /push/web-subscriptions)
+  /// 앞의 것이 404 면 뒤의 것을 부릅니다. 둘 다 404 면 이 서버에는 없는 기능입니다.
+  Future<ApiResult> dropWebPush() async {
+    final r = await send('DELETE', '/push/web');
+    if (r.status != 404) return r;
+    return send('DELETE', '/push/web-subscriptions');
+  }
+}

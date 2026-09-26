@@ -167,11 +167,21 @@ function hostGet(port, p2, host) {
        키를 넣었으니 그 말을 믿을 수가 없습니다. */
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'mybody-cfg-'));
     fs.mkdirSync(path.join(home, '.mybody'));
+    /* 앱 알림(FCM) 서비스 계정도 설정 파일의 경로로 옮겨 둘 수 있습니다.
+       기본 자리가 아닌 곳에 두고, 서버가 그 경로를 따라가는지 봅니다. */
+    const saFile = path.join(home, 'elsewhere', 'sa.json');
+    fs.mkdirSync(path.dirname(saFile));
+    fs.writeFileSync(saFile, JSON.stringify({
+      type: 'service_account', project_id: 'cfg-project', client_email: 'x@cfg-project.iam.gserviceaccount.com',
+      private_key: require('node:crypto').generateKeyPairSync('rsa', { modulusLength: 2048 })
+        .privateKey.export({ type: 'pkcs8', format: 'pem' })
+    }));
     fs.writeFileSync(path.join(home, '.mybody', 'config.json'), JSON.stringify({
       pairSecret: 'from-config-secret',
       anthropicKey: 'sk-from-config',
       anthropicWorkspace: 'wrkspc_01FROMCONFIG00000000',
-      anthropicModel: 'claude-haiku-4-5-20251001'
+      anthropicModel: 'claude-haiku-4-5-20251001',
+      fcmServiceAccount: saFile
     }));
     const db = path.join(home, 'x.db');
     const port = 8560 + Math.floor(Math.random() * 60);
@@ -181,7 +191,8 @@ function hostGet(port, p2, host) {
         HOME: home, USERPROFILE: home, PORT: String(port), DB: db,
         STATIC: path.join(ROOT, 'prototype'), NODE_NO_WARNINGS: '1',
         /* 환경변수는 **비웁니다.** 설정 파일만으로 떠야 합니다. */
-        PAIR_SECRET: '', ANTHROPIC_API_KEY: '', ANTHROPIC_WORKSPACE_ID: '', OCR_MODEL: ''
+        PAIR_SECRET: '', ANTHROPIC_API_KEY: '', ANTHROPIC_WORKSPACE_ID: '', OCR_MODEL: '',
+        FCM_SERVICE_ACCOUNT: ''
       })
     });
     let out = '';
@@ -219,6 +230,9 @@ function hostGet(port, p2, host) {
            사진이 가짜니까요. */
         ok('판독 키도 설정 파일에서 온다 (503 이 아니다)', r.status !== 503, r.status);
       }
+      await wait(200);
+      ok('앱 알림(FCM) 서비스 계정 경로도 설정 파일에서 온다',
+         /앱 알림\(FCM\) 켜짐 — 프로젝트 cfg-project/.test(out), out.slice(0, 600));
     }
     try { child.kill(); } catch (e) {}
     try { fs.rmSync(home, { recursive: true, force: true }); } catch (e) {}
@@ -957,6 +971,18 @@ function hostGet(port, p2, host) {
       ok('비밀번호가 안 남는다', !/log-password-1/.test(out));
       ok('가입 코드가 안 남는다', !/log-secret/.test(out));
       ok('끄는 법을 알려준다', /LOG=0/.test(out));
+
+      /* 앱 알림(FCM) 기기 토큰. 이것만 있으면 그 폰을 가리킬 수 있으므로
+         요청 줄에도(본문이라 원래 안 남지만) 남으면 안 됩니다. */
+      const devToken = 'devtok_' + 'q'.repeat(40) + '_LOGSECRET';
+      const dv = await fetch(`http://127.0.0.1:${port}/api/push/device`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer ' + me.token },
+        body: JSON.stringify({ token: devToken, platform: 'android' }) }).then(r => r.status).catch(() => 0);
+      await wait(300);
+      ok('앱 알림 기기 등록도 한 줄 남는다', dv === 200 && /POST {2}\/api\/push\/device/.test(out), dv);
+      ok('앱 알림 기기 토큰은 안 남는다', !out.includes('LOGSECRET'));
+      ok('FCM 이 꺼져 있으면 뜰 때 그렇게 말한다', /앱 알림\(FCM\) 꺼짐/.test(out), out.slice(0, 600));
 
       /* 경로에 박힌 상대방 계정 번호.
          한 줄씩 보면 별것 아닌데, 쌓이면 "누가 누구의 주간 요약을 언제

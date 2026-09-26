@@ -339,6 +339,40 @@ TestFlight 로 받은 사람은 `--testflight` 값을 봅니다(0.2.10 부터). 
 `appUrlPlay` · `appUrlApk` 를 적습니다(https 만). 비워 두면 기본 주소(앱스토어 앱
 페이지 · 플레이 앱 페이지 · GitHub 최신 릴리스)입니다.
 
+---
+
+## 10. 앱 알림(푸시) — 한 번 켜 두기
+
+친구의 독촉 · 친구 요청 · 운동 소식을 **앱이 꺼져 있어도** 알림으로 받게 합니다. 안드로이드는 FCM,
+아이폰은 FCM 을 거친 APNs 입니다. **안 켜도 배포는 그대로 됩니다** — 그때 앱은 켤 때 독촉을 가져가고,
+서버는 예전처럼 웹 푸시만 씁니다. 구조 · 조건 · 문제 해결은 [PUSH.md](PUSH.md).
+
+필요한 것은 넷이고, 어느 것도 저장소에 넣지 않습니다(공개 저장소 · `.gitignore` 가 막음).
+
+| 무엇 | 두는 곳 |
+|---|---|
+| `google-services.json` (Firebase 안드로이드 앱) | GitHub Secret `FIREBASE_ANDROID_JSON_B64` — 파일의 base64 한 줄 |
+| `GoogleService-Info.plist` (Firebase iOS 앱) | GitHub Secret `FIREBASE_IOS_PLIST_B64` — 파일의 base64 한 줄 |
+| 서비스 계정 JSON — FCM 보내기 전용 계정 `mybody-fcm-sender`(Google Cloud IAM, 역할 「Firebase Cloud Messaging API 관리자」 하나). Firebase Admin SDK 키는 프로젝트 전체 관리자 권한이라 쓰지 않음 | **서버 컴퓨터**의 `~/.mybody/fcm-service-account.json`, 권한 600(넓으면 서버가 뜰 때 경고). CI 에는 안 넣음 |
+| APNs 인증 키 `.p8` (developer.apple.com → Keys) | Firebase → 프로젝트 설정 → 클라우드 메시징 → Apple 앱 구성에 업로드(팀 ID `JT4YLVNKDZ`). 원본은 `~/.mybody/` |
+
+순서(노트북이 하는 자세한 길은 `docs/LOCAL-TASKS.md` 28절):
+
+1. Firebase 프로젝트 「Mybody」(애널리틱스 끔)에 안드로이드 · iOS 앱을 **둘 다 `io.github.iacobuschoi.mybody`** 로 등록.
+2. 설정 파일 두 개를 base64 로 Secrets 에: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("파일")) | gh secret set 이름 --repo iacobuschoi/Mybody`
+   (맥 · 리눅스는 `base64 < 파일 | tr -d '\n' | gh secret set 이름 --repo iacobuschoi/Mybody`).
+3. 두 설정 파일의 API 키에 제한을 겁니다(안드로이드 패키지 + 서명 SHA-1 · iOS 번들 ID · 허용 API 는 Firebase Installations ·
+   FCM Registration 둘). 이 키는 앱 안에 들어가 공개되므로, 막는 것은 이 제한뿐입니다.
+4. 서비스 계정 열쇠를 서버에 두고 **서버를 다시 띄웁니다.** 뜰 때 `앱 알림(FCM) 켜짐 — 프로젝트 …` 가 나와야 합니다.
+5. APNs 열쇠를 Firebase 에 올립니다.
+6. **새 판을 냅니다.** 비밀을 넣기 전에 만든 앱은 알림을 못 받습니다. 「친구들에게 줄 앱」 · 「아이폰 TestFlight」 의
+   요약 맨 아래 `앱 알림 … 켜짐` 을 확인합니다.
+
+아이폰은 CI 가 알아서 합니다 — 자동 서명이면 8절의 API 키로 App ID 에 Push Notifications 를 켜고, 새로 만든
+프로파일에 푸시 권한이 들어왔을 때만 `aps-environment` 를 서명에 붙입니다. 안 맞으면 경고만 하고 알림 없이
+올리므로 **알림 때문에 TestFlight 가 멈추지는 않습니다.** 맥에서 만든 프로파일(수동 서명)을 쓰면 App ID 에 Push 를
+켠 뒤 프로파일을 다시 만들어 `IOS_PROFILE_BASE64` 를 갈아야 합니다.
+
 ## 되돌리기
 
 배포한 게 잘못됐으면:

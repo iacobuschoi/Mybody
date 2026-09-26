@@ -12,3 +12,6 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# 앱 알림(FCM) 설정 — 공개 저장소라 커밋하지 않습니다(CI 가 GitHub Secrets 에서 꺼내 둡니다).
+google-services.json

@@ -7,6 +7,15 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+/* 앱 알림(FCM) 설정.
+ *
+ * google-services.json 은 공개 저장소에 안 넣습니다. CI 가 비밀에서 꺼내 이 폴더에 둔 빌드에서만
+ * 플러그인을 켭니다(plugins 블록 안에서는 if 를 못 써서 여기서 겁니다). 파일이 없으면 예전처럼
+ * 빌드되고, 앱은 Firebase 초기화에 실패해 알림 없이 돕니다(lib/src/native_push.dart). */
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 /* 서명 열쇠.
  *
  * 있으면 그걸로 서명하고, 없으면 아래에서 디버그 열쇠로 넘어갑니다.

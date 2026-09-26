@@ -33,6 +33,10 @@ const DEFAULTS = {
   /* 폰 알림(웹푸시) 열쇠. 없으면 알림 기능 전체가 꺼진 채로 돕니다. */
   vapidPublic: '',
   vapidPrivate: '',
+  /* 앱 알림(FCM) 서비스 계정 JSON 의 **경로**. 비워 두면 이 폴더의
+     fcm-service-account.json 을 봅니다. 파일 내용(열쇠)은 여기 적지 않습니다 —
+     이 설정은 도구들이 통째로 다시 저장하므로 비밀이 여기저기 복사됩니다. */
+  fcmServiceAccount: '',
   /* 가입 코드를 없애기로 **정했다** 는 표시. 빈 값(깜빡함)과 구분합니다 —
      빈 값이면 서버가 아예 안 뜨고, 이건 켜야 열립니다. */
   openSignup: false,
@@ -112,6 +116,7 @@ function load() {
   take('anthropicWorkspace', 'ANTHROPIC_WORKSPACE_ID');
   take('anthropicModel', 'OCR_MODEL');
   take('origin', 'ORIGIN');
+  take('fcmServiceAccount', 'FCM_SERVICE_ACCOUNT');
   take('db', 'DB');
   take('port', 'PORT', v => Number(v) || DEFAULTS.port);
   if ((env.STATIC || '').trim()) { cfg.static = env.STATIC.trim(); from.static = '환경변수 STATIC'; }

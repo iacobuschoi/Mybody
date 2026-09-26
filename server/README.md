@@ -77,10 +77,55 @@ Mybody 서버 실행 중
 | `OCR_PER_DAY` | `10` | **사람당** 하루 판독 횟수 |
 | `OCR_PER_DAY_TOTAL` | `250` | **서버 전체** 하루 판독 횟수. 가입 코드가 새면 계정을 늘려 사람당 한도를 피할 수 있어서, 청구서는 이걸로 막습니다 |
 | `OCR_API_URL` | 앤트로픽 API | 사내 프록시를 거쳐야 할 때만 바꾸세요 |
+| `FCM_SERVICE_ACCOUNT` | `~/.mybody/fcm-service-account.json` | 앱 알림(FCM) 서비스 계정 JSON 의 **경로**. 설정 파일의 `fcmServiceAccount` 로도 됩니다. **파일이 없으면 앱 알림만 꺼지고** 나머지는 그대로 돕니다 — 아래 "앱 알림 켜기" |
+| `FCM_BASE_URL` · `FCM_TOKEN_URL` | 구글 주소 | 시험(`tools/test-fcm.js`)이 가짜 서버로 바꿀 때만 씁니다. `https` 이면서 localhost(127.0.0.1)이거나 `NODE_ENV=test` 일 때만 받고, 받으면 뜰 때 "시험용 FCM 주소 사용 중" 을 찍습니다. 운영 서버에 새면 진짜 접근 토큰과 알림 본문이 그 주소로 가기 때문입니다 |
 
 ```bash
 PORT=3000 DB=~/mybody.db ORIGIN=https://mybody.example.com node server/server.js
 ```
+
+### 앱 알림 켜기 (FCM — 안드로이드 · 아이폰 앱)
+
+친구의 운동 독촉 · 친구 요청 · 운동 소식은 원래 **웹 푸시(크롬)** 로만 나갔습니다.
+그래서 앱을 깔아 쓰는 사람도 알림은 크롬에서 받았습니다. 서비스 계정 파일을
+놓으면 서버가 앱으로 직접 보냅니다(안드로이드는 FCM, 아이폰은 FCM 이 APNs 로).
+
+1. **FCM 보내기만 하는 서비스 계정**을 만들어 그 키를 받습니다. Firebase 콘솔의
+   "서비스 계정 → Firebase Admin SDK → 새 비공개 키" 는 쓰지 마세요 — 그 계정은 프로젝트
+   전체의 Firebase 관리자 권한이라, 이 컴퓨터에서 새면 알림을 넘어 프로젝트가 통째로 넘어갑니다.
+   [Google Cloud 콘솔](https://console.cloud.google.com/iam-admin/serviceaccounts) → 이 앱의
+   프로젝트 → "서비스 계정 만들기" → 이름 `mybody-fcm-sender` → 역할
+   **"Firebase Cloud Messaging API 관리자"**(`roles/firebasecloudmessaging.admin`) 하나만 →
+   완료 → 그 계정 → 키 → "키 추가 → 새 키 만들기 → JSON". (자세한 길: `docs/LOCAL-TASKS.md` 28-6)
+2. 그 파일을 서버 컴퓨터의 `~/.mybody/fcm-service-account.json` 으로 옮깁니다
+   (윈도우는 `%USERPROFILE%\.mybody\fcm-service-account.json`). 맥 · 리눅스는
+   `chmod 600` 으로 남이 못 읽게 해 두세요 — 남도 읽을 수 있으면 서버가 뜰 때 경고를
+   한 줄 찍습니다. **저장소 안에는 절대 두지 마세요** —
+   공개 저장소이고, 이 파일이 있으면 누구나 우리 앱 사용자에게 알림을 쏠 수 있습니다
+   (`.gitignore` 가 이름으로 막고 있지만 다른 이름으로 두면 못 막습니다).
+3. 아이폰까지 보내려면 같은 프로젝트 설정 → **클라우드 메시징** → Apple 앱 구성에
+   APNs 인증 키(`.p8`)를 올립니다. 안 올리면 안드로이드만 가고, 서버가 뜬 뒤 첫
+   아이폰 알림 때 "APNs 인증 키를 올리세요" 를 한 번 찍습니다.
+4. **서버를 다시 띄웁니다.** 파일은 뜰 때 한 번 읽습니다. 뜰 때 한 줄로 말합니다:
+   `앱 알림(FCM) 켜짐 — 프로젝트 <id>` 또는 `꺼짐 — <경로> 파일 없음`.
+
+어디로 가는가
+
+- 로그인한 앱이 켜질 때마다 자기 토큰을 올립니다(`POST /api/push/device`). 그 토큰은 **그
+  로그인에 묶여** 로그아웃 · 모든 기기 로그아웃 · 비밀번호 변경 · 탈퇴 · 만료 때 같이 지워집니다.
+  만료된 로그인은 서버가 뜰 때와 하루 한 번 지웁니다.
+- **FCM 으로는 일반 문구만 갑니다.** 웹 푸시는 암호화되지만 FCM 의 알림 본문은 평문이라 구글 ·
+  애플이 읽습니다. 그래서 친구 이름 · "이번 주 N일째" · 공유 기본값은 웹 푸시에만 싣고, 앱 알림은
+  "친구가 운동하라고 콕 찔렀어요" 처럼 무슨 일인지만 적습니다. 알림 칸을 모으는 tag 에도 사용자
+  id 를 쓰지 않습니다(독촉 번호 · 받는 사람별 HMAC). 알림을 거절한 기기로는 보내지 않습니다.
+- 최근 30일 안에 앱이 토큰을 올린 사람에게는 **크롬(웹 푸시)을 보내지 않습니다** —
+  같은 독촉이 두 번 울리고, 하필 크롬이 먼저 울렸습니다. 앱 알림을 거절한 폰은 "앱이
+  있다" 로 치지 않습니다. 서비스 계정 열쇠가 폐기되는 등 **서버 쪽 문제로 앱에 한 건도
+  못 보냈으면** 크롬은 막지 않습니다.
+- 받는 사람은 웹 푸시와 **같은 규칙**으로 고릅니다. 일정 공유를 끈 친구에게는 운동
+  소식이 앱으로도 안 갑니다. 알림이 공유 설정을 우회하는 뒷문이 되면 안 됩니다.
+- 앱이 없어진 기기(UNREGISTERED)는 FCM 이 알려 주는 대로 지우고, 잠깐 실패(429 · 5xx)는
+  지우지 않고 셉니다. 로그에는 토큰의 앞 8자만 남습니다.
 
 ## 계정
 
@@ -216,12 +261,17 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 | `POST` | `/api/sync/push` | `{records:[{kind,id,updatedAt,deleted,payload}]}` |
 | `GET` | `/api/sync/pull?since=` | 그 시각 이후 변경분 |
 | `POST` | `/api/ocr` | `{mediaType, data}` (base64 사진) → `{fields}` 결과지 판독 초안 |
+| `POST` | `/api/push/device` | `{token, platform: 'android'\|'ios', appVersion?, permission?, secret?}` 앱 알림 기기 등록 → `{ok, fcm}`. 토큰은 20~4096자 `[A-Za-z0-9_-:.]`, 한 사람당 10대(오래 안 켠 것부터 버림). `secret` 은 앱이 서버마다 만든 난수(16~128자, 서버는 sha256 만 둠). 같은 토큰이 **다른 계정의 살아 있는 로그인**에 묶여 있으면 비밀이 맞을 때만 옮기고 아니면 409. FCM 이 꺼진 서버도 받아 둠. 형식이 틀리면 400 |
+| `DELETE` | `/api/push/device` | `{token}` 내 기기 등록 해제. 남의 토큰 · 없는 토큰이어도 똑같이 200 `{ok:true}`(아무것도 안 지움 — 답으로 토큰이 있는지 알 수 없게) |
+| `GET` | `/api/push/status` | `{fcm, web, devices, webSubs, webMuted}` — `webMuted` 는 "앱이 있어서 크롬으로는 안 보냄" |
+| `DELETE` | `/api/push/web` | 「크롬(웹) 알림 끄기」 내 웹 푸시 구독 전부 삭제 → `{removed}`. `/api/push/web-subscriptions` 도 같음 |
 
 ## 검증
 
 ```bash
 node tools/test-social.js        # 친구·공유 권한 (서버를 띄워 실제 요청)
 node tools/test-ocr.js           # 판독 프록시 (가짜 모델 API 로)
+node tools/test-fcm.js           # 앱 알림 (가짜 OAuth · FCM 으로 — JWT 서명까지 검증)
 node tools/test-crosscheck.js    # 결과지 검산
 node tools/validate.js           # 엔진 예측 대 실제 논문 (게이트)
 USERS=100 YEARS=3 node tools/simulate.js

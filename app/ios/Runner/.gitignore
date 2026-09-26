@@ -1,0 +1,9 @@
+# 앱 알림(FCM) 설정 — 공개 저장소라 커밋하지 않습니다(CI 가 GitHub Secrets 에서 꺼내 둡니다).
+#
+# 프로젝트의 Resources 에 이 파일을 늘 걸어 두면, 파일이 없는 빌드(비밀이 아직 없는 날 ·
+# 서명 없는 확인 빌드)가 "Build input file cannot be found" 로 깨집니다. 그래서 Runner 타깃의
+# 「Copy GoogleService-Info」 단계(project.pbxproj)가 파일이 있을 때만 앱에 복사합니다.
+# 없으면 firebase_core 가 설정을 건너뛰고 앱은 알림 없이 돕니다(lib/src/native_push.dart).
+#
+# Runner.entitlements 는 커밋합니다 — 비밀이 아니고, 서명에 붙일지는 CI 가 조건을 보고 정합니다.
+GoogleService-Info.plist

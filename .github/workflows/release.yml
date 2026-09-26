@@ -170,3 +170,16 @@ jobs:
           echo "### 친구들한테 보낼 주소" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "https://github.com/$GITHUB_REPOSITORY/releases/tag/${{ steps.v.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+
+      # 이 판에 앱 알림(FCM)이 들어갔는지 배포 요약에도 한 줄 남깁니다. 꺼진 판도 막지는
+      # 않습니다 — 알림 없이도 앱은 켤 때 독촉을 가져가므로, 비밀이 준비되기 전의 배포가
+      # 멈추면 안 됩니다. 켜는 법과 꺼진 이유는 빌드 잡의 요약과 docs/PUSH.md 에 있습니다.
+      - name: 앱 알림이 들어갔는지 적기
+        run: |
+          if [ "${{ needs.build.outputs.push }}" = "yes" ]; then
+            line="앱 알림(FCM): 켜짐 — 이 판부터 친구 독촉이 앱으로 옵니다(서버에도 FCM 이 켜져 있어야 함)"
+          else
+            line="앱 알림(FCM): 꺼짐 — Secrets 의 FIREBASE_ANDROID_JSON_B64 를 보세요(docs/PUSH.md). 앱은 켤 때 독촉을 가져갑니다"
+          fi
+          echo "$line"
+          { echo ""; echo "$line"; } >> "$GITHUB_STEP_SUMMARY"

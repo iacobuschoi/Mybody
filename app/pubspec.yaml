@@ -1,7 +1,7 @@
 name: mybody
 description: "인바디 결과지를 읽어 목표까지의 계획을 세우고, 오차보다 작은 변화를 성과로 세지 않습니다."
 publish_to: none
-version: 0.2.14
+version: 0.2.15
 
 environment:
   sdk: ^3.11.0
@@ -11,6 +11,12 @@ dependencies:
     sdk: flutter
   # 도메인 로직은 순수 Dart 로 따로 둡니다 — Flutter 를 안 깔아도
   # `dart test` 로 돌릴 수 있어야 검증이 빨라집니다.
+  # 친구의 운동 독촉 · 운동 소식을 앱이 꺼져 있어도 받기 위한 진짜 푸시(안드로이드 FCM,
+  # 아이폰은 FCM 을 거친 APNs). 설정 파일(google-services.json · GoogleService-Info.plist)은
+  # 공개 저장소에 안 넣고 CI 가 비밀에서 꺼내 둡니다. 파일이 없는 빌드에서는 초기화가
+  # 실패하고 앱은 예전처럼(켤 때 · 돌아올 때 가져오기) 돕니다 — lib/src/native_push.dart.
+  firebase_core: ^4.15.0
+  firebase_messaging: ^16.7.0
   flutter_local_notifications: ^22.3.1
   flutter_timezone: ^5.1.0
   http: ^1.6.0

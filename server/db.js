@@ -117,6 +117,31 @@ function open(file) {
       n INTEGER NOT NULL,
       PRIMARY KEY (day, who)
     );
+    /* 앱 알림(FCM) 기기 토큰. 웹 푸시 구독(push_subs)과 따로 둡니다 — 보내는 길도
+       지우는 규칙도 다릅니다. */
+    CREATE TABLE IF NOT EXISTS push_devices (
+      token TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      -- 어느 로그인이 등록했는가. 로그아웃 · 모든 기기 로그아웃 · 비밀번호 변경/복구 ·
+      -- 만료 삭제(pruneExpiredSessions — 서버가 뜰 때와 하루 한 번) · 탈퇴 때 세션이
+      -- 지워지면 이 행도 같이 지워집니다. 따로 지우는 길을 하나하나 두면 언젠가 하나를
+      -- 빠뜨리고, 로그아웃한 폰에 남의 알림이 계속 갑니다.
+      session_token TEXT REFERENCES sessions(token) ON DELETE CASCADE,
+      platform TEXT NOT NULL,
+      app_version TEXT,
+      -- 'granted' | 'denied' | NULL(모름). 알림을 끈 폰이 있다고 크롬 알림까지 끄면
+      -- 그 사람은 아무 데서도 못 받습니다.
+      permission TEXT,
+      created_at TEXT NOT NULL,
+      -- 마지막 등록(앱이 켜질 때마다). "최근 30일 앱을 쓰는가" 의 기준입니다.
+      updated_at TEXT NOT NULL,
+      fails INTEGER NOT NULL DEFAULT 0,
+      -- 앱이 설치마다(서버마다) 만든 난수 비밀의 sha256. 토큰만 아는 사람이 이 행을 자기
+      -- 계정으로 옮기지 못하게 합니다(addPushDevice).
+      secret_hash TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_push_devices_user ON push_devices(user_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_push_devices_session ON push_devices(session_token);
     CREATE INDEX IF NOT EXISTS idx_push_user ON push_subs(user_id);
     CREATE INDEX IF NOT EXISTS idx_records_sync ON records(user_id, updated_at, kind, id);
     CREATE INDEX IF NOT EXISTS idx_snapshots_owner ON snapshots(owner_id, week_start DESC);
@@ -140,7 +165,12 @@ function open(file) {
                          몇 명)에서 파일 저장소를 따로 두는 것보다 백업이
                          단순합니다. backup.js 의 VACUUM INTO 한 방에 같이
                          따라옵니다. */
-                      'ALTER TABLE users ADD COLUMN avatar TEXT']) {
+                      'ALTER TABLE users ADD COLUMN avatar TEXT',
+                      /* 앱 알림(FCM)으로 이미 닿은 독촉. 앱이 켜질 때 가져가면서
+                         같은 독촉을 로컬 알림으로 또 띄우지 않게 합니다. */
+                      'ALTER TABLE pokes ADD COLUMN pushed_at TEXT',
+                      /* 기기 토큰을 가진 증명 — 위 push_devices 설명 참고. */
+                      'ALTER TABLE push_devices ADD COLUMN secret_hash TEXT']) {
     try { db.exec(stmt); } catch { /* 이미 있음 */ }
   }
 
@@ -404,6 +434,9 @@ function makeApi(db) {
     sessionByToken: db.prepare('SELECT * FROM sessions WHERE token = ?'),
     touchSession: db.prepare('UPDATE sessions SET last_seen = ? WHERE token = ?'),
     deleteSession: db.prepare('DELETE FROM sessions WHERE token = ?'),
+    /* 세션은 쓰일 때만 지워졌습니다(userForToken). 앱을 지운 폰의 세션은 다시 안 쓰이므로
+       만료돼도 남았고, 거기 묶인 앱 알림 기기 행(push_devices)도 끝없이 남았습니다. */
+    pruneSessions: db.prepare('DELETE FROM sessions WHERE expires_at IS NULL OR expires_at < ?'),
 
     edge: db.prepare('SELECT * FROM friendships WHERE a_id = ? AND b_id = ?'),
     insertEdge: db.prepare(
@@ -449,9 +482,10 @@ function makeApi(db) {
     insertPoke: db.prepare('INSERT INTO pokes (from_id,to_id,kind,created_at) VALUES (?,?,?,?)'),
     lastPoke: db.prepare('SELECT created_at FROM pokes WHERE from_id=? AND to_id=? ORDER BY id DESC LIMIT 1'),
     undeliveredPokes: db.prepare(
-      'SELECT p.id, p.from_id, p.kind, p.created_at, u.display_name FROM pokes p ' +
+      'SELECT p.id, p.from_id, p.kind, p.created_at, p.pushed_at, u.display_name FROM pokes p ' +
       'JOIN users u ON u.id = p.from_id WHERE p.to_id=? AND p.delivered_at IS NULL ORDER BY p.id'),
     markPokesDelivered: db.prepare('UPDATE pokes SET delivered_at=? WHERE to_id=? AND delivered_at IS NULL'),
+    markPokePushed: db.prepare('UPDATE pokes SET pushed_at=? WHERE id=? AND pushed_at IS NULL'),
     prunePokes: db.prepare("DELETE FROM pokes WHERE created_at < datetime('now', '-30 days')"),
     updateAvatar: db.prepare('UPDATE users SET avatar=? WHERE id=?'),
 
@@ -463,6 +497,40 @@ function makeApi(db) {
     delPushOf: db.prepare('DELETE FROM push_subs WHERE user_id=?'),
     pushOf: db.prepare('SELECT * FROM push_subs WHERE user_id=?'),
     bumpPushFail: db.prepare('UPDATE push_subs SET fails=fails+1 WHERE endpoint=?'),
+    countPushSubs: db.prepare('SELECT COUNT(*) c FROM push_subs WHERE user_id=?'),
+
+    /* 같은 토큰이 다른 계정에서 오면 그쪽으로 옮깁니다 — 한 폰에서 로그아웃하고
+       다른 아이디로 들어온 경우입니다. 옛 주인에게 남겨 두면 그 사람의 알림이
+       지금 이 폰을 쥔 사람에게 뜹니다. 옮겨도 되는지는 addPushDevice 가 먼저 봅니다. */
+    addDevice: db.prepare(
+      'INSERT INTO push_devices (token,user_id,session_token,platform,app_version,permission,' +
+      'created_at,updated_at,fails,secret_hash) VALUES (?,?,?,?,?,?,?,?,0,?) ' +
+      'ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id, session_token=excluded.session_token, ' +
+      'platform=excluded.platform, app_version=excluded.app_version, permission=excluded.permission, ' +
+      'updated_at=excluded.updated_at, fails=0, secret_hash=excluded.secret_hash'),
+    deviceOwner: db.prepare('SELECT user_id FROM push_devices WHERE token=?'),
+    deviceClaim: db.prepare(
+      'SELECT d.user_id, d.secret_hash, s.expires_at FROM push_devices d ' +
+      'LEFT JOIN sessions s ON s.token = d.session_token WHERE d.token=?'),
+    delDevice: db.prepare('DELETE FROM push_devices WHERE token=?'),
+    /* 한 사람당 개수 상한. 오래 안 켠 것부터 버립니다. */
+    trimDevices: db.prepare(
+      'DELETE FROM push_devices WHERE user_id=? AND token NOT IN ' +
+      '(SELECT token FROM push_devices WHERE user_id=? ORDER BY updated_at DESC, created_at DESC LIMIT ?)'),
+    /* 만료됐는데 아직 안 지워진 세션을 거릅니다. 세션은 쓰일 때와 하루 한 번
+       정리할 때만 지워지므로, 그 사이의 행이 남아 있을 수 있습니다.
+       알림을 거절한 기기(permission='denied')도 뺍니다 — 띄우지도 못할 폰 때문에
+       알림 문구를 구글에 넘길 이유가 없습니다. 그 사람은 크롬(웹)으로 받습니다. */
+    devicesOf: db.prepare(
+      'SELECT d.token, d.platform, d.permission FROM push_devices d ' +
+      'JOIN sessions s ON s.token = d.session_token ' +
+      "WHERE d.user_id=? AND s.expires_at > ? AND COALESCE(d.permission,'granted') <> 'denied' " +
+      'ORDER BY d.updated_at DESC'),
+    recentDevice: db.prepare(
+      'SELECT 1 FROM push_devices d JOIN sessions s ON s.token = d.session_token ' +
+      'WHERE d.user_id=? AND s.expires_at > ? AND d.updated_at >= ? ' +
+      "AND COALESCE(d.permission,'granted') <> 'denied' LIMIT 1"),
+    bumpDeviceFail: db.prepare('UPDATE push_devices SET fails=fails+1 WHERE token=?'),
     prevSnap: db.prepare('SELECT payload FROM snapshots WHERE owner_id=? AND week_start=?')
   };
 
@@ -1044,6 +1112,109 @@ function makeApi(db) {
       }));
     },
     dropPushSub(endpoint) { q.delPush.run(str(endpoint)); },
+    /** 「크롬(웹) 알림 끄기」 — 이 사람의 웹 푸시 구독을 전부 지웁니다. */
+    dropPushSubsOf(uid) {
+      const r = q.delPushOf.run(uid);
+      return { ok: true, removed: Number(r.changes) || 0 };
+    },
+
+    /* --- 앱 알림(FCM) 기기 ---------------------------------------------
+     * 앱이 켜질 때마다 자기 FCM 토큰을 올립니다. 토큰이 키라서 같은 폰이
+     * 다시 올리면 덮어쓰고, updated_at 이 "최근에 앱을 썼다" 가 됩니다.
+     * 이 행은 등록한 **세션**에 묶여 있습니다 — 로그아웃하면 같이 사라집니다.
+     * ---------------------------------------------------------------- */
+    PUSH_DEVICE_MAX: 10,
+    addPushDevice(uid, sessionToken, b) {
+      if (!this.exists(uid)) return { ok: false, reason: '없는 계정입니다' };
+      const body = b && typeof b === 'object' ? b : {};
+      const token = body.token;
+      /* FCM 토큰은 150자 남짓의 영문 · 숫자 · (- _ : .) 입니다. 모양이 다른 것을
+         받아 두면 보낼 때마다 400 이 나고, 그건 우리 쪽 버그로 셉니다. */
+      if (typeof token !== 'string' || token.length < 20 || token.length > 4096 ||
+          !/^[A-Za-z0-9_\-:.]+$/.test(token)) {
+        return { ok: false, reason: 'token 형식 오류' };
+      }
+      const platform = body.platform;
+      if (platform !== 'android' && platform !== 'ios') {
+        return { ok: false, reason: 'platform 은 android 또는 ios 입니다' };
+      }
+      let appVersion = null;
+      if (body.appVersion !== undefined && body.appVersion !== null && body.appVersion !== '') {
+        if (typeof body.appVersion !== 'string' || body.appVersion.length > 32 ||
+            !/^[\x20-\x7e]+$/.test(body.appVersion)) {
+          return { ok: false, reason: 'appVersion 형식 오류' };
+        }
+        appVersion = body.appVersion;
+      }
+      /* 아이폰은 authorized · provisional, 안드로이드는 granted 로 옵니다.
+         모르는 값은 "모름" 으로 둡니다 — 모름을 거절로 읽으면 알림이 두 번
+         가고, 허용으로 읽으면 안 갈 수 있는데, 앞쪽이 덜 나쁩니다. 그래서
+         웹 푸시 생략은 모름을 허용처럼 봅니다(hasRecentAppDevice). */
+      const pm = String(body.permission || '').toLowerCase();
+      const permission = (pm === 'granted' || pm === 'authorized' || pm === 'provisional') ? 'granted'
+        : (pm === 'denied' ? 'denied' : null);
+      /* 설치 비밀 — 앱이 서버마다 따로 만든 난수입니다(native_push.dart). 원문은 두지
+         않고 sha256 만 둡니다. 옛 앱은 안 보내므로 없어도 받습니다. */
+      let secretHash = null;
+      if (body.secret !== undefined && body.secret !== null && body.secret !== '') {
+        if (typeof body.secret !== 'string' || body.secret.length < 16 || body.secret.length > 128 ||
+            !/^[A-Za-z0-9_-]+$/.test(body.secret)) {
+          return { ok: false, reason: 'secret 형식 오류' };
+        }
+        secretHash = crypto.createHash('sha256').update(body.secret).digest('hex');
+      }
+      if (!q.sessionByToken.get(str(sessionToken))) return { ok: false, reason: '로그인이 필요합니다' };
+      /* 이미 **다른 계정**에 묶인 토큰이면, 토큰을 안다는 것만으로는 옮기지 않습니다.
+         토큰은 같은 폰을 쓰던 사람이나, 앱이 주소를 바꿀 때 토큰을 받아 간 다른 서버의
+         운영자도 알 수 있습니다. 그대로 옮기면 원래 주인의 폰에 남의 알림이 뜹니다.
+         옮기는 것은 (1) 같은 설치의 비밀이 맞을 때(같은 폰에서 로그아웃이 서버에 못
+         닿은 채 다른 아이디로 들어온 경우) (2) 옛 주인의 로그인이 이미 끝났을 때뿐입니다. */
+      const cur = q.deviceClaim.get(token);
+      if (cur && cur.user_id !== uid) {
+        const alive = !!cur.expires_at && cur.expires_at > nowISO();
+        const proven = !!(cur.secret_hash && secretHash &&
+          crypto.timingSafeEqual(Buffer.from(cur.secret_hash), Buffer.from(secretHash)));
+        if (alive && !proven) return { ok: false, conflict: true, reason: '다른 계정에 등록된 기기입니다' };
+      }
+      /* 같은 계정이 다시 올리면서 비밀을 안 보내면(옛 앱) 있던 비밀을 그대로 둡니다. */
+      const keepHash = cur && cur.user_id === uid && !secretHash ? cur.secret_hash : secretHash;
+      const now = nowISO();
+      q.addDevice.run(token, uid, str(sessionToken), platform, appVersion, permission, now, now, keepHash);
+      q.trimDevices.run(uid, uid, this.PUSH_DEVICE_MAX);
+      return { ok: true };
+    },
+    /* 남의 토큰이면 아무것도 지우지 않고, 없는 토큰 · 내 토큰과 **똑같이** 답합니다.
+       답이 다르면 "이 토큰이 이 서버에 있는가" 를 묻는 데 쓸 수 있습니다. */
+    removePushDevice(uid, token) {
+      const t = str(token);
+      const row = q.deviceOwner.get(t);
+      if (row && row.user_id === uid) q.delDevice.run(t);
+      return { ok: true };
+    },
+    /** 만료된 세션을 지웁니다 — 거기 묶인 앱 알림 기기 행도 cascade 로 같이 지워집니다.
+     *  서버가 뜰 때와 하루 한 번 부릅니다(server.js). 지운 세션 수를 돌려줍니다. */
+    pruneExpiredSessions() {
+      return Number(q.pruneSessions.run(nowISO()).changes) || 0;
+    },
+    /** 지금 보낼 수 있는 기기들 — 살아 있는 세션에 묶인 것만. */
+    pushDevicesOf(uid) {
+      return q.devicesOf.all(uid, nowISO()).map(r => ({
+        token: r.token, platform: r.platform, permission: r.permission || null
+      }));
+    },
+    dropPushDevice(token) { q.delDevice.run(str(token)); },
+    notePushDeviceFail(token) { q.bumpDeviceFail.run(str(token)); },
+    /** 최근 N일 안에 앱이 켜져 토큰을 올렸고, 알림을 거절하지 않은 기기가 있는가.
+     *  있으면 크롬(웹) 알림은 보내지 않습니다 — 같은 소식이 두 번 오지 않게. */
+    hasRecentAppDevice(uid, days = 30) {
+      const since = new Date(Date.now() - days * 86400000).toISOString();
+      return !!q.recentDevice.get(uid, nowISO(), since);
+    },
+    /** 설정 화면이 보는 숫자. */
+    pushCounts(uid) {
+      return { devices: this.pushDevicesOf(uid).length,
+               webSubs: q.countPushSubs.get(uid).c };
+    },
 
     /**
      * 판독을 한 번 썼다고 적고, 오늘 쓴 횟수를 돌려줍니다.
@@ -1080,8 +1251,20 @@ function makeApi(db) {
     },
     notePushFail(endpoint) { q.bumpPushFail.run(str(endpoint)); },
 
-    /** 이 사람이 운동했다는 소식을 받을 친구들 (일정 공유를 켠 사람만) */
+    /** 이 사람이 운동했다는 소식을 받을 친구들의 웹 구독. 사람은 newsViewersFor 가
+     *  고릅니다 — 거르는 규칙을 한 곳에만 둡니다. 두 벌이면 차단 · 음소거 같은 필터가
+     *  한쪽에만 들어가고, 다른 쪽 알림이 공유 설정을 우회합니다. */
     pushTargetsFor(ownerId) {
+      const out = [];
+      for (const viewer of this.newsViewersFor(ownerId)) {
+        for (const s of this.pushSubsOf(viewer)) out.push({ viewer, sub: s });
+      }
+      return out;
+    },
+    /** 이 사람이 운동했다는 소식을 받을 친구들의 id — 웹 구독이 없어도 앱으로 받으므로
+     *  기기와 상관없이 사람으로 셉니다. 웹 푸시(pushTargetsFor)와 앱 알림(FCM)이 둘 다
+     *  이것으로 사람을 고릅니다. */
+    newsViewersFor(ownerId) {
       const out = [];
       for (const e of q.edgesOf.all(ownerId, ownerId)) {
         if (e.status !== 'accepted') continue;
@@ -1089,7 +1272,7 @@ function makeApi(db) {
         /* 그 친구에게 일정을 안 보여주기로 했으면 알림도 안 갑니다.
            알림이 공유 설정을 우회하는 뒷문이 되면 안 됩니다. */
         if (!this.shareFields(ownerId, viewer).schedule) continue;
-        for (const s of this.pushSubsOf(viewer)) out.push({ viewer, sub: s });
+        out.push(viewer);
       }
       return out;
     },
@@ -1152,8 +1335,9 @@ function makeApi(db) {
     PUSH_MAX: 1000,
 
     /* --- 운동 독촉 --------------------------------------------------------
-     * 친구에게 "오늘 운동 어때요" 한 번. 받는 쪽 앱이 켜질 때 가져갑니다
-     * (앱엔 서버 푸시가 없습니다). 웹 푸시가 있는 사람에겐 바로 갑니다.
+     * 친구에게 "오늘 운동 어때요" 한 번. 앱 알림(FCM)이 켜져 있으면 바로 가고,
+     * 받는 쪽 앱은 켜질 때도 가져갑니다. 앱으로 이미 닿은 것은 pushed 로
+     * 표시해서 앱이 같은 알림을 또 띄우지 않게 합니다.
      * 하루 한 번만 — 두 번째부터는 독촉이 아니라 성가심입니다. */
     poke(me, toId, kind = 'workout') {
       if (!this.exists(me) || !this.exists(toId)) return { ok: false, reason: '없는 계정입니다' };
@@ -1172,9 +1356,11 @@ function makeApi(db) {
       const rows = q.undeliveredPokes.all(me);
       if (rows.length) q.markPokesDelivered.run(nowISO(), me);
       return { ok: true, pokes: rows.map(r => ({
-        id: r.id, kind: r.kind, at: r.created_at,
+        id: r.id, kind: r.kind, at: r.created_at, pushed: !!r.pushed_at,
         from: { id: r.from_id, displayName: r.display_name } })) };
     },
+    /** 앱 알림(FCM)으로 한 기기에라도 닿았다고 적습니다. */
+    markPokePushed(id) { q.markPokePushed.run(nowISO(), Number(id)); },
 
     push(me, records) {
       if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다', accepted: 0, rejected: [] };

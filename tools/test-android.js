@@ -172,5 +172,60 @@ else {
   else ok('조건문이 볼 수 있는 것만 봅니다');
 }
 
+/* --- 7. 앱 알림(FCM) ---------------------------------------------------
+ * 설정 파일(google-services.json)은 공개 저장소에 없고 CI 비밀에서만 나옵니다.
+ * 그래서 플러그인 적용이 "파일이 있을 때만" 이 아니면 비밀이 없는 날의 빌드가
+ * "File google-services.json is missing" 으로 깨집니다. 채널 · 아이콘 이름이
+ * 어긋나면 빌드는 초록인 채로 알림이 「기타」 채널 · 흰 덩어리로 뜹니다. */
+const code = (t) => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const GS_ID = 'com.google.gms.google-services';
+const gradleCode = code(gradle);
+const guarded = /if\s*\(\s*file\("google-services\.json"\)\.exists\(\)\s*\)\s*\{\s*apply\(plugin\s*=\s*"com\.google\.gms\.google-services"\)\s*\}/;
+const uses = gradleCode.split(GS_ID).length - 1;
+const settingsCode = code(R('app/android/settings.gradle.kts'));
+const settingsOk = !settingsCode.includes(GS_ID) ||
+  /id\("com\.google\.gms\.google-services"\)\s*version\s*"[^"]+"\s*apply\s+false/.test(settingsCode);
+if (guarded.test(gradleCode) && uses === 1 && settingsOk)
+  ok('google-services 플러그인은 설정 파일이 있을 때만 켭니다 (비밀이 없는 날도 빌드됨)');
+else no('google-services 플러그인이 조건 없이 켜집니다 — 비밀이 없는 빌드가 깨집니다',
+        'app/build.gradle.kts 에 if (file("google-services.json").exists()) { apply(plugin = "' + GS_ID + '") } 하나만, ' +
+        'settings.gradle.kts 에는 apply false 로만 두세요');
+
+const secretFiles = tracked.split('\n').filter(f =>
+  /(^|\/)google-services\.json$|(^|\/)GoogleService-Info\.plist$|service-account[^/]*\.json$|\.p8$/.test(f));
+if (secretFiles.length) no('앱 알림 설정 · 열쇠 파일이 저장소에 들어 있습니다: ' + secretFiles.join(' '),
+                          '공개 저장소입니다 — git rm --cached 로 빼고 열쇠는 폐기하세요(docs/PUSH.md 7절)');
+else ok('앱 알림 설정 · 열쇠 파일은 저장소에 없습니다');
+
+const PUSH_DART = R('app/lib/src/native_push.dart');
+const FCM_JS = R('server/fcm.js');
+const chanManifest = (main.match(/android:name="com\.google\.firebase\.messaging\.default_notification_channel_id"\s*android:value="([^"]+)"/) || [])[1];
+const chanApp = (PUSH_DART.match(/const kFriendsChannelId = '([^']+)'/) || [])[1];
+const chanServer = (FCM_JS.match(/const CHANNEL = '([^']+)'/) || [])[1];
+if (chanManifest && chanManifest === chanApp && chanApp === chanServer)
+  ok('알림 채널이 한 이름입니다 (매니페스트 · 앱 · 서버: ' + chanApp + ')');
+else no('알림 채널 이름이 어긋납니다 — FCM 알림이 조용히 「기타」 채널로 갑니다',
+        '매니페스트 ' + chanManifest + ' · native_push.dart ' + chanApp + ' · server/fcm.js ' + chanServer);
+
+const iconManifest = (main.match(/android:name="com\.google\.firebase\.messaging\.default_notification_icon"\s*android:resource="@drawable\/([^"]+)"/) || [])[1];
+const iconApp = (PUSH_DART.match(/const kPushIcon = '([^']+)'/) || [])[1];
+const iconServer = (FCM_JS.match(/const ICON = '([^']+)'/) || [])[1];
+const iconFile = ['xml', 'png'].some(x => E('app/android/app/src/main/res/drawable/' + iconApp + '.' + x));
+if (iconFile && iconManifest === iconApp && iconApp === iconServer)
+  ok('상태바 알림 아이콘이 있습니다 (drawable/' + iconApp + ')');
+else no('상태바 알림 아이콘이 없거나 이름이 어긋납니다 — 흰 덩어리로 뜨거나 아이콘 없이 뜹니다',
+        '파일 ' + (iconFile ? '있음' : '없음') + ' · 매니페스트 ' + iconManifest + ' · 앱 ' + iconApp + ' · 서버 ' + iconServer);
+
+/* 자동 초기화가 켜져 있으면 로그인하지 않은 사람 · 「로그인 없이 쓰기」 사용자도 켤 때마다
+   구글에 기기가 등록됩니다(설치 ID · 토큰). 앱은 로그인 뒤에만 켭니다(native_push.dart). */
+const plist = R('app/ios/Runner/Info.plist');
+const autoOffAndroid = /android:name="firebase_messaging_auto_init_enabled"\s*android:value="false"/.test(main);
+const autoOffIos = /<key>FirebaseMessagingAutoInitEnabled<\/key>\s*<false\/>/.test(plist);
+if (autoOffAndroid && autoOffIos)
+  ok('FCM 자동 초기화가 꺼져 있습니다 — 로그인 전에는 구글에 기기를 등록하지 않습니다');
+else no('FCM 자동 초기화가 켜져 있습니다 — 로그인하지 않은 사람도 구글에 기기가 등록됩니다',
+        (autoOffAndroid ? '' : '매니페스트에 firebase_messaging_auto_init_enabled=false 가 없음 ') +
+        (autoOffIos ? '' : 'Info.plist 에 FirebaseMessagingAutoInitEnabled=false 가 없음'));
+
 console.log('\n통과 ' + pass + ' / 실패 ' + fail);
 process.exit(fail ? 1 : 0);

@@ -166,6 +166,47 @@ const out = fs.mkdtempSync(path.join(os.tmpdir(), 'asc-'));
   try { patch(pbx, { team: 'abc', profile: 'x', bundle: 'y' }); } catch (e) { bad = true; }
   ok(bad, '팀 ID 가 이상하면 멈춘다');
 
+  /* 앱 알림 — --entitlements 를 주면 두 곳, 안 주면 0곳 */
+  const BID = 'io.github.iacobuschoi.mybody';
+  ok(!/CODE_SIGN_ENTITLEMENTS/.test(r.text), '엔타이틀먼트를 안 주면 CODE_SIGN_ENTITLEMENTS 는 0곳 (예전 그대로)');
+  const re = patch(pbx, { team: 'ABCDE12345', profile: 'Mybody AppStore GHA', bundle: BID,
+                          entitlements: 'Runner/Runner.entitlements' });
+  const entLines = re.text.match(/CODE_SIGN_ENTITLEMENTS = Runner\/Runner\.entitlements;/g) || [];
+  ok(entLines.length === 2 && re.touched.sort().join(',') === 'Profile,Release',
+     '엔타이틀먼트를 주면 Runner 의 Release·Profile 두 곳에만 들어간다');
+  /* CI 가 확인할 때 쓰는 grep 과 같은 식으로 — 들어갔는데 CI 가 못 찾으면 알림을 끕니다 */
+  ok((re.text.match(/CODE_SIGN_ENTITLEMENTS = "?Runner\/Runner\.entitlements"?;/g) || []).length === 2,
+     'CI 의 확인(grep)이 두 곳을 센다');
+  ok(!/RunnerTests;[\s\S]{0,400}CODE_SIGN_ENTITLEMENTS/.test(re.text), '시험 타깃은 안 건드린다');
+  ok(pbx.split('\n').filter(l => !re.text.includes(l)).length === 0, '엔타이틀먼트를 넣어도 원래 줄은 안 없어진다');
+  /* Xcode 처럼 키 이름순 — CODE_SIGN_ENTITLEMENTS 는 CODE_SIGN_IDENTITY 앞 */
+  const relBlock = (re.text.match(/buildSettings = \{[^}]*PROVISIONING_PROFILE_SPECIFIER = "Mybody AppStore GHA";[\s\S]*?\n\t\t\t\};/) || [''])[0];
+  ok(relBlock.indexOf('CODE_SIGN_ENTITLEMENTS') >= 0 &&
+     relBlock.indexOf('CODE_SIGN_ENTITLEMENTS') < relBlock.indexOf('CODE_SIGN_IDENTITY = '), '키 이름순을 지킨다');
+  ok(patch(re.text, { team: 'ABCDE12345', profile: 'Mybody AppStore GHA', bundle: BID,
+                      entitlements: 'Runner/Runner.entitlements' }).text === re.text, '엔타이틀먼트도 두 번 돌려도 같다');
+  for (const badEnt of ['Runner/"x.entitlements', 'Runner/x.entitlements\nFOO = 1', '../Runner.entitlements',
+                        '/etc/x.entitlements', 'Runner/Runner.plist', 'Runner/a;b.entitlements']) {
+    let threw = false;
+    try { patch(pbx, { team: 'ABCDE12345', profile: 'P', bundle: BID, entitlements: badEnt }); } catch (e) { threw = true; }
+    ok(threw, '이상한 엔타이틀먼트 경로는 거절: ' + JSON.stringify(badEnt));
+  }
+  ok(require('./ios-sign-project.js').supportsEntitlements === true, 'CI 가 물을 수 있게 지원 여부를 내보낸다');
+  {
+    const tmp = path.join(os.tmpdir(), 'mybody-pbx-' + process.pid + '.pbxproj');
+    fs.writeFileSync(tmp, pbx);
+    const run = extra => require('node:child_process').spawnSync(process.execPath,
+      [path.join(__dirname, 'ios-sign-project.js'), '--team', 'ABCDE12345', '--profile', 'P', '--project', tmp].concat(extra),
+      { encoding: 'utf8' });
+    const r1 = run(['--entitlements', 'Runner/Runner.entitlements']);
+    ok(r1.status === 0 && (fs.readFileSync(tmp, 'utf8').match(/CODE_SIGN_ENTITLEMENTS/g) || []).length === 2,
+       '명령줄 --entitlements 가 실제로 먹는다 (예전에는 조용히 버렸음)');
+    fs.writeFileSync(tmp, pbx);
+    const r2 = run(['--entitlements', '../x.entitlements']);
+    ok(r2.status !== 0 && fs.readFileSync(tmp, 'utf8') === pbx, '명령줄에서도 이상한 경로면 멈추고 파일을 안 고친다');
+    fs.rmSync(tmp, { force: true });
+  }
+
   fs.rmSync(out, { recursive: true, force: true });
   console.log(`\n통과 ${pass} / 실패 ${fail}`);
   process.exit(fail ? 1 : 0);

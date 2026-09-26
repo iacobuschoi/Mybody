@@ -18,6 +18,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/api.dart';
 import 'src/cloud.dart';
+import 'src/native_push.dart';
 import 'src/news_store.dart';
 import 'src/nudge.dart';
 import 'src/pokes.dart';
@@ -123,7 +124,9 @@ class _MyBodyAppState extends State<MyBodyApp> {
       base = sp.getString(_serverKey) ?? '';
     } catch (_) {}
     if (base.isEmpty) base = _builtInServer.trim();
-    final api = Api(baseUrl: base);
+    /* 로그아웃 직전에 이 기기의 앱 알림 등록을 지우는 Api — 로그아웃 버튼이 여러 화면에 있어
+       한 곳에서 잡습니다(native_push.dart). */
+    final api = PushAwareApi(baseUrl: base);
     await api.loadToken();
     _queue = await _makeQueue(api);
     final app = await AppState.boot();
@@ -138,6 +141,10 @@ class _MyBodyAppState extends State<MyBodyApp> {
     /* 간식 알림. 못 켜져도 앱은 돕니다. 저장이 바뀌면 다시 계산합니다 —
        먹은 게 늘면 남은 단백질이 줄고, 알림 문구도 바뀌어야 합니다. */
     unawaited(SnackNudge.init().then((_) async {
+      /* 앱 알림(FCM). 로컬 알림 플러그인이 준비된 뒤에 켭니다 — 앱을 쓰는 중에 온 친구 알림을
+         안드로이드에서는 그 플러그인으로 띄우고, 누르면 같은 콜백으로 친구 탭에 갑니다.
+         설정 파일이 없는 빌드에서는 아무것도 안 합니다. */
+      unawaited(NativePush.instance.start(api: api, onOpen: _onPushOpen, onMessage: _onPushMessage));
       await SnackNudge.reschedule(app);
       /* 끼니 기록 알림 — 10 · 13 · 19시. 오늘 적은 끼니는 빼고 다시 겁니다. */
       await MealReminder.reschedule(app);
@@ -146,6 +153,12 @@ class _MyBodyAppState extends State<MyBodyApp> {
       await _fetchPokes(app, api);
       api.addListener(() { if (api.signedIn) unawaited(_fetchPokes(app, api)); });
     }));
+    /* 앱으로 돌아올 때도 독촉을 가져옵니다 — 앱 알림이 없는 빌드 · 서버, 알림을 끈 폰을 위한
+       안전망. 앱 알림 등록도 그때 한 번 살핍니다(권한을 바꾸고 왔을 수 있습니다). */
+    _pokeResume = PokeResume(() async {
+      unawaited(NativePush.instance.resumed());
+      await _pullPokes();
+    })..wire();
     app.addListener(() {
       _nudgeTimer?.cancel();
       _nudgeTimer = Timer(const Duration(seconds: 2), () async {
@@ -166,16 +179,53 @@ class _MyBodyAppState extends State<MyBodyApp> {
   Timer? _nudgeTimer;
   CloudSync? _cloud;
   UpdateCheck? _update;
+  PokeResume? _pokeResume;
 
-  Future<void> _fetchPokes(AppState app, Api api) async {
+  @override
+  void dispose() {
+    _pokeResume?.dispose();
+    super.dispose();
+  }
+
+  /// [notify] 가 거짓이면 가져오기만 합니다 — 앱 알림이 방금 그 독촉을 띄웠을 때.
+  Future<void> _fetchPokes(AppState app, Api api, {bool notify = true}) async {
     final box = app.pokes;
     if (box == null) return;
     final fresh = await box.fetch(api);
+    if (!notify) return;
     for (final p in fresh) {
+      /* 서버가 앱 알림(FCM)으로 이미 보낸 것 — 또 띄우면 같은 독촉이 두 번 울립니다. */
+      if (p['pushed'] == true) continue;
+      /* 서버의 pushed 표시는 FCM 이 받은 뒤에야 적혀서, 그 사이에 가져오면 위에서 못 거릅니다.
+         앱 알림이 이미 이 번호를 띄웠으면(앞에 떠 있을 때 · 눌러서 열었을 때) 넘어갑니다. */
+      if (!NativePush.instance.claimPoke(p['id'])) continue;
+      /* 안드로이드는 FCM 이 띄울 칸(tag poke-<번호>)과 같은 칸에 — 늦게 온 쪽이 덮어씁니다. */
+      final slot = pokeSlot(core.jsToNumber(p['id']).toInt());
       await SnackNudge.showNow(
-          id: 1000 + (core.jsToNumber(p['id']).toInt() % 1000),
+          id: slot.id, tag: slot.tag,
           title: PokeBox.title(p), body: PokeBox.body(p));
     }
+  }
+
+  /// 지금의 앱 · Api 로 — 서버 주소가 바뀌면 Api 가 새것이 되므로 붙잡아 두지 않습니다.
+  Future<void> _pullPokes({bool notify = true}) async {
+    final app = _app;
+    final api = _api;
+    if (app == null || api == null) return;
+    await _fetchPokes(app, api, notify: notify);
+  }
+
+  /* 앱 알림을 눌러 앱이 앞으로 왔을 때 — 셸이 notificationRoute 를 듣고 그 탭으로 갑니다.
+     독촉이면 친구 탭 맨 위의 띠가 바로 보이게 먼저 가져옵니다(알림은 이미 봤으니 또 안 띄움). */
+  void _onPushOpen(String route) {
+    notificationRoute.value = route;
+    if (route == 'pokes') unawaited(_pullPokes(notify: false));
+  }
+
+  /* 앱을 쓰는 중에 온 앱 알림. 띄우는 것은 NativePush 가 했고(안드로이드는 로컬 알림,
+     아이폰은 시스템), 여기서는 독촉을 바로 가져와 친구 탭의 띠를 채웁니다. */
+  Future<void> _onPushMessage(PushMessage m, String? route) async {
+    if (route == 'pokes') await _pullPokes(notify: false);
   }
 
   /* 큐는 Api 에 매여 있습니다 — 주소가 바뀌면 보낼 곳도 바뀝니다.
@@ -199,8 +249,12 @@ class _MyBodyAppState extends State<MyBodyApp> {
       final sp = await SharedPreferences.getInstance();
       await sp.setString(_serverKey, clean);
     } catch (_) {}
-    final api = Api(baseUrl: clean);
+    final api = PushAwareApi(baseUrl: clean);
     await api.loadToken();
+    /* 앱 알림 등록도 새 서버로. 옛 서버의 세션은 살아 있으므로 그냥 두면 옛 계정의 알림이
+       이 폰으로 계속 옵니다 — attach 가 옛 서버에 이 기기를 빼 달라고 말하고, 토큰도 새로 받아
+       새 서버에만 등록합니다(native_push.dart). */
+    NativePush.instance.attach(api);
     /* 주소가 바뀌면 큐도 새로 만듭니다 — 보낼 곳이 바뀌었으니까요.
        담겨 있던 일은 저장소에 남아 있어서 그대로 이어집니다. */
     final q = await _makeQueue(api);

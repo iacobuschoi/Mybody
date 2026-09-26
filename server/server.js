@@ -41,6 +41,7 @@ const path = require('node:path');
 const { open, makeApi, str } = require('./db.js');
 const { runOcr: callOcr } = require('./ocr.js');
 const PUSH = require('./push.js');
+const FCMLIB = require('./fcm.js');
 const APPVER = require('./appversion.js');
 
 /* --- 저장해 둔 설정을 읽어 옵니다 ------------------------------------------
@@ -76,6 +77,7 @@ const APPVER = require('./appversion.js');
   put('OCR_MODEL', cfg.anthropicModel);
   put('VAPID_PUBLIC', cfg.vapidPublic);
   put('VAPID_PRIVATE', cfg.vapidPrivate);
+  put('FCM_SERVICE_ACCOUNT', cfg.fcmServiceAccount);
   put('OWNER', cfg.owner);
   put('OWNER_CONTACT', cfg.ownerContact);
   put('ORIGIN', cfg.origin);
@@ -534,9 +536,96 @@ function shareNotice(s, lead) {
   return lead + ' 내 ' + act.join(' · ') + josa + ' 보입니다 · 몸 숫자는 기본 비공개';
 }
 
-/** 한 사람의 기기 전부에게 보냅니다. 죽은 주소는 정리합니다. */
-async function pushToUser(userId, payload) {
+/* --- 앱 알림(FCM) ---------------------------------------------------------
+ *
+ * 친구의 운동 독촉이 앱이 아니라 크롬(웹 푸시)으로 왔습니다. 앱에는 서버가
+ * 밀어 주는 길이 없어서, 크롬 구독이 있는 사람에게는 크롬이 먼저 울리고
+ * 앱은 나중에 켜질 때에야 같은 독촉을 띄웠습니다.
+ *
+ * 서비스 계정 파일(~/.mybody/fcm-service-account.json)이 있으면 켜집니다.
+ * 없으면 null — 조용히 꺼지고 모든 것이 예전처럼 웹 푸시로만 갑니다.
+ * 파일은 서버가 뜰 때 한 번 읽습니다. 파일을 놓거나 바꾼 뒤에는 서버를
+ * 다시 띄워야 합니다(뜰 때 켜짐/꺼짐을 한 줄로 말합니다).
+ * -------------------------------------------------------------------------- */
+const FCM_STATE = FCMLIB.load(process.env);
+const FCM = FCM_STATE.sender;
+
+/* 앱 쪽이 **우리 설정 문제로** 못 보낸 경우. 접근 토큰을 못 받았거나(열쇠 폐기 ·
+   시계 어긋남), APNs 키를 안 올렸거나, 권한이 없는 경우입니다. 기기가 전부
+   이렇게 막혔으면 크롬 알림을 막지 않습니다 — 막으면 그 사람은 아무 데서도
+   못 받고, 우리는 "알림을 켰는데 안 온다" 를 만든 셈이 됩니다. */
+function fcmBlockedOnOurSide(r) {
+  return r.code === 'AUTH' || r.code === 'THIRD_PARTY_AUTH_ERROR' ||
+         r.status === 401 || r.status === 403;
+}
+
+/* FCM 으로 나가는 제목 · 본문. 웹 푸시는 종단 암호화라 이름과 숫자를 실어도 중계하는
+   쪽(구글 · 모질라 · 애플)이 못 읽지만, FCM 의 notification 은 평문이라 구글과 애플(APNs)이
+   읽습니다. 그래서 앱 알림에는 이름 · 숫자 · 공유 설정 없이 무슨 일인지만 싣고, 누구인지는
+   앱이 열린 뒤 서버에서 가져와 보여 줍니다(친구 탭 · 독촉 띠). */
+const APP_TEXT = {
+  poke: { t: '친구가 운동하라고 콕 찔렀어요', b: '오늘 운동 어때요?' },
+  workout: { t: '친구가 운동했어요', b: '친구 탭에서 확인하세요' },
+  friend_request: { t: '친구 요청이 왔어요', b: '친구 탭에서 확인하세요' },
+  friend_accept: { t: '친구 요청이 수락됐어요', b: '친구 탭에서 확인하세요' }
+};
+const APP_TEXT_FALLBACK = { t: '친구 알림이 왔어요', b: '앱에서 확인하세요' };
+
+/** 이 사람에게 FCM 으로 보낼 것 — 웹 푸시용 t · b 는 절대 옮겨 싣지 않습니다. */
+function appNoteFor(userId, n) {
+  const text = APP_TEXT[n.kind] || APP_TEXT_FALLBACK;
+  /* tag(같은 칸 덮어쓰기)에 사용자 id 를 그대로 쓰면 구글 · 애플에 내부 id 가 남습니다.
+     독촉은 독촉 번호로(앱이 같은 칸을 가리키려면 앱도 알 수 있는 값이어야 합니다),
+     나머지는 받는 사람마다 다른 HMAC 으로 — 여러 사람의 알림을 서로 잇지 못하게. */
+  const tag = n.appTag || (n.collapse && FCM ? FCM.tagFor(n.collapse[0], userId, n.collapse[1]) : '');
+  return { t: text.t, b: text.b, route: n.route, kind: n.kind, tag, data: n.data };
+}
+
+/**
+ * 한 사람에게 한 건 — 앱(FCM) 먼저, 크롬(웹 푸시)은 최근 30일 안에 앱이
+ * 등록되지 않은 사람에게만. 죽은 기기 · 죽은 구독은 정리합니다.
+ *
+ * note: { t, b, u, route, kind, appTag, collapse, data, onDelivered }
+ *   t · b · u  웹 푸시(암호화)의 제목 · 본문 · 누르면 열 주소. FCM 에는 안 실립니다
+ *   kind       무슨 소식인가 — FCM 의 일반 문구(APP_TEXT)를 고릅니다
+ *   route      앱이 누르면 갈 곳('pokes' · 'social')
+ *   appTag     FCM 의 tag 를 그대로(독촉: 'poke-<번호>')
+ *   collapse   [접두어, 누구에 대한 소식인가] — 받는 사람별 HMAC tag 로 바뀝니다
+ *   onDelivered  FCM 이 한 기기에라도 받았을 때 **바로** 한 번 — 나머지 기기로 보내기를
+ *              기다리지 않습니다. 앱은 이 표시(독촉의 pushed)만 보고 중복을 거르는데,
+ *              기기마다 10초씩 기다린 뒤에 적으면 그 사이에 가져간 앱이 한 번 더 띄웁니다.
+ *
+ * 누구에게 보낼지는 부르는 쪽이 이미 정했습니다(공유 설정 · 차단). 여기서는
+ * 사람을 늘리지 않습니다 — 알림이 공유 설정을 우회하는 뒷문이 되면 안 됩니다.
+ */
+async function pushToUser(userId, note) {
+  const n = note || {};
+  let tried = 0, delivered = 0, blocked = 0;
+  if (FCM) {
+    const devices = api.pushDevicesOf(userId);
+    const appNote = devices.length ? appNoteFor(userId, n) : null;
+    for (const d of devices) {
+      tried++;
+      try {
+        const r = await FCM.send(d.token, appNote);
+        if (r.ok) {
+          if (!delivered++ && typeof n.onDelivered === 'function') {
+            try { n.onDelivered(); } catch (e) {}
+          }
+        } else if (r.gone) api.dropPushDevice(d.token);
+        else {
+          api.notePushDeviceFail(d.token);
+          if (fcmBlockedOnOurSide(r)) blocked++;
+        }
+      } catch (e) { api.notePushDeviceFail(d.token); }
+    }
+  }
   if (!VAPID) return;
+  /* 앱이 있으면 크롬은 조용히 — 같은 독촉이 두 번 울리고, 하필 크롬이 먼저
+     울렸습니다. 알림을 거절한 폰은 "앱이 있다" 로 치지 않습니다(db.js). */
+  const allBlocked = tried > 0 && delivered === 0 && blocked === tried;
+  if (FCM && !allBlocked && api.hasRecentAppDevice(userId, 30)) return;
+  const payload = JSON.stringify({ t: n.t, b: n.b, u: n.u || '/#P15' });
   for (const sub of api.pushSubsOf(userId)) {
     try {
       const r = await PUSH.send(sub, payload, VAPID);
@@ -547,26 +636,24 @@ async function pushToUser(userId, payload) {
 }
 
 async function fanoutPush(ownerId, snap) {
-  if (!VAPID) return;
+  if (!VAPID && !FCM) return;
   const who = api.me(ownerId);
   const name = (who && who.displayName) || '친구';
   /* 보내는 말은 한 줄뿐이고, 늘 좋은 소식입니다.
      "이번 주 3일째" 처럼 늘어난 숫자만 들어갑니다 — 무슨 요일에 무슨
      운동을 했는지는 스냅샷에 아예 없으므로 보낼 수도 없습니다. */
-  const payload = JSON.stringify({
+  const note = {
     t: name + '님이 운동했습니다',
     b: '이번 주 ' + snap.keptDays + '일째' +
        (snap.plannedDays ? ' · 계획 ' + snap.plannedDays + '일' : ''),
-    u: '/#P15'
-  });
-  const targets = api.pushTargetsFor(ownerId);
-  for (const { sub } of targets) {
-    try {
-      const r = await PUSH.send(sub, payload, VAPID);
-      if (r.gone) api.dropPushSub(sub.endpoint);
-      else if (!r.ok) api.notePushFail(sub.endpoint);
-    } catch (e) { api.notePushFail(sub.endpoint); }
-  }
+    u: '/#P15', route: 'social', kind: 'workout',
+    /* 같은 친구의 소식은 한 칸을 덮어씁니다 — 하루하루 쌓이면 소음입니다.
+       이름 · 숫자는 웹 푸시(암호화)에만 실리고 앱 알림은 일반 문구입니다(APP_TEXT). */
+    collapse: ['news', ownerId]
+  };
+  /* 받는 사람은 공유 설정으로 거릅니다(일정을 안 보여 주기로 한 친구는 뺌).
+     웹 구독이 없어도 앱으로 받을 수 있으므로 기기가 아니라 사람으로 셉니다. */
+  for (const viewer of api.newsViewersFor(ownerId)) await pushToUser(viewer, note);
 }
 
 async function handleApi(req, res, url) {
@@ -726,10 +813,12 @@ async function handleApi(req, res, url) {
          맞요청으로 방금 친구가 됐으면 이미 복사된 그 방향의 행. */
       const msg = r.status === 'accepted'
         ? { t: name + '님과 친구가 되었습니다',
-            b: shareNotice(api.shareFields(r.otherId, me), '친구에게') }
+            b: shareNotice(api.shareFields(r.otherId, me), '친구에게'), kind: 'friend_accept' }
         : { t: name + '님이 친구 요청을 보냈습니다',
-            b: shareNotice(api.shareDefaults(r.otherId), '수락하면 상대에게') };
-      pushToUser(r.otherId, JSON.stringify(Object.assign(msg, { u: '/#P15' })))
+            b: shareNotice(api.shareDefaults(r.otherId), '수락하면 상대에게'), kind: 'friend_request' };
+      /* 이름 · 공유 기본값은 웹 푸시(암호화)에만 실립니다. 앱 알림(FCM)은 평문이라
+         "친구 요청이 왔어요" 같은 일반 문구만 갑니다(APP_TEXT). */
+      pushToUser(r.otherId, Object.assign(msg, { u: '/#P15', route: 'social', collapse: ['friend', me] }))
         .catch(() => {});
     }
     return send(res, 200, r);
@@ -755,11 +844,11 @@ async function handleApi(req, res, url) {
     if (r.ok) {
       const who = api.me(me);
       const name = (who && who.displayName) || '상대';
-      pushToUser(uid, JSON.stringify({
+      pushToUser(uid, {
         t: name + '님이 친구 요청을 수락했습니다',
         b: shareNotice(api.shareFields(uid, me), '친구에게'),
-        u: '/#P15'
-      })).catch(() => {});
+        u: '/#P15', route: 'social', kind: 'friend_accept', collapse: ['friend', me]
+      }).catch(() => {});
     }
     return send(res, 200, r);
   }
@@ -814,11 +903,21 @@ async function handleApi(req, res, url) {
     const b = await readBody(req);
     const r = api.poke(me, b && b.userId, b && b.kind);
     if (r.ok) {
-      /* 웹 푸시가 있으면 바로. 앱은 켜질 때 가져갑니다. */
+      /* 앱 알림(FCM)이 있으면 앱으로 바로, 없으면 예전처럼 웹 푸시로.
+         앱은 켜질 때도 독촉을 가져가는데, FCM 으로 이미 닿은 것은 pushed 로
+         표시돼서 같은 알림을 또 띄우지 않습니다. 웹 푸시 문구는 앱이 가져가서
+         띄우는 것(app/lib/src/pokes.dart)과 같게 두고, 앱 알림은 이름 없는 일반
+         문구입니다(APP_TEXT — 구글 · 애플이 읽는 평문이라).
+         tag 는 독촉 번호 — 앱이 가져가서 띄우는 로컬 알림도 같은 tag 를 써서, 둘이
+         엇갈려 와도 안드로이드에서는 한 칸을 덮어씁니다(main.dart). */
       const who = api.me(me);
       const name = (who && who.displayName) || '친구';
-      pushToUser(String(b.userId), JSON.stringify({
-        t: name + '님이 운동하라고 콕 찔렀어요', b: '오늘 운동 어때요? 💪', u: '/#P15' })).catch(() => {});
+      const pokeId = r.id;
+      pushToUser(String(b.userId), {
+        t: name + '님이 운동하라고 콕 찔렀어요', b: '오늘 운동 어때요? 💪', u: '/#P15',
+        route: 'pokes', kind: 'poke', appTag: 'poke-' + pokeId, data: { pokeId: String(pokeId) },
+        onDelivered: () => api.markPokePushed(pokeId)
+      }).catch(() => {});
     }
     return send(res, r.ok ? 200 : 400, r);
   }
@@ -853,6 +952,39 @@ async function handleApi(req, res, url) {
   if (p === '/push/unsubscribe' && method === 'POST') {
     const b = await readBody(req);
     return send(res, 200, api.removePushSub(me, b && b.endpoint));
+  }
+
+  /* --- 앱 알림(FCM) 기기 -------------------------------------------------
+   * 앱이 켜질 때마다 자기 토큰을 올립니다. FCM 이 꺼진 서버에서도 받아
+   * 둡니다 — 주인이 나중에 서비스 계정 파일을 놓고 다시 띄우면 그때부터
+   * 바로 씁니다. 기기는 지금 로그인(세션)에 묶이므로, 로그아웃 · 탈퇴 때
+   * 따로 지우지 않아도 같이 사라집니다.
+   * -------------------------------------------------------------------- */
+  if (p === '/push/device' && method === 'POST') {
+    const b = await readBody(req, 16_000);
+    const r = api.addPushDevice(me, tok, b);
+    /* 409: 다른 계정의 살아 있는 로그인에 묶인 토큰인데 설치 비밀이 안 맞음(db.js). */
+    return send(res, r.ok ? 200 : (r.conflict ? 409 : 400), Object.assign(r, { fcm: !!FCM }));
+  }
+  if (p === '/push/device' && method === 'DELETE') {
+    const b = await readBody(req, 16_000);
+    if (!b || typeof b.token !== 'string') return send(res, 400, { ok: false, reason: 'token 이 필요합니다' });
+    /* 남의 토큰 · 없는 토큰 · 내 토큰 모두 200 {ok:true} — 답으로 토큰이 있는지 알 수 없게. */
+    return send(res, 200, api.removePushDevice(me, b.token));
+  }
+  /* 설정 화면이 "앱 알림 · 크롬 알림이 지금 어떤가" 를 보여 주는 데 씁니다.
+     webMuted 는 "크롬 구독이 있어도 앱이 있어서 크롬으로는 안 보낸다" 입니다. */
+  if (p === '/push/status' && method === 'GET') {
+    const c = api.pushCounts(me);
+    return send(res, 200, { ok: true, fcm: !!FCM, web: !!VAPID,
+                            devices: c.devices, webSubs: c.webSubs,
+                            webMuted: !!FCM && api.hasRecentAppDevice(me, 30) });
+  }
+  /* 「크롬(웹) 알림 끄기」 — 내 웹 푸시 구독을 전부 지웁니다. 크롬이 알림을
+     쥐고 있으면 브라우저를 안 열어도 계속 울려서, 앱만 쓰는 사람도 여기서
+     끌 수 있어야 합니다. 두 이름 다 받습니다. */
+  if ((p === '/push/web' || p === '/push/web-subscriptions') && method === 'DELETE') {
+    return send(res, 200, api.dropPushSubsOf(me));
   }
   m = p.match(/^\/snapshots\/([\w-]+)$/);
   if (m && method === 'GET') {
@@ -1110,6 +1242,16 @@ if (require.main === module) {
   process.on('SIGINT', () => shutdown('Ctrl+C'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
+  /* 만료된 로그인을 치웁니다 — 뜰 때 한 번, 그 뒤로 하루 한 번.
+     세션은 쓰일 때만 지워졌어서, 앱을 지운 폰의 세션과 거기 묶인 앱 알림 기기 행이
+     90일이 지나도 끝없이 남았습니다(처리방침의 보관 기간과 어긋남). 기기 행은 세션을
+     지우면 cascade 로 같이 지워집니다. unref — 이 타이머 때문에 서버가 안 꺼지면 안 됩니다. */
+  const pruneSessions = () => {
+    try { api.pruneExpiredSessions(); } catch (e) { console.error('만료된 로그인 정리 실패:', e.message); }
+  };
+  pruneSessions();
+  setInterval(pruneSessions, 24 * 3600 * 1000).unref();
+
   server.listen(PORT, () => {
     console.log('Mybody 서버 실행 중');
     console.log('  주소   http://localhost:' + PORT);
@@ -1122,6 +1264,10 @@ if (require.main === module) {
       console.log('  폰에서 http://' + a + ':' + PORT + '   (같은 와이파이)');
     });
     console.log('  DB     ' + DB_FILE);
+    /* 앱 알림이 켜졌는지는 뜰 때 한 번 말합니다. 파일을 놓고도 다시 안 띄우면
+       꺼진 채로 돌고, 그걸 알 수 있는 곳이 여기뿐입니다. */
+    console.log('  앱 알림(FCM) ' + FCMLIB.describe(FCM_STATE));
+    for (const w of (FCM_STATE.warnings || [])) console.log('  ⚠ 앱 알림(FCM): ' + w);
     /* 열어 둔 상태는 띄울 때마다 눈에 띄어야 합니다. 설정 파일 안에만
        있으면 몇 주 뒤엔 자기가 열어 뒀다는 것도 잊습니다. */
     if (OPEN_SIGNUP) {

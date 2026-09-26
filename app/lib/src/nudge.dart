@@ -202,19 +202,23 @@ class SnackNudge {
   }
 
   /// 지금 바로 하나 — 친구의 운동 독촉 같은 것. 못 띄워도 조용히.
-  static Future<void> showNow({required int id, required String title, required String body}) async {
+  /// [tag] 를 주면 안드로이드에서 같은 tag · 번호의 알림(앱 알림 FCM 이 띄운 것 포함)을
+  /// 덮어씁니다 — 같은 독촉이 두 길로 와도 한 칸만 남게(native_push.dart pokeSlot).
+  static Future<void> showNow({required int id, required String title, required String body,
+      String? tag}) async {
     if (!_ready) return;
     try {
       await _plugin.show(
         id: id,
         title: title,
         body: body,
-        notificationDetails: const NotificationDetails(
+        notificationDetails: NotificationDetails(
           android: AndroidNotificationDetails(
             'friends', '친구 알림',
             channelDescription: '친구가 보낸 운동 독촉',
             importance: Importance.defaultImportance,
             priority: Priority.defaultPriority,
+            tag: tag,
           ),
         ),
       );

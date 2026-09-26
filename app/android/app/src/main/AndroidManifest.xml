@@ -68,6 +68,23 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- 앱이 꺼져 있거나 뒤에 있을 때 온 친구 알림(FCM)을 어느 채널 · 아이콘으로 띄울지.
+             채널은 로컬 알림(친구 독촉)과 같은 'friends' 이고 앱이 켜질 때 미리 만듭니다
+             (lib/src/native_push.dart). 없으면 안드로이드가 「기타」 채널에 컬러 앱 아이콘을
+             흰 덩어리로 띄웁니다. 설정 파일이 없는 빌드에서는 읽는 쪽이 없어 무해합니다. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="friends" />
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@drawable/ic_stat_mybody" />
+        <!-- FCM 자동 초기화를 끕니다. 켜 두면 앱이 켜질 때마다 로그인하지 않은 사람 ·
+             「로그인 없이 쓰기」 사용자까지 구글에 기기(설치 ID · 토큰)를 등록합니다.
+             로그인한 뒤에만 앱이 켜고(setAutoInitEnabled), 로그아웃하면 다시 끕니다
+             (lib/src/native_push.dart). -->
+        <meta-data
+            android:name="firebase_messaging_auto_init_enabled"
+            android:value="false" />
         <!-- 예약된 알림을 시각에 맞춰 띄우는 수신기 (flutter_local_notifications) -->
         <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
         <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">

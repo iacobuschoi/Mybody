@@ -20,6 +20,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../api.dart';
+import '../native_push.dart';
 import '../scope.dart';
 import '../update.dart';
 import 'account.dart';
@@ -120,6 +121,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 setState(() {});
               },
             ),
+            /* 친구 알림(앱 알림) 상태와 「크롬(웹) 알림 끄기」 — 로그인했을 때만(친구는 계정 기능). */
+            if (api.signedIn) _PushRows(key: ValueKey(api)),
             /* 헬스 화면의 「따라 해 보기」 는 처음 한 번만 뜹니다 — 다시 보는 길은 여기뿐.
                이름은 열리는 화면의 제목과 같은 상수 — 「도움말」 을 눌렀는데 「따라 해 보기」 가
                열리면 다른 것을 기대합니다. */
@@ -544,6 +547,93 @@ class _SettingsScreenState extends State<SettingsScreen> {
     /* 로그아웃됐으니 밑의 셸은 이미 로그인 화면입니다. 설정을 닫아
        그걸 보여 줍니다 — 안 닫으면 없는 계정의 설정이 계속 떠 있습니다. */
     Navigator.of(context).popUntil((r) => r.isFirst);
+  }
+}
+
+/* 「푸시 알림」 상태 한 줄과 「크롬(웹) 알림 끄기」.
+ *
+ * 친구 독촉이 앱이 아니라 크롬으로 온다는 말을 들었습니다 — 예전 웹 앱이 크롬에 남긴 알림
+ * 구독 때문입니다. 서버는 앱 알림이 되는 사람에게 크롬을 조용히 하지만, 크롬 쪽 구독을
+ * 아예 지우는 길도 여기 둡니다. 서버가 그 길을 모르면(404) 줄을 숨깁니다. */
+class _PushRows extends StatefulWidget {
+  const _PushRows({super.key});
+  @override
+  State<_PushRows> createState() => _PushRowsState();
+}
+
+class _PushRowsState extends State<_PushRows> {
+  ApiResult? _status;
+  bool _webGone = false;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  Future<void> _load() async {
+    if (!mounted) return;
+    final r = await Scope.apiOf(context).pushStatus();
+    if (mounted) setState(() => _status = r);
+  }
+
+  Future<void> _dropWeb() async {
+    final api = Scope.apiOf(context);
+    setState(() => _busy = true);
+    final r = await api.dropWebPush();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (r.status == 404) {
+      setState(() => _webGone = true);
+      return;
+    }
+    if (!r.ok) {
+      toast(context, r.reason);
+      return;
+    }
+    setState(() => _webGone = true);
+    toast(context, '크롬(웹) 알림을 껐습니다 — 친구 알림은 앱으로 받습니다');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final push = NativePush.instance;
+    return ListenableBuilder(
+      listenable: push,
+      builder: (context, _) {
+        final d = describePush(push, status: _status);
+        final st = _status;
+        final webSubs = st != null && st.ok ? st.body['webSubs'] : null;
+        /* 서버가 구독 수를 알려 주면 0 일 때 숨기고, 모르면(판 차이) 보여 줍니다. */
+        final showWeb = !_webGone && st != null && st.ok && !(webSubs is num && webSubs <= 0);
+        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('푸시 알림'),
+            subtitle: Text(d.hint, style: t.textTheme.labelSmall),
+            trailing: Text(d.label,
+                style: t.textTheme.labelLarge?.copyWith(
+                    color: d.line == PushLine.on ? t.colorScheme.primary : t.hintColor)),
+          ),
+          if (showWeb)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('크롬(웹) 알림 끄기'),
+              subtitle: Text(
+                  webSubs is num
+                      ? '예전 웹 앱이 크롬에 남긴 알림 ${webSubs.toInt()}곳을 지웁니다'
+                      : '예전 웹 앱이 크롬에 남긴 알림을 지웁니다',
+                  style: t.textTheme.labelSmall),
+              trailing: OutlinedButton(
+                onPressed: _busy ? null : _dropWeb,
+                child: Text(_busy ? '끄는 중…' : '끄기'),
+              ),
+            ),
+        ]);
+      },
+    );
   }
 }
 

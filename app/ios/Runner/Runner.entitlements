@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- 앱 알림(APNs) 권한. 이 파일은 프로젝트에서 가리키지 않습니다 — 서명에 붙이는 것은 CI 가
+     조건을 볼 때만 합니다(그날만 tools/ios-sign-project.js 에 --entitlements 를 줘서 Runner 의
+     Release · Profile 에 CODE_SIGN_ENTITLEMENTS 를 넣음): 파이어베이스 설정 비밀이 있고, 설치된
+     프로파일에 aps-environment 가 있을 때. 늘 붙이면 푸시가 없는 프로파일로
+     서명하는 날 "doesn't match the entitlements file" 로 서명이 깨져 릴리스가 멈춥니다.
+     값은 CI 가 프로파일의 값으로 덮어씁니다(TestFlight · 앱스토어는 production). -->
+<plist version="1.0">
+<dict>
+	<key>aps-environment</key>
+	<string>production</string>
+</dict>
+</plist>

@@ -8,6 +8,14 @@
 #                       base64 로 감싼 것을 ASC_KEY_P8_BASE64 에 넣어도 됩니다. 둘 중 하나면 됩니다.
 #   MYBODY_SERVER_URL   (안드로이드와 같음)
 #
+# 앱 알림(선택 — 없으면 알림 없이 예전처럼 올립니다)
+#   FIREBASE_IOS_PLIST_B64  Firebase 에서 받은 GoogleService-Info.plist 를 base64 한 줄로.
+#                       있으면: plist 를 앱에 넣고 → (자동 서명이면) App ID 에 Push Notifications 를
+#                       애플 API 로 켜고 → 프로파일에 aps-environment 가 들어왔을 때만 그 권한을 서명에
+#                       붙입니다. 하나라도 안 맞으면 경고만 하고 알림 없이 올립니다. 자세히: docs/PUSH.md
+#   APNs 열쇠(.p8)와 서버의 서비스 계정 JSON 은 여기 넣지 않습니다 — 각각 Firebase 콘솔과
+#   서버 컴퓨터의 ~/.mybody/ 에만 둡니다.
+#
 # 인증서·프로파일은 이 러너가 애플 API 로 직접 만듭니다 (tools/asc.js):
 #   openssl 로 열쇠와 CSR 을 만들고 → 배포 인증서를 발급받고 → 프로파일을 만들고 → 서명.
 #   열쇠는 러너와 함께 사라지고, 다음 실행은 지난 인증서를 폐기하고 새로 만듭니다.
@@ -70,6 +78,84 @@ jobs:
             echo "mode=auto" >> "$GITHUB_ENV"; echo "인증서와 프로파일을 애플 API 로 만듭니다."
           fi
 
+      # **앱 알림(FCM → APNs) 설정 파일을 비밀에서 꺼냅니다.**
+      #
+      # 공개 저장소라 GoogleService-Info.plist 는 커밋하지 않습니다(.gitignore). 풀어 놓으면
+      # Runner 타깃의 「Copy GoogleService-Info」 단계(project.pbxproj)가 파일이 있을 때만 앱에
+      # 복사합니다. 비밀이 없거나 틀렸으면 파일을 안 놓고 알림 없이 **예전처럼 올립니다** —
+      # firebase_core 가 설정이 없으면 초기화를 건너뛰고, APNs 등록도 하지 않습니다.
+      #
+      # 여기서 정한 fcm=yes/no 로 뒤의 서명이 갈리므로(App ID 푸시 켜기 · 엔타이틀먼트)
+      # 인증서 단계보다 먼저 둡니다. fcm 은 뒤 단계가 끄기도 합니다(프로파일에 푸시가 없을 때).
+      - name: 앱 알림 설정 꺼내기 (파이어베이스)
+        env:
+          GP: ${{ secrets.FIREBASE_IOS_PLIST_B64 }}
+        run: |
+          set +x
+          f=app/ios/Runner/GoogleService-Info.plist
+          off() {
+            rm -f "$f"
+            echo "fcm=no" >> "$GITHUB_ENV"
+            echo "fcm_why=$1" >> "$GITHUB_ENV"
+          }
+          if [ -z "$GP" ]; then
+            echo "푸시 설정 없음 — 푸시 없이 빌드 (Secrets 에 FIREBASE_IOS_PLIST_B64 가 없습니다)"
+            off "FIREBASE_IOS_PLIST_B64 없음"
+            exit 0
+          fi
+          # 붙여 넣을 때 섞인 줄바꿈 · 공백은 버리고 풉니다. 내용은 로그에 찍지 않습니다.
+          printf '%s' "$GP" | tr -d '\r\n\t ' | base64 --decode > "$f" 2>/dev/null || true
+          if ! plutil -lint -s "$f" >/dev/null 2>&1; then
+            echo "::warning::FIREBASE_IOS_PLIST_B64 를 plist 로 못 읽었습니다 — 푸시 없이 빌드합니다"
+            off "FIREBASE_IOS_PLIST_B64 가 base64 로 싼 plist 가 아님"
+            exit 0
+          fi
+          get() { /usr/libexec/PlistBuddy -c "Print :$1" "$f" 2>/dev/null || true; }
+          # 앱 안에 들어가는 값이라 비밀은 아니지만, 공개 로그에는 남기지 않습니다.
+          key=$(get API_KEY)
+          if [ -n "$key" ]; then echo "::add-mask::$key"; fi
+          bid=$(get BUNDLE_ID)
+          if [ "$bid" != "$BUNDLE_ID" ]; then
+            echo "::warning::GoogleService-Info.plist 의 BUNDLE_ID 가 이 앱과 다릅니다 — 푸시 없이 빌드합니다"
+            off "plist 의 BUNDLE_ID 가 다름 (Firebase 에 등록한 번들 ID 확인)"
+            exit 0
+          fi
+          for k in GOOGLE_APP_ID GCM_SENDER_ID PROJECT_ID; do
+            if [ -z "$(get "$k")" ]; then
+              echo "::warning::GoogleService-Info.plist 에 $k 가 없습니다 — 푸시 없이 빌드합니다"
+              off "plist 에 $k 가 없음"
+              exit 0
+            fi
+          done
+          # 값의 모양까지 봅니다. plist 가 앱에 들어가면 firebase_core 가 켜질 때 네이티브에서
+          # FirebaseApp.configure() 를 부르는데, GOOGLE_APP_ID 가 틀리면 Dart 의 try/catch 가
+          # 닿기도 전에 NSException 으로 **앱이 켜지자마자 죽습니다.** 그런 파일은 넣지 않습니다.
+          if ! printf '%s' "$(get GOOGLE_APP_ID)" | grep -Eq '^1:[0-9]+:ios:[0-9a-f]+$'; then
+            echo "::warning::GoogleService-Info.plist 의 GOOGLE_APP_ID 모양이 iOS 앱 ID(1:<숫자>:ios:<16진수>)가 아닙니다 — 푸시 없이 빌드합니다"
+            off "plist 의 GOOGLE_APP_ID 가 iOS 앱 ID 가 아님 (안드로이드 앱 것이거나 잘림)"
+            exit 0
+          fi
+          if ! printf '%s' "$(get GCM_SENDER_ID)" | grep -Eq '^[0-9]+$'; then
+            echo "::warning::GoogleService-Info.plist 의 GCM_SENDER_ID 가 숫자가 아닙니다 — 푸시 없이 빌드합니다"
+            off "plist 의 GCM_SENDER_ID 가 숫자가 아님"
+            exit 0
+          fi
+          gcm=$(get IS_GCM_ENABLED)
+          if [ -n "$gcm" ] && [ "$gcm" != true ]; then
+            echo "::warning::GoogleService-Info.plist 의 IS_GCM_ENABLED 가 true 가 아닙니다 — 푸시 없이 빌드합니다"
+            off "plist 의 IS_GCM_ENABLED 가 꺼져 있음"
+            exit 0
+          fi
+          # 파일을 앱에 넣는 단계가 없는 판(옛 코드)이면 plist 가 번들에 안 들어갑니다 — 그런데도
+          # 푸시 권한만 붙여 내보내지 않게 여기서 끕니다.
+          if ! grep -q 'Copy GoogleService-Info' app/ios/Runner.xcodeproj/project.pbxproj; then
+            echo "::warning::Xcode 프로젝트에 「Copy GoogleService-Info」 단계가 없습니다 — 푸시 없이 빌드합니다"
+            off "Xcode 프로젝트에 plist 복사 단계가 없음"
+            exit 0
+          fi
+          echo "fcm=yes" >> "$GITHUB_ENV"
+          echo "앱 알림 설정을 놓았습니다 — 서명 단계에서 프로파일의 푸시 권한을 확인합니다"
+
       - name: Flutter 캐시
         id: fcache
         uses: actions/cache@v4
@@ -108,6 +194,75 @@ jobs:
             curl -fsSL -o "$RUNNER_TEMP/wwdr$g.cer" "https://www.apple.com/certificateauthority/AppleWWDRCA$g.cer" && \
               security import "$RUNNER_TEMP/wwdr$g.cer" -k "$KC" -t cert -A >/dev/null 2>&1 || true
           done
+
+      # ── 자동: App ID 에 Push Notifications 를 켭니다 (앱 알림 설정이 있을 때만) ──
+      #
+      # 프로파일의 aps-environment 는 App ID 에 Push 가 켜져 있어야 들어옵니다. 아래 단계가
+      # 프로파일을 **매번 지우고 새로 만드므로**, 그 전에 한 번 켜 두면 새 프로파일에 저절로
+      # 들어갑니다. 이미 켜져 있으면 아무것도 안 합니다(멱등).
+      #
+      # 실패해도(API 키 권한 · 애플 쪽 오류) 멈추지 않습니다. 결과는 「프로파일 설치」 단계가
+      # 프로파일에 aps-environment 가 실제로 들어왔는지로 판정하고, 없으면 알림 없이 올립니다.
+      #
+      # 수동 모드(맥에서 만든 프로파일)에서는 켜지 않습니다. 켜는 순간 그 프로파일이 애플
+      # 쪽에서 「무효」 가 되는데, 우리는 새로 만들 수 없기 때문입니다. docs/PUSH.md 참고.
+      #
+      # tools/asc.js 에 같은 일을 하는 ensureCapability 가 있으면 그것을 쓰고, 없는 판이면
+      # 같은 요청(GET → 없으면 POST, 409 는 이미 있음)을 여기서 직접 합니다.
+      - name: App ID 에 푸시 켜기 (애플 API)
+        if: env.mode == 'auto' && env.fcm == 'yes'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          set +x
+          node - <<'JS'
+          const fs = require('node:fs');
+          const asc = require('./tools/asc.js');
+          const env = process.env;
+          const TYPE = 'PUSH_NOTIFICATIONS';
+          async function ensure(c, bundleIdId) {
+            if (typeof asc.ensureCapability === 'function') return asc.ensureCapability(c, bundleIdId, TYPE);
+            const r = await c.call('GET', `/v1/bundleIds/${bundleIdId}/bundleIdCapabilities?limit=200`);
+            if ((r.data || []).some(x => x.attributes && x.attributes.capabilityType === TYPE)) return { created: false };
+            try {
+              await c.call('POST', '/v1/bundleIdCapabilities', { data: {
+                type: 'bundleIdCapabilities', attributes: { capabilityType: TYPE },
+                relationships: { bundleId: { data: { type: 'bundleIds', id: bundleIdId } } } } });
+              return { created: true };
+            } catch (e) { if (e.status === 409) return { created: false }; throw e; }
+          }
+          (async () => {
+            let state;
+            /* 서명 도구가 --entitlements 를 모르는 판이면 권한을 서명에 못 붙입니다. 그때 App ID 를
+               바꿔 봐야 알림은 안 켜지고 애플 쪽 설정만 헛되이 바뀝니다. */
+            let signTool = {};
+            try { signTool = require('./tools/ios-sign-project.js'); } catch (e) {}
+            if (!signTool.supportsEntitlements) {
+              console.log('::warning::tools/ios-sign-project.js 가 --entitlements 를 모르는 판입니다 — App ID 는 건드리지 않습니다');
+              fs.appendFileSync(env.GITHUB_ENV, 'push_cap=skipped\n');
+              return;
+            }
+            try {
+              const c = asc.client({ keyId: String(env.ASC_KEY_ID || '').trim(),
+                                     issuerId: String(env.ASC_ISSUER_ID || '').trim(), pem: asc.loadKeyPem(env) });
+              const b = await asc.ensureBundleId(c, env.BUNDLE_ID, 'Mybody');
+              const r = await ensure(c, b.id);
+              state = r && r.created ? 'created' : 'on';
+              console.log(state === 'created' ? 'App ID 에 Push Notifications 를 켰습니다'
+                                              : 'App ID 에 Push Notifications 가 이미 켜져 있습니다');
+            } catch (e) {
+              state = 'failed';
+              /* 애플이 준 오류(상태 · 코드 · 설명)만 찍습니다. 열쇠 · 토큰은 오류 문구에 없습니다. */
+              const why = String((e && e.message) || e).replace(/\s+/g, ' ').slice(0, 300);
+              console.log('::warning::App ID 에 Push Notifications 를 못 켰습니다 (' + why + ') — ' +
+                          '프로파일에 푸시 권한이 없으면 이번 판은 알림 없이 올립니다');
+            }
+            fs.appendFileSync(env.GITHUB_ENV, 'push_cap=' + state + '\n');
+          })();
+          JS
 
       # ── 자동: 열쇠·CSR 을 만들고 애플 API 로 인증서와 프로파일을 발급 ──
       - name: 인증서·프로파일 만들기 (애플 API)
@@ -154,6 +309,11 @@ jobs:
           echo "profile_name=$name" >> "$GITHUB_ENV"
           echo "team_id=$team" >> "$GITHUB_ENV"
           echo "프로파일 $name · 팀 $team"
+          # 이 프로파일에 푸시 권한이 들어 있는가(App ID 에 Push 가 켜진 뒤 만든 프로파일이면
+          # production). 앱 알림을 서명에 붙일지는 이 값으로 정합니다 — 없는데 붙이면 서명이 깨집니다.
+          aps=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:aps-environment' /dev/stdin <<< "$plist" 2>/dev/null || true)
+          echo "profile_aps=$aps" >> "$GITHUB_ENV"
+          echo "프로파일의 푸시 권한(aps-environment): ${aps:-없음}"
           security find-identity -v -p codesigning "$KC"
 
       - name: 내보내기 설정
@@ -176,8 +336,49 @@ jobs:
 
       # 앱 타깃(Runner)의 Release·Profile 만 수동 서명으로 바꿉니다. 명령줄로 넘기면
       # 플러그인 Pods 타깃까지 걸려 "does not support provisioning profiles" 로 멈춥니다.
+      #
+      # 앱 알림 권한(aps-environment)은 **조건이 다 맞을 때만** 서명에 붙입니다: 설정 plist 가
+      # 놓였고(fcm=yes), 설치한 프로파일에 aps-environment 가 있을 때. Runner.entitlements 는
+      # 커밋돼 있지만 프로젝트는 그 파일을 가리키지 않습니다 — 늘 붙이면 푸시가 없는 프로파일로
+      # 서명하는 날 "doesn't match the entitlements file" 로 서명이 깨져 릴리스가 멈춥니다.
+      # 값은 프로파일의 것을 그대로 씁니다(App Store 프로파일은 production).
+      #
+      # 조건이 안 맞으면 plist 를 치우고 fcm=no 로 내려 **알림 없이** 올립니다. 권한 없이
+      # 설정만 들어간 앱은 알림 주소(APNs 토큰)를 영영 못 받으니, 반쯤 켠 채로 내보내지 않습니다.
       - name: 앱 타깃 서명 설정
-        run: node tools/ios-sign-project.js --team "$team_id" --profile "$profile_name" --bundle "$BUNDLE_ID"
+        run: |
+          set +x
+          ent=app/ios/Runner/Runner.entitlements
+          off() {
+            rm -f app/ios/Runner/GoogleService-Info.plist
+            echo "fcm=no" >> "$GITHUB_ENV"
+            echo "fcm_why=$1" >> "$GITHUB_ENV"
+            echo "::warning::앱 알림을 끄고 올립니다 — $1"
+          }
+          extra=""
+          if [ "$fcm" = yes ] && [ -n "$profile_aps" ]; then
+            # 파일이 없는 판이어도 같은 내용을 만들어 씁니다(러너 안에서만, 커밋 안 함).
+            /usr/libexec/PlistBuddy -c "Set :aps-environment $profile_aps" "$ent" 2>/dev/null ||
+              /usr/libexec/PlistBuddy -c "Add :aps-environment string $profile_aps" "$ent"
+            extra="--entitlements Runner/Runner.entitlements"
+          elif [ "$fcm" = yes ]; then
+            if [ "$mode" = manual ]; then
+              off "프로파일(IOS_PROFILE_BASE64)에 푸시 권한이 없음 — developer.apple.com → Identifiers 에서 Push Notifications 를 켜고 프로파일을 다시 만들어 갈아 넣으세요"
+            else
+              off "새로 만든 프로파일에 푸시 권한이 없음 (App ID 푸시 켜기: ${push_cap:-안 함}) — docs/PUSH.md 문제 해결"
+            fi
+          fi
+          node tools/ios-sign-project.js --team "$team_id" --profile "$profile_name" --bundle "$BUNDLE_ID" $extra
+          # 서명 도구가 --entitlements 를 모르는 판이면 조용히 무시됩니다. 실제로 들어갔는지
+          # 프로젝트 파일에서 확인하고, 안 들어갔으면 알림을 끕니다(Release · Profile 두 곳).
+          if [ -n "$extra" ]; then
+            n=$(grep -cE 'CODE_SIGN_ENTITLEMENTS = "?Runner/Runner\.entitlements"?;' app/ios/Runner.xcodeproj/project.pbxproj || true)
+            if [ "${n:-0}" -lt 2 ]; then
+              off "tools/ios-sign-project.js 가 엔타이틀먼트를 넣지 못함 (--entitlements 지원 확인)"
+            else
+              echo "앱 알림 권한을 서명에 붙였습니다 (aps-environment=$profile_aps)"
+            fi
+          fi
 
       - name: 아이폰 앱 만들기 (.ipa)
         working-directory: app
@@ -196,6 +397,33 @@ jobs:
           cp build/ios/ipa/*.ipa "$RUNNER_TEMP/ipa/"
           ls -la "$RUNNER_TEMP/ipa"
 
+      # **나온 앱을 열어 앱 알림이 정말 들어갔는지 봅니다.** 설정 plist 가 번들에 복사됐는지
+      # (Copy GoogleService-Info 단계)와 서명에 aps-environment 가 붙었는지. 둘 중 하나만
+      # 있으면 알림이 안 오는데 빌드는 초록입니다. 알림은 부가 기능이라 경고만 하고 막지 않습니다.
+      #
+      # "경고만" 을 지키려고 이 단계 자체가 실패해도 다음 단계(TestFlight 올리기)는 돕니다
+      # (continue-on-error). 기본 셸이 bash -e 라, unzip 의 경고 종료코드(1) 하나로도 여기서
+      # 멈추면 비밀이 없는 날의 릴리스까지 막힙니다.
+      - name: 나온 앱에 앱 알림이 들어갔는가
+        continue-on-error: true
+        run: |
+          ipa=$(ls "$RUNNER_TEMP"/ipa/*.ipa 2>/dev/null | head -1 || true)
+          if [ -z "$ipa" ]; then echo "::warning::확인할 .ipa 가 없습니다 — 앱 알림 확인을 건너뜁니다"; exit 0; fi
+          x="$RUNNER_TEMP/ipa-x"; rm -rf "$x"; mkdir -p "$x"
+          # unzip 은 경고만 있어도 1 을 냅니다 — 2 이상일 때만 진짜 실패입니다.
+          unzip -q "$ipa" -d "$x" || [ $? -le 1 ]
+          app=$(ls -d "$x"/Payload/*.app 2>/dev/null | head -1 || true)
+          if [ -z "$app" ]; then echo "::warning::.ipa 안에 앱이 없습니다 — 앱 알림 확인을 건너뜁니다"; rm -rf "$x"; exit 0; fi
+          if [ -f "$app/GoogleService-Info.plist" ]; then has_plist=yes; else has_plist=no; fi
+          ents=$(codesign -d --entitlements - --xml "$app" 2>/dev/null || codesign -d --entitlements :- "$app" 2>/dev/null || true)
+          if printf '%s' "$ents" | grep -q 'aps-environment'; then has_aps=yes; else has_aps=no; fi
+          echo "번들의 설정 plist: $has_plist · 서명의 aps-environment: $has_aps"
+          if [ "$fcm" = yes ] && { [ "$has_plist" != yes ] || [ "$has_aps" != yes ]; }; then
+            echo "::warning::앱 알림을 켰는데 나온 앱에 빠진 것이 있습니다 (plist=$has_plist · aps=$has_aps) — docs/PUSH.md 문제 해결"
+            echo "fcm=partial" >> "$GITHUB_ENV"
+          fi
+          rm -rf "$x"
+
       - name: TestFlight 에 올리기
         env:
           KEY_ID: ${{ secrets.ASC_KEY_ID }}
@@ -208,6 +436,11 @@ jobs:
             echo ""
             echo "App Store Connect → TestFlight 에서 처리(10~30분)가 끝나면 테스터에게 갑니다."
             echo "서명: ${mode} · 프로파일 ${profile_name} · 팀 ${team_id}"
+            case "${fcm:-no}" in
+              yes)     echo "앱 알림(APNs · FCM): **켜짐** — 프로파일 aps=${profile_aps} · App ID 푸시=${push_cap:-확인 안 함(수동 모드)}" ;;
+              partial) echo "앱 알림(APNs · FCM): **확인 필요** — 켰는데 나온 앱에 설정 plist 나 aps 권한이 빠졌습니다(로그의 경고 참고)" ;;
+              *)       echo "앱 알림(APNs · FCM): 꺼짐 — ${fcm_why:-설정 없음} · 프로파일 aps=${profile_aps:-없음}. 켜는 법: docs/PUSH.md" ;;
+            esac
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 키체인 정리
@@ -215,3 +448,5 @@ jobs:
         run: |
           [ -n "$KC" ] && security delete-keychain "$KC" || true
           rm -rf ~/private_keys "$RUNNER_TEMP/sign" 2>/dev/null || true
+          # 러너는 어차피 버려지지만, 앱 알림 설정 파일도 남기지 않습니다.
+          rm -f app/ios/Runner/GoogleService-Info.plist 2>/dev/null || true

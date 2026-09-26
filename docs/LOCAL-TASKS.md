@@ -676,3 +676,168 @@ TestFlight 설치본에는 일부러 안 띄웠습니다. 0.2.10: 새로 켤 때
 4. 26-2(비공개 트랙)를 할 수 있게 되면 0.2.14 (N) 으로.
 
 끝나면 "27 끝" + N · 서버 재시작 시각 · 플레이 상태 · TestFlight 상태(friends 제출 여부) · app-version 값.
+
+## 28. 앱 알림(FCM · APNs) 켜기 — Firebase 준비 (주인은 로그인만 · 나머지는 노트북이 Chrome 으로)
+
+주인이 "진짜 푸시 도입" 을 정했습니다. 친구의 운동 독촉이 **앱이 아니라 크롬으로** 와서입니다. 코드(앱 ·
+서버 · CI)는 클라우드가 넣었고, 비밀이 없으면 예전처럼 돕니다. 여기는 **비밀을 만들어 제자리에 두는 일**입니다.
+구조와 문제 해결은 `docs/PUSH.md`.
+
+**시작 조건:** `git pull` 뒤 `server\fcm.js` 와 `docs\PUSH.md` 가 있을 때.
+
+**규칙**
+- **로그인 · 비밀번호 · 2단계 인증 화면이 나오면 멈추고 보고합니다.** 주인이 로그인해 주면 그 자리부터 잇습니다
+  (Firebase 는 주인의 Google 계정, 애플은 주인의 Apple 계정, GitHub 는 주인 계정).
+- **모든 열쇠 · 설정 파일은 저장소 밖**(`$HOME\.mybody\`)에 둡니다. 저장소 폴더 안으로 내려받거나 복사하지 않습니다.
+  Chrome 은 `$HOME\Downloads` 에 받으므로 **받자마자 옮깁니다**(Move-Item — 사본이 안 남게).
+- **보고서에 값을 적지 않습니다** — 파일 내용 · API 키 · base64 · 비공개 키 · 서비스 계정 이메일 · Key ID 전체.
+  적어도 되는 것: 프로젝트 ID, 있음/없음, 날짜 · 시각, Key ID 끝 네 자리.
+- 아래 명령은 PowerShell, 저장소 폴더에서입니다.
+
+0. **준비**
+   ```powershell
+   git pull
+   Test-Path server\fcm.js                                        # True
+   New-Item -ItemType Directory -Force "$HOME\.mybody\firebase" | Out-Null
+   ```
+1. **Firebase 프로젝트** — Chrome 으로 https://console.firebase.google.com →
+   「Firebase 프로젝트 만들기」(화면에 따라 「새 Firebase 프로젝트 만들기」 · 「프로젝트 추가」) →
+   프로젝트 이름 `Mybody` (프로젝트 ID 는 자동으로 붙습니다 — 적어 둠) → 약관 동의 → 「계속」 →
+   「Firebase용 Gemini」(AI 지원)가 나오면 **끔** → 「이 프로젝트에 Google 애널리틱스 사용 설정」 **끔** →
+   「프로젝트 만들기」 → 「계속」.
+   - 「Mybody」 프로젝트가 이미 있으면 새로 만들지 말고 그것을 씁니다(보고에 적기).
+2. **안드로이드 앱 등록** — 프로젝트 개요 → 「앱 추가」(또는 가운데 안드로이드 아이콘) → **Android** →
+   Android 패키지 이름 `io.github.iacobuschoi.mybody`(정확히) · 앱 닉네임 `Mybody Android` ·
+   디버그 서명 인증서 SHA-1 은 **비움** → 「앱 등록」 → 「google-services.json 다운로드」 →
+   「다음」 → 「다음」(SDK 추가 안내는 코드에 이미 되어 있어 건너뜀) → 「콘솔로 이동」.
+   ```powershell
+   Move-Item "$HOME\Downloads\google-services.json" "$HOME\.mybody\firebase\google-services.json" -Force
+   ```
+   (이름에 ` (1)` 이 붙었으면 그 이름으로 옮기고, 남은 옛 사본은 지웁니다.)
+3. **iOS 앱 등록** — 프로젝트 개요 → 「앱 추가」 → **iOS+**(Apple) → Apple 번들 ID `io.github.iacobuschoi.mybody` ·
+   앱 닉네임 `Mybody iOS` · App Store ID 는 **비움** → 「앱 등록」 → 「GoogleService-Info.plist 다운로드」 →
+   「다음」 을 끝까지 → 「콘솔로 이동」.
+   ```powershell
+   Move-Item "$HOME\Downloads\GoogleService-Info.plist" "$HOME\.mybody\firebase\GoogleService-Info.plist" -Force
+   ```
+4. **두 파일 확인** — 값은 찍지 않고 패키지 · 번들만 봅니다.
+   ```powershell
+   $d = "$HOME\.mybody\firebase"
+   (Get-Content "$d\google-services.json" -Raw | ConvertFrom-Json).client.client_info.android_client_info.package_name
+   #  → io.github.iacobuschoi.mybody
+   Select-String -Path "$d\GoogleService-Info.plist" -Pattern "<string>io.github.iacobuschoi.mybody</string>" -Quiet
+   #  → True
+   ```
+5. **GitHub Secrets 두 개** — 파일을 base64 한 줄로 넣습니다. **gh 로(권함):**
+   ```powershell
+   gh auth status                    # 로그인 안 돼 있으면 멈추고 보고(또는 아래 웹으로)
+   [Convert]::ToBase64String([IO.File]::ReadAllBytes("$d\google-services.json"))     | gh secret set FIREBASE_ANDROID_JSON_B64 --repo iacobuschoi/Mybody
+   [Convert]::ToBase64String([IO.File]::ReadAllBytes("$d\GoogleService-Info.plist")) | gh secret set FIREBASE_IOS_PLIST_B64   --repo iacobuschoi/Mybody
+   gh secret list --repo iacobuschoi/Mybody     # 두 이름과 오늘 날짜가 보이면 됨(값은 안 나옵니다)
+   ```
+   **웹으로:** github.com/iacobuschoi/Mybody → **Settings** → 왼쪽 **Secrets and variables** → **Actions** →
+   「New repository secret」(이미 있으면 그 이름 옆 연필 → 「Update secret」) → Name `FIREBASE_ANDROID_JSON_B64` →
+   Secret 칸에 붙여넣기 → 「Add secret」. 붙여 넣을 값은
+   `[Convert]::ToBase64String([IO.File]::ReadAllBytes("$d\google-services.json")) | Set-Clipboard` 로 복사합니다.
+   plist 도 같은 방법으로 `FIREBASE_IOS_PLIST_B64`. 다 넣은 뒤 `Set-Clipboard -Value ' '` 로 클립보드를 비웁니다.
+5-1. **앱 설정 파일 속 API 키 제한** — 두 파일에 든 API 키는 비밀이 아닙니다. 같은 키가 APK 리소스와 IPA 의
+   plist 에 그대로 들어가고 APK 는 공개 릴리스로 나가므로, **처음부터 공개**입니다(CI 의 add-mask 는 로그에서만
+   가립니다). 남이 이 키로 우리 프로젝트의 할당량을 쓰지 못하게 막는 것은 키 제한뿐이라, 켜는 날 겁니다.
+   - 필요한 지문 두 개(SHA-1): (1) 주인 열쇠 —
+     `keytool -list -v -keystore $HOME\mybody-signing-key\mybody.jks -alias mybody` 의 `SHA1:` 줄(GitHub 의 APK),
+     (2) Play Console → 앱 → 「Google Play로 보호됨 → Play 앱 서명」(구 메뉴: 앱 무결성 → 앱 서명)의
+     **「앱 서명 키 인증서」 SHA-1**(플레이로 받은 앱). 앱 서명 키를 주인 열쇠로 바꿔 두었으면 둘이 같습니다.
+     비밀번호 창이 나오면 멈추고 보고.
+   - Chrome 으로 https://console.cloud.google.com/apis/credentials?project=<프로젝트 ID> → 「API 키」 에 Firebase 가
+     만든 키가 둘 있습니다(「Android key (auto created by Firebase)」 · 「iOS key (auto created by Firebase)」).
+   - **Android key** → 「애플리케이션 제한사항」 **Android 앱** → 「항목 추가」 → 패키지 이름
+     `io.github.iacobuschoi.mybody` · SHA-1 인증서 지문 (1) → 다르면 (2) 도 한 줄 더 →
+     「API 제한사항」 **키 제한** → **Firebase Installations API** · **FCM Registration API** 둘만 체크 → 「저장」.
+   - **iOS key** → 「애플리케이션 제한사항」 **iOS 앱** → 번들 ID `io.github.iacobuschoi.mybody` →
+     「API 제한사항」 **키 제한** → 위와 같은 두 API → 「저장」.
+   - 목록에 두 API 가 없으면 「API 및 서비스 → 라이브러리」 에서 이름으로 찾아 「사용」 한 뒤 돌아옵니다.
+   - 적용까지 몇 분 걸립니다. 걸고 나서 로그인한 폰에서 설정 → 「푸시 알림」 이 켜짐으로 돌아오지 않으면
+     (토큰을 못 받음) 제한의 패키지 · 지문 · 번들 ID 를 다시 보고, 그래도 안 되면 보고합니다.
+6. **서비스 계정 열쇠(서버용 · 진짜 비밀) — FCM 보내기 전용 계정으로** — Firebase 「서비스 계정」 탭의
+   「Firebase Admin SDK → 새 비공개 키 생성」 은 **쓰지 않습니다.** 그 계정(`firebase-adminsdk-…`)은 프로젝트 전체의
+   Firebase 관리자 권한(인증 토큰 만들기까지)을 가져서, 집 노트북에서 새면 알림을 넘어 프로젝트가 통째로 넘어갑니다.
+   서버에 필요한 것은 알림 보내기 하나뿐이라, 그 권한만 가진 계정을 따로 만듭니다.
+   - Chrome 으로 https://console.cloud.google.com/iam-admin/serviceaccounts?project=<프로젝트 ID> →
+     「+ 서비스 계정 만들기」 → 서비스 계정 이름 `mybody-fcm-sender` → 「만들고 계속하기」 →
+     역할 선택에서 **「Firebase Cloud Messaging API 관리자」**(`roles/firebasecloudmessaging.admin`) **하나만** →
+     「계속」 → 「완료」. (다른 역할 · 「편집자」 · 「소유자」 는 넣지 않습니다.)
+   - 목록의 `mybody-fcm-sender@…` → **「키」** 탭 → 「키 추가」 → 「새 키 만들기」 → **JSON** → 「만들기」 →
+     `<프로젝트 ID>-<12자>.json` 이 내려받아집니다. 「키 추가」 가 막혀 있으면(조직 정책) 멈추고 보고.
+   - 이전 판의 이 절을 따라 Admin SDK 키를 이미 받았으면: 같은 목록의 `firebase-adminsdk-…` → 「키」 탭에서
+     그 키를 **삭제**하고, 내려받은 파일도 지웁니다(서비스 계정 자체는 Firebase 가 쓰므로 그대로 둠).
+   ```powershell
+   $sa = Get-ChildItem "$HOME\Downloads\*.json" | Where-Object { (Get-Content $_.FullName -Raw) -match 'mybody-fcm-sender@' } |
+         Sort-Object LastWriteTime | Select-Object -Last 1
+   Move-Item $sa.FullName "$HOME\.mybody\fcm-service-account.json" -Force
+   $f = "$HOME\.mybody\fcm-service-account.json"
+   icacls $f /inheritance:r /grant:r "$($env:USERNAME):(R,W)" | Out-Null      # 권한 600 과 같은 뜻 — 나만 읽고 씀
+   icacls $f                                                                  # 내 계정 한 줄만 보여야 합니다
+   ```
+   - 작업 스케줄러 「Mybody 서버」 → 일반 탭의 「작업을 실행할 때 사용할 사용자 계정」 이 이 계정인지 봅니다. 다르면
+     그 계정에 권한을 주고, 파일도 **그 계정의** `.mybody` 에 둡니다(서버는 자기 홈의 `.mybody` 를 봅니다).
+   - Firebase → 톱니바퀴 → 「프로젝트 설정」 → **「클라우드 메시징」** 탭에서 「Firebase Cloud Messaging API(V1)」 이
+     **사용 설정됨** 인지 봅니다. 아니면 그 줄의 ⋮ → 「Google Cloud Console에서 API 관리」 → 「사용」.
+   - 서버가 맥으로 옮겨져 있으면: 이 파일을 맥의 서버 사용자 `~/.mybody/` 로 `scp` 하고 `chmod 600`(노트북 사본은 지움).
+     권한이 넓으면(644 등) 서버가 뜰 때 `⚠ 앱 알림(FCM): 서비스 계정 파일을 다른 사용자도 읽을 수 있습니다` 를 찍습니다.
+7. **APNs 열쇠(.p8)** — Chrome 으로 https://developer.apple.com/account/resources/authkeys/list
+   (Certificates, Identifiers & Profiles → **Keys**) → 제목 옆 「+」 → Key Name `Mybody APNs` →
+   「Apple Push Notifications service (APNs)」 체크 → 「Configure」 → Environment **Sandbox & Production** ·
+   Key Restriction **Team Scoped (All Topics)** → 「Save」 → 「Continue」 → 「Register」 → **「Download」 (한 번만 받을 수 있음)**.
+   Key ID 는 그 화면과 파일 이름(`AuthKey_<Key ID>.p8`)에 있습니다 — 파일 이름이 기록이므로 따로 적지 않습니다.
+   ```powershell
+   $p8 = Get-ChildItem "$HOME\Downloads\AuthKey_*.p8" | Sort-Object LastWriteTime | Select-Object -Last 1
+   Move-Item $p8.FullName "$HOME\.mybody\$($p8.Name)" -Force
+   icacls "$HOME\.mybody\$($p8.Name)" /inheritance:r /grant:r "$($env:USERNAME):(R,W)" | Out-Null
+   ```
+   - APNs 열쇠가 이미 있고 그 `.p8` 을 가지고 있으면 새로 만들지 않고 그것을 씁니다. 개수 한도에 걸리면 멈추고 보고.
+   - 같은 사이트 **Identifiers** → `io.github.iacobuschoi.mybody` → Capabilities 에서 **Push Notifications** 가
+     체크돼 있는지 봅니다. 아니면 체크 → 「Save」 → 확인 창 「Confirm」. (지금 아이폰 빌드는 프로파일을 매번 새로
+     만드는 자동 서명이라 안전합니다. 단 `gh secret list` 에 `IOS_PROFILE_BASE64` 가 있으면 **켜지 말고 보고** —
+     맥에서 만든 프로파일이 무효가 됩니다.) 안 켜도 다음 TestFlight 실행이 애플 API 로 켜지만, 여기서 켜 두면 확실합니다.
+8. **Firebase 에 APNs 열쇠 올리기** — Firebase → 톱니바퀴 → 「프로젝트 설정」 → **「클라우드 메시징」** 탭 →
+   아래 「Apple 앱 구성」 → 앱 `Mybody iOS` → 「APNs 인증 키」 의 **「업로드」** → 「찾아보기」 로
+   `$HOME\.mybody\AuthKey_<Key ID>.p8` → 키 ID(파일 이름의 10자) → 팀 ID **`JT4YLVNKDZ`** → 「업로드」.
+   그 자리에 키 ID 가 보이면 된 것입니다. 「APNs 인증서」(.p12) 칸은 비워 둡니다.
+9. **서버 재시작 · 확인**
+   ```powershell
+   node -e "const f=require('./server/fcm.js');const s=f.load(process.env);console.log(f.describe(s));if(s.sender)s.sender.accessToken().then(()=>console.log('token ok'),e=>console.log('token fail: '+e.message))"
+   #  → 켜짐 — 프로젝트 <프로젝트 ID>  ·  token ok   (토큰 값은 찍지 않습니다)
+   ```
+   그다음 작업 스케줄러 「Mybody 서버」 를 끝냈다가 다시 실행(20초쯤 끊김) →
+   ```powershell
+   Select-String -Path "$HOME\mybody.log" -Pattern "FCM" -Encoding UTF8 | Select-Object -Last 1
+   #  → 앱 알림(FCM) 켜짐 — 프로젝트 <프로젝트 ID>
+   node tools/test-fcm.js
+   node tools/test-selfhost.js
+   ```
+   바깥에서 `/api/health` 가 200 인지(check-host.net 등). `꺼짐 — …` 이면 그 이유를 `docs/PUSH.md` 7절에서 찾습니다.
+10. **저장소 · 다운로드에 아무것도 안 남았는지**
+    ```powershell
+    git status --porcelain                                                               # 비어 있어야 함(28 은 코드를 안 바꿈)
+    git ls-files | Select-String -Pattern "google-services|GoogleService-Info|service-account|\.p8$"   # 아무것도 안 나와야 함
+    Get-ChildItem "$HOME\Downloads\*" -Include google-services*.json,GoogleService-Info*.plist,*firebase-adminsdk*.json,AuthKey_*.p8   # 아무것도 안 나와야 함
+    Get-ChildItem "$HOME\Downloads\*.json" | Where-Object { (Get-Content $_.FullName -Raw) -match '"service_account"' }             # 아무것도 안 나와야 함
+    ```
+11. **(선택) 안드로이드 빌드로 Secret 확인** — Actions → 「앱 파일(APK) 만들기」 → Run workflow(가지
+    `claude/body-management-app-prototype-m4mv4k`), 또는
+    `gh workflow run apk.yml --repo iacobuschoi/Mybody --ref claude/body-management-app-prototype-m4mv4k`.
+    20분쯤 뒤 그 실행의 요약 맨 아래에 `앱 알림(FCM): 켜짐` 이면 됩니다. 이건 파일만 만들고 배포하지 않습니다.
+    **아이폰 TestFlight 는 돌리지 않습니다** — 올리는 일이라 주인이 다음 판을 낼 때 요약의 `앱 알림 … 켜짐` 으로 봅니다.
+
+끝나면 "28 끝" + 확인 항목(값 없이):
+- [ ] Firebase 프로젝트 ID · 애널리틱스 꺼짐 · 새로 만들었는지/있던 것인지
+- [ ] 앱 두 개 등록 — 안드로이드 패키지 · iOS 번들 둘 다 `io.github.iacobuschoi.mybody` (4 의 결과)
+- [ ] Secrets — `gh secret list` 의 `FIREBASE_ANDROID_JSON_B64` · `FIREBASE_IOS_PLIST_B64` 이름과 날짜
+- [ ] API 키 제한 — Android key(패키지 · SHA-1 몇 개) · iOS key(번들 ID) · 허용 API 두 개(Firebase Installations · FCM Registration)
+- [ ] 서비스 계정 파일 — **`mybody-fcm-sender` 계정(역할: Firebase Cloud Messaging API 관리자 하나)** 의 키인지 · Admin SDK 키를 받았었다면 삭제했는지 · 위치(`~\.mybody\fcm-service-account.json`) · `icacls` 에 보인 계정 이름만 · 서버 작업의 실행 계정과 같은지 · Cloud Messaging API(V1) 사용 설정됨
+- [ ] APNs 열쇠 — Key ID 끝 네 자리 · 환경(Sandbox & Production) · `.p8` 이 `~\.mybody\` 에 있음 · Firebase 「Apple 앱 구성」 에 올라감
+- [ ] App ID 의 Push Notifications — 켜져 있었음 / 켰음 / 안 켬(이유)
+- [ ] 서버 — 재시작 시각 · 로그 한 줄(`앱 알림(FCM) 켜짐 — 프로젝트 …`) · `token ok` · test-fcm · test-selfhost 결과 · 바깥 `/api/health`
+- [ ] 10 의 세 명령이 모두 빈 결과
+- [ ] (선택) APK 빌드 실행 번호와 요약의 `앱 알림(FCM)` 줄
+- [ ] 멈춘 곳이 있으면 몇 번 단계에서 무엇 때문에(로그인 화면 · 한도 · 권한)

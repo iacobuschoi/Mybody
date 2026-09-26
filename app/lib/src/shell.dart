@@ -74,6 +74,12 @@ class _ShellState extends State<Shell> {
       Navigator.of(context).popUntil((route) => route.isFirst);
       _go('food');
     }
+    /* 친구 알림(앱 알림의 data.route — 독촉 · 운동 소식 · 친구 요청)은 친구 탭으로.
+       독촉은 그 탭 맨 위의 띠에 있습니다. */
+    if (r == 'social' || r == 'pokes') {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      _go('social');
+    }
   }
 
   static const _tabs = [

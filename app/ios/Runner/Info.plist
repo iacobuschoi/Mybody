@@ -55,6 +55,16 @@
 	<string>인바디 결과지를 찍어 기록에 붙이는 데 씁니다. 사진은 이 기기에 저장되고, 「사진에서 읽기」를 누를 때만 숫자 판독을 위해 전송됩니다.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>앨범에서 인바디 결과지 사진을 골라 기록에 붙이는 데 씁니다. 사진은 이 기기에 저장되고, 「사진에서 읽기」를 누를 때만 숫자 판독을 위해 전송됩니다.</string>
+	<!-- 앱이 꺼져 있거나 뒤에 있을 때 온 친구 알림(FCM → APNs)을 받습니다. 설정 파일
+	     (GoogleService-Info.plist)이 없는 빌드에서는 등록 자체를 안 해서 무해합니다. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+	<!-- FCM 자동 초기화를 끕니다. 켜 두면 로그인하지 않은 사람까지 켤 때마다 구글에 기기를
+	     등록합니다. 로그인한 뒤에만 앱이 켜고, 로그아웃하면 끕니다(lib/src/native_push.dart). -->
+	<key>FirebaseMessagingAutoInitEnabled</key>
+	<false/>
 	<!-- https 만 씁니다 — 앱스토어 제출 때 암호화 수출 질문을 건너뜁니다. -->
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
