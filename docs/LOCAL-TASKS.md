@@ -813,7 +813,7 @@ TestFlight 설치본에는 일부러 안 띄웠습니다. 0.2.10: 새로 켤 때
    Select-String -Path "$HOME\mybody.log" -Pattern "FCM" -Encoding UTF8 | Select-Object -Last 1
    #  → 앱 알림(FCM) 켜짐 — 프로젝트 <프로젝트 ID>
    node tools/test-fcm.js
-   node tools/test-selfhost.js
+   # test-selfhost 는 운영 노트북에서 돌리지 않습니다(27 보고: 윈도우에선 [4]에서 멈추고 [8-5]가 진짜 funnel 을 건드림).
    ```
    바깥에서 `/api/health` 가 200 인지(check-host.net 등). `꺼짐 — …` 이면 그 이유를 `docs/PUSH.md` 7절에서 찾습니다.
 10. **저장소 · 다운로드에 아무것도 안 남았는지**
@@ -837,7 +837,7 @@ TestFlight 설치본에는 일부러 안 띄웠습니다. 0.2.10: 새로 켤 때
 - [ ] 서비스 계정 파일 — **`mybody-fcm-sender` 계정(역할: Firebase Cloud Messaging API 관리자 하나)** 의 키인지 · Admin SDK 키를 받았었다면 삭제했는지 · 위치(`~\.mybody\fcm-service-account.json`) · `icacls` 에 보인 계정 이름만 · 서버 작업의 실행 계정과 같은지 · Cloud Messaging API(V1) 사용 설정됨
 - [ ] APNs 열쇠 — Key ID 끝 네 자리 · 환경(Sandbox & Production) · `.p8` 이 `~\.mybody\` 에 있음 · Firebase 「Apple 앱 구성」 에 올라감
 - [ ] App ID 의 Push Notifications — 켜져 있었음 / 켰음 / 안 켬(이유)
-- [ ] 서버 — 재시작 시각 · 로그 한 줄(`앱 알림(FCM) 켜짐 — 프로젝트 …`) · `token ok` · test-fcm · test-selfhost 결과 · 바깥 `/api/health`
+- [ ] 서버 — 재시작 시각 · 로그 한 줄(`앱 알림(FCM) 켜짐 — 프로젝트 …`) · `token ok` · test-fcm 결과 · 바깥 `/api/health`
 - [ ] 10 의 세 명령이 모두 빈 결과
 - [ ] (선택) APK 빌드 실행 번호와 요약의 `앱 알림(FCM)` 줄
 - [ ] 멈춘 곳이 있으면 몇 번 단계에서 무엇 때문에(로그인 화면 · 한도 · 권한)
