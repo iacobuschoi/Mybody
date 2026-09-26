@@ -563,3 +563,46 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
 - **3. app-version**: `--play=0.2.14 --testflight=0.2.14` → **play 0.2.14 · testflight 0.2.14 · apk 0.2.8 · appstore "" · min ""**
   (로컬 8080 · 바깥 둘 다 확인). testflight 는 CI 업로드 성공 기준.
 - **4. 26-2**: `~/.mybody/testers.txt` 아직 없음 → 대기(생기면 0.2.14 (294) 로).
+
+---
+
+# 28 진행 중 (2026-09-26 18:25 KST) — 앱 알림(FCM · APNs): Firebase · Google Cloud · 서버 끝, 애플(7 · 8)만 남음
+
+주인 확인을 받고 진행(파일 4개 내려받기 · Firebase 약관 · Google Cloud 약관 · 서비스 계정 · APNs 키). 값은 적지 않습니다.
+
+- [x] **Firebase 프로젝트** — 새로 만듦, ID **`mybody-fdbe7`**. Google 애널리틱스 **끔**, Firebase의 Gemini **끔**,
+  「Google 개발자 프로그램 가입」 토글도 끔. (「Mybody」 프로젝트는 없었음.)
+- [x] **앱 두 개 등록** — `Mybody Android` · `Mybody iOS`. 4 의 확인: 안드로이드 패키지 `io.github.iacobuschoi.mybody`,
+  plist 번들 일치 **True**, 두 파일의 project_id `mybody-fdbe7`. 파일은 `~\.mybody\firebase\` 로 옮김(다운로드에 사본 없음).
+  디버그 SHA-1 칸은 새 등록 화면에 아예 없었음.
+- [x] **Secrets** — `FIREBASE_ANDROID_JSON_B64` 2026-09-26T08:35:41Z · `FIREBASE_IOS_PLIST_B64` 08:35:42Z (gh). `IOS_PROFILE_BASE64` 없음.
+- [x] **API 키 제한** — Google Cloud 콘솔을 처음 써서 **Google Cloud Platform 약관** 창이 떴음 → 주인 확인 후 동의(국가 대한민국.
+  「상업적 목적으로 사용할 계획」 칸이 **필수**라 주인 확인 받고 체크, 이메일 업데이트는 안 받음, 무료 체험 · 결제 등록 없음).
+  목록 결과: **Android key = 「Android 앱, API 2개」**(패키지 1 · SHA-1 1개 — 업로드 키와 Play 앱 서명 키가 같은 열쇠라
+  (Play 「앱 서명」 화면의 assetlinks 지문이 업로드 키와 같음) 한 줄만), **iOS key = 「iOS 앱, API 2개」**(번들 ID).
+  허용 API 는 둘 다 **FCM Registration API · Firebase Installations API** 만. Firebase 가 만든 **Browser key** 는 지시에 없어서
+  그대로 둠(「API 25개」 — 웹 앱을 안 쓰면 지우거나 같은 식으로 좁히면 됨).
+- [x] **서비스 계정** — `mybody-fcm-sender`, 역할 **Firebase Cloud Messaging API 관리자 하나**(IAM 화면에서 확인). JSON 키 1개(만료 없음) →
+  `~\.mybody\fcm-service-account.json`, `icacls` 결과 **`DESKTOP-IL9C3IF\user:(R,W)` 한 줄** — 서버 작업 실행 계정도 `user`(같음).
+  Admin SDK 키는 받지 않음. **Firebase Cloud Messaging API(V1) 사용 설정됨**(API 라이브러리 화면).
+- [ ] **APNs 열쇠 · App ID Push** — 애플 개발자 사이트 로그인이 풀려 있어 **주인 로그인 대기**(Chrome 의 「로그인 - Apple」 탭).
+- [ ] **Firebase 에 APNs 열쇠 올리기(8)** — 비공개 키를 웹 입력칸에 넣는 일이라 제 규칙상 **주인이 직접**(페이지는 열어 둠).
+- [x] **서버** — **18:11 재시작**, 로그 `앱 알림(FCM) 켜짐 — 프로젝트 mybody-fdbe7`, `token ok`, 바깥 `/api/health` **200 (8/8)**.
+  `test-fcm`: **207 통과 · 1 실패** — 「600 이면 경고 없음」: 리눅스 흉내(`platform: 'linux'`)로 `chmod 600` 을 보는데 윈도우에선
+  chmod 가 모드 비트를 못 바꿔 늘 경고가 남음(바로 뒤 「윈도우는 모드 비트가 뜻이 없어 보지 않는다」 는 통과, 운영 로그에도 경고 없음) —
+  윈도우에서는 그 검사를 건너뛰게 해 주세요. test-selfhost 는 안 돌림.
+- [x] **10 확인** — `git status` 는 원래 있던 `?? mybody-autostart.cmd` 하나뿐(28 과 무관), `git ls-files` 걸리는 것 없음,
+  다운로드 폴더 설정 · 키 파일 없음, service_account JSON 없음. 다운로드에 있던 **예전 ASC API 열쇠(AuthKey_…K8K7.p8, 9/23)** 는
+  주인 확인 후 `~\.mybody\` 로 옮김(나만 읽기).
+- [ ] **11 APK 확인 빌드** — run 36232086685 진행 중(요약의 `앱 알림(FCM)` 줄은 끝나면 적음).
+
+---
+
+# 29 끝 (2026-09-26 18:25 KST) — 0.2.15 (N = 298) 내부 테스트
+
+- **0. 서버**: 28 의 18:11 재시작으로 갈음(같은 코드 1429c68). 로그는 28 이 먼저 끝나서 `꺼짐` 이 아니라 **`켜짐`**. test-fcm · `/api/health` 는 28 참고.
+- **1. 플레이**: Releases v0.2.15 AAB(33.5MB) SHA-256 `a7b77585…4577` · 서명 인증서 `06:D9:45:A3 … 83:DE:11` 확인 → 내부 테스트 새 버전
+  **298 (0.2.15)** → 출시 노트 「0.2.15」 그대로(161자) → 저장 및 출시 → **「내부 테스터에게 제공됨」 18:17**. 비공개 트랙은 testers.txt 없어 아직.
+- **2. 애플**: ASC 웹 로그인 풀림 → CI 로그로만: 「아이폰 TestFlight」 run(3a16efd) `Build Number: 298` · `UPLOAD SUCCEEDED`(08:32Z).
+  이 빌드는 CI 로그대로 **「푸시 설정 없음 — 푸시 없이 빌드」**(Secrets 를 넣기 전에 돈 것). friends 제출은 로그인 필요라 못 함.
+- **3. app-version**: **play 0.2.15 · testflight 0.2.15 · apk 0.2.8 · appstore "" · min ""** (8080 확인).
