@@ -663,8 +663,8 @@ TestFlight 설치본에는 일부러 안 띄웠습니다. 0.2.10: 새로 켤 때
 **시작 조건:** 태그 `v0.2.14` 와 Releases v0.2.14 의 AAB. N = 아래 「빌드」 줄의 번호(태그에서 세지 마세요).
 로그인 · 비밀번호 화면이면 멈추고 보고.
 
-**빌드:** (CI 가 끝난 뒤 오케스트레이터가 여기에 `v0.2.14 = <sha> · N = <번호>` 를 적습니다. 아직 비어 있으면
-Releases v0.2.14 의 CI 요약(「versionCode」)이나 AAB 를 올린 뒤 콘솔이 보여 주는 버전 코드를 N 으로 쓰고, 보고에 그 값을 적기.)
+**빌드(충족됨):** `v0.2.14 = fb6893f · N = 294` — https://github.com/iacobuschoi/Mybody/releases/tag/v0.2.14 ·
+`mybody-v0.2.14-playstore.aab` SHA-256 796abf83…f083 · APK da43d237…848d · TestFlight 업로드 성공(294). 플레이 출시 노트 「0.2.14」 288자.
 
 0. **서버** — `git pull` → 작업 스케줄러 「Mybody 서버」 끝냈다 다시 실행(20초 끊김) → `node tools/test-selfhost.js` 전부 통과 →
    바깥에서 `GET /api/share-defaults` 가 **401**(경로가 생겼다는 뜻; 404 면 옛 서버가 떠 있음) · `/api/version` 정상.
