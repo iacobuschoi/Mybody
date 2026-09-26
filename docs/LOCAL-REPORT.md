@@ -594,7 +594,11 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
 - [x] **10 확인** — `git status` 는 원래 있던 `?? mybody-autostart.cmd` 하나뿐(28 과 무관), `git ls-files` 걸리는 것 없음,
   다운로드 폴더 설정 · 키 파일 없음, service_account JSON 없음. 다운로드에 있던 **예전 ASC API 열쇠(AuthKey_…K8K7.p8, 9/23)** 는
   주인 확인 후 `~\.mybody\` 로 옮김(나만 읽기).
-- [ ] **11 APK 확인 빌드** — run 36232086685 진행 중(요약의 `앱 알림(FCM)` 줄은 끝나면 적음).
+- [x] **11 APK 확인 빌드** — 첫 run 36232086685 은 빌드 success 인데 **`앱 알림(FCM): 꺼짐 — FIREBASE_ANDROID_JSON_B64 가 base64 로 싼
+  JSON 이 아님`**. 원인: PowerShell 파이프가 값 앞에 **UTF-8 BOM(EF BB BF)** 을 붙였음(워크플로는 `\r\n\t ` 만 지우고 BOM 은 안 지움).
+  Git Bash `base64 -w0 FILE | gh secret set` 로 **두 Secrets 다시 넣음(09:24Z)**(보낸 바이트 BOM 없음 · base64 외 문자 0 · 왕복 일치).
+  다시 돌린 run **36232701388**: **`앱 알림(FCM): 켜짐 — 설정이 앱에 들어갔습니다`**. iOS plist Secret 도 같은 방법으로 다시 넣음 —
+  0.2.16 은 09:24Z 이후 빌드여야 푸시가 켜짐.
 
 ---
 
