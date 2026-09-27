@@ -14,6 +14,11 @@
  * 검사(server/feedback.js)로 막습니다. 설정에
  * feedbackNotify(아이디)를 적어 두면 새 의견이 올 때 그 사람 폰으로 "새 의견이
  * 왔어요" 한 줄이 10분에 한 번까지 갑니다 — 의견 내용은 알림에 안 실립니다.
+ *
+ * /api 밖에서 로그인 없이 여는 페이지가 정적 파일 말고 하나 더 있습니다 — 친구 초대
+ * 링크(GET /i/<코드>). DB 를 보지 않고 코드 모양만 봅니다(아래 serveInvite). 그 링크를
+ * 폰이 앱으로 바로 열게 하는 파일 둘(/.well-known/assetlinks.json ·
+ * /.well-known/apple-app-site-association)도 로그인 없이 나갑니다(아래 "앱 링크 파일").
  * ========================================================================== */
 'use strict';
 /* 노드가 너무 오래됐으면 여기서 사람 말로 끝냅니다.
@@ -1184,53 +1189,16 @@ function insideRoot(file) {
   return f === STATIC_ROOT || f.startsWith(STATIC_ROOT + path.sep);
 }
 
-/* --- 안드로이드 앱과 이 주소가 한 쌍임을 증명하는 파일 -------------------
- *
- * 구글플레이에 PWA 를 올리는 길(TWA)은 앱이 이 주소를 자기 것이라고
- * 주장하고, 이 주소가 그 앱을 자기 것이라고 맞장구쳐야 성립합니다.
- * 그 맞장구가 /.well-known/assetlinks.json 입니다.
- *
- * 없으면 앱이 열릴 때 주소창이 그대로 뜹니다 — TWA 가 아니라 그냥
- * 브라우저가 됩니다. 그리고 그건 심사에서 "웹사이트를 감싼 앱" 으로
- * 읽힙니다.
- *
- * 값은 환경변수로 받습니다. 앱을 안 만들 거면 비워 두면 되고, 그 때는
- * 이 주소가 404 를 줍니다 — 빈 파일을 내주면 "설정했는데 안 된다" 가
- * 됩니다. 채우는 법은 docs/APPSTORE.md 에 있습니다.
- * -------------------------------------------------------------------------- */
-const TWA_PACKAGE = (process.env.TWA_PACKAGE || '').trim();
-const TWA_FINGERPRINT = (process.env.TWA_FINGERPRINT || '').trim();
-
-function assetLinks() {
-  if (!TWA_PACKAGE || !TWA_FINGERPRINT) return null;
-  return JSON.stringify([{
-    relation: ['delegate_permission/common.handle_all_urls'],
-    target: {
-      namespace: 'android_app',
-      package_name: TWA_PACKAGE,
-      /* 지문은 콜론으로 끊긴 대문자 16진수 32덩이입니다. 소문자나 공백이
-         섞이면 구글이 조용히 무시하고, 앱은 주소창이 뜬 채로 나옵니다 —
-         왜 안 되는지 어디에도 안 적힙니다. 그래서 여기서 맞춰 둡니다. */
-      sha256_cert_fingerprints: TWA_FINGERPRINT.split(',')
-        .map(x => x.trim().toUpperCase().replace(/\s+/g, ''))
-        .filter(Boolean)
-    }
-  }]);
-}
-
+/* /.well-known/assetlinks.json 은 예전에 여기서(웹 앱을 플레이에 감싸 올리던 TWA 용, 설정
+   TWA_PACKAGE · TWA_FINGERPRINT) 냈습니다. 지금은 앱 링크 파일 둘이 아래 "앱 링크 파일" 에
+   있고, 정적 파일보다 먼저 봅니다 — 내보내는 폴더에 같은 이름의 파일이 생겨도 그쪽이 이깁니다. */
 function serveStatic(req, res, url) {
   let rel;
   try { rel = decodeURIComponent(url.pathname); }
   catch (e) { return send(res, 400, 'bad path', { 'Content-Type': 'text/plain; charset=utf-8' }); }
 
-  if (rel === '/.well-known/assetlinks.json') {
-    const body = assetLinks();
-    if (!body) {
-      return send(res, 404, 'not configured (TWA_PACKAGE / TWA_FINGERPRINT)',
-                  { 'Content-Type': 'text/plain; charset=utf-8' });
-    }
-    return send(res, 200, body, { 'Content-Type': 'application/json' });
-  }
+  /* %2E 처럼 돌려 적은 이름도 같은 대답을 받게 — 폴더 안의 파일이 끼어들 틈을 안 둡니다. */
+  if (Object.hasOwn(WELL_KNOWN, rel)) return serveWellKnown(req, res, rel);
 
   if (rel === '/') rel = '/index.html';
   if (rel.indexOf('\0') >= 0) {
@@ -1242,6 +1210,586 @@ function serveStatic(req, res, url) {
   }
   send(res, 200, fs.readFileSync(file),
        { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+}
+
+/* --- 친구 초대 링크 (GET /i/<코드>) ---------------------------------------
+ *
+ * 왜 있나
+ *   친구를 부르는 길이 "코드 여덟 글자를 불러 주기" 뿐이었습니다. 받은 사람은 앱을 열고 ·
+ *   친구 탭으로 가서 · 칸을 찾아 · 여덟 글자를 옮겨 칩니다. 앱이 아직 없으면 어디서 받는지부터
+ *   물어야 합니다 — 비공개 시험이라 가게에서 검색해도 안 나옵니다. 링크 하나로 줄입니다:
+ *   누르면 앱이 열려 요청이 가고, 앱이 없으면 받는 곳이 바로 보입니다.
+ *
+ * 약속 (앱의 딥링크 처리와 같아야 합니다)
+ *   링크        <서버 주소>/i/<코드>     코드는 대문자 8자. 소문자로 오면 대문자 주소로 돌려보냅니다
+ *   아이폰      mybody://invite/<코드>
+ *   안드로이드  intent://invite/<코드>#Intent;scheme=mybody;package=<앱>;S.browser_fallback_url=<…>;end
+ *               앱이 없으면 크롬이 fallback 으로 갑니다 — 시험 기간에는 이 페이지 + ?noapp=1
+ *               (설치 안내를 앞세움: "앱이 없어서 설치 안내로 왔어요"), 정식 출시 뒤에는 바로
+ *               플레이 가게(아래 추천인 붙은 주소).
+ *   앱 링크     앱이 깔려 있고 폰이 이 주소를 앱의 것으로 확인했으면(아래 "앱 링크 파일") 이
+ *               페이지는 **아예 안 뜹니다** — 링크를 누르는 순간 앱이 열립니다. 이 페이지는
+ *               앱이 없거나 · 확인이 아직이거나 · 앱 안 브라우저(카카오톡 등)가 링크를 쥐고 놓지
+ *               않을 때 보입니다. 그래서 할 일이 "앱이 없다고 보고 설치로 데려가기" 쪽입니다.
+ *
+ * 저절로 (주인의 말: "링크만 누르면 바로 친추 · 앱이 없으면 스토어로 · 모든 걸 자동으로")
+ *   · 카카오톡 안 브라우저 — 앱 링크가 안 먹는 곳이라 곧바로 폰의 기본 브라우저로 넘깁니다
+ *     (kakaotalk://web/openExternal). 거기서는 앱 링크가 앱을 엽니다.
+ *   · 그 밖의 앱 안 브라우저(인스타그램 · 페이스북 · 라인 · 네이버) — 넘기는 길이 없어서
+ *     "오른쪽 위 ⋯ → 다른 브라우저로 열기" 한 줄을 단추 위에 둡니다.
+ *   · 안드로이드 — 열리자마자 intent 로 앱을 부릅니다(없으면 위 fallback). 크롬이 누름 없이는
+ *     막을 수 있어서 "앱에서 열기" 단추는 그대로 둡니다.
+ *   · 아이폰 — 여기까지 왔으면 앱 링크가 앱을 못 연 것입니다(앱이 없을 가능성이 큼). 1.5초 뒤
+ *     설치 페이지(시험 기간: TestFlight · 뒤: App Store)로 갑니다 — 그 사이에 뭔가 눌렀거나
+ *     다른 화면으로 갔으면 안 갑니다. "여기 있기"(?stay=1)로 멈춥니다. mybody:// 를 저절로
+ *     부르지는 않습니다: 앱이 없는 아이폰에서는 "주소가 유효하지 않음" 창부터 뜹니다.
+ *   · 한 탭에서 한 번씩만(sessionStorage) — 뒤로 가기로 돌아왔을 때 다시 튕기지 않게.
+ *
+ * 설치한 뒤에도 초대가 이어지게 (앱이 읽는 길은 app/lib/src/invite_link.dart · install_referrer.dart)
+ *   · 플레이 주소에 추천인 invite=<코드> 를 붙입니다(&referrer=invite%3D<코드>) — 앱이 처음 켤 때
+ *     한 번 설치 추천인(Play Install Referrer)으로 읽습니다. 묻지 않고 이어집니다.
+ *   · 설치 단추를 누르면 "Mybody 초대 <코드> <이 페이지 주소>" 를 클립보드에 담고 갑니다.
+ *     안드로이드 앱은 탭 화면이 처음 설 때 한 번 읽어 "친구 요청할까요?" 를 묻고, 아이폰 앱은
+ *     스스로 읽지 않습니다(읽으면 "붙여넣기 허용" 창이 뜹니다) — 인사 화면 · 친구 추가의
+ *     「초대 코드 붙여넣기」 를 누를 때 이걸 씁니다. 추천인이 없는 아이폰에게는 이것이 유일한
+ *     길이라, 아이폰이 저절로 설치 페이지로 갈 때(담을 수 없음 — 아래)는 코드가 끊깁니다: 깐
+ *     뒤 링크를 다시 누르면 됩니다. 담기는 누르는 순간에만 됩니다(브라우저 규칙). 못 담아도
+ *     그냥 갑니다.
+ *
+ * 누구 코드인지 **찾지 않습니다**
+ *   DB 를 보지 않습니다. "○○님이 초대했어요" 는 반갑지만, 주소만 두드려 보는 사람에게는
+ *   코드 → 이름 사전이 됩니다(맞히면 그 사람 이름과 "이 서버에 있다" 가 샙니다). 모양만 맞으면
+ *   있는 코드든 없는 코드든 **글자 하나 다르지 않은** 페이지입니다 — 응답으로는 코드가 있는지
+ *   알 수 없습니다. 누구인지는 앱이 로그인한 뒤 요청을 보낼 때 서버가 가립니다.
+ *
+ * 스크립트는 하나 — 해시로만
+ *   무엇을 할지(기종 · 앱 안 브라우저 · 어디로 갈지)는 User-Agent 와 설정으로 **서버가 정해**
+ *   <body data-…> 에 적고, 스크립트는 그걸 읽어 실행만 합니다. 그래서 스크립트는 코드마다
+ *   · 사람마다 한 글자도 안 바뀌고, CSP 는 그 한 덩이의 해시만 허락합니다(default-src 'none',
+ *   스타일도 해시 하나). 스크립트가 꺼져 있어도 단추는 전부 진짜 링크라 누르면 됩니다 —
+ *   "설치 페이지로 가요…" 줄만 안 보입니다(hidden 으로 나가고 스크립트가 켭니다).
+ *
+ * 코드가 새지 않게
+ *   · 로그에 안 남습니다(logLine 은 /api 만 찍습니다).
+ *   · Referrer-Policy: no-referrer — 참여 단추로 TestFlight · 플레이 · 구글 그룹에 갈 때 이 주소가
+ *     따라가지 않습니다.
+ *   · noindex — 검색에 안 걸립니다. 캐시는 no-store(send 기본값)에 Vary: * — 웹 앱의
+ *     서비스워커도 못 담습니다(INVITE_HEADERS).
+ *
+ * 설치 안내는 GET /api/version 과 같은 설정(tools/app-version.js)을 부를 때마다 읽습니다.
+ *   시험 기간(testing)   아이폰 TestFlight 공개 링크(join.ios) · 안드로이드 ① 구글 그룹
+ *                        (join.androidGroup) ② 테스트 참여(join.android) ③ 플레이(추천인)
+ *   정식 출시 뒤         아이폰 App Store · 안드로이드 플레이(추천인)
+ *   필요한 링크가 안 적혀 있으면 "곧 열려요 — 코드 <코드> 를 적어 두세요".
+ *   가게 주소는 설정의 urls(앱 안 업데이트 단추용 appUrl…)가 아니라 앱과 약속한 고정 주소입니다
+ *   (APPSTORE_URL · PLAY_URL) — 플레이 쪽은 코드마다 추천인을 붙여야 해서입니다.
+ * -------------------------------------------------------------------------- */
+/* server/db.js 의 inviteCode() 와 같은 글자판이어야 합니다(헷갈리는 I · O · 0 · 1 없음).
+   tools/test-invite.js 가 두 파일의 글자판이 같은지 봅니다. */
+const INVITE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const INVITE_RE = new RegExp('^[' + INVITE_ALPHABET + ']{8}$');
+/* 앱의 안드로이드 패키지 · 딥링크 스킴 — 앱(app/)과 약속한 값입니다. */
+const APP_PACKAGE = 'io.github.iacobuschoi.mybody';
+const APP_SCHEME = 'mybody';
+/* TestFlight 앱 자체의 App Store 주소 — 공개 참여 링크는 이 앱이 있어야 열립니다. */
+const TESTFLIGHT_APP_URL = 'https://apps.apple.com/app/testflight/id899247664';
+/* 정식 출시 뒤 받는 곳. 앱과 약속한 주소입니다(앱의 같은 안내와 한 곳으로 가게).
+   App Store 는 나라를 빼 둡니다 — 애플이 받는 사람의 나라 가게로 보냅니다.
+   플레이에는 코드마다 추천인(&referrer=invite%3D<코드>)을 붙입니다(playWithReferrer). */
+const APPSTORE_URL = 'https://apps.apple.com/app/id6815144446';
+const PLAY_URL = 'https://play.google.com/store/apps/details?id=' + APP_PACKAGE;
+
+function escHtml(v) {
+  return String(v).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
+/** 안드로이드 · 아이폰 · 그 밖(컴퓨터). 아이패드의 데스크톱 Safari 는 맥과 구분이 안 되어
+ *  '그 밖' 으로 갑니다 — 그 경우 안드로이드 · 아이폰 안내가 둘 다 보여서 막히지는 않습니다. */
+function platformOf(ua) {
+  const s = str(ua);
+  if (/Android/i.test(s)) return 'android';
+  if (/iPhone|iPad|iPod/i.test(s)) return 'ios';
+  return 'other';
+}
+
+/** 앱 안 브라우저인가. 'kakao' · 'other'(인스타그램 · 페이스북 · 라인 · 네이버) · ''.
+ *  이런 곳에서는 앱 링크가 앱을 안 열고 자기 안에서 페이지를 엽니다. 카카오톡은 기본
+ *  브라우저로 넘기는 주소가 있어서 저절로 넘기고, 나머지는 방법을 한 줄로 알려 줍니다.
+ *  "Line/" 은 대소문자를 가립니다 — 다른 이름 속의 "line/" 을 잘못 잡지 않게. */
+function inAppOf(ua) {
+  const s = str(ua);
+  if (/KAKAOTALK/i.test(s)) return 'kakao';
+  if (/Instagram|FBAN|FBAV|Line\/|NAVER\(inapp/.test(s)) return 'other';
+  return '';
+}
+
+/** 밖에서 보는 이 서버의 주소("https://이름.ts.net"). 못 정하면 ''.
+ *
+ *  og:image(미리보기 그림)와 안드로이드 fallback 은 **절대 주소**여야 합니다. fallback 은 "앱이
+ *  없으면 **지금 이 페이지**로 돌아오기" 라서, 받은 사람이 실제로 연 주소 — 요청의 Host — 가
+ *  제일 맞습니다. 초대 링크는 앱이 쓰는 서버 주소로 만들어지니 그 주소가 곧 Host 입니다.
+ *  설정의 공개 주소(ORIGIN)를 먼저 쓰면, 그 값이 틀렸거나 옛것일 때(위 warnOriginMismatch 가
+ *  말하는 일 — 실제로 있었습니다) 앱이 없는 사람이 **다른 주소**로 떨어져 설치 안내를 못 봅니다.
+ *
+ *  그래서 순서는
+ *    · Host 가 ORIGIN 과 같은 이름 → ORIGIN(https 인지를 설정이 확실히 압니다)
+ *    · Host 가 없거나 이 컴퓨터 자신(localhost · 127.0.0.1 — 주인이 직접 열었거나, 프록시가
+ *      Host 를 바꿔 끼운 경우) → ORIGIN
+ *    · 그 밖 → 요청대로. 터널 · 프록시의 X-Forwarded-* 는 TRUST_PROXY 를 켠 사람만 믿습니다
+ *      (clientIp 와 같은 규칙 — launch.js 는 터널을 붙일 때 ORIGIN 과 함께 켭니다).
+ *  Host 는 누구나 적어 보낼 수 있으니 이름 모양만 받습니다 — 페이지에 그대로 박히기 때문입니다.
+ *  거짓 Host 를 보내 봐야 **자기가 받는** 페이지만 바뀝니다(no-store · Vary: * — 남에게 안 갑니다). */
+const LOOPBACK_HOST = /^(?:localhost|127(?:\.\d{1,3}){3}|\[::1\]|0\.0\.0\.0)(?::\d{1,5})?$/;
+function publicBase(req) {
+  let origin = null;
+  if (ORIGIN && ORIGIN !== '*') {
+    try {
+      const u = new URL(ORIGIN);
+      if (u.protocol === 'https:' || u.protocol === 'http:') origin = u;
+    } catch (e) {}
+  }
+  const first = v => str(v).split(',')[0].trim();
+  const host = ((TRUST_PROXY && first(req.headers['x-forwarded-host'])) || first(req.headers.host)).toLowerCase();
+  const named = /^(?:[a-z0-9-]{1,63}(?:\.[a-z0-9-]{1,63})*|\[[0-9a-f:.]{2,45}\])(?::\d{1,5})?$/.test(host);
+  if (origin && (!named || LOOPBACK_HOST.test(host) || host === origin.host)) return origin.origin;
+  if (!named) return '';
+  const proto = (TRUST_PROXY && first(req.headers['x-forwarded-proto']).toLowerCase() === 'https') ||
+                req.socket.encrypted ? 'https' : 'http';
+  return proto + '://' + host;
+}
+
+/** 미리보기 그림 — 지금 내보내는 폴더에 실제로 있는 앱 아이콘. 없으면 ''. */
+function inviteIcon(sizes) {
+  for (const f of sizes) {
+    try { if (fs.statSync(path.join(STATIC_ROOT, 'assets', f)).isFile()) return '/assets/' + f; } catch (e) {}
+  }
+  return '';
+}
+
+/* 페이지 모양. 앱과 같은 색(prototype/css/base.css 의 토큰)이고, 밝게 · 어둡게는 기기를 따릅니다.
+   글자를 1.3배로 키운 360px 폰에서도 코드 여덟 글자가 한 줄에 들어가게 코드 글자는 화면
+   폭에 맞춰 줄입니다(clamp). **여기를 고치면 CSP 해시가 저절로 따라갑니다** — 페이지에 박는
+   <style> 과 해시가 같은 문자열에서 나옵니다. */
+const INVITE_CSS = [
+  ':root{--bg:#f6f7f9;--surface:#fff;--border:#e2e5ea;--text:#16181d;--muted:#5b6270;',
+  '--accent:#4f46e5;--accent-ink:#fff;--accent-sub:#eef0ff;--warn:#b45309;--warn-bg:#fdf3e3;color-scheme:light dark}',
+  '@media (prefers-color-scheme:dark){:root{--bg:#0e1014;--surface:#171a20;--border:#2a2f39;--text:#e9ecf1;',
+  '--muted:#a3adbb;--accent:#7c7cf7;--accent-ink:#0e1014;--accent-sub:#232447;--warn:#fbbf24;--warn-bg:#2c2110}}',
+  /* text-size-adjust 는 일부러 안 둡니다 — 폰의 "글자 크게" 를 막을 수 있습니다. */
+  '*{box-sizing:border-box}',
+  'body{margin:0;background:var(--bg);color:var(--text);padding:28px 16px 48px;',
+  'font:16px/1.6 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR","Segoe UI",Roboto,sans-serif;',
+  'word-break:keep-all;overflow-wrap:anywhere}',
+  'main{max-width:440px;margin:0 auto}',
+  '.top{text-align:center;margin:0 0 14px}',
+  '.icon{display:block;width:56px;height:56px;border-radius:14px;margin:0 auto 8px}',
+  'h1{font-size:22px;line-height:1.3;margin:0}',
+  'h2{font-size:18px;line-height:1.3;margin:0 0 10px}',
+  'h3{font-size:15px;margin:16px 0 4px;color:var(--muted)}',
+  '.card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 16px;margin:12px 0}',
+  '.card--em{border:2px solid var(--accent)}',
+  '.flag{background:var(--warn-bg);color:var(--warn);border-radius:12px;padding:12px 14px;margin:0 0 12px;',
+  'font-weight:700;text-align:center}',
+  '.label{margin:0;text-align:center;color:var(--muted);font-size:14px}',
+  '.code{margin:2px 0 10px;text-align:center;font-weight:700;font-size:clamp(24px,8.5vw,38px);line-height:1.25;',
+  'font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Roboto Mono",monospace;',
+  'letter-spacing:.16em;padding-left:.16em;-webkit-user-select:all;user-select:all}',
+  '.btn{display:block;width:100%;margin:8px 0 0;padding:14px 12px;border-radius:12px;text-align:center;',
+  'text-decoration:none;font-weight:700;font-size:17px;line-height:1.35;',
+  'background:var(--accent-sub);color:var(--accent);border:1px solid transparent}',
+  '.btn--primary{background:var(--accent);color:var(--accent-ink)}',
+  '.hint{margin:10px 0 0;color:var(--muted);font-size:14px;text-align:center}',
+  '.soon{margin:4px 0 0}',
+  /* 스크립트가 켜는 줄("설치 페이지로 가요…")은 hidden 으로 나갑니다 — .hint 의 모양이 이기지 않게. */
+  '[hidden]{display:none!important}',
+  'a{color:var(--accent)}'
+].join('');
+
+/* 페이지의 스크립트 — 무엇을 할지는 서버가 <body data-…> 에 적어 두고(serveInvite), 이것은
+ * 읽어서 실행만 합니다. 그래서 코드 · 기종 · 설정이 달라도 이 글자들은 그대로이고, CSP 는 이
+ * 한 덩이의 해시만 허락합니다. 브라우저에는 아래 함수의 **소스 글자 그대로** 나갑니다
+ * (INVITE_JS = 함수.toString(), 줄바꿈만 LF 로) — 여기를 고치면 해시가 저절로 따라갑니다. 서버에서는 한 번도
+ * 부르지 않습니다. 옛 웹뷰도 읽게 var · function 으로만 씁니다. 페이지로 나가는 글자라
+ * 설명은 여기(밖)에 둡니다.
+ *
+ *   data-copy     설치 단추를 누르면 담을 글("Mybody 초대 <코드> <주소>"). 담기를 기다렸다가
+ *                 (최대 0.8초) 갑니다. 클립보드가 없는 브라우저 · 새 탭으로 열기(⌘ · Ctrl
+ *                 누른 채)는 막지 않고 원래대로 둡니다.
+ *   data-inapp    'kakao' → 기본 브라우저로 넘김(openExternal 에 지금 주소를 인코딩해 실음).
+ *   data-intent   안드로이드 — 열리자마자 이 intent 로(location.replace: 앱이 없어서 fallback 으로
+ *                 가도 뒤로 가기가 이 페이지로 돌아와 다시 튕기지 않게).
+ *   data-later    아이폰 — 1.5초 뒤 이 설치 페이지로. 그 사이에 누르거나(pointerdown ·
+ *                 touchstart · keydown · 단추) 화면이 가려졌으면(visibilityState) 안 갑니다.
+ *                 여기서도 담기를 해 보지만, 사파리는 누른 순간이 아니면 거절합니다.
+ *                 1.5초가 지나면 가든 안 가든 "설치 페이지로 가요…" 줄을 숨깁니다 — App Store ·
+ *                 TestFlight 는 다른 앱으로 열려 이 페이지가 남는데, 돌아왔을 때 이미 지난 예고가
+ *                 떠 있으면 거짓말이 됩니다.
+ *   data-code     "한 탭에서 한 번" 을 코드마다 셉니다(sessionStorage — 못 쓰면 그냥 합니다).
+ */
+function inviteScript() {
+  var body = document.body;
+  var data = function (k) { return body.getAttribute('data-' + k) || ''; };
+  var copyText = data('copy');
+  var touched = false;
+  var copy = function () {
+    try { return copyText ? navigator.clipboard.writeText(copyText) : null; } catch (e) { return null; }
+  };
+  var firstTime = function (what) {
+    try {
+      var key = 'mybody-invite-' + what + '-' + data('code');
+      if (sessionStorage.getItem(key)) return false;
+      sessionStorage.setItem(key, '1');
+    } catch (e) {}
+    return true;
+  };
+  var buttons = document.querySelectorAll('a[data-install]');
+  for (var i = 0; i < buttons.length; i++) {
+    buttons[i].addEventListener('click', function (e) {
+      var href = this.getAttribute('href');
+      touched = true;
+      var p = copy();
+      if (!p || !href || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button) return;
+      e.preventDefault();
+      var went = false;
+      var go = function () { if (!went) { went = true; location.href = href; } };
+      p.then(go, go);
+      setTimeout(go, 800);
+    });
+  }
+  if (data('inapp') === 'kakao') {
+    if (firstTime('kakao')) {
+      location.replace('kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href));
+    }
+    return;
+  }
+  var intent = data('intent');
+  if (intent) {
+    if (firstTime('intent')) location.replace(intent);
+    return;
+  }
+  var later = data('later');
+  var line = document.getElementById('later');
+  if (!later || !line || !firstTime('later')) return;
+  line.hidden = false;
+  ['pointerdown', 'touchstart', 'keydown'].forEach(function (t) {
+    document.addEventListener(t, function () { touched = true; }, true);
+  });
+  setTimeout(function () {
+    line.hidden = true;
+    if (touched || document.visibilityState !== 'visible') return;
+    var p = copy();
+    if (p) p.then(null, function () {});
+    location.href = later;
+  }, 1500);
+}
+/* 줄바꿈은 LF 로 맞춥니다. 윈도우에서 git 이 이 파일을 CRLF 로 꺼내면(core.autocrlf — Git for
+   Windows 의 기본값이고, 서버를 띄우는 노트북이 윈도우입니다) toString() 에 \r\n 이 실립니다.
+   그런데 브라우저는 HTML 을 읽으면서 \r\n 을 \n 으로 바꾼 **뒤에** 스크립트의 해시를 잽니다 —
+   그대로 두면 해시가 어긋나 CSP 가 스크립트를 조용히 막고, 카카오톡 넘기기 · 안드로이드 앱
+   부르기 · 아이폰 설치 페이지 · 클립보드 담기가 전부 멈춥니다(단추만 남음). 어디에도 안 적히는
+   고장이라 여기서 막습니다. tools/test-invite.js [15] 가 CRLF 로 읽힌 server.js 로 봅니다. */
+const INVITE_JS = ('(' + inviteScript.toString() + ')();').replace(/\r\n?/g, '\n');
+const cspHash = s => "'sha256-" + crypto.createHash('sha256').update(s, 'utf8').digest('base64') + "'";
+const INVITE_CSP = "default-src 'none'; script-src " + cspHash(INVITE_JS) + '; style-src ' + cspHash(INVITE_CSS) +
+  "; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+/* Vary: * — 웹 앱(prototype/sw.js)의 서비스워커가 이 페이지를 **캐시에 담지 못하게.**
+   이 서버의 웹 앱을 한 번이라도 연 브라우저에는 서비스워커가 / 전체를 쥐고 있고, 받은 200 을
+   Cache Storage 에 담습니다(no-store 를 안 봅니다). 그리고 찾을 때 물음표 뒤를 뺍니다
+   (ignoreSearch). 실제로 크롬에서 재 보니 /i/<코드> 를 한 번 연 뒤 안드로이드 fallback
+   (/i/<코드>?noapp=1)이 캐시의 **보통 페이지**로 나와서 "앱이 없어서 설치 안내로 왔어요" 가
+   안 떴습니다 — 참여 링크를 바꿔도 옛 안내가 남습니다. Cache.put 은 Vary: * 인 응답을
+   거절하고(표준) sw.js 는 그 거절을 삼키므로, sw.js 를 고치지 않아도 이 페이지는 늘
+   네트워크에서 옵니다. HTTP 캐시에는 원래 no-store 라 달라지는 것이 없습니다. */
+const INVITE_HEADERS = {
+  'Content-Type': 'text/html; charset=utf-8',
+  'Content-Security-Policy': INVITE_CSP,
+  'Referrer-Policy': 'no-referrer',
+  'X-Frame-Options': 'DENY',
+  'X-Robots-Tag': 'noindex',
+  'Vary': '*'
+};
+
+/** 머리(<head>)와 몸통을 이어 한 페이지로. head 는 이미 이스케이프된 조각입니다.
+ *  viewport-fit=cover 는 두지 않습니다 — 노치 · 홈 막대 여백(safe-area)을 따로 안 주므로,
+ *  기본값이 글자를 가려지지 않는 곳에 둡니다.
+ *  bodyAttrs(이미 이스케이프된 data-… 조각)를 주면 스크립트(INVITE_JS)를 끝에 붙입니다 —
+ *  404 에는 할 일이 없어서 안 붙입니다(머리글 · CSP 는 같습니다). */
+function invitePage(head, body, bodyAttrs) {
+  const icon = inviteIcon(['icon-192.png', 'apple-touch-icon.png']);
+  const fav = inviteIcon(['favicon-32.png']);
+  const withJs = typeof bodyAttrs === 'string';
+  return '<!doctype html>\n<html lang="ko">\n<head>\n<meta charset="utf-8">\n' +
+    '<meta name="viewport" content="width=device-width, initial-scale=1">\n' +
+    '<meta name="robots" content="noindex">\n<meta name="referrer" content="no-referrer">\n' +
+    '<meta name="color-scheme" content="light dark">\n<meta name="theme-color" content="#4f46e5">\n' +
+    (fav ? '<link rel="icon" type="image/png" href="' + escHtml(fav) + '">\n' : '') +
+    head + '<style>' + INVITE_CSS + '</style>\n</head>\n<body' + (withJs ? bodyAttrs : '') + '>\n<main>\n' +
+    '<header class="top">' + (icon ? '<img class="icon" src="' + escHtml(icon) + '" alt="" width="56" height="56">' : '') +
+    '<h1>Mybody 친구 초대</h1></header>\n' + body + '</main>\n' +
+    (withJs ? '<script>' + INVITE_JS + '</script>\n' : '') + '</body>\n</html>\n';
+}
+
+/** 단추 하나. 밖으로 나가는 링크라 rel="noreferrer" — 이 주소(코드)가 따라가지 않게. */
+function inviteBtn(href, label, primary) {
+  return '<a class="btn' + (primary ? ' btn--primary' : '') + '" href="' + escHtml(href) +
+         '" rel="noreferrer">' + escHtml(label) + '</a>\n';
+}
+/** 설치 단추 — 누르면 스크립트가 초대 글을 클립보드에 담고 갑니다(data-install). 스크립트가
+ *  없으면 그냥 링크입니다. */
+function installBtn(href, label) {
+  return '<a class="btn" href="' + escHtml(href) + '" rel="noreferrer" data-install>' + escHtml(label) + '</a>\n';
+}
+/** 받을 곳이 아직 없을 때 — 코드를 적어 두라고 코드를 그 자리에 한 번 더 적습니다. */
+function soonLine(who, code) {
+  return '<p class="soon">' + who + ' 곧 열려요 — 코드 ' + escHtml(code) + ' 를 적어 두세요</p>\n';
+}
+/** 플레이 가게 주소 + 추천인 invite=<코드>. 앱이 첫 실행에 설치 추천인으로 읽어 초대를 잇습니다
+ *  (referrer 값 전체를 한 번 인코딩: invite%3D<코드>). */
+function playWithReferrer(code) {
+  return PLAY_URL + '&referrer=' + encodeURIComponent('invite=' + code);
+}
+
+/** "앱이 없나요?" 의 한 기종 몫. testing 이 켜져 있으면 참여 링크, 꺼져 있으면 가게.
+ *  받을 곳이 없으면 "곧 열려요" 한 줄 — 그때는 "설치한 뒤 돌아와서" 도 붙이지 않습니다(offers).
+ *  가게 주소는 설정(urls)이 아니라 앱과 약속한 주소입니다(APPSTORE_URL · playWithReferrer). */
+function offersInstall(os, info) {
+  return !info.testing || !!(info.join || {})[os === 'android' ? 'android' : 'ios'];
+}
+/** 아이폰이 저절로 갈 설치 페이지. 없으면 ''(그때는 안 갑니다). */
+function iosInstallTarget(info) {
+  return info.testing ? ((info.join || {}).ios || '') : APPSTORE_URL;
+}
+function installFor(os, info, code) {
+  const join = info.join || {};
+  const play = playWithReferrer(code);
+  if (!info.testing) {
+    return os === 'android' ? installBtn(play, 'Google Play 에서 받기')
+                            : installBtn(APPSTORE_URL, 'App Store 에서 받기');
+  }
+  if (os === 'android') {
+    if (!join.android) return soonLine('안드로이드는', code);
+    /* 비공개 테스트는 구글 그룹에 먼저 들어가야 참여 주소가 열립니다. 그룹이 없는 테스트면
+       그 단계를 뺍니다. 그룹 · 플레이가 다른 구글 계정이면 "테스트에 참여할 수 없음" 이
+       나오는데, 까닭이 어디에도 안 적혀서 한 줄 둡니다.
+       마지막 단추는 참여 페이지의 "Google Play 에서 다운로드" 대신 **추천인이 붙은** 가게
+       주소입니다 — 그래야 앱이 처음 열릴 때 이 초대를 압니다. */
+    const last = '<p class="hint">마지막 단추로 받으면 앱을 처음 열 때 초대가 이어져요</p>\n';
+    if (!join.androidGroup) {
+      return installBtn(join.android, '① 테스트 참여') + installBtn(play, '② Google Play 에서 설치') + last;
+    }
+    return installBtn(join.androidGroup, '① 구글 그룹 가입') +
+           installBtn(join.android, '② 테스트 참여') +
+           installBtn(play, '③ Google Play 에서 설치') + last +
+           '<p class="hint">그룹 · 플레이 모두 같은 구글 계정으로</p>\n';
+  }
+  if (!join.ios) return soonLine('아이폰은', code);
+  return installBtn(join.ios, 'TestFlight 에서 받기') +
+         '<p class="hint">TestFlight 앱이 있어야 열려요 · <a href="' + escHtml(TESTFLIGHT_APP_URL) +
+         '" rel="noreferrer" data-install>TestFlight 받기</a></p>\n';
+}
+
+/** 코드 모양이 틀린 주소 — 같은 모양의 404. 받은 글자는 **다시 찍지 않습니다.** */
+function inviteNotFound(res) {
+  return send(res, 404, invitePage('<title>Mybody 친구 초대</title>\n',
+    '<section class="card"><h2>초대 링크가 맞지 않아요</h2>' +
+    '<p class="soon">코드는 영문 대문자 · 숫자 8자예요. 친구에게 링크를 다시 받아 주세요.</p></section>\n'),
+    INVITE_HEADERS);
+}
+
+function serveInvite(req, res, url) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    return send(res, 405, { ok: false, reason: '그런 방법으로는 열 수 없습니다' }, { Allow: 'GET, HEAD' });
+  }
+  const m = /^\/i\/([A-Za-z0-9]{8})\/?$/.exec(url.pathname);
+  const code = m ? m[1].toUpperCase() : '';
+  if (!INVITE_RE.test(code)) return inviteNotFound(res);
+  const noapp = url.searchParams.get('noapp') === '1';
+  /* ?stay=1 — "여기 있기". 저절로 어디로 가지 않습니다. */
+  const stay = url.searchParams.get('stay') === '1';
+  /* 소문자 · 끝의 / 는 대문자 주소로 돌려보냅니다 — 앱에 넘길 코드와 미리보기가 한 모양이 되게.
+     302 로 둡니다: 브라우저가 영원히 기억하는 301 은 규칙을 바꿀 때 발목을 잡습니다.
+     다른 쿼리는 떼어 냅니다(돌려보낼 곳에 받은 글자를 싣지 않습니다) — 우리가 아는 noapp ·
+     stay 만 정해진 모양으로 다시 붙입니다. */
+  if (url.pathname !== '/i/' + code) {
+    const q = [noapp ? 'noapp=1' : '', stay ? 'stay=1' : ''].filter(Boolean).join('&');
+    return send(res, 302, '', { Location: '/i/' + code + (q ? '?' + q : ''),
+                                'Content-Type': 'text/plain; charset=utf-8' });
+  }
+
+  let saved = {};
+  try { saved = require('../tools/config.js').readFileStrict(); } catch (e) { saved = {}; }
+  const info = APPVER.versionInfo(saved);
+  const ua = req.headers['user-agent'];
+  const os = platformOf(ua);
+  const inapp = inAppOf(ua);
+  const base = publicBase(req);
+  const self = base ? base + '/i/' + code : '';
+
+  /* 앱 열기 — 안드로이드는 intent:(앱이 없으면 fallback), 아이폰은 스킴 그대로.
+     fallback 은 시험 기간이면 이 페이지 + ?noapp=1(참여 단계를 보여 줘야 해서), 정식 출시
+     뒤에는 추천인 붙은 플레이 가게(한 번에 설치로). 시험 기간인데 주소를 못 정했으면 fallback 을
+     빼서 크롬이 가게로 보내게 둡니다. */
+  let open = '';
+  if (os === 'android') {
+    const fallback = info.testing ? (self ? self + '?noapp=1' : '') : playWithReferrer(code);
+    open = 'intent://invite/' + code + '#Intent;scheme=' + APP_SCHEME + ';package=' + APP_PACKAGE +
+           (fallback ? ';S.browser_fallback_url=' + encodeURIComponent(fallback) : '') + ';end';
+  } else if (os === 'ios') {
+    open = APP_SCHEME + '://invite/' + code;
+  }
+
+  /* 스크립트가 할 일(위 inviteScript). 앱 안 브라우저에서는 저절로 앱을 부르거나 가게로 가지
+     않습니다 — 카카오톡만 기본 브라우저로 넘기고, 나머지는 방법을 한 줄로. */
+  const autoIntent = os === 'android' && !inapp && !noapp && !stay ? open : '';
+  const later = os === 'ios' && !inapp && !stay ? iosInstallTarget(info) : '';
+  const dataAttr = (k, v) => v ? ' data-' + k + '="' + escHtml(v) + '"' : '';
+  const bodyAttrs = dataAttr('code', code) +
+    dataAttr('copy', 'Mybody 초대 ' + code + (self ? ' ' + self : '')) +
+    dataAttr('inapp', inapp === 'kakao' ? 'kakao' : '') +
+    dataAttr('intent', autoIntent) + dataAttr('later', later);
+
+  const desc = '링크를 누르면 친구 요청이 가요 · 코드 ' + code;
+  const image = inviteIcon(['icon-512.png', 'icon-192.png', 'apple-touch-icon.png']);
+  const head = '<title>Mybody 친구 초대</title>\n' +
+    '<meta name="description" content="' + escHtml(desc) + '">\n' +
+    '<meta property="og:type" content="website">\n<meta property="og:site_name" content="Mybody">\n' +
+    '<meta property="og:title" content="Mybody 친구 초대">\n' +
+    '<meta property="og:description" content="' + escHtml(desc) + '">\n' +
+    (self ? '<meta property="og:url" content="' + escHtml(self) + '">\n' : '') +
+    (base && image ? '<meta property="og:image" content="' + escHtml(base + image) + '">\n' : '') +
+    '<meta name="twitter:card" content="summary">\n';
+
+  /* 앱이 없어서 돌아온 경우(noapp)는 "앱에서 열기" 를 설치 안내 끝으로 내립니다 — 설치한 뒤
+     누르는 단추입니다. 그 밖에는 코드 바로 밑의 큰 단추입니다. 아이폰은 그 밑에 "설치
+     페이지로 가요… 여기 있기" 줄(스크립트가 켤 때만 보임). */
+  const auto = '<p class="hint">앱을 연 뒤에는 친구 요청이 자동으로 가요 (로그인 필요)</p>\n';
+  const codeCard = '<section class="card"><p class="label">초대 코드</p>' +
+    '<p class="code">' + escHtml(code) + '</p>\n' +
+    (open && !noapp ? inviteBtn(open, '앱에서 열기', true) : '') +
+    (later ? '<p class="hint" id="later" hidden>앱이 없으면 설치 페이지로 가요… <a href="/i/' + escHtml(code) +
+             '?stay=1">여기 있기</a></p>\n' : '') + auto +
+    (os === 'other' ? '<p class="hint">폰에서 이 링크를 열면 앱으로 바로 가요</p>\n' : '') + '</section>\n';
+  let install;
+  if (os === 'other') {
+    install = '<h3>안드로이드</h3>\n' + installFor('android', info, code) +
+              '<h3>아이폰</h3>\n' + installFor('ios', info, code);
+  } else {
+    const can = offersInstall(os, info);
+    install = installFor(os, info, code) + (noapp
+      ? (can ? '<p class="hint">설치했으면 이 단추로</p>\n' + inviteBtn(open, '앱에서 열기') : '')
+      : (can ? '<p class="hint">설치한 뒤 돌아와서 「앱에서 열기」</p>\n' : ''));
+  }
+  const body = (noapp ? '<p class="flag">앱이 없어서 설치 안내로 왔어요</p>\n' : '') +
+    (inapp === 'other' ? '<p class="flag">여기서는 앱이 바로 안 열려요 · 오른쪽 위 ⋯ → 다른 브라우저로 열기</p>\n' : '') +
+    codeCard +
+    '<section class="card' + (noapp ? ' card--em' : '') + '"><h2>앱이 없나요?</h2>\n' + install + '</section>\n';
+  return send(res, 200, invitePage(head, body, bodyAttrs), INVITE_HEADERS);
+}
+
+/* --- 앱 링크 파일 (GET /.well-known/assetlinks.json · /.well-known/apple-app-site-association) ---
+ *
+ * 왜 있나
+ *   위 초대 링크를 누르면 브라우저가 먼저 열리고, 거기서 "앱에서 열기" 를 한 번 더 눌러야
+ *   했습니다. 주인의 말은 "링크만 누르면 바로 친추". 안드로이드 App Links · 아이폰 Universal
+ *   Links 가 그 길입니다 — 폰이 https://<이 서버>/i/… 를 **앱의 것**으로 알고, 누르는 순간
+ *   브라우저 없이 앱을 엽니다. 폰은(아이폰은 애플의 CDN 을 거쳐) 앱을 깔 때 이 서버에 "이 앱이
+ *   네 것이 맞나" 를 묻고, 그 대답이 이 두 파일입니다. 대답이 틀리거나 없으면 **아무 말 없이**
+ *   예전처럼 브라우저가 열립니다 — 그래서 tools/test-invite.js 가 모양을 글자 그대로 봅니다.
+ *
+ * 안드로이드 (assetlinks.json)
+ *   앱 패키지 + 앱에 서명한 인증서의 SHA-256 지문. 업로드 키(직접 받는 APK · 우리가 올리는 판)
+ *   지문은 늘 싣고, 플레이가 다시 서명하는 "앱 서명 키" 는 설정 androidCertSha256 으로
+ *   더합니다(노트북이 플레이 콘솔에서 읽어 적습니다 — 이게 없으면 플레이로 깐 폰에서만
+ *   링크가 브라우저로 열립니다). 지문은 콜론으로 끊긴 대문자 32덩이여야 합니다 — 소문자 ·
+ *   공백이 섞이면 구글이 조용히 무시해서, 여기서 맞추고 모양이 아닌 것은 빼고 한 번 말합니다.
+ *   (예전에는 웹 앱을 플레이에 감싸 올리던 TWA 용으로 TWA_PACKAGE · TWA_FINGERPRINT 를
+ *   적어야만 나갔습니다. 같은 패키지 이름의 진짜 앱이 나와서 그 길은 없앴습니다.)
+ *
+ * 아이폰 (apple-app-site-association)
+ *   "<팀 ID>.<번들 ID> 가 /i/* 를 연다". 애플은 확장자 없는 이 이름을 **리디렉션 없이 200 ·
+ *   application/json** 으로만 받습니다. 팀 ID 는 설정 appleTeamId(없거나 모양이 틀리면 기본값).
+ *   앱 쪽에는 associated-domains 권한(applinks:<이 서버>)이 있어야 합니다 — CI 가 넣습니다.
+ *
+ * 공통
+ *   로그인 없음 · 정적 파일보다 먼저(serveStatic 도 이 이름은 여기로 넘깁니다). 웹 앱의
+ *   서비스워커와는 상관없습니다 — 폰 · 애플 CDN 은 브라우저 밖에서 받아 갑니다. 캐시는 한 시간:
+ *   지문을 더한 뒤 확인이 오래 헛돌지 않게. 설정은 부를 때마다 읽습니다(환경변수
+ *   ANDROID_CERT_SHA256 · APPLE_TEAM_ID 가 먼저 — tools/config.js 와 같은 순서). 설정 파일이
+ *   망가졌으면 기본값만으로 답합니다 — 업로드 키 · 기본 팀은 그래도 맞습니다.
+ * -------------------------------------------------------------------------- */
+/* 업로드 키 — 앱의 릴리스 서명 열쇠. 공개해도 되는 값입니다(모든 APK 안에 들어 있습니다). */
+const ANDROID_UPLOAD_CERT = '06:D9:45:A3:83:79:71:CE:A7:AF:0C:03:BC:EF:F3:13:96:4F:57:7B:C8:C1:6A:41:03:3A:A2:60:17:83:DE:11';
+/* 애플 개발자 팀 ID — 이것도 공개되는 값입니다(앱 서명 · 이 파일에 그대로 나갑니다). */
+const APPLE_TEAM_DEFAULT = 'JT4YLVNKDZ';
+const WELL_KNOWN_HEADERS = { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' };
+
+/* 모양이 틀린 값은 한 번만 말합니다 — 폰 · 애플 CDN 이 자주 받아 가서, 매번 찍으면 로그가 묻힙니다. */
+const wellKnownWarned = new Set();
+function wellKnownWarn(key, msg) {
+  if (wellKnownWarned.has(key)) return;
+  wellKnownWarned.add(key);
+  console.log('  ⚠ ' + msg);
+}
+
+/** 지문 하나 → "AB:CD:…"(32덩이) 또는 ''. keytool 이 찍는 "SHA256: …" 줄 · 소문자 · 공백 ·
+ *  콜론 없는 64자(apksigner)를 다 받습니다. */
+function normFingerprint(v) {
+  if (typeof v !== 'string') return '';
+  const hex = v.trim().replace(/^SHA-?256\s*:?/i, '').replace(/[\s:]/g, '').toUpperCase();
+  return /^[0-9A-F]{64}$/.test(hex) ? hex.match(/../g).join(':') : '';
+}
+/** 업로드 키 + 설정의 지문(배열 · 쉼표로 이은 글자). 겹치면 한 번. */
+function androidCerts(extra) {
+  const list = Array.isArray(extra) ? extra : typeof extra === 'string' ? extra.split(/[,;\n]+/) : [];
+  const out = [ANDROID_UPLOAD_CERT];
+  list.forEach(x => {
+    if (typeof x === 'string' && !x.trim()) return;
+    const f = normFingerprint(x);
+    if (!f) {
+      return wellKnownWarn('cert:' + String(x), 'androidCertSha256 에 SHA-256 지문 모양이 아닌 값이 있어 뺐습니다: ' +
+                           JSON.stringify(x).slice(0, 120));
+    }
+    if (out.indexOf(f) < 0) out.push(f);
+  });
+  return out;
+}
+/** 팀 ID — 영문 대문자 · 숫자 10자. 아니면 기본값. */
+function appleTeam(v) {
+  const t = typeof v === 'string' ? v.trim().toUpperCase() : '';
+  if (/^[A-Z0-9]{10}$/.test(t)) return t;
+  if (v !== undefined && v !== null && v !== '') {
+    wellKnownWarn('team:' + String(v), 'appleTeamId 가 팀 ID 모양(영문 · 숫자 10자)이 아니라 기본값을 씁니다: ' +
+                  JSON.stringify(v).slice(0, 60));
+  }
+  return APPLE_TEAM_DEFAULT;
+}
+function wellKnownConfig() {
+  let saved = {};
+  try { saved = require('../tools/config.js').readFileStrict(); } catch (e) { saved = {}; }
+  const env = k => (process.env[k] || '').trim();
+  return { certs: env('ANDROID_CERT_SHA256') || saved.androidCertSha256,
+           team: env('APPLE_TEAM_ID') || saved.appleTeamId };
+}
+const WELL_KNOWN = {
+  '/.well-known/assetlinks.json': c => JSON.stringify([{
+    relation: ['delegate_permission/common.handle_all_urls'],
+    target: { namespace: 'android_app', package_name: APP_PACKAGE, sha256_cert_fingerprints: androidCerts(c.certs) }
+  }]),
+  /* 번들 ID 는 안드로이드 패키지와 같은 이름입니다. comment 는 애플이 읽지 않는 메모 칸입니다. */
+  '/.well-known/apple-app-site-association': c => JSON.stringify({
+    applinks: { details: [{ appIDs: [appleTeam(c.team) + '.' + APP_PACKAGE],
+                            components: [{ '/': '/i/*', comment: 'friend invite' }] }] }
+  })
+};
+
+function serveWellKnown(req, res, name) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    return send(res, 405, { ok: false, reason: '그런 방법으로는 열 수 없습니다' }, { Allow: 'GET, HEAD' });
+  }
+  const body = WELL_KNOWN[name](wellKnownConfig());
+  return send(res, 200, body,
+              Object.assign({ 'Content-Length': String(Buffer.byteLength(body)) }, WELL_KNOWN_HEADERS));
 }
 
 /* --- 무슨 일이 있었는지 --------------------------------------------------
@@ -1301,6 +1849,9 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   try {
     if (url.pathname === '/health' || url.pathname.startsWith('/api/')) return await handleApi(req, res, url);
+    if (url.pathname === '/i' || url.pathname.startsWith('/i/')) return serveInvite(req, res, url);
+    /* 앱 링크 파일 — 정적 파일(내보내는 폴더)이 가로채지 못하게 먼저. */
+    if (Object.hasOwn(WELL_KNOWN, url.pathname)) return serveWellKnown(req, res, url.pathname);
     serveStatic(req, res, url);
   } catch (e) {
     // 예전엔 SQLite 드라이버 원문이 그대로 나갔습니다 ("Provided value cannot be

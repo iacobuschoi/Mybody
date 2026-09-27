@@ -227,5 +227,93 @@ else no('FCM 자동 초기화가 켜져 있습니다 — 로그인하지 않은 
         (autoOffAndroid ? '' : '매니페스트에 firebase_messaging_auto_init_enabled=false 가 없음 ') +
         (autoOffIos ? '' : 'Info.plist 에 FirebaseMessagingAutoInitEnabled=false 가 없음'));
 
+/* --- 8. 초대 링크 — 링크만 누르면 앱이 바로 열리는가 (App Links) ----------
+ * 주인의 말: "친추 링크 보내면 링크만 누르면 바로 친추되게". 친구가 받은 링크는
+ * https://<서버>/i/<코드> 이고, 안드로이드가 그것을 **이 앱의 것**으로 알려면 MainActivity 에
+ * https · autoVerify 필터가 있어야 합니다. 없거나 호스트가 앱에 박힌 서버와 다르면 빌드는
+ * 초록인 채로 링크가 브라우저로 열립니다 — 폰에서야 압니다. 옛 길(mybody://invite)과
+ * 실행 아이콘(LAUNCHER)은 그대로 있어야 합니다. 주석 안의 글자에 속지 않게 주석을 빼고 봅니다. */
+{
+  const bare = main.replace(/<!--[\s\S]*?-->/g, '');
+  const act = (bare.match(/<activity\b[^>]*android:name="\.MainActivity"[\s\S]*?<\/activity>/) || [''])[0];
+  const filters = act.match(/<intent-filter\b[^>]*>[\s\S]*?<\/intent-filter>/g) || [];
+  const has = (f, re) => re.test(f);
+  const VIEW = /<action\s+android:name="android\.intent\.action\.VIEW"\s*\/>/;
+  const DEF = /<category\s+android:name="android\.intent\.category\.DEFAULT"\s*\/>/;
+  const BRO = /<category\s+android:name="android\.intent\.category\.BROWSABLE"\s*\/>/;
+  const launcher = filters.filter(f => has(f, /android\.intent\.action\.MAIN/) && has(f, /android\.intent\.category\.LAUNCHER/));
+  const scheme = filters.filter(f => has(f, /<data\s+android:scheme="mybody"\s+android:host="invite"\s*\/>/));
+  const https = filters.filter(f => has(f, /android:scheme="https"/));
+  if (launcher.length === 1) ok('실행 아이콘(LAUNCHER) 필터가 그대로 있습니다');
+  else no('MainActivity 의 실행 아이콘(MAIN · LAUNCHER) 필터가 ' + launcher.length + '개입니다 — 앱 서랍에서 안 보이거나 둘로 보입니다');
+  if (scheme.length === 1 && [VIEW, DEF, BRO].every(re => has(scheme[0], re)))
+    ok('mybody://invite 필터가 그대로 있습니다 (초대 페이지의 「앱에서 열기」 뒷길)');
+  else no('mybody://invite 필터가 없거나 VIEW · DEFAULT · BROWSABLE 이 빠졌습니다',
+          '초대 페이지가 intent:// · mybody:// 로 앱을 여는 길입니다 — App Links 확인이 안 된 폰은 이것만 남습니다');
+  const h = https[0] || '';
+  const tag = (h.match(/<intent-filter\b[^>]*>/) || [''])[0];
+  const data = h.match(/<data\b[^>]*\/>/g) || [];
+  const d0 = data[0] || '';
+  if (https.length === 1 && /android:autoVerify="true"/.test(tag) && [VIEW, DEF, BRO].every(re => has(h, re)) &&
+      data.length === 1 && /android:host="\$\{inviteHost\}"/.test(d0) && /android:pathPrefix="\/i\/"/.test(d0))
+    ok('https://<서버>/i/ 필터가 autoVerify 로 있습니다 (링크를 누르면 브라우저 없이 앱이 열림)');
+  else no('초대 링크 App Links 필터가 틀렸습니다',
+          'MainActivity 에 <intent-filter android:autoVerify="true"> VIEW · DEFAULT · BROWSABLE + ' +
+          '<data android:scheme="https" android:host="${inviteHost}" android:pathPrefix="/i/"/> 하나 — 찾은 https 필터 ' + https.length + '개');
+  /* autoVerify 필터에 mybody:// 같은 다른 scheme 이 섞이면 확인이 그 필터를 제대로 못 봅니다. */
+  const mixed = filters.filter(f => /android:autoVerify="true"/.test(f) &&
+    (f.match(/android:scheme="([^"]+)"/g) || []).some(x => !/"https?"$/.test(x)));
+  if (!mixed.length) ok('autoVerify 필터에는 http · https 만 있습니다 (mybody:// 는 따로)');
+  else no('autoVerify 필터에 http · https 가 아닌 scheme 이 섞였습니다 — mybody:// 는 다른 필터에 두세요');
+  if (!/android:host="https?:|android:host="[^"$]*\//.test(bare)) ok('필터의 호스트에 https:// · 경로가 섞이지 않았습니다');
+  else no('android:host 에 scheme · 경로가 들어 있습니다 — 호스트 이름만 적어야 맞춰집니다');
+
+  /* 호스트는 build.gradle.kts 가 SERVER_URL 에서 떼어 자리표시자로 넣습니다. 빠지면 매니페스트
+     합치기가 "requires a placeholder substitution" 으로 빌드를 깹니다. 대입(=)으로 통째로
+     바꾸면 Flutter 가 넣는 applicationName 이 사라져 앱이 켜지자마자 죽습니다. */
+  const dc = (gradleCode.match(/defaultConfig\s*\{[\s\S]*?\n\s*\}/) || [''])[0];
+  const readsEnv = /providers\.environmentVariable\("SERVER_URL"\)|System\.getenv\("SERVER_URL"\)/.test(gradleCode);
+  if (/manifestPlaceholders\["inviteHost"\]\s*=\s*inviteHost/.test(dc) && readsEnv &&
+      !/manifestPlaceholders\s*=/.test(gradleCode))
+    ok('build.gradle.kts 가 SERVER_URL 에서 호스트를 떼어 inviteHost 로 넣습니다 (applicationName 은 그대로)');
+  else no('build.gradle.kts 의 inviteHost 자리표시자가 틀렸습니다',
+          'defaultConfig 안에 manifestPlaceholders["inviteHost"] = inviteHost, 값은 환경변수 SERVER_URL 에서 — ' +
+          'manifestPlaceholders = … 대입은 쓰지 마세요');
+  /* 떼는 순서(scheme → 경로 · 물음 · 조각 → 사용자@ → 포트 → 소문자)가 다 있는가. */
+  const chain = ['substringAfter("://", raw)', "substringBefore('/')", "substringBefore('?')", "substringBefore('#')",
+                 "substringAfterLast('@')", "substringBefore(':')", 'lowercase()'];
+  let at = -1;
+  const inOrder = chain.every(c => { const i = gradleCode.indexOf(c, at + 1); if (i < 0) return false; at = i; return true; });
+  if (inOrder) ok('호스트를 뗄 때 https:// · 포트 · 경로 · 사용자@ 를 버리고 소문자로 맞춥니다');
+  else no('SERVER_URL 에서 호스트를 떼는 순서가 빠졌거나 바뀌었습니다', chain.join(' → '));
+  /* 비었을 때의 기본값 = 앱의 기본 서버(lib/main.dart)의 호스트. 다르면 노트북에서 그냥 만든 앱은
+     자기 서버의 링크를 초대로 받는데 안드로이드는 다른 호스트를 확인하러 갑니다. */
+  const dartDefault = ((R('app/lib/main.dart').match(/'SERVER_URL',\s*defaultValue:\s*'([^']+)'/) || [])[1] || '');
+  const dartHost = dartDefault.replace(/^https?:\/\//, '').split(/[/:?#]/)[0].toLowerCase();
+  const gradleFallback = (gradleCode.match(/val fallback = "([^"]+)"/) || [])[1];
+  if (dartHost && gradleFallback === dartHost)
+    ok('SERVER_URL 이 없을 때의 호스트가 앱의 기본 서버와 같습니다 (' + dartHost + ')');
+  else no('SERVER_URL 이 없을 때의 호스트가 앱의 기본 서버와 다릅니다',
+          'build.gradle.kts ' + gradleFallback + ' · lib/main.dart ' + (dartHost || '못 찾음'));
+  if (/(^|[^.\w])java\.net\./m.test(gradleBody))
+    no('build.gradle.kts 가 java.net.* 를 그대로 씁니다 — Kotlin DSL 에서는 안 됩니다 (4b 참고)');
+
+  /* gradle 은 빌드 단계의 환경변수를 봅니다. APK · AAB 두 빌드 단계가 SERVER_URL 을 env 로 받아야
+     앱에 박힌 서버(--dart-define)와 매니페스트의 호스트가 같은 비밀에서 나옵니다. */
+  if (E(WF)) {
+    const wfText = R(WF);
+    const steps = wfText.split(/\n(?=      - )/);
+    const need = ['flutter build apk', 'flutter build appbundle'];
+    const miss = need.filter(cmd => {
+      /* 주석 속 글자가 아니라 명령 줄(flutter build apk …)로 찾습니다. */
+      const st = steps.find(s => s.split('\n').some(l => l.trim().startsWith(cmd + ' ')));
+      return !st || !/\n\s+SERVER_URL:\s*\$\{\{\s*secrets\.MYBODY_SERVER_URL\s*\}\}/.test(st);
+    });
+    if (!miss.length) ok('APK · AAB 빌드 단계가 SERVER_URL 을 넘깁니다 (gradle 이 같은 호스트를 봄)');
+    else no('빌드 단계에 SERVER_URL env 가 없습니다: ' + miss.join(', '),
+            'gradle 이 기본 호스트로 떨어져, 앱에 박힌 서버와 초대 링크 호스트가 달라집니다');
+  }
+}
+
 console.log('\n통과 ' + pass + ' / 실패 ' + fail);
 process.exit(fail ? 1 : 0);

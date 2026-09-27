@@ -3,8 +3,8 @@
  *
  * 주인이 아이폰에서 잡은 버그(숫자 키보드가 안 사라져 확인을 못 누름)를 앱 전체로
  * 넓혀 봅니다. 여기서 보는 화면: 식단의 「끼니에 추가」 검색과 직접 입력 다이얼로그,
- * 종목 고르기 시트(기구 설정 → 익숙한 종목), 헬스 · 유산소 종료 시트, 친구의 초대
- * 코드 다이얼로그. 화면마다 셋을 봅니다:
+ * 종목 고르기 시트(기구 설정 → 익숙한 종목), 헬스 · 유산소 종료 시트, 친구 탭의
+ * 「친구 추가」 다이얼로그. 화면마다 셋을 봅니다:
  *
  *   1. 키보드 300px 을 흉내(viewInsets) 낸 채로 확인 · 저장 버튼이 키보드 위 보이는
  *      영역에 통째로 있고 실제로 눌리는가.
@@ -463,19 +463,20 @@ void main() {
     }
   });
 
-  /* --- 친구 › 초대 코드 다이얼로그 -------------------------------------------
-   * 다이얼로그는 키보드 위로 올라가 「요청 보내기」 가 보입니다. 보는 건 그것과,
-   * 코드 칸에 자동 교정이 꺼져 있고 완료 키가 곧 「요청 보내기」 인 것. */
-  group('친구 — 초대 코드', () {
+  /* --- 친구 › 「친구 추가」 다이얼로그 ------------------------------------------
+   * 다이얼로그는 내 코드 · 「보내기」 가 먼저라 열자마자 키보드를 올리지 않습니다. 코드 칸을
+   * 누르면 키보드 위로 줄어들어 「요청 보내기」 가 보입니다. 보는 건 그것과, 코드 칸에 자동
+   * 교정이 꺼져 있고 완료 키가 곧 「요청 보내기」 인 것. */
+  group('친구 — 친구 추가', () {
     _Server server() => _Server({
-          '/me': {'ok': true, 'user': {'id': 'me', 'displayName': '나', 'inviteCode': 'me1234'}},
+          '/me': {'ok': true, 'user': {'id': 'me', 'displayName': '나', 'inviteCode': 'ME234567'}},
           '/friends': {'ok': true, 'friends': {'accepted': [], 'incoming': [], 'outgoing': []}},
           '/pokes': {'ok': true, 'pokes': []},
-          '/friends/request': {'ok': true},
+          '/friends/request': {'ok': true, 'status': 'pending'},
         });
 
     for (final MapEntry(key: name, value: size) in _phones.entries) {
-      testWidgets('$name — 코드 칸에 곧바로 커서, 「요청 보내기」 가 키보드 위, 완료 키로 보낸다', (t) async {
+      testWidgets('$name — 코드 칸을 누르면 「요청 보내기」 가 키보드 위, 완료 키로 보낸다', (t) async {
         _phone(t, size);
         final s = server();
         await _host(t, app: await _seeded(), api: s.api(), home: Scaffold(body: SocialScreen(go: (_, [__]) {})));
@@ -483,20 +484,22 @@ void main() {
         await t.pumpAndSettle();
 
         final code = find.descendant(of: find.byType(AlertDialog), matching: find.byType(TextField));
-        expect(_focused(t, code), isTrue, reason: '코드 칸에 곧바로 커서');
+        expect(_typing(t), isFalse, reason: '열자마자 키보드를 올리지 않습니다 — 내 코드 · 보내기가 먼저');
         final field = t.widget<TextField>(code);
         expect(field.autocorrect, isFalse, reason: '코드는 낱말이 아닙니다');
         expect(field.enableSuggestions, isFalse);
+        await _focus(t, code);
         await _keyboardUp(t);
         _aboveKeyboard(t, _save('요청 보내기'), size);
+        _aboveKeyboard(t, code, size);
 
-        await t.enterText(code, ' ab12cd ');
+        await t.enterText(code, ' me2x-yz34 ');
         await _key(t, TextInputAction.done);
         expect(find.byType(AlertDialog), findsNothing, reason: '완료 키 = 요청 보내기');
         final sent = s.sent.where((r) => r.$1 == '/friends/request').toList();
         expect(sent, hasLength(1));
-        expect(sent.single.$2, {'inviteCode': 'ab12cd'}, reason: '양끝 공백은 잘라서 보냅니다');
-        expect(find.text('요청을 보냈습니다'), findsOneWidget);
+        expect(sent.single.$2, {'inviteCode': 'ME2XYZ34'}, reason: '빈칸 · 줄표는 빼고 대문자로');
+        expect(find.text('친구 요청을 보냈어요'), findsOneWidget);
         expect(t.takeException(), isNull);
       });
     }

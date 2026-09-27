@@ -28,6 +28,36 @@ val keystoreProperties = Properties().apply {
 }
 val hasOwnKey = keystoreProperties.getProperty("storeFile") != null
 
+/* 초대 링크 호스트 (안드로이드 App Links).
+ *
+ * 친구가 받은 https://<서버>/i/<코드> 를 누르면 브라우저 없이 이 앱이 바로 열리게 하는 필터가
+ * 매니페스트에 있고(autoVerify), 그 필터의 호스트가 이 값입니다(자리표시자 inviteHost).
+ * 안드로이드는 앱을 깔 때 이 호스트의 /.well-known/assetlinks.json(서버가 내 줌)으로 "이 앱이
+ * 이 주소의 주인" 인지 확인합니다.
+ *
+ * **앱에 박히는 서버 주소와 같은 호스트여야 합니다.** 앱은 자기 서버의 링크만 초대로 받습니다
+ * (lib/src/invite_link.dart). 그래서 빌드할 때의 환경변수 SERVER_URL — CI 는 비밀
+ * MYBODY_SERVER_URL 을 apk.yml 의 두 빌드 단계(APK · AAB)가 env 로 넘기고, 같은 값이
+ * --dart-define=SERVER_URL 로 앱에도 들어갑니다 — 에서 호스트만 떼어 씁니다(https:// · 포트 ·
+ * 경로 · 사용자@ 를 버리고 소문자로).
+ *
+ * 비었거나 호스트 모양이 아니면 lib/main.dart 의 기본 주소와 같은 호스트를 씁니다 — 노트북에서
+ * 그냥 flutter build 해도 앱과 같은 값이 되게. 틀린 값이어도 빌드는 안 깨지고, 링크가 예전처럼
+ * 브라우저(초대 페이지)로 열릴 뿐입니다. 호스트는 비밀에서 나온 값이라 빌드 로그에 찍지 않습니다.
+ */
+val inviteHost: String = run {
+    val fallback = "desktop-il9c3if.tail0a8f8f.ts.net"
+    val raw = (providers.environmentVariable("SERVER_URL").orNull ?: "").trim()
+    val host = raw.substringAfter("://", raw)                             // https:// (없으면 그대로)
+        .substringBefore('/').substringBefore('?').substringBefore('#')   // 경로 · 물음 · 조각
+        .substringAfterLast('@')                                          // 사용자:비밀번호@
+        .substringBefore(':')                                             // 포트
+        .trimEnd('.')
+        .lowercase()
+    val label = "[a-z0-9]([a-z0-9-]*[a-z0-9])?"
+    if (Regex("^$label(\\.$label)+$").matches(host)) host else fallback
+}
+
 android {
     namespace = "io.github.iacobuschoi.mybody"
     compileSdk = flutter.compileSdkVersion
@@ -55,6 +85,9 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // 매니페스트의 초대 링크 필터(https · autoVerify)가 쓰는 호스트 — 위 inviteHost.
+        // 대입(=)이 아니라 한 칸만 넣습니다 — Flutter 가 넣는 applicationName 을 지우지 않게.
+        manifestPlaceholders["inviteHost"] = inviteHost
     }
 
     signingConfigs {

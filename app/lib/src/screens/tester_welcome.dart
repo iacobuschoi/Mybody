@@ -16,6 +16,10 @@
  *   2쪽 쓰는 법  결과지 찍기 → 목표 → 매일 기록 → 변화 보기, 네 장. 한 줄씩만 —
  *              읽게 하지 않고 훑게 합니다.
  *   3쪽 친구   내 친구 코드와 「복사」 · 「카톡 등으로 보내기」, 받은 코드를 넣는 칸.
+ *              보내는 글은 초대 링크 하나라, 받은 친구는 누르기만 하면 요청이 옵니다.
+ *              클립보드에 글이 있으면 칸 밑에 「초대 코드 붙여넣기」 — 초대 링크로 앱을 처음
+ *              깐 사람은 초대 페이지가 클립보드에 넣어 둔 코드를 한 번에 채웁니다(아이폰은
+ *              누를 때만 읽습니다 — social.dart 의 InvitePasteChip).
  *              시트를 떠나지 않고 요청까지 끝납니다 — 친구 탭으로 보내면 거기서
  *              「친구 추가」 를 또 찾아야 합니다. 로그인 안 한 사람에게는 코드 대신
  *              「로그인 · 가입」 을 두고, 로그인하고 돌아오면 그 자리에 코드가 뜹니다.
@@ -31,11 +35,13 @@
  *     띄웁니다. 셸은 로그인한 사람의 /me 를 4초까지 기다린 뒤 인사를 부르는데, 그 사이
  *     말풍선을 누른 사람의 의견 시트를 인사가 덮으면 쓰던 글 · 붙인 화면이 가려집니다.
  *   · 친구 요청은 친구 탭과 **같은 함수**([requestFriendByCode])로 보냅니다. 실패
- *     문구도 서버가 준 까닭 그대로라 두 곳이 다른 말을 하지 않습니다.
- *   · 보내는 글([inviteShareText])은 순수 함수입니다 — 받은 친구가 그 글 하나로
- *     앱을 깔고 코드를 넣을 수 있어야 해서 시험으로 못 박습니다. 테스트 참여 주소는
- *     서버의 /api/version 이 주는 것([JoinLinks])만 싣습니다 — 주인이 서버에서 바꾸면
- *     앱을 다시 내지 않아도 따라옵니다.
+ *     문구도 같은 함수([friendRequestMessage])가 만들어 두 곳이 다른 말을 하지 않습니다.
+ *     코드 칸도 친구 탭과 같습니다 — 대문자 여덟 글자, 받은 글을 붙여 넣으면 코드만.
+ *   · 보내는 글([inviteShareText] — social.dart)도 친구 탭과 한 벌입니다. 초대 링크
+ *     (<서버 주소>/i/<코드>)와 코드 한 줄뿐, **설치 주소는 싣지 않습니다** — 예전엔 아이폰 ·
+ *     안드로이드 참여 주소를 둘 다 실었는데, 보내는 사람은 받는 사람의 기기를 모릅니다
+ *     (갤럭시로 받은 주인에게 TestFlight 가 먼저 떴습니다). 기기에 맞는 설치 안내는 그
+ *     링크의 페이지(서버)가 가립니다.
  *   · 키보드가 올라오면 시트가 그만큼 위로 밀리고, 쪽 점과 아래 단추는 잠시
  *     접힙니다 — 작은 폰에서 코드 칸과 「요청」 이 키보드 위에 남을 자리를 만들려고.
  *     「복사했어요」 같은 짧은 알림은 시트 **안의** 스낵바로 — 앱의 스낵바는 시트
@@ -52,7 +58,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
-import 'package:share_plus/share_plus.dart';
 
 import '../api.dart';
 import '../app_state.dart';
@@ -60,10 +65,19 @@ import '../scope.dart';
 import '../ui/confetti.dart';
 import '../ui/edge.dart' show dismissKeyboard;
 import '../ui/widgets.dart';
-import '../update.dart' show JoinLinks;
 import 'account.dart' show SignInScreen;
 import 'feedback.dart' show feedbackBusy, feedbackClosed;
-import 'social.dart' show requestFriendByCode, becameFriends;
+import 'social.dart'
+    show
+        InviteCodeFormatter,
+        InvitePasteChip,
+        becameFriends,
+        friendRequestMessage,
+        kInviteCodeExample,
+        kInviteCodeLength,
+        kInvitePasteNone,
+        requestFriendByCode,
+        shareInviteText;
 
 /// settings 의 표 — 테스터 인사를 한 번 봤는가(건너뛴 것도 본 것).
 const String kTesterWelcomeSeenKey = 'testerWelcomeSeen';
@@ -132,39 +146,10 @@ Future<void> showTesterWelcome(BuildContext context, {bool force = false}) async
   );
 }
 
-/// 「카톡 등으로 보내기」 로 나가는 글.
-///
-/// 첫 줄은 코드, 그 밑에 서버가 알려 준 테스트 참여 주소가 **있는 것만**. 안드로이드
-/// 비공개 테스트는 구글 그룹에 먼저 들어야 참여 주소가 열려서 ① 가입 ② 참여 차례로
-/// 씁니다(그룹 주소만 있고 참여 주소가 없으면 반쪽 길이라 안 싣습니다). 주소가 하나도
-/// 없으면(이미 앱이 있는 친구에게 보내는 경우) 코드를 어디에 넣는지 한 줄.
-String inviteShareText(String code, JoinLinks join) {
-  final links = <String>[
-    if (join.ios.isNotEmpty) '아이폰: ${join.ios}',
-    if (join.android.isNotEmpty)
-      join.androidGroup.isNotEmpty
-          ? '안드로이드: ① ${join.androidGroup} 가입 ② ${join.android} 에서 참여'
-          : '안드로이드: ${join.android}',
-  ];
-  return [
-    'Mybody 같이 해요! 내 친구 코드: $code',
-    if (links.isEmpty) '앱에서 친구 탭 → 친구 추가에 넣어 주세요' else ...links,
-  ].join('\n');
-}
-
 /// 낱말 안에서는 줄을 안 바꾸게 — 글자 사이에 단어 잇기(U+2060, 폭 없음)를 넣습니다.
 /// 줄은 빈칸에서만 바뀝니다. 한 낱말이 한 줄보다 길면 그때는 글자에서 끊깁니다.
 String keepWords(String s) =>
     s.split(' ').map((w) => w.characters.join('\u2060')).join(' ');
-
-/// 공유 시트를 여는 길. 시험에서는 바꿔 끼웁니다 — 진짜 공유 시트는 플랫폼 채널이라
-/// 시험 안에서는 열리지 않습니다. [origin] 은 아이패드에서 말풍선이 나올 자리.
-@visibleForTesting
-Future<void> Function(String text, Rect? origin) testerWelcomeShare = _shareOut;
-
-Future<void> _shareOut(String text, Rect? origin) async {
-  await SharePlus.instance.share(ShareParams(text: text, sharePositionOrigin: origin));
-}
 
 /// 인사 시트 — [showTesterWelcome] 이 띄웁니다. 시험이 직접 세울 수 있게 공개합니다.
 class TesterWelcomeSheet extends StatefulWidget {
@@ -287,23 +272,15 @@ class _TesterWelcomeSheetState extends State<TesterWelcomeSheet> {
     if (mounted) _snack('복사했어요');
   }
 
+  /* 보내는 글은 친구 탭의 「보내기」 와 같은 것 — 이 앱이 쓰는 서버 주소로 만든 초대 링크.
+     내 코드는 이 기기에 적힙니다(shareInviteText) — 공유 시트의 「복사」 로 그 글이 클립보드에
+     남은 채 인사를 닫아도, 셸이 그것을 친구의 초대로 알고 묻지 않게. */
   Future<void> _share(BuildContext button) async {
     final code = _code;
     if (code == null) return;
-    /* 참여 주소는 새 판 확인기가 마지막으로 받은 /api/version 에서. 아직 못 받았으면
-       코드만 나갑니다 — 공유를 서버 답에 묶어 기다리게 하지 않습니다. */
-    final join = Scope.updateOf(context)?.info?.join ?? const JoinLinks();
-    final text = inviteShareText(code, join);
-    final box = button.findRenderObject();
-    final origin =
-        box is RenderBox && box.hasSize ? box.localToGlobal(Offset.zero) & box.size : null;
-    try {
-      await testerWelcomeShare(text, origin);
-    } catch (_) {
-      /* 공유 시트가 없는 기기 · 실패 — 글을 복사해 두면 붙여 넣기로 이어집니다. */
-      await Clipboard.setData(ClipboardData(text: text));
-      if (mounted) _snack('보낼 글을 복사했어요 — 붙여 넣어 보내 주세요');
-    }
+    final opened = await shareInviteText(button, code, _api?.baseUrl ?? '');
+    /* 공유 시트가 없는 기기 · 실패 — 글을 복사해 두었으니 붙여 넣기로 이어집니다. */
+    if (!opened && mounted) _snack('보낼 글을 복사했어요 — 붙여 넣어 보내 주세요');
   }
 
   Future<void> _request() async {
@@ -320,7 +297,7 @@ class _TesterWelcomeSheetState extends State<TesterWelcomeSheet> {
       if (r == null) return;
       _resultOk = r.ok;
       _result = !r.ok
-          ? r.reason
+          ? friendRequestMessage(r)
           : becameFriends(r)
               ? '친구가 됐어요 — 친구 탭에서 볼 수 있어요'
               : '요청을 보냈어요 — 친구가 수락하면 친구 탭에 떠요';
@@ -539,18 +516,22 @@ class _TesterWelcomeSheetState extends State<TesterWelcomeSheet> {
             child: TextField(
               key: const Key('welcome-code-input'),
               controller: _input,
-              /* 코드(ABCD2345)는 낱말이 아닙니다 — 자동 교정 · 추천이 켜져 있으면
-                 키보드가 멋대로 고쳐 보냅니다. 완료 키는 곧 「요청」. 친구 탭의
+              /* 코드(K7M2QX9D)는 낱말이 아닙니다 — 자동 교정 · 추천이 켜져 있으면
+                 키보드가 멋대로 고쳐 보냅니다. 대문자 여덟 글자로 다듬고, 받은 글을
+                 붙여 넣으면 코드만 남깁니다. 완료 키는 곧 「요청」. 친구 탭의
                  「친구 추가」 칸과 같습니다. */
               autocorrect: false,
               enableSuggestions: false,
               textCapitalization: TextCapitalization.characters,
+              inputFormatters: const [InviteCodeFormatter()],
+              maxLength: kInviteCodeLength,
+              buildCounter: (_, {required currentLength, required isFocused, maxLength}) => null,
               textInputAction: TextInputAction.done,
               onSubmitted: (_) => _request(),
               /* 칸이 키보드 바로 위에 붙으면 결과 줄이 가려집니다 — 조금 더 올립니다. */
               scrollPadding: const EdgeInsets.fromLTRB(20, 20, 20, 64),
               decoration: const InputDecoration(
-                hintText: '친구 코드',
+                hintText: '예: $kInviteCodeExample',
                 isDense: true,
                 border: OutlineInputBorder(),
               ),
@@ -570,6 +551,19 @@ class _TesterWelcomeSheetState extends State<TesterWelcomeSheet> {
             ),
           ),
         ]),
+        /* 클립보드에 글이 있으면 「초대 코드 붙여넣기」 — 초대 페이지의 설치 단추가 넣어 둔 글에서
+           코드만 칸에 채웁니다. 아이폰은 이것을 누를 때만 클립보드를 읽습니다(social.dart). */
+        InvitePasteChip(
+          onCode: (code) {
+            _input.value =
+                TextEditingValue(text: code, selection: TextSelection.collapsed(offset: code.length));
+            setState(() => _result = null);
+          },
+          onNone: () => setState(() {
+            _result = kInvitePasteNone;
+            _resultOk = false;
+          }),
+        ),
         if (_result != null)
           Padding(
             padding: const EdgeInsets.only(top: 8),

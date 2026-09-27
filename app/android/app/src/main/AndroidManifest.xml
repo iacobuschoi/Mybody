@@ -62,6 +62,41 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- 친구 초대 링크 — mybody://invite/<코드>. 서버의 초대 페이지(<서버 주소>/i/<코드>)가
+                 intent:// 주소로 이 앱(패키지)을 짚어 엽니다. 앱은 코드를 받아 친구 요청을 대신
+                 보냅니다(lib/src/invite_link.dart). BROWSABLE 이 있어야 브라우저가 열 수 있습니다.
+                 https 링크가 앱을 바로 여는 길(App Links)은 아래 필터입니다 — 이것은 그 확인이
+                 안 됐을 때 초대 페이지가 쓰는 뒷길입니다. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="mybody" android:host="invite" />
+            </intent-filter>
+            <!-- 친구 초대 링크 — https://<서버>/i/<코드> 를 누르면 **브라우저 없이** 이 앱이 바로
+                 열립니다(안드로이드 App Links). 주인의 말은 "링크만 누르면 바로 친추" — 위의
+                 mybody:// 길은 브라우저가 초대 페이지를 먼저 띄우고 버튼을 한 번 더 눌러야 합니다.
+
+                 autoVerify: 안드로이드가 앱을 깔 때 이 호스트의 /.well-known/assetlinks.json
+                 (서버가 내 줌 — 앱 패키지 + 서명 인증서 SHA-256)을 받아 "이 앱이 이 주소의 주인" 인지
+                 확인합니다. 맞으면 고르기 창 없이 앱으로 가고, 틀리거나 서버가 꺼져 있었으면 아무 말 없이
+                 예전처럼 브라우저(초대 페이지)가 열립니다 — 그 페이지에서 mybody:// 로 이어지니 길은
+                 안 끊깁니다. 플레이에서 받은 앱은 플레이가 다시 서명하므로, 그 "앱 서명 키" 지문을
+                 서버 설정 androidCertSha256 에 더해야 확인됩니다(docs/DEPLOY.md 11절).
+
+                 호스트는 빌드할 때 들어갑니다(자리표시자 inviteHost — app/build.gradle.kts 가 앱에 박히는 서버
+                 주소 SERVER_URL 에서 뗌). 앱은 그 서버의 링크만 초대로 받으므로 둘이 같아야 합니다.
+                 mybody:// 와 한 필터에 섞지 않습니다 — 확인(autoVerify)은 http · https 필터만 봅니다.
+                 /i/ 아래만 받습니다. 같은 서버의 다른 주소(웹 앱 · 개인정보처리방침)는 브라우저로 갑니다. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="${inviteHost}" android:pathPrefix="/i/" />
+            </intent-filter>
+            <!-- Flutter 가 링크를 화면 경로(/K7M2QX9D)로 여는 것을 끕니다 — 이 앱은 경로 이름으로
+                 화면을 찾지 않아서 켜 두면 없는 경로 오류가 납니다. 링크는 app_links 가 받습니다. -->
+            <meta-data android:name="flutter_deeplinking_enabled" android:value="false" />
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

@@ -281,12 +281,14 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 ## API
 
 전부 `/api` 아래이고, 로그인 · `/api/health` · `/api/version` · `/api/feedback` 외에는
-`Authorization: Bearer <token>` 이 필요합니다.
+`Authorization: Bearer <token>` 이 필요합니다. `/api` 밖에는 친구 초대 링크 페이지(`GET /i/<코드>`)와
+그 링크를 폰이 앱으로 바로 열게 하는 앱 링크 파일 둘(`GET /.well-known/assetlinks.json` ·
+`GET /.well-known/apple-app-site-association`)이 있습니다 — 아래 "친구 초대 링크" · "앱 링크 파일".
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | `GET` | `/api/health` | 살아 있는지 (로그인 불필요) |
-| `GET` | `/api/version` | `{latest:{appstore,testflight,play,apk}, min, urls:{…}, join:{ios?, android?, androidGroup?}}` 앱 안 업데이트 안내용. 빈 값이면 안내 없음. `join` 은 시험판 참여 링크(TestFlight 공개 링크 · 플레이 비공개 테스트 · 그 테스트의 구글 그룹) — **적힌 https 만** 나가고 비었으면 `{}`. `tools/app-version.js`(`--join-ios` · `--join-android` · `--join-android-group`)로 고치고, 부를 때마다 설정을 새로 읽습니다. 설정 파일이 망가졌으면 빈 값 대신 503 (로그인 불필요) |
+| `GET` | `/api/version` | `{latest:{appstore,testflight,play,apk}, min, urls:{…}, join:{ios?, android?, androidGroup?}, testing}` 앱 안 업데이트 안내용. 빈 값이면 안내 없음. `join` 은 시험판 참여 링크(TestFlight 공개 링크 · 플레이 비공개 테스트 · 그 테스트의 구글 그룹) — **적힌 https 만** 나가고 비었으면 `{}`. `testing` 은 비공개 시험 기간인가(참/거짓) — **안 적었으면 `true`**, 분명히 끈 것(`--testing=off`)만 `false`. `tools/app-version.js`(`--join-ios` · `--join-android` · `--join-android-group` · `--testing=on\|off`)로 고치고, 부를 때마다 설정을 새로 읽습니다. 설정 파일이 망가졌으면 빈 값 대신 503 (로그인 불필요) |
 | `POST` | `/api/feedback` | `{text?, images?:[{type:'image/png'\|'image/jpeg', data:<base64>}], appVersion?, platform?:'android'\|'ios', screen?}` 앱 안 의견 보내기 → `{ok, id}`. 글(≤2000자)이나 사진(≤3장, 한 장 ≤1.5MB) 중 하나는 있어야 함. 로그인 선택 — 유효한 토큰이면 그 계정에 묶고, 없거나 틀리면 익명(401 없음). 틀리면 400 `{ok:false, error}`, 본문 6.2MB 초과 413, 하루 20개(사람 · 주소마다)를 넘으면 429, 동시에 받는 것이 넘치면 503 |
 | `POST` | `/api/auth/signup` | `{handle, password, displayName, pairSecret, healthConsent}` → `{token, user, recoveryCode}` (로그인 불필요) |
 | `POST` | `/api/auth/signin` | `{handle, password}` → `{token, user}` (로그인 불필요) |
@@ -320,6 +322,71 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 | `GET` | `/api/push/status` | `{fcm, web, devices, webSubs, webMuted}` — `webMuted` 는 "앱이 있어서 크롬으로는 안 보냄" |
 | `DELETE` | `/api/push/web` | 「크롬(웹) 알림 끄기」 내 웹 푸시 구독 전부 삭제 → `{removed}`. `/api/push/web-subscriptions` 도 같음 |
 
+## 친구 초대 링크 (`/i/<코드>`)
+
+앱의 「초대 링크 보내기」가 건네는 주소입니다: `<서버 주소>/i/<코드>` (코드는 대문자 8자,
+`ABCDEFGHJKLMNPQRSTUVWXYZ23456789` — 헷갈리는 I · O · 0 · 1 없음). 로그인 없이 열리는 작은
+페이지이고, 누르면 앱이 열려 친구 요청이 갑니다.
+
+- **링크만 누르면 바로** — 앱이 깔려 있으면 폰이 이 주소를 앱의 것으로 알고(아래 "앱 링크 파일")
+  브라우저 없이 앱을 엽니다. 이 페이지는 앱이 없거나 · 확인이 아직이거나 · 앱 안 브라우저가 링크를
+  쥐고 있을 때 보입니다.
+- **앱에서 열기** — 안드로이드는 `intent://invite/<코드>#Intent;scheme=mybody;package=io.github.iacobuschoi.mybody;S.browser_fallback_url=<…>;end`,
+  아이폰은 `mybody://invite/<코드>`, 컴퓨터는 단추 없이 두 기종의 설치 안내만. fallback(앱이 없을 때)은
+  시험 기간이면 이 페이지 `?noapp=1`(설치 안내를 앞세움), 정식 출시 뒤에는 추천인 붙은 플레이 주소.
+- **저절로** — 무엇을 할지는 서버가 User-Agent 와 설정으로 정해 `<body data-…>` 에 적고, 페이지의
+  스크립트(하나, CSP 해시로만 허락)가 실행합니다.
+  - 카카오톡 안 브라우저 → 곧바로 `kakaotalk://web/openExternal?url=<지금 주소>` 로 기본 브라우저에 넘김
+  - 인스타그램 · 페이스북 · 라인 · 네이버 안 브라우저 → "오른쪽 위 ⋯ → 다른 브라우저로 열기" 한 줄
+  - 안드로이드 → 열리자마자 위 intent 로(단추도 그대로 — 크롬이 누름 없이는 막을 수 있음)
+  - 아이폰 → 1.5초 뒤 설치 페이지로("앱이 없으면 설치 페이지로 가요… 여기 있기"). 그 사이에 누르거나
+    화면이 가려졌으면 안 가고, `?stay=1`("여기 있기")이면 안 갑니다
+  - 한 탭에서 한 번씩만(sessionStorage) — 뒤로 가기로 돌아와도 다시 튕기지 않음.
+    스크립트가 꺼져 있어도 단추는 전부 진짜 링크입니다
+- **앱이 없나요?** — `tools/app-version.js` 의 설정을 부를 때마다 읽습니다.
+
+  | | 아이폰 | 안드로이드 |
+  |---|---|---|
+  | 시험 기간(`testing`, 기본) | TestFlight 공개 링크(`--join-ios`) | ① 구글 그룹(`--join-android-group`, 있으면) ② 테스트 참여(`--join-android`) ③ Google Play(추천인) |
+  | 출시 뒤(`--testing=off`) | `https://apps.apple.com/app/id6815144446` | Google Play(추천인) |
+
+  필요한 링크가 없으면 "곧 열려요 — 코드 <코드> 를 적어 두세요". Google Play 주소는
+  `https://play.google.com/store/apps/details?id=io.github.iacobuschoi.mybody&referrer=invite%3D<코드>` —
+  앱이 첫 실행에 설치 추천인으로 초대를 읽습니다. 설치 단추를 누르면 `Mybody 초대 <코드> <이 페이지 주소>` 를
+  클립보드에 담고 갑니다(못 담아도 그냥 감). 안드로이드 앱은 처음 탭 화면에서 한 번 읽어 "친구 요청할까요?" 를
+  묻고, 아이폰 앱은 스스로 읽지 않고(붙여넣기 허용 창) 「초대 코드 붙여넣기」 를 누를 때 씁니다. 아이폰이
+  저절로 설치 페이지로 갈 때는 담을 수 없어서(누른 순간이 아님) 깐 뒤 링크를 다시 누르면 됩니다.
+- **누구 코드인지 안 찾습니다.** DB 를 보지 않고 모양만 봅니다 — 있는 코드든 없는 코드든 같은
+  페이지라, 주소를 두드려서 이름이나 "이 서버에 있다" 를 알아낼 수 없습니다. 소문자는 대문자
+  주소로 302(`noapp` · `stay` 만 이어 붙임), 모양이 틀리면 같은 모양의 404(스크립트 없음).
+- CSP `default-src 'none'` 에 스크립트 · 스타일은 해시 하나씩만(페이지에 박는 글자와 같은 문자열에서
+  계산 — 어긋날 수 없음. 윈도우에서 git 이 server.js 를 CRLF 로 꺼내도 스크립트의 줄바꿈은 LF 로 맞춰
+  내보냅니다 — 브라우저는 `\r\n` 을 `\n` 으로 바꾼 뒤에 해시를 재서, 안 맞추면 스크립트가 조용히
+  막힙니다). `noindex` · `no-store` · `Referrer-Policy: no-referrer`(참여 단추를 눌러도 코드가 든 주소가
+  따라가지 않음), 로그에도 안 남깁니다.
+- 미리보기(og:image · og:url) · 안드로이드 fallback · 담는 글의 주소는 절대 주소가 필요해서, **받은 사람이
+  연 주소**(요청의 Host · 터널의 `X-Forwarded-*` 는 `TRUST_PROXY` 일 때만)로 짓습니다 — 공개 주소(`ORIGIN`)가
+  옛것이어도 fallback 이 지금 페이지로 돌아오게. Host 가 `ORIGIN` 과 같은 이름이거나, localhost 이거나,
+  이상한 모양이면 `ORIGIN` 을 씁니다.
+- `Vary: *` — 이 서버의 웹 앱을 연 적 있는 브라우저의 서비스워커가 페이지를 캐시에 담지 못하게
+  (담기면 `?noapp=1` 이 캐시의 보통 페이지로 나옵니다).
+
+## 앱 링크 파일 (`/.well-known/…`)
+
+폰이 `https://<서버>/i/…` 를 **앱의 것**으로 확인하는 파일입니다(안드로이드 App Links · 아이폰 Universal
+Links). 대답이 틀리거나 없으면 폰은 아무 말 없이 브라우저로 엽니다. 로그인 없음 · 리디렉션 없이 200 ·
+`Content-Type: application/json` · `Cache-Control: public, max-age=3600` · HEAD 도 됩니다. 정적 파일보다
+먼저 보므로 내보내는 폴더에 같은 이름의 파일이 있어도 이것이 나갑니다. 설정은 부를 때마다 읽습니다
+(환경변수가 먼저, 설정 파일이 망가졌으면 기본값).
+
+| 파일 | 내용 | 설정 |
+|---|---|---|
+| `assetlinks.json` | `io.github.iacobuschoi.mybody` + 서명 인증서 SHA-256 지문. 업로드 키 `06:D9:…:DE:11` 은 늘 들어감 | `androidCertSha256`(배열 또는 쉼표로 이은 글자) · 환경변수 `ANDROID_CERT_SHA256` — 플레이 콘솔 「앱 무결성 → 앱 서명」 의 앱 서명 키 지문을 **더합니다**(없으면 플레이로 깐 폰에서만 링크가 브라우저로 열림). 소문자 · 공백 · 콜론 없는 64자 · `SHA256:` 머리도 다듬고, 모양이 틀린 값은 빼고 로그에 한 번 |
+| `apple-app-site-association` | `{"applinks":{"details":[{"appIDs":["<팀>.io.github.iacobuschoi.mybody"],"components":[{"/":"/i/*","comment":"friend invite"}]}]}}` | `appleTeamId` · 환경변수 `APPLE_TEAM_ID`(영문 대문자 · 숫자 10자, 없거나 틀리면 `JT4YLVNKDZ`) |
+
+예전의 `TWA_PACKAGE` · `TWA_FINGERPRINT`(웹 앱을 플레이에 감싸 올리던 길)는 없앴습니다 — 같은 패키지
+이름의 진짜 앱이 나왔고, 이 파일은 이제 설정 없이도 늘 나갑니다.
+
 ## 검증
 
 ```bash
@@ -327,7 +394,9 @@ node tools/test-social.js        # 친구·공유 권한 (서버를 띄워 실�
 node tools/test-ocr.js           # 판독 프록시 (가짜 모델 API 로)
 node tools/test-fcm.js           # 앱 알림 (가짜 OAuth · FCM 으로 — JWT 서명까지 검증)
 node tools/test-feedback.js      # 의견 보내기 (검사 · 한도 · 탈퇴 · 1년 · 주인 알림 · 노트북 도구)
-node tools/test-appversion.js    # 앱 안 업데이트 안내 · 시험판 참여 링크
+node tools/test-appversion.js    # 앱 안 업데이트 안내 · 시험판 참여 링크 · 시험 기간
+node tools/test-invite.js        # 친구 초대 링크 페이지 (기종별 앱 열기 · 설치 안내 · 새지 않음 · CSP ·
+                                 #   앱 링크 파일 · 스크립트를 가짜 브라우저에서 돌려 봄)
 node tools/test-crosscheck.js    # 결과지 검산
 node tools/validate.js           # 엔진 예측 대 실제 논문 (게이트)
 USERS=100 YEARS=3 node tools/simulate.js

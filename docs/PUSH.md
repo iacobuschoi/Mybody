@@ -120,7 +120,7 @@
 | App ID 에 푸시 켜기 (자동 서명일 때만) | 서명 도구가 `--entitlements` 를 아는지 먼저 보고(`supportsEntitlements`), App Store Connect API 로 App ID 의 `PUSH_NOTIFICATIONS` 를 확인하고 없으면 켬(멱등, 409 는 "이미 있음") | 경고만. 판정은 다음 단계가 함 |
 | 인증서·프로파일 만들기 | 예전 그대로 — 프로파일을 매번 새로 만들므로, 푸시가 켜진 App ID 면 `aps-environment=production` 이 저절로 들어옴 | — |
 | 프로파일 설치 | 프로파일의 `Entitlements:aps-environment` 를 읽어 `profile_aps` 로 | — |
-| 앱 타깃 서명 설정 | `fcm=yes` **이고** 프로파일에 aps 가 있을 때만 `Runner.entitlements` 에 그 값을 넣고 `tools/ios-sign-project.js --entitlements Runner/Runner.entitlements` 로 서명에 붙임. 붙었는지 프로젝트 파일에서 확인 | plist 를 치우고 `fcm=no` 로 내려 **알림 없이** 올림(경고) |
+| 앱 타깃 서명 설정 | `fcm=yes` **이고** 프로파일에 aps 가 있을 때만 `Runner.entitlements` 에 그 값을 넣고 `tools/ios-sign-project.js --entitlements Runner/Runner.entitlements` 로 서명에 붙임. 붙었는지 프로젝트 파일에서 확인. 아니면 파일에서 aps 를 **지움** — 같은 파일이 초대 링크 권한(associated-domains)만 싣고 붙는 날이 있어서입니다(DEPLOY.md 11절) | plist 를 치우고 `fcm=no` 로 내려 **알림 없이** 올림(경고) |
 | 나온 앱에 앱 알림이 들어갔는가 | .ipa 를 열어 번들의 plist 와 서명의 aps-environment 를 봄. `continue-on-error` — 이 단계가 어떻게 실패해도 올리기는 돔 | 경고 · 요약에 "확인 필요" |
 | TestFlight 에 올리기 | 요약에 `앱 알림(APNs · FCM): 켜짐 / 꺼짐 — 이유 · 프로파일 aps=…` | — |
 
@@ -141,7 +141,7 @@
 | 어디 | 무슨 일 |
 |---|---|
 | 안드로이드 빌드 | `google-services.json` 이 없으니 플러그인이 안 켜지고 예전과 똑같이 빌드됩니다. |
-| 아이폰 빌드 | 복사 단계가 할 일 없이 지나가고, 엔타이틀먼트도 안 붙습니다. `Info.plist` 의 `UIBackgroundModes: remote-notification` 은 무해합니다. |
+| 아이폰 빌드 | 복사 단계가 할 일 없이 지나가고, 앱 알림 권한(aps-environment)도 안 붙습니다(초대 링크 권한만 붙을 수는 있음 — DEPLOY.md 11절). `Info.plist` 의 `UIBackgroundModes: remote-notification` 은 무해합니다. |
 | 앱 | `Firebase.initializeApp()` 이 실패하면 받아서 넘어가고, 독촉은 켤 때 · 돌아올 때 가져옵니다. 설정 화면은 「꺼짐 — 이 판은 앱 알림을 받지 못합니다」. |
 | 서버 | 서비스 계정 파일이 없거나 틀리면 FCM 을 조용히 끄고, 뜰 때 한 줄만 찍습니다: `앱 알림(FCM) 꺼짐 — ~/.mybody/fcm-service-account.json 파일 없음`. 웹 푸시는 예전 그대로. 앱이 올리는 기기 토큰은 그래도 저장해 두어, 나중에 켜면 바로 씁니다. |
 

@@ -16,6 +16,16 @@
  * 그 경계의 **옆**(형제)에 늘 떠 있는 의견 말풍선을 둡니다(screens/feedback_bubble.dart)
  * — 같은 까닭으로 모든 화면에 뜨고, 경계 밖이라 찍히지는 않습니다. 말풍선은 Navigator
  * 위에 있어서 Navigator 를 지켜보는 쪽(feedbackRoutes)을 같이 겁니다.
+ *
+ * **초대 링크(https://<서버>/i/<코드> · mybody://invite/<코드>)는 앱이 뜨기 전부터
+ * 듣습니다**(src/invite_link.dart). 링크를 눌러 앱이 켜지는 순간이 링크가 오는 순간이라,
+ * 저장소 · 서버 준비를 기다렸다가 들으면 늦을 수 있습니다. 받은 코드는 쥐어 두었다가 셸이
+ * 보낼 수 있을 때 보냅니다. https 링크는 이 앱의 서버 주소와 호스트가 같아야 초대라서, 듣는
+ * 곳에 서버 주소를 아는 길([savedServerBase] — 켤 때 Api 를 만드는 그 길)을 같이 넘깁니다.
+ * 안드로이드면 처음 켤 때 설치 referrer(플레이가 넘겨주는 초대 코드)도 한 번 묻습니다
+ * (src/install_referrer.dart). 듣는 곳은 main() 에서 만들어 MyBodyApp 에 넘깁니다 — 시험은
+ * 가짜 링크 길을 넘기고, 넘기지 않으면(const MyBodyApp()) 링크를 안 듣습니다(시험 안에는
+ * 플랫폼 채널이 없습니다).
  * ========================================================================== */
 import 'dart:async';
 
@@ -25,6 +35,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/api.dart';
 import 'src/cloud.dart';
+import 'src/invite_link.dart';
 import 'src/native_push.dart';
 import 'src/news_store.dart';
 import 'src/nudge.dart';
@@ -52,7 +63,11 @@ void main() {
     debugPrint('화면을 그리다 막혔습니다: ${details.exception}');
     return _Stuck(details: details);
   };
-  runApp(const MyBodyApp());
+  /* 링크를 듣는 것은 플랫폼 채널이라 바인딩이 먼저 있어야 합니다(runApp 도 같은 것을 부릅니다). */
+  WidgetsFlutterBinding.ensureInitialized();
+  final invites = InviteInbox.platform(serverBase: savedServerBase);
+  unawaited(invites.start());
+  runApp(MyBodyApp(invites: invites));
 }
 
 class _Stuck extends StatelessWidget {
@@ -87,8 +102,47 @@ class _Stuck extends StatelessWidget {
 
 const _serverKey = 'mybody.server.v1';
 
+/* **주소를 앱에 넣어 둡니다.**
+ *
+ * 안 넣어 두면 친구는 깔자마자 빈 칸 앞에 섭니다 — 카톡으로 받은 주소를
+ * 찾아 와서 폰 키보드로 붙여넣어야 합니다. 거기서 그만두는 사람이 나옵니다.
+ *
+ * 값은 빌드할 때 `--dart-define=SERVER_URL=...` 로 들어갑니다. 저장소에는
+ * 안 적습니다 — 깃허브 Secrets 에 두고 빌드가 꺼내 씁니다
+ * (.github/workflows/apk.yml).
+ *
+ * **다만 APK 안에는 남습니다.** 파일을 뜯으면 주소가 보입니다. 공개된
+ * 곳에 앱을 두는 이상 주소도 공개된 셈이라고 보셔야 합니다 — 계정과
+ * 가입 코드가 그 뒤를 막습니다.
+ *
+ * 초대 링크(https://<이 주소>/i/<코드>)가 앱을 곧바로 여는 것도 이 주소입니다 —
+ * 안드로이드 App Links · 아이폰 연결된 도메인이 빌드할 때 같은 값으로 들어갑니다. */
+const String _builtInServer = String.fromEnvironment(
+  'SERVER_URL',
+  defaultValue: 'https://desktop-il9c3if.tail0a8f8f.ts.net',
+);
+
+/// 이 앱이 쓰는 서버 주소 — 한 번이라도 직접 넣은 주소가 있으면 그것, 없으면 앱에 박힌 주소.
+///
+/// 켤 때 Api 를 만드는 길이고(_boot), 초대 링크 받는 곳이 https 링크의 호스트를 견줄 때도
+/// 이 길로 묻습니다 — 둘이 다른 주소를 보면 내 서버의 초대 링크를 남의 것으로 버립니다.
+/// 주소를 바꾸면(_setServer) 여기 적히므로 다음 물음부터 새 주소입니다. 직접 넣은 주소가
+/// 먼저인 까닭: 주인이 주소를 바꿨을 때 앱에 박힌 옛 주소가 그걸 덮어쓰면 안 됩니다.
+Future<String> savedServerBase() async {
+  String base = '';
+  try {
+    final sp = await SharedPreferences.getInstance();
+    base = sp.getString(_serverKey) ?? '';
+  } catch (_) {}
+  return base.isEmpty ? _builtInServer.trim() : base;
+}
+
 class MyBodyApp extends StatefulWidget {
-  const MyBodyApp({super.key});
+  const MyBodyApp({super.key, this.invites});
+
+  /// 초대 링크 받는 곳. main() 이 app_links 로 만들어 넘깁니다. 없으면 링크를 안 듣습니다.
+  final InviteInbox? invites;
+
   @override
   State<MyBodyApp> createState() => _MyBodyAppState();
 }
@@ -101,36 +155,14 @@ class _MyBodyAppState extends State<MyBodyApp> {
   @override
   void initState() {
     super.initState();
+    /* main() 이 이미 시작했으면 아무것도 안 합니다 — 시험이 넘긴 것도 여기서 시작됩니다. */
+    unawaited(widget.invites?.start());
     _boot();
   }
 
-  /* **주소를 앱에 넣어 둡니다.**
-   *
-   * 안 넣어 두면 친구는 깔자마자 빈 칸 앞에 섭니다 — 카톡으로 받은 주소를
-   * 찾아 와서 폰 키보드로 붙여넣어야 합니다. 거기서 그만두는 사람이 나옵니다.
-   *
-   * 값은 빌드할 때 `--dart-define=SERVER_URL=...` 로 들어갑니다. 저장소에는
-   * 안 적습니다 — 깃허브 Secrets 에 두고 빌드가 꺼내 씁니다
-   * (.github/workflows/apk.yml).
-   *
-   * **다만 APK 안에는 남습니다.** 파일을 뜯으면 주소가 보입니다. 공개된
-   * 곳에 앱을 두는 이상 주소도 공개된 셈이라고 보셔야 합니다 — 계정과
-   * 가입 코드가 그 뒤를 막습니다.
-   *
-   * 한 번이라도 직접 넣은 주소가 있으면 그걸 씁니다. 주인이 주소를 바꿨을
-   * 때 앱에 박힌 옛 주소가 그걸 덮어쓰면 안 됩니다. */
-  static const String _builtInServer = String.fromEnvironment(
-    'SERVER_URL',
-    defaultValue: 'https://desktop-il9c3if.tail0a8f8f.ts.net',
-  );
-
   Future<void> _boot() async {
-    String base = '';
-    try {
-      final sp = await SharedPreferences.getInstance();
-      base = sp.getString(_serverKey) ?? '';
-    } catch (_) {}
-    if (base.isEmpty) base = _builtInServer.trim();
+    /* 서버 주소는 앱에 박혀 있고, 직접 넣은 것이 있으면 그것(savedServerBase). */
+    final base = await savedServerBase();
     /* 로그아웃 직전에 이 기기의 앱 알림 등록을 지우는 Api — 로그아웃 버튼이 여러 화면에 있어
        한 곳에서 잡습니다(native_push.dart). */
     final api = PushAwareApi(baseUrl: base);
@@ -298,7 +330,7 @@ class _MyBodyAppState extends State<MyBodyApp> {
       /* 서버가 없어도 바로 들어갑니다 — 주소와 로그인은 나중 일입니다. */
       home: !_ready
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-          : const Shell(),
+          : Shell(invites: widget.invites),
     );
     if (!_ready) return app;
 

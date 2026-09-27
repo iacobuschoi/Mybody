@@ -21,13 +21,37 @@
  * 않게 이 상태에 한 번 묻고, 다시 켠 뒤에는 settings 의 표가 막습니다. 옛 동의로
  * 로그인한 사람은 동의 화면이 탭보다 늦게 뜨므로, /me 로 먼저 보고 동의를 마친 뒤
  * 탭이 다시 설 때 띄웁니다 — 동의 화면을 인사가 덮지 않게.
+ *
+ * **초대 링크**(invite_link.dart)로 받은 코드도 여기서 보냅니다 — 보낼 수 있는 때를 셸만
+ * 압니다: 탭 화면이 서 있고(로그인 · 첫 설정 · 동의 화면이 아님), 로그인돼 있을 때. 그때
+ * 받은 코드를 **꺼내서 비우고** 한 번 보내고, 결과를 스낵바 한 줄로 알립니다(「친구 요청을
+ * 보냈어요」 · 「이미 친구예요」 · 「내 코드예요」 · 서버의 까닭 — 서버에 못 닿았으면 보낸 것으로
+ * 치지 않아서, 같은 링크를 다시 누르면 다시 갑니다). 로그인 없이 쓰는 중이면 코드는
+ * 쥔 채로 「로그인하면 친구 요청이 가요」 를 한 번 알리고 「로그인」 을 붙입니다. 부르는
+ * 때는 셋 — 탭 화면이 설 때, 새 링크가 올 때, 로그인할 때. 테스터 인사가 뜨는 차례면 인사가
+ * 닫힌 뒤에 보냅니다 — 결과 스낵바가 인사 시트 밑에 깔려 안 보이면 요청이 갔는지 모릅니다.
+ *
+ * **클립보드의 초대**(안드로이드, 탭 화면이 처음 설 때 한 번 — invite_link.dart 머리 주석):
+ * 앱이 없던 친구가 초대 페이지의 설치 단추를 누르면 초대 글이 클립보드에 남습니다. 보낼 것이
+ * 없을 때 한 번 읽어 초대가 있으면 「초대 코드 <코드> 로 친구 요청할까요?」 를 묻고, 「요청」 을
+ * 누르면 링크로 받은 것과 같은 길로 보냅니다. 이것만은 묻습니다 — 클립보드는 남의 글일 수도
+ * 있습니다(설치 referrer 로 온 코드는 묻지 않고 보냅니다).
+ *
+ * **누를 것이 있는 안내는 위의 띠(MaterialBanner)로.** 「로그인」 · 「요청」 을 스낵바에 달았더니,
+ * 의견 말풍선의 처음 자리(「인바디」 단추 바로 위)가 떠 있는 스낵바의 오른쪽 끝 — 바로 그
+ * 단추 자리를 덮었습니다(스낵바는 「인바디」 단추 위에 뜹니다). 아래 여백으로 비키려니 단추가
+ * 있는 홈과 없는 탭에서 스낵바 높이가 72px 달라, 한쪽에서 비키면 다른 쪽에서 덮습니다. 위의
+ * 띠는 앱바 바로 밑이라 말풍선 · 단추 · 탭바 어느 것과도 안 만납니다. 띠는 화면을 밀지 않고
+ * 얹히고(elevation), 누르지 않으면 저절로 걷힙니다 — 쓰던 화면을 오래 가리지 않게. 탭 화면이
+ * 내려가면(로그아웃 · 동의 화면) 같이 걷습니다. 결과 한 줄(누를 것 없음)은 그대로 스낵바입니다.
  * ========================================================================== */
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
-import 'api.dart' show ApiResult;
+import 'api.dart' show Api, ApiResult;
+import 'invite_link.dart';
 import 'nudge.dart' show notificationRoute, tappedMealReminder, parseWorkoutPayload;
 import 'scope.dart';
 import 'ui/symbols.dart';
@@ -48,7 +72,11 @@ import 'screens/tester_welcome.dart';
 import 'screens/workout_session.dart';
 
 class Shell extends StatefulWidget {
-  const Shell({super.key});
+  const Shell({super.key, this.invites});
+
+  /// 초대 링크 받는 곳(main.dart 가 만듭니다). 없으면 링크로 온 요청을 안 봅니다.
+  final InviteInbox? invites;
+
   @override
   State<Shell> createState() => _ShellState();
 }
@@ -64,18 +92,62 @@ class _ShellState extends State<Shell> {
   /// 세우면 0 이 됩니다 — 인사를 띄우기 직전에 이것을 봅니다.
   int _tabsUp = 0;
 
+  /// 테스터 인사를 묻는 중이거나 떠 있는 동안 — 초대 링크의 결과는 그 뒤에 알립니다.
+  bool _welcomeBusy = false;
+
+  /// 초대 링크로 받은 요청을 보내는 중인가.
+  bool _inviteBusy = false;
+
+  /// 이 셸에서 클립보드의 초대를 이미 물었나(이 기기에서 한 번인지는 InviteInbox 가 적습니다).
+  bool _clipboardAsked = false;
+
+  /* 지금 떠 있는 위의 띠(누를 것이 있는 안내)와 그것을 띄운 곳 · 저절로 걷는 시계. */
+  ScaffoldFeatureController<MaterialBanner, MaterialBannerClosedReason>? _prompt;
+  ScaffoldMessengerState? _promptMessenger;
+  Timer? _promptTimer;
+
+  /// 로그인 · 로그아웃을 듣는 Api — 서버를 옮기면 새것이 됩니다.
+  Api? _api;
+
+  /// 친구 탭을 새로 세우는 번호 — 초대 링크로 요청이 가면 목록을 다시 받게.
+  int _socialEpoch = 0;
+
   /* 알림을 누르면 그 알림이 가리키는 곳으로(끼니 · 간식 알림은 식단 탭).
      알림으로 앱이 새로 켜졌으면 셸이 뜨기 전에 값이 와 있을 수 있어 처음에도 봅니다. */
   @override
   void initState() {
     super.initState();
     notificationRoute.addListener(_onRoute);
+    widget.invites?.addListener(_onInvite);
     WidgetsBinding.instance.addPostFrameCallback((_) => _onRoute());
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final api = Scope.apiOf(context);
+    if (!identical(api, _api)) {
+      _api?.removeListener(_onInvite);
+      _api = api..addListener(_onInvite);
+    }
+  }
+
+  @override
+  void didUpdateWidget(Shell old) {
+    super.didUpdateWidget(old);
+    if (!identical(old.invites, widget.invites)) {
+      old.invites?.removeListener(_onInvite);
+      widget.invites?.addListener(_onInvite);
+      _onInvite();
+    }
   }
 
   @override
   void dispose() {
     notificationRoute.removeListener(_onRoute);
+    widget.invites?.removeListener(_onInvite);
+    _api?.removeListener(_onInvite);
+    _closePrompt(later: true);
     super.dispose();
   }
 
@@ -177,12 +249,21 @@ class _ShellState extends State<Shell> {
      한 번뿐이고, 닫으면 그 화면 그대로입니다. */
   void _tabsShown() {
     _tabsUp++;
-    if (_welcomeAsked) return;
+    if (_welcomeAsked) {
+      _onInvite();
+      return;
+    }
     _welcomeAsked = true;
+    _welcomeBusy = true;
     WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_welcome()));
   }
 
-  void _tabsGone() => _tabsUp--;
+  /* 탭 화면이 내려가면(로그아웃 · 동의 화면) 위의 띠도 걷습니다 — 로그인 화면 위에 「로그인하면
+     친구 요청이 가요」 가 남으면 이상합니다. 떨어지는 중(dispose)이라 다음 틈에 걷습니다. */
+  void _tabsGone() {
+    _tabsUp--;
+    if (_tabsUp <= 0) _closePrompt(later: true);
+  }
 
   /* **동의 화면 위에는 안 띄웁니다.** 동의 게이트는 /me 를 받기 전까지 탭을 세워 두었다가
      옛 동의면 그제야 동의 화면으로 바꿉니다 — 그 사이에 띄우면 인사가 동의 화면을 덮고,
@@ -192,23 +273,173 @@ class _ShellState extends State<Shell> {
      쓰던 손을 가로챕니다. 옛 동의였거나 그사이 탭 화면이 내려갔으면(로그아웃 · 동의
      화면) 물은 것을 되돌려, 탭 화면이 다시 설 때 묻습니다. */
   Future<void> _welcome() async {
-    if (!mounted || testerWelcomeSeen(Scope.of(context).state)) return;
-    final api = Scope.apiOf(context);
-    if (api.signedIn) {
-      final r = await api.me().timeout(const Duration(seconds: 4),
-          onTimeout: () => const ApiResult(0, {}));
-      if (!mounted) return;
-      final u = r.body['user'];
-      if (r.ok && u is Map && needsReconsent(u)) {
+    /* 인사를 다시 물어야 하면(옛 동의 · 탭이 내려감) 초대 링크도 그때까지 기다립니다 —
+       탭이 다시 서면 인사부터 다시 묻고, 그 뒤에 보냅니다. */
+    var again = false;
+    try {
+      if (!mounted || testerWelcomeSeen(Scope.of(context).state)) return;
+      final api = Scope.apiOf(context);
+      if (api.signedIn) {
+        final r = await api.me().timeout(const Duration(seconds: 4),
+            onTimeout: () => const ApiResult(0, {}));
+        if (!mounted) return;
+        final u = r.body['user'];
+        if (r.ok && u is Map && needsReconsent(u)) {
+          again = true;
+          _welcomeAsked = false;
+          return;
+        }
+      }
+      if (_tabsUp <= 0) {
+        again = true;
         _welcomeAsked = false;
         return;
       }
+      /* 닫힐 때까지 기다립니다 — 초대 링크의 결과를 인사 시트 밑에 깔지 않게. */
+      await showTesterWelcome(context);
+    } finally {
+      if (!again) {
+        _welcomeBusy = false;
+        if (mounted) _onInvite();
+      }
     }
-    if (_tabsUp <= 0) {
-      _welcomeAsked = false;
+  }
+
+  /* --- 초대 링크 -------------------------------------------------------------
+     알림(링크가 옴 · 로그인 · 탭이 섬)은 빌드 도중일 수 있어 다음 프레임에 봅니다. 프레임이
+     예정돼 있지 않을 수 있으니(링크는 화면이 가만히 있을 때도 옵니다) 하나 청합니다. */
+  void _onInvite() {
+    if (!mounted || widget.invites == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_deliverInvite()));
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Future<void> _deliverInvite() async {
+    final inbox = widget.invites;
+    if (!mounted || inbox == null || _inviteBusy || _welcomeBusy || _tabsUp <= 0) return;
+    final p = inbox.pending;
+    if (p == null) {
+      /* 보낼 것이 없으면 — 탭 화면이 처음 섰을 때 한 번, 클립보드의 초대를 봅니다. */
+      unawaited(_askClipboard());
       return;
     }
-    unawaited(showTesterWelcome(context));
+    final api = Scope.apiOf(context);
+    if (!api.signedIn) {
+      /* 로그인 없이 쓰는 중 — 코드는 쥔 채로, 안내는 한 번만. */
+      if (p.prompted) return;
+      inbox.markPrompted();
+      _invitePrompt('로그인하면 친구 요청이 가요',
+          action: '로그인', dismiss: '닫기', onAction: () => _go('signin'));
+      return;
+    }
+    final code = inbox.take();
+    if (code == null) return;
+    _inviteBusy = true;
+    try {
+      final r = await requestFriendByCode(api, code);
+      /* 서버에 못 닿았으면(0 · 5xx) 보낸 것으로 치지 않습니다 — 같은 링크를 다시 누르면 앱이
+         꺼져 있다 켜지는 길이어도 다시 갑니다(invite_link.dart 「되살아난 링크」). */
+      if (r == null || r.status == 0 || r.status >= 500) inbox.unsent(code);
+      if (!mounted || r == null) return;
+      _inviteSnack(friendRequestMessage(r));
+      if (r.ok) setState(() => _socialEpoch++);
+    } finally {
+      _inviteBusy = false;
+    }
+    /* 보내는 사이 또 다른 링크가 왔으면 이어서. 아니면 클립보드를 한 번 봅니다 — referrer ·
+       링크로 받은 그 코드가 클립보드에도 있을 테니 대개 묻지 않고 끝나지만(InviteInbox 가
+       거릅니다), 읽는 한 번을 여기서 써 두어 다음에 켤 때 괜히 읽지 않게. */
+    if (!mounted) return;
+    if (inbox.pending != null) {
+      _onInvite();
+    } else {
+      unawaited(_askClipboard());
+    }
+  }
+
+  /* 클립보드의 초대(머리 주석) — 이 셸에서 한 번 묻고, 이 기기에서 한 번인지는 InviteInbox 가
+     적습니다(아이폰은 읽지 않고 null). 읽는 사이 탭 화면이 내려갔으면 묻지 않습니다. 「요청」 을
+     누르면 링크로 받은 것처럼 쥐고(offer) — 쥐면 알림이 와서 위의 _deliverInvite 가 보냅니다
+     (로그인 없이 쓰는 중이면 「로그인하면 친구 요청이 가요」). */
+  Future<void> _askClipboard() async {
+    final inbox = widget.invites;
+    if (_clipboardAsked || inbox == null) return;
+    _clipboardAsked = true;
+    final code = await inbox.clipboardInviteOnce();
+    if (code == null || !mounted || _tabsUp <= 0 || inbox.pending != null) return;
+    _invitePrompt('초대 코드 $code 로 친구 요청할까요?',
+        action: '요청',
+        dismiss: '괜찮아요',
+        stay: const Duration(seconds: 15),
+        onAction: () => unawaited(inbox.offer(code)));
+  }
+
+  /* 결과 한 줄 — 누를 것이 없는 스낵바. */
+  void _inviteSnack(String message) {
+    ScaffoldMessenger.maybeOf(context)
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text(message),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 3),
+      ));
+  }
+
+  /* 누를 것이 있는 안내 — 앱바 밑의 띠(머리 주석). [stay] 가 지나도록 안 누르면 저절로 걷힙니다
+     — 쓰던 화면을 계속 가리지 않게. 새 띠는 옛 띠를 바로 치우고 뜹니다(두 장이 줄 서지 않게). */
+  void _invitePrompt(String message,
+      {required String action,
+      required String dismiss,
+      required VoidCallback onAction,
+      Duration stay = const Duration(seconds: 6)}) {
+    final m = ScaffoldMessenger.maybeOf(context);
+    if (m == null) return;
+    _promptTimer?.cancel();
+    if (_prompt != null) _promptMessenger?.removeCurrentMaterialBanner();
+    final t = Theme.of(context);
+    final c = m.showMaterialBanner(MaterialBanner(
+      key: const Key('invite-prompt'),
+      content: Text(message),
+      leading: Icon(LucideIcons.userPlus, color: t.colorScheme.primary),
+      /* 얹히게 — 0 이면 탭 화면의 내용이 띠 높이만큼 내려갔다가 걷힐 때 도로 올라옵니다. */
+      elevation: 2,
+      actions: [
+        TextButton(
+            key: const Key('invite-prompt-dismiss'), onPressed: _closePrompt, child: Text(dismiss)),
+        TextButton(
+          key: const Key('invite-prompt-action'),
+          onPressed: () {
+            _closePrompt();
+            onAction();
+          },
+          child: Text(action),
+        ),
+      ],
+    ));
+    _prompt = c;
+    _promptMessenger = m;
+    _promptTimer = Timer(stay, _closePrompt);
+    unawaited(c.closed.then((_) {
+      if (!identical(_prompt, c)) return;
+      _prompt = null;
+      _promptTimer?.cancel();
+      _promptTimer = null;
+    }));
+  }
+
+  /* 띠를 걷습니다(떠 있을 때만 — 앱의 다른 띠는 없지만 남의 것을 걷지 않게). [later] 는 화면이
+     떨어지는 중(dispose)일 때 — 그 틈에는 위(ScaffoldMessenger)를 고칠 수 없어 다음 틈에. */
+  void _closePrompt({bool later = false}) {
+    _promptTimer?.cancel();
+    _promptTimer = null;
+    final c = _prompt, m = _promptMessenger;
+    if (c == null || m == null) return;
+    _prompt = null;
+    void close() {
+      if (m.mounted) m.hideCurrentMaterialBanner();
+    }
+
+    later ? scheduleMicrotask(close) : close();
   }
 
   (String, String) _workoutArg(Object? arg) {
@@ -273,7 +504,7 @@ class _ShellState extends State<Shell> {
       1 => FoodScreen(go: _go),
       2 => PlanScreen(go: _go),
       3 => ProgressScreen(go: _go),
-      _ => SocialScreen(go: _go),
+      _ => SocialScreen(key: ValueKey(_socialEpoch), go: _go),
     };
 
     /* **다른 탭에서 뒤로 가기는 홈입니다.** 폰의 뒤로 가기가 식단 탭에서

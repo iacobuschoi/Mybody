@@ -110,6 +110,290 @@ function fakeApple(state) {
   return { fetchImpl, calls };
 }
 
+/* =============================================================================
+ * 아이폰 TestFlight 워크플로(.github/workflows/ios-release.yml) — 초대 링크(Universal Links)
+ *
+ * 친구가 받은 https://<서버>/i/<코드> 를 누르면 사파리 없이 앱이 열리려면 서명에
+ * associated-domains = ["applinks:<서버 호스트>"] 가 붙어야 합니다. CI 는 맥 러너에서만 돌고
+ * 한 번 도는 데 30분이라, 잘못 짠 bash 한 줄(bash -e 에서 실패하는 명령)이 **릴리스 전체를**
+ * 멈출 수 있습니다 — 초대 링크는 부가 기능인데요. 그래서
+ *   · 호스트를 떼는 단계와 서명 설정 단계의 bash 를 **그대로 꺼내 여기서 돌려 봅니다**
+ *     (PlistBuddy 는 가짜 · 서명 도구와 프로젝트 파일은 진짜의 사본). 어느 길로 가도 0 으로
+ *     끝나고, 프로파일에 없는 권한은 절대 붙이지 않는지.
+ *   · 나머지는 글자로 봅니다: App ID 에 Associated Domains 를 켜는 단계(자동 서명일 때만 ·
+ *     limit 없이 · 409 는 이미 있음), 프로파일에서 권한을 읽는 줄, 나온 앱을 열어 보는 확인.
+ * ========================================================================== */
+function iosReleaseWorkflow() {
+  const { spawnSync } = require('node:child_process');
+  const ROOT = path.join(__dirname, '..');
+  const WF = path.join(ROOT, '.github', 'workflows', 'ios-release.yml');
+  const wf = fs.readFileSync(WF, 'utf8');
+  console.log('\n아이폰 워크플로 — 초대 링크(Universal Links)');
+
+  /* 단계 나누기 — steps: 아래 "- " 가 한 단계의 시작입니다(들여쓰기로만 봅니다). */
+  const lines = wf.split('\n');
+  const stepsAt = lines.findIndex(l => /^\s*steps:\s*$/.test(l));
+  const itemIndent = stepsAt >= 0 ? lines[stepsAt].match(/^\s*/)[0].length + 2 : 6;
+  const steps = [];
+  for (let i = stepsAt + 1; i < lines.length; i++) {
+    const l = lines[i];
+    const ind = l.match(/^\s*/)[0].length;
+    if (l.trim() && ind < itemIndent) break;
+    if (ind === itemIndent && l.slice(ind).startsWith('- ')) steps.push({ start: i, lines: [] });
+    if (steps.length) steps[steps.length - 1].lines.push(l);
+  }
+  for (const s of steps) {
+    s.text = s.lines.join('\n');
+    s.name = ((s.text.match(/^\s*-?\s*name:\s*(.+)$/m) || [])[1] || '').trim();
+    const ri = s.lines.findIndex(l => /^\s*run:\s*\|\s*$/.test(l));
+    if (ri >= 0) {
+      const runIndent = s.lines[ri].match(/^\s*/)[0].length;
+      const body = [];
+      for (let j = ri + 1; j < s.lines.length; j++) {
+        const l = s.lines[j];
+        if (l.trim() && l.match(/^\s*/)[0].length <= runIndent) break;
+        body.push(l);
+      }
+      const min = Math.min(...body.filter(l => l.trim()).map(l => l.match(/^\s*/)[0].length));
+      s.run = body.map(l => l.slice(min)).join('\n').replace(/\s+$/, '') + '\n';
+    }
+  }
+  const step = n => steps.find(s => s.name.startsWith(n));
+  const idx = n => steps.findIndex(s => s.name.startsWith(n));
+
+  const HOST_STEP = '초대 링크 주소';
+  const CAP_STEP = 'App ID 에 초대 링크(Associated Domains) 켜기';
+  const PUSH_STEP = 'App ID 에 푸시 켜기';
+  const SIGN_STEP = '앱 타깃 서명 설정';
+  const host = step(HOST_STEP), cap = step(CAP_STEP), push = step(PUSH_STEP), sign = step(SIGN_STEP);
+  const prof = step('프로파일 설치'), check = step('나온 앱에 앱 알림이 들어갔는가'), up = step('TestFlight 에 올리기');
+  ok(host && cap && push && sign && prof && check && up, '단계가 다 있다 (호스트 · App ID 둘 · 프로파일 · 서명 · 확인 · 올리기)');
+  if (!(host && cap && push && sign && prof && check && up)) return;
+
+  /* --- 순서와 조건 (글자) --- */
+  ok(idx(HOST_STEP) < idx(CAP_STEP) && idx(CAP_STEP) < idx('인증서·프로파일 만들기') &&
+     idx('인증서·프로파일 만들기') < idx('프로파일 설치') && idx('프로파일 설치') < idx(SIGN_STEP),
+     '순서: 호스트 → App ID 켜기 → 프로파일 새로 만들기 → 프로파일 읽기 → 서명 (켠 뒤에 만들어야 권한이 들어옴)');
+  const capIf = (cap.text.match(/^\s*if:\s*(.+)$/m) || [])[1] || '';
+  ok(/env\.mode == 'auto'/.test(capIf) && /env\.invite_host != ''/.test(capIf),
+     'Associated Domains 켜기는 자동 서명 · 호스트가 정해졌을 때만 (수동 프로파일을 무효로 만들지 않음)');
+  ok(/if:\s*env\.mode == 'auto' && env\.fcm == 'yes'/.test(push.text) && /'PUSH_NOTIFICATIONS'/.test(push.text),
+     '푸시 켜기 단계는 예전 조건 그대로 (초대 링크 때문에 바뀌지 않음)');
+  ok(/const TYPE = 'ASSOCIATED_DOMAINS'/.test(cap.text) &&
+     /c\.call\('GET', `\/v1\/bundleIds\/\$\{bundleIdId\}\/bundleIdCapabilities`\)/.test(cap.text) &&
+     /c\.call\('POST', '\/v1\/bundleIdCapabilities'/.test(cap.text) && /e\.status === 409/.test(cap.text),
+     'App ID 에 ASSOCIATED_DOMAINS: GET → 없으면 POST, 409 는 이미 있음');
+  ok(/supportsEntitlements/.test(cap.text) && /ul_cap=/.test(cap.text) && /\|\| echo "ul_cap=failed"/.test(cap.run || ''),
+     '서명 도구가 권한을 못 붙이는 판이면 App ID 를 안 건드리고, 어떻게 실패해도 단계는 안 멈춤');
+  const capLines = [wf, fs.readFileSync(path.join(__dirname, 'asc.js'), 'utf8')].join('\n').split('\n')
+    .filter(l => /bundleIdCapabilities/.test(l) && !/^\s*(\/\*|\*|\/\/|#)/.test(l) && !/limit 을 붙이면/.test(l));
+  ok(capLines.length > 0 && capLines.every(l => !/limit/.test(l)),
+     'bundleIdCapabilities 요청에 limit 이 없다 (붙이면 애플이 400 PARAMETER_ERROR.ILLEGAL)');
+  ok(/Print :Entitlements:com\.apple\.developer\.associated-domains/.test(prof.text) && /profile_ad=\$ad/.test(prof.text),
+     '프로파일에서 associated-domains 가 있는지 읽어 profile_ad 로 (값은 옮기지 않음 — 배열일 수 있음)');
+  ok(check.text.includes('continue-on-error: true') && /com\.apple\.developer\.associated-domains/.test(check.text) &&
+     /applinks:\$invite_host/.test(check.text) && /ul=partial/.test(check.text),
+     '나온 앱의 서명에 applinks:<호스트> 가 있는지 보고, 없으면 경고만 (continue-on-error)');
+  ok(/초대 링크\(Universal Links\): \*\*켜짐\*\*/.test(up.text) && /초대 링크\(Universal Links\): 꺼짐 — /.test(up.text),
+     '요약에 「초대 링크(Universal Links): 켜짐/꺼짐 — 이유」 한 줄');
+
+  /* 기본 호스트 = 앱의 기본 서버(lib/main.dart) = 안드로이드(build.gradle.kts). */
+  const dartDefault = (fs.readFileSync(path.join(ROOT, 'app', 'lib', 'main.dart'), 'utf8')
+    .match(/'SERVER_URL',\s*defaultValue:\s*'https:\/\/([^'/:]+)/) || [])[1];
+  const gradleFallback = (fs.readFileSync(path.join(ROOT, 'app', 'android', 'app', 'build.gradle.kts'), 'utf8')
+    .match(/val fallback = "([^"]+)"/) || [])[1];
+  const wfFallback = ((host.run || '').match(/^fallback=(\S+)$/m) || [])[1];
+  ok(dartDefault && wfFallback === dartDefault && gradleFallback === dartDefault,
+     '비밀이 없을 때의 호스트가 앱 · 안드로이드 · 아이폰 셋 다 같다 (' + wfFallback + ')');
+
+  /* 이 단계들은 비밀을 다루므로 set +x 로 시작합니다(명령이 로그에 펼쳐지지 않게). */
+  ok([host, cap, sign].every(s => /^set \+x$/m.test(s.run || '')), '비밀을 만지는 단계는 set +x');
+
+  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'mybody-iosrel-'));
+  const nodeDir = path.dirname(process.execPath);
+  /* 워크플로는 맥 러너의 bash 로 돕니다. 윈도우(노트북)의 Git Bash 는 경로 · 실행 권한이 달라 건너뜁니다. */
+  const bashOk = process.platform !== 'win32' && spawnSync('bash', ['-c', 'true']).status === 0;
+  if (!bashOk) {
+    console.log('  · bash 가 없거나 윈도우라 단계를 돌려 보는 시험은 건너뜁니다');
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    return;
+  }
+  /* 깃허브의 bash 와 같게: bash --noprofile --norc -eo pipefail */
+  function runStep(script, env, cwd) {
+    const f = path.join(tmpRoot, 'step-' + Math.random().toString(36).slice(2) + '.sh');
+    fs.writeFileSync(f, script);
+    const ghEnv = path.join(tmpRoot, 'ghenv-' + Math.random().toString(36).slice(2));
+    fs.writeFileSync(ghEnv, '');
+    const r = spawnSync('bash', ['--noprofile', '--norc', '-eo', 'pipefail', f], {
+      cwd: cwd || tmpRoot, encoding: 'utf8',
+      env: Object.assign({ PATH: nodeDir + path.delimiter + (process.env.PATH || '/usr/bin:/bin'), GITHUB_ENV: ghEnv }, env) });
+    const vars = {};
+    for (const l of fs.readFileSync(ghEnv, 'utf8').split('\n')) {
+      const i = l.indexOf('=');
+      if (i > 0) vars[l.slice(0, i)] = l.slice(i + 1);
+    }
+    return { status: r.status, out: (r.stdout || '') + (r.stderr || ''), vars, envLines: fs.readFileSync(ghEnv, 'utf8') };
+  }
+
+  /* --- 호스트 떼기: 진짜 bash 로 --- */
+  const HOST_CASES = [
+    ['', dartDefault, '비었으면 기본 호스트'],
+    ['https://Mybody.Example.COM:8443/api?x=1#y', 'mybody.example.com', '포트 · 경로 · 물음 · 조각을 버리고 소문자'],
+    ['https://user:pw@srv.tail1.ts.net/', 'srv.tail1.ts.net', '사용자:비밀번호@ 를 버림'],
+    ['  https://sp.example.com/\n', 'sp.example.com', '붙여 넣을 때 섞인 공백 · 줄바꿈'],
+    ['HTTPS://Up.Example.com', 'up.example.com', 'HTTPS 대문자도 https'],
+    ['srv2.example.org', 'srv2.example.org', 'scheme 없이 호스트만'],
+    ['http://plain.example.com', '', 'http 는 끔 (연결된 도메인은 https 만)'],
+    ['https://1.2.3.4/', '', 'IP 주소는 끔'],
+    ['https://localhost', '', '점 없는 이름은 끔'],
+    ['https://bad_host.com', '', '호스트에 못 쓰는 글자면 끔'],
+    ['https://x.com\ninvite_host=evil.com\nul=yes', '', '줄바꿈으로 GITHUB_ENV 에 끼워 넣기 — 안 먹힘'],
+    ['https://a.com;rm -rf /', '', '셸 글자가 섞이면 끔 (실행되지 않음)'],
+    ['https://$(touch pwned).example.com', '', '$(…) 는 실행되지 않고 끔'],
+  ];
+  for (const [su, want, why] of HOST_CASES) {
+    const r = runStep(host.run, { SU: su });
+    const got = r.vars.invite_host;
+    const extraKeys = Object.keys(r.vars).filter(k => !['invite_host', 'ul', 'ul_why'].includes(k));
+    const good = r.status === 0 && (got || '') === want && !extraKeys.length &&
+      (want ? !r.vars.ul : r.vars.ul === 'no' && !!r.vars.ul_why) && !fs.existsSync(path.join(tmpRoot, 'pwned'));
+    ok(good, '호스트: ' + why + (good ? '' : ' — 받은 ' + JSON.stringify({ status: r.status, vars: r.vars })));
+  }
+  /* GITHUB_ENV 에 쓴 값은 뒤 단계마다 로그의 env: 목록에 펼쳐집니다 — 그래서 가리기(::add-mask::)
+     명령 말고는 어디에도 호스트가 나오면 안 되고, 가리기는 GITHUB_ENV 에 쓰기 **전에** 해야 합니다.
+     (러너는 ::add-mask:: 줄 자체는 로그에 남기지 않습니다.) */
+  {
+    const r = runStep(host.run, { SU: 'https://secret-host.example.net/x' });
+    const outLines = r.out.split('\n');
+    const maskAt = outLines.findIndex(l => l === '::add-mask::secret-host.example.net');
+    ok(r.vars.invite_host === 'secret-host.example.net' && maskAt >= 0 &&
+       outLines.every((l, i) => i === maskAt || !l.includes('secret-host')),
+       '비밀에서 나온 호스트를 로그에 찍지 않고, 뒤 단계의 env: 목록에서도 가린다 (::add-mask::)');
+    ok(!/add-mask/.test(runStep(host.run, { SU: '' }).out),
+       '비밀이 비어 기본 호스트(저장소에 이미 있는 값)를 쓸 때는 가리지 않는다');
+    const maskLine = host.run.split('\n').findIndex(l => /::add-mask::\$host/.test(l));
+    const envLine = host.run.split('\n').findIndex(l => /echo "invite_host=\$host" >> "\$GITHUB_ENV"/.test(l));
+    ok(maskLine >= 0 && envLine > maskLine, '가리기가 GITHUB_ENV 에 쓰기보다 먼저');
+  }
+
+  /* --- 서명 설정: 진짜 bash · 진짜 서명 도구(사본) · 가짜 PlistBuddy --- */
+  const fakePb = path.join(tmpRoot, 'PlistBuddy');
+  fs.writeFileSync(fakePb, `#!/usr/bin/env node
+'use strict';
+/* PlistBuddy 흉내 — Set · Add · Delete · Print 만. 상태는 FAKE_PB_STATE(JSON). 한 명령이라도
+   틀리면 저장하지 않고 1 로 끝납니다. FAKE_PB_FAIL 글자가 든 명령은 일부러 실패. */
+const fs = require('fs');
+const a = process.argv.slice(2), cmds = [];
+for (let i = 0; i < a.length; i++) if (a[i] === '-c') cmds.push(a[++i]);
+const st = process.env.FAKE_PB_STATE;
+const s = fs.existsSync(st) ? JSON.parse(fs.readFileSync(st, 'utf8')) : {};
+const die = m => { console.error(m); process.exit(1); };
+for (const c of cmds) {
+  if (process.env.FAKE_PB_FAIL && c.includes(process.env.FAKE_PB_FAIL)) die('일부러 실패: ' + c);
+  const p = c.split(' ');
+  const keyPath = (p[1] || '').replace(/^:/, '').split(':');
+  const k = keyPath[0];
+  if (p[0] === 'Set') { if (!(k in s)) die('Does Not Exist'); s[k] = p.slice(2).join(' '); }
+  else if (p[0] === 'Delete') { if (!(k in s)) die('Does Not Exist'); delete s[k]; }
+  else if (p[0] === 'Print') { if (!(k in s)) die('Does Not Exist'); console.log(s[k]); }
+  else if (p[0] === 'Add') {
+    const v = p.slice(3).join(' ');
+    if (keyPath.length > 1) { if (!Array.isArray(s[k])) die('Not an array'); s[k].push(v); }
+    else { if (k in s) die('Entry Already Exists'); s[k] = p[2] === 'array' ? [] : v; }
+  } else die('모르는 명령 ' + c);
+}
+fs.writeFileSync(st, JSON.stringify(s));
+`, { mode: 0o755 });
+  const PBX = fs.readFileSync(path.join(ROOT, 'app', 'ios', 'Runner.xcodeproj', 'project.pbxproj'), 'utf8');
+  const signScript = sign.run.split('/usr/libexec/PlistBuddy').join(fakePb);
+  ok(signScript !== sign.run, '서명 단계가 PlistBuddy 로 엔타이틀먼트를 고친다');
+  const AD = 'com.apple.developer.associated-domains';
+  const BASE = { team_id: 'ABCDE12345', profile_name: 'Mybody AppStore GHA', BUNDLE_ID: 'io.github.iacobuschoi.mybody' };
+  function sign1(env, opt) {
+    opt = opt || {};
+    const dir = fs.mkdtempSync(path.join(tmpRoot, 'repo-'));
+    fs.mkdirSync(path.join(dir, 'app', 'ios', 'Runner.xcodeproj'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'app', 'ios', 'Runner'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'tools'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'app', 'ios', 'Runner.xcodeproj', 'project.pbxproj'), PBX);
+    fs.copyFileSync(path.join(ROOT, 'app', 'ios', 'Runner', 'Runner.entitlements'), path.join(dir, 'app', 'ios', 'Runner', 'Runner.entitlements'));
+    fs.writeFileSync(path.join(dir, 'app', 'ios', 'Runner', 'GoogleService-Info.plist'), 'x');
+    fs.writeFileSync(path.join(dir, 'tools', 'ios-sign-project.js'), opt.oldSignTool
+      ? "console.log('수동 서명으로 바꿈 (옛 판 — 모르는 인자는 버림)');\n"
+      : fs.readFileSync(path.join(__dirname, 'ios-sign-project.js'), 'utf8'));
+    const state = path.join(dir, 'pb.json');
+    fs.writeFileSync(state, JSON.stringify({ 'aps-environment': 'production' }));   /* 커밋된 파일의 내용 */
+    const r = runStep(signScript, Object.assign({ FAKE_PB_STATE: state, FAKE_PB_FAIL: opt.pbFail || '' }, BASE, env), dir);
+    r.ent = JSON.parse(fs.readFileSync(state, 'utf8'));
+    r.attached = (fs.readFileSync(path.join(dir, 'app', 'ios', 'Runner.xcodeproj', 'project.pbxproj'), 'utf8')
+      .match(/CODE_SIGN_ENTITLEMENTS = "?Runner\/Runner\.entitlements"?;/g) || []).length;
+    r.plistLeft = fs.existsSync(path.join(dir, 'app', 'ios', 'Runner', 'GoogleService-Info.plist'));
+    return r;
+  }
+  const H = 'mybody.example.com';
+  const same = (x, y) => JSON.stringify(x) === JSON.stringify(y);
+  {
+    const r = sign1({ mode: 'auto', fcm: 'no', invite_host: H, profile_ad: 'yes', ul_cap: 'created' });
+    ok(r.status === 0 && same(r.ent, { [AD]: ['applinks:' + H] }) && r.attached === 2 && r.vars.ul === 'yes' &&
+       /초대 링크\(Universal Links\): 켜짐/.test(r.out),
+       '푸시가 꺼진 날에도 초대 링크만 붙인다 — aps-environment 는 지우고 applinks 만 (' + JSON.stringify(r.ent) + ')');
+  }
+  {
+    const r = sign1({ mode: 'auto', fcm: 'yes', profile_aps: 'production', invite_host: H, profile_ad: 'yes' });
+    ok(r.status === 0 && same(r.ent, { 'aps-environment': 'production', [AD]: ['applinks:' + H] }) && r.attached === 2 &&
+       r.vars.ul === 'yes' && r.plistLeft, '둘 다 맞으면 둘 다 붙인다');
+  }
+  {
+    const r = sign1({ mode: 'auto', fcm: 'yes', profile_aps: 'production', invite_host: H, profile_ad: 'no', ul_cap: 'failed' });
+    ok(r.status === 0 && same(r.ent, { 'aps-environment': 'production' }) && r.attached === 2 && r.vars.ul === 'no' &&
+       /연결된 도메인 권한이 없음/.test(r.vars.ul_why) && /꺼짐 — /.test(r.out),
+       '프로파일에 연결된 도메인 권한이 없으면 applinks 는 안 붙이고 (서명 안 깨짐) 푸시는 그대로');
+  }
+  {
+    const r = sign1({ mode: 'manual', fcm: 'no', invite_host: H, profile_ad: 'no' });
+    ok(r.status === 0 && r.attached === 0 && r.vars.ul === 'no' && /Associated Domains 를 켜고 프로파일을 다시/.test(r.vars.ul_why),
+       '수동 프로파일에 권한이 없으면 무엇을 하라고 말하고, 엔타이틀먼트는 안 붙인다 (예전 그대로)');
+  }
+  {
+    const r = sign1({ mode: 'auto', fcm: 'no', invite_host: '', ul: 'no', ul_why: '서버 주소가 https 가 아님', profile_ad: 'yes' });
+    ok(r.status === 0 && r.attached === 0 && !(AD in r.ent) && /꺼짐 — 서버 주소가 https 가 아님/.test(r.out),
+       '호스트가 없으면 앞 단계의 이유를 그대로 말하고 아무것도 안 붙인다');
+  }
+  {
+    const r = sign1({ mode: 'auto', fcm: 'yes', profile_aps: '', invite_host: H, profile_ad: 'yes' });
+    ok(r.status === 0 && same(r.ent, { [AD]: ['applinks:' + H] }) && r.attached === 2 && r.vars.fcm === 'no' && !r.plistLeft,
+       '푸시 권한이 없는 프로파일이면 푸시는 끄고(plist 치움) 초대 링크만 붙인다');
+  }
+  {
+    const r = sign1({ mode: 'auto', fcm: 'no', invite_host: H, profile_ad: 'yes' }, { pbFail: 'applinks:' });
+    ok(r.status === 0 && r.attached === 0 && !(AD in r.ent) && r.vars.ul === 'no' && /PlistBuddy/.test(r.vars.ul_why),
+       'applinks 를 못 적으면 초대 링크만 끄고 빌드는 계속 (단계가 0 으로 끝남)');
+  }
+  {
+    const r = sign1({ mode: 'auto', fcm: 'yes', profile_aps: 'production', invite_host: H, profile_ad: 'yes' }, { oldSignTool: true });
+    ok(r.status === 0 && r.attached === 0 && r.vars.ul === 'no' && r.vars.fcm === 'no' && !r.plistLeft,
+       '서명 도구가 엔타이틀먼트를 못 넣으면 둘 다 끄고 빌드는 계속');
+  }
+  {
+    const r = sign1({ mode: 'auto', fcm: 'no', invite_host: '', profile_ad: 'no' });
+    ok(r.status === 0 && r.attached === 0 && !r.vars.ul_cap,
+       '둘 다 아니면 예전과 같다 — 엔타이틀먼트를 안 붙임');
+  }
+
+  /* 워크플로 파일 자체가 YAML 로 읽히는가 — python3 · PyYAML 이 있을 때만. 실패로 치는 것은
+     PyYAML 이 낸 문법 오류뿐입니다 — python3 이 없거나 가짜(맥의 「도구를 설치하세요」 껍데기)면
+     건너뜁니다. 시험할 수 없는 것을 워크플로가 틀렸다고 말하지 않게. */
+  const py = spawnSync('python3', ['-c', 'import sys, yaml; yaml.safe_load(open(sys.argv[1], encoding="utf-8")); print("ok")', WF],
+                       { encoding: 'utf8' });
+  const pyErr = (py.stderr || '') + String(py.error || '');
+  if (py.status === 0 && /ok/.test(py.stdout)) ok(true, 'ios-release.yml 이 YAML 로 읽힌다');
+  else if (/yaml\.\w+\.\w*(Error|Exception)\b|(Scanner|Parser|Composer|Constructor|Reader)Error/.test(pyErr))
+    ok(false, 'ios-release.yml 이 YAML 로 안 읽힌다: ' + pyErr.split('\n').slice(-3).join(' '));
+  else console.log('  · python3 · PyYAML 이 없어 YAML 읽기는 건너뜁니다');
+
+  fs.rmSync(tmpRoot, { recursive: true, force: true });
+}
+
 const csrPem = '-----BEGIN CERTIFICATE REQUEST-----\nMIIB\n-----END CERTIFICATE REQUEST-----\n';
 const out = fs.mkdtempSync(path.join(os.tmpdir(), 'asc-'));
 
@@ -206,6 +490,8 @@ const out = fs.mkdtempSync(path.join(os.tmpdir(), 'asc-'));
     ok(r2.status !== 0 && fs.readFileSync(tmp, 'utf8') === pbx, '명령줄에서도 이상한 경로면 멈추고 파일을 안 고친다');
     fs.rmSync(tmp, { force: true });
   }
+
+  iosReleaseWorkflow();
 
   fs.rmSync(out, { recursive: true, force: true });
   console.log(`\n통과 ${pass} / 실패 ${fail}`);

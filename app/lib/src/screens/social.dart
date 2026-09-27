@@ -13,15 +13,26 @@
  * 친구가 이번 주에 운동을 안 했다는 것은 알림이 되지 않습니다.
  * 이 구분이 이 앱이 두는 압박의 상한선입니다.
  *
- * 친구 코드로 요청하는 일([requestFriendByCode])은 이 파일에 한 벌만 있습니다.
- * 친구 탭의 「친구 추가」 와 테스터 인사(3쪽)가 같은 함수로 보냅니다 — 같은 일을
- * 두 군데서 따로 짜면 한쪽만 고쳐집니다.
+ * 친구 코드에 관한 것은 전부 이 파일에 한 벌만 있습니다 — 코드 모양([isInviteCode] ·
+ * [cleanInviteCode]), 보내는 글과 초대 링크([inviteShareText]), 요청([requestFriendByCode])과
+ * 그 답의 한 줄([friendRequestMessage]). 친구 탭의 「친구 추가」, 테스터 인사(3쪽), 초대
+ * 링크를 눌러 앱이 열렸을 때(invite_link.dart)가 같은 함수로 보내고 같은 말을 합니다 —
+ * 같은 일을 두 군데서 따로 짜면 한쪽만 고쳐집니다.
+ *
+ * 「친구 추가」 다이얼로그에는 **내 코드와 「보내기」 가 먼저** 있습니다(주인 의견: "여기서도
+ * 코드 보내기를 만들어서 링크 받으면 요청이 가게"). 친구를 부르는 쪽이 할 일은 링크 하나
+ * 보내기이고, 받은 쪽은 그 링크를 누르면 끝입니다 — 여덟 글자를 옮겨 치는 칸은 그 밑의
+ * 예비 길입니다. 그래서 다이얼로그를 열자마자 키보드를 올리지 않습니다. 그 칸도 옮겨 칠
+ * 일이 없게 「초대 코드 붙여넣기」([InvitePasteChip])를 둡니다 — 앱이 없던 친구는 초대
+ * 페이지의 설치 단추가 클립보드에 초대 글을 넣어 둡니다(주인 의견 45 "모든걸 자동으로").
  * ========================================================================== */
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
@@ -220,7 +231,7 @@ class _SocialScreenState extends State<SocialScreen> {
               Expanded(
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text('${_me!['displayName']}', style: t.textTheme.titleSmall),
-                  Text('초대 코드 ${_me!['inviteCode'] ?? '—'}',
+                  Text('내 코드 ${_myCode ?? '—'}',
                       style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
                 ]),
               ),
@@ -234,6 +245,19 @@ class _SocialScreenState extends State<SocialScreen> {
                 onPressed: () => widget.go('account'),
               ),
             ]),
+          )
+        else
+          /* 내 정보를 아직 못 받았어도(캐시를 먼저 보여 주는 중 · /me 실패) 「친구 추가」 는
+             둡니다 — 내 코드는 다이얼로그가 스스로 받아 옵니다. */
+          Align(
+            alignment: Alignment.centerRight,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: OutlinedButton(
+                onPressed: () => _addFriend(context),
+                child: const Text('친구 추가'),
+              ),
+            ),
           ),
 
         if (incoming.isNotEmpty) ...[
@@ -283,74 +307,608 @@ class _SocialScreenState extends State<SocialScreen> {
     );
   }
 
+  /// /me 가 준 내 친구 코드. 아직 못 받았거나 비었으면 null.
+  String? get _myCode {
+    final c = _me?['inviteCode'];
+    return c is String && c.trim().isNotEmpty ? c.trim() : null;
+  }
+
+  /* 요청은 다이얼로그 안에서 보냅니다 — 틀린 코드 · 없는 코드면 다이얼로그가 그대로 남아
+     그 자리에서 고쳐 넣습니다(닫고 다시 열어 다시 치게 하지 않습니다). 보냈으면 닫고 여기서
+     한 줄 알린 뒤 목록을 다시 받습니다 — 「보낸 요청」 에 그 사람이 뜹니다. */
   Future<void> _addFriend(BuildContext context) async {
-    final ctrl = TextEditingController();
-    final code = await showDialog<String>(
+    final r = await showDialog<ApiResult>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('친구의 초대 코드'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          /* 코드(ab12cd)는 낱말이 아닙니다 — 자동 교정 · 추천이 켜져 있으면 키보드가
-             멋대로 고쳐 보냅니다. 완료 키는 곧 「요청 보내기」. */
-          autocorrect: false,
-          enableSuggestions: false,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
-          decoration: const InputDecoration(hintText: '예: ab12cd', border: OutlineInputBorder()),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('취소')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, ctrl.text.trim()), child: const Text('요청 보내기')),
-        ],
+      builder: (_) => _AddFriendDialog(
+        api: Scope.apiOf(context),
+        myCode: _myCode,
+        /* 다이얼로그가 내 코드를 받아 왔으면 카드에도 — 같은 /me 를 두 번 묻지 않게. */
+        onMe: (user) {
+          if (mounted && _me == null) setState(() => _me = user);
+        },
       ),
     );
-    if (code == null || !context.mounted) return;
-    final r = await requestFriendByCode(Scope.apiOf(context), code);
-    /* 빈 칸(null)은 조용히 — 취소와 같습니다. */
     if (r == null || !context.mounted) return;
-    toast(context, !r.ok ? r.reason : (becameFriends(r) ? '친구가 되었습니다' : '요청을 보냈습니다'));
+    toast(context, friendRequestMessage(r));
     if (r.ok) _load();
+  }
+}
+
+/* --- 「친구 추가」 다이얼로그 -------------------------------------------------
+ *
+ * 위: 내 코드(크게 — 누르면 복사) · 「보내기」(초대 링크가 든 글을 공유 시트로).
+ * 아래: 친구 코드 칸 · 「요청 보내기」. 클립보드에 글이 있으면 칸 밑에 「초대 코드 붙여넣기」
+ * ([InvitePasteChip]) — 누르면 코드만 칸에 채웁니다(없으면 칸 밑에 「복사한 글에 초대 코드가
+ * 없어요」).
+ * 내 코드를 아직 모르면(친구 탭이 /me 를 못 받았으면) 여기서 받아 옵니다 — 그동안 작은
+ * 원이 돌고, 못 받으면 「다시」. 「복사했어요」 는 다이얼로그 **안의** 한 줄로 알립니다 —
+ * 앱의 스낵바는 다이얼로그의 어두운 막 밑에 깔려 잘 안 보입니다.
+ * 키보드가 올라오면 다이얼로그가 그 위로 줄어들고 내용은 스크롤됩니다(scrollable) —
+ * 360 폭 폰에서도 「요청 보내기」 는 늘 키보드 위에 있습니다.
+ * -------------------------------------------------------------------------- */
+class _AddFriendDialog extends StatefulWidget {
+  const _AddFriendDialog({required this.api, this.myCode, this.onMe});
+  final Api api;
+  final String? myCode;
+  final void Function(Map<String, dynamic> user)? onMe;
+
+  @override
+  State<_AddFriendDialog> createState() => _AddFriendDialogState();
+}
+
+class _AddFriendDialogState extends State<_AddFriendDialog> {
+  final _input = TextEditingController();
+  String? _code;
+  bool _codeFailed = false;
+  bool _sending = false;
+  String? _error;
+  /// 「내 코드」 자리에 잠깐 뜨는 한 줄(복사했어요 등). 2초 뒤 돌아갑니다.
+  String? _flash;
+  Timer? _flashTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _code = widget.myCode;
+    if (_code == null) unawaited(_loadCode());
+  }
+
+  @override
+  void dispose() {
+    _flashTimer?.cancel();
+    _input.dispose();
+    super.dispose();
+  }
+
+  /* 친구 탭이 _me 를 받는 그 /me 로. */
+  Future<void> _loadCode() async {
+    if (_codeFailed) setState(() => _codeFailed = false);
+    final r = await widget.api.me();
+    if (!mounted) return;
+    final u = r.ok ? (r.body['user'] as Map?)?.cast<String, dynamic>() : null;
+    final c = u?['inviteCode'];
+    setState(() {
+      _code = c is String && c.trim().isNotEmpty ? c.trim() : null;
+      _codeFailed = _code == null;
+    });
+    if (u != null && _code != null) widget.onMe?.call(u);
+  }
+
+  void _say(String message) {
+    _flashTimer?.cancel();
+    setState(() => _flash = message);
+    _flashTimer = Timer(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _flash = null);
+    });
+  }
+
+  Future<void> _copy() async {
+    final code = _code;
+    if (code == null) return;
+    await Clipboard.setData(ClipboardData(text: code));
+    if (mounted) _say('복사했어요');
+  }
+
+  Future<void> _share(BuildContext anchor) async {
+    final code = _code;
+    if (code == null) return;
+    final opened = await shareInviteText(anchor, code, widget.api.baseUrl);
+    if (!opened && mounted) _say('보낼 글을 복사했어요');
+  }
+
+  Future<void> _submit() async {
+    if (_sending || _input.text.trim().isEmpty) return;
+    /* 모양이 틀린 코드는 서버에 묻지 않습니다 — 칸 밑에 바로. */
+    if (!isInviteCode(cleanInviteCode(_input.text))) {
+      setState(() => _error = kInviteCodeInvalid);
+      return;
+    }
+    setState(() {
+      _sending = true;
+      _error = null;
+    });
+    final r = await requestFriendByCode(widget.api, _input.text);
+    if (!mounted) return;
+    if (r != null && r.ok) {
+      Navigator.of(context).pop(r);
+      return;
+    }
+    setState(() {
+      _sending = false;
+      _error = r == null ? null : friendRequestMessage(r);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    /* 키보드가 올라오는 만큼 **같은 프레임에** 줄입니다. 다이얼로그는 원래 키보드 높이를
+       100ms 뒤따라 줄어드는데, 칸은 그보다 먼저(키보드가 뜬 프레임에) 커서가 보이게 스크롤을
+       끝냅니다 — 그 뒤에 다이얼로그가 줄어서 작은 폰에서는 코드 칸이 「요청 보내기」 밑으로
+       숨었습니다. 키보드 몫은 여기서 빼고 다이얼로그에는 없는 것으로 넘깁니다(테스터 인사
+       시트와 같은 방식). */
+    final kb = MediaQuery.viewInsetsOf(context).bottom;
+    return Padding(
+      padding: EdgeInsets.only(bottom: kb),
+      child: MediaQuery.removeViewInsets(
+        context: context,
+        removeBottom: true,
+        child: _dialog(t),
+      ),
+    );
+  }
+
+  Widget _dialog(ThemeData t) {
+    return AlertDialog(
+      title: const Text('친구 추가'),
+      scrollable: true,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _mine(t),
+          const SizedBox(height: 18),
+          Text('친구 코드', style: t.textTheme.labelMedium?.copyWith(color: t.hintColor)),
+          const SizedBox(height: 6),
+          TextField(
+            key: const Key('add-friend-input'),
+            controller: _input,
+            /* 코드(K7M2QX9D)는 낱말이 아닙니다 — 자동 교정 · 추천이 켜져 있으면 키보드가
+               멋대로 고쳐 보냅니다. 대문자 키보드로 열고, 소문자로 쳐도 대문자로 바꿉니다.
+               받은 글을 통째로 붙여 넣으면 그 안의 코드만 남깁니다([InviteCodeFormatter]).
+               완료 키는 곧 「요청 보내기」. */
+            autocorrect: false,
+            enableSuggestions: false,
+            textCapitalization: TextCapitalization.characters,
+            inputFormatters: const [InviteCodeFormatter()],
+            maxLength: kInviteCodeLength,
+            buildCounter: _noCounter,
+            textInputAction: TextInputAction.done,
+            /* 칸 밑의 빨간 줄(틀린 코드 · 서버의 까닭)까지 키보드 위에 보이게. */
+            scrollPadding: const EdgeInsets.fromLTRB(20, 20, 20, 56),
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
+            onSubmitted: (_) => _submit(),
+            decoration: InputDecoration(
+              hintText: '예: $kInviteCodeExample',
+              border: const OutlineInputBorder(),
+              isDense: true,
+              errorText: _error,
+              errorMaxLines: 3,
+            ),
+          ),
+          /* 클립보드에 글이 있으면 「초대 코드 붙여넣기」 — 누르면 코드만 칸에(아이폰은 이때만
+             클립보드를 읽습니다). 보내는 것은 여전히 「요청 보내기」. */
+          InvitePasteChip(
+            onCode: (code) {
+              _input.value = TextEditingValue(
+                  text: code, selection: TextSelection.collapsed(offset: code.length));
+              setState(() => _error = null);
+            },
+            onNone: () => setState(() => _error = kInvitePasteNone),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('취소')),
+        ListenableBuilder(
+          listenable: _input,
+          builder: (_, __) => FilledButton(
+            onPressed: _sending || _input.text.trim().isEmpty ? null : _submit,
+            child: _sending
+                ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Text('요청 보내기'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /* 내 코드 칸 — 이름표(잠깐 「복사했어요」 로 바뀜) · 큰 코드 · 「보내기」. */
+  Widget _mine(ThemeData t) {
+    final c = mb(context);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+      decoration: BoxDecoration(color: c.accentSub, borderRadius: BorderRadius.circular(12)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(_flash ?? '내 코드',
+            key: const Key('add-friend-label'),
+            style: t.textTheme.labelMedium?.copyWith(
+                color: _flash != null ? c.ok : t.hintColor,
+                fontWeight: _flash != null ? FontWeight.w700 : null)),
+        const SizedBox(height: 2),
+        SizedBox(height: 44, child: _codeView(t)),
+        const SizedBox(height: 8),
+        Builder(
+          builder: (anchor) => FilledButton.tonalIcon(
+            key: const Key('add-friend-share'),
+            onPressed: _code == null ? null : () => _share(anchor),
+            icon: const Icon(LucideIcons.share2, size: 18),
+            label: const Text('보내기'),
+          ),
+        ),
+      ]),
+    );
+  }
+
+  Widget _codeView(ThemeData t) {
+    final code = _code;
+    if (code != null) {
+      /* 크게 · 자간을 벌려 — 불러 주거나 보고 옮겨 적을 수 있게. 좁은 폰 · 큰 글씨에서도
+         한 줄에 들어가게 줄여 맞춥니다. 누르면 복사 — 옆의 작은 아이콘이 그 표시입니다. */
+      return InkWell(
+        key: const Key('add-friend-code'),
+        borderRadius: BorderRadius.circular(8),
+        onTap: _copy,
+        child: Row(children: [
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(code,
+                  style: t.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 3,
+                      fontFeatures: const [FontFeature.tabularFigures()])),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Icon(_flash == '복사했어요' ? LucideIcons.check : LucideIcons.copy,
+              size: 18, color: t.hintColor, semanticLabel: '복사'),
+        ]),
+      );
+    }
+    if (_codeFailed) {
+      return Row(children: [
+        Flexible(
+            child: Text('못 불러왔어요', style: t.textTheme.bodySmall?.copyWith(color: t.hintColor))),
+        TextButton(
+            key: const Key('add-friend-code-retry'), onPressed: _loadCode, child: const Text('다시')),
+      ]);
+    }
+    return const Align(
+      alignment: Alignment.centerLeft,
+      child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+    );
+  }
+}
+
+/// 글자 수 표시(0/8)를 안 그립니다 — 여덟 칸이 다 차면 코드도 끝이라 셀 것이 없습니다.
+Widget? _noCounter(BuildContext _, {required int currentLength, required bool isFocused, int? maxLength}) =>
+    null;
+
+/* --- 친구 코드 — 모양 · 다듬기 ------------------------------------------------
+ *
+ * 코드는 서버가 만듭니다(server/db.js inviteCode()): **여덟 글자**, 글자판
+ * 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' — 헷갈리는 I · O · 0 · 1 이 없습니다. 서버의 초대
+ * 페이지(server.js 의 INVITE_ALPHABET)도 같은 글자판입니다. 셋 중 하나만 바뀌면 멀쩡한
+ * 코드가 "틀린 코드" 가 됩니다.
+ *
+ * 칸의 예시가 「예: ab12cd」(여섯 글자 · 소문자 · 1)였습니다 — 실제 코드와 모양이 달라서
+ * 예시를 보고 따라 친 사람이 헷갈렸습니다. 예시도 실제 모양으로 둡니다(지어낸 코드).
+ *
+ * 모양이 틀린 코드는 **서버에 묻지 않습니다.** 서버의 「그런 코드를 가진 사람이 없습니다」 는
+ * 오타인지 없는 사람인지 가려 주지 못합니다 — 모양이 틀렸으면 "다시 확인" 이 맞는 말입니다.
+ * 소문자는 틀린 것이 아닙니다 — 대문자로 바꿉니다(서버도 그렇게 찾습니다).
+ * -------------------------------------------------------------------------- */
+
+/// 친구 코드 글자판 — server/db.js inviteCode() 와 같아야 합니다.
+const String kInviteCodeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/// 친구 코드 길이.
+const int kInviteCodeLength = 8;
+
+/// 칸의 예시 — 실제 모양의 지어낸 코드.
+const String kInviteCodeExample = 'K7M2QX9D';
+
+/// 모양이 틀린 코드를 넣었을 때.
+const String kInviteCodeInvalid = '코드를 다시 확인해 주세요 — 영문·숫자 8자예요';
+
+final RegExp _inviteCodeRe = RegExp('^[$kInviteCodeAlphabet]{$kInviteCodeLength}\$');
+
+/* 글 속에서 코드를 찾는 자리 셋 — 초대 링크(…/i/코드), 「코드: …」 · 「코드 …」 이름표,
+   그리고 앞뒤가 영문 · 숫자가 아닌 여덟 글자 토막. 앞의 것일수록 확실합니다. */
+final RegExp _codeInLink = RegExp(r'/i/([A-Za-z0-9]{8})(?![A-Za-z0-9])');
+final RegExp _codeAfterLabel = RegExp(r'코드\s*[:：]?\s*([A-Za-z0-9]{8})(?![A-Za-z0-9])');
+final RegExp _codeAlone = RegExp(r'(?<![A-Za-z0-9])([A-Za-z0-9]{8})(?![A-Za-z0-9])');
+
+/// 서버가 만드는 모양의 코드인가 — 대문자 여덟 글자, 글자판 안의 글자만.
+bool isInviteCode(String code) => _inviteCodeRe.hasMatch(code);
+
+/// 넣은 글에서 친구 코드를 골라 대문자로 돌려줍니다.
+///
+/// 코드만 넣었으면 사이의 빈칸 · 줄표만 뺍니다(「abcd 2345」 → 「ABCD2345」). 「보내기」 로 받은
+/// 글을 통째로 붙여 넣으면 그 안의 초대 링크(…/i/코드)나 「코드 …」 에서 코드만 꺼냅니다 —
+/// 폰에서 글 한가운데 여덟 글자만 골라 복사하기는 어렵습니다. 옛 글(「내 친구 코드: …」)도
+/// 됩니다. 아무것도 못 찾으면 빈칸 · 줄표만 뺀 대문자 글을 그대로 돌려줍니다 — 모양이
+/// 맞는지는 [isInviteCode] 로 따로 봅니다.
+String cleanInviteCode(String input) {
+  final whole = input.replaceAll(RegExp(r'[\s\-]'), '').toUpperCase();
+  if (isInviteCode(whole)) return whole;
+  String? pick(RegExp re) {
+    for (final m in re.allMatches(input)) {
+      final c = m[1]!.toUpperCase();
+      if (isInviteCode(c)) return c;
+    }
+    return null;
+  }
+
+  return pick(_codeInLink) ?? pick(_codeAfterLabel) ?? pick(_codeAlone) ?? whole;
+}
+
+/// 친구 코드 칸의 입력 다듬기 — 대문자로, 영문 · 숫자만, 여덟 글자까지.
+///
+/// 칸은 여덟 글자로 막혀 있어서(maxLength) 그냥 두면 받은 글을 통째로 붙여 넣었을 때 글의
+/// **앞머리 여덟 글자**가 남습니다. 그래서 길이를 자르기 전에 이 다듬기가 먼저 글 속의 코드를
+/// 찾아 그것만 남깁니다([cleanInviteCode]). 키보드가 글자를 조합하는 중(밑줄)에는 손대지
+/// 않습니다 — 조합 중인 글자를 바꾸면 안드로이드 키보드가 글자를 두 번 넣기도 합니다.
+class InviteCodeFormatter extends TextInputFormatter {
+  const InviteCodeFormatter();
+
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    final raw = newValue.text;
+    final composing = newValue.composing.isValid && !newValue.composing.isCollapsed;
+    if (composing && raw.length <= kInviteCodeLength) return newValue;
+    final found = cleanInviteCode(raw);
+    var next = isInviteCode(found) ? found : raw.toUpperCase().replaceAll(RegExp('[^A-Z0-9]'), '');
+    if (next.length > kInviteCodeLength) next = next.substring(0, kInviteCodeLength);
+    if (next == raw) return newValue;
+    /* 대문자로만 바뀌었으면 커서는 그 자리, 글자가 빠지거나 바뀌었으면 끝으로. */
+    return TextEditingValue(
+      text: next,
+      selection: next.length == raw.length
+          ? newValue.selection
+          : TextSelection.collapsed(offset: next.length),
+    );
+  }
+}
+
+/* --- 「초대 코드 붙여넣기」 ---------------------------------------------------------
+ *
+ * 앱이 없던 친구가 초대 페이지의 설치 단추를 누르면, 페이지가 그 순간 「Mybody 초대 <코드>
+ * https://<서버>/i/<코드>」 를 클립보드에 넣어 둡니다(서버 — 누른 손길이라 브라우저가 허락합니다).
+ * 깔고 연 앱이 그것을 받으면 코드를 옮겨 칠 일이 없습니다.
+ *
+ * 아이폰은 앱이 클립보드를 **읽는 순간** 「붙여넣기 허용」 창을 띄웁니다 — 켜자마자 그 창이
+ * 뜨면 무슨 앱인지도 모르고 거절합니다. 그래서 스스로 읽지 않고, 클립보드에 글이 **있는지만**
+ * 봅니다(Clipboard.hasStrings — 내용은 안 읽어서 창이 안 뜸). 있으면 코드 칸 밑에 작은 칩 하나,
+ * 누르면 그때 읽어 코드만 칸에 채웁니다 — 보내는 것은 그 옆의 「요청」 입니다(사람이 봅니다).
+ * 안드로이드도 같은 칩을 둡니다 — 탭 화면이 처음 설 때 한 번 묻는 것(셸)을 넘겼거나, 뒤에
+ * 코드를 받은 사람도 같은 한 번으로 채웁니다. 앱으로 돌아올 때마다(카톡에서 복사하고 오면)
+ * 있는지 다시 봅니다. 친구 탭의 「친구 추가」 와 테스터 인사 3쪽이 같이 씁니다.
+ * -------------------------------------------------------------------------- */
+
+/// 클립보드에 글이 있는가 · 그 글 — 시험은 바꿔 끼웁니다(플랫폼 채널 대신).
+@visibleForTesting
+Future<bool> Function() invitePasteHasStrings = Clipboard.hasStrings;
+
+/// 클립보드의 글(누른 순간에만 읽습니다).
+@visibleForTesting
+Future<String?> Function() invitePasteRead =
+    () async => (await Clipboard.getData(Clipboard.kTextPlain))?.text;
+
+/// 클립보드에 초대 코드가 없을 때.
+const String kInvitePasteNone = '복사한 글에 초대 코드가 없어요';
+
+/// 「초대 코드 붙여넣기」 칩. 클립보드에 글이 있을 때만 보이고, 누르면 읽어서 코드를
+/// [onCode] 로(대문자 여덟 글자). 코드가 없으면 [onNone].
+class InvitePasteChip extends StatefulWidget {
+  const InvitePasteChip({super.key, required this.onCode, this.onNone});
+  final ValueChanged<String> onCode;
+  final VoidCallback? onNone;
+
+  @override
+  State<InvitePasteChip> createState() => _InvitePasteChipState();
+}
+
+class _InvitePasteChipState extends State<InvitePasteChip> with WidgetsBindingObserver {
+  bool _has = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    unawaited(_check());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_check());
+  }
+
+  /* 있는지만 — 읽지 않습니다(머리 주석). 못 물으면 없는 것으로(칩이 안 보일 뿐). */
+  Future<void> _check() async {
+    var has = false;
+    try {
+      has = await invitePasteHasStrings();
+    } catch (_) {}
+    if (mounted && has != _has) setState(() => _has = has);
+  }
+
+  Future<void> _paste() async {
+    String? text;
+    try {
+      text = await invitePasteRead();
+    } catch (_) {}
+    if (!mounted) return;
+    final code = cleanInviteCode(text ?? '');
+    if (isInviteCode(code)) {
+      widget.onCode(code);
+    } else {
+      widget.onNone?.call();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_has) return const SizedBox.shrink();
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: ActionChip(
+        key: const Key('invite-paste'),
+        avatar: const Icon(LucideIcons.clipboardPaste, size: 16),
+        label: const Text('초대 코드 붙여넣기'),
+        visualDensity: VisualDensity.compact,
+        onPressed: _paste,
+      ),
+    );
+  }
+}
+
+/* --- 보내는 글 · 초대 링크 ------------------------------------------------------
+ *
+ * 친구에게 보내는 것은 **링크 하나**입니다 — <서버 주소>/i/<코드>. 앱이 있으면 이 주소가
+ * 곧바로 앱을 엽니다(안드로이드 App Links · 아이폰 연결된 도메인 — invite_link.dart). 아직
+ * 확인이 안 된 폰이면 서버의 초대 페이지(server.js)가 뜨고 그 단추가 앱을 엽니다
+ * (mybody://invite/<코드>). 어느 길이든 앱이 요청을 보냅니다. 앱이 없으면 **받는 사람의
+ * 기기에 맞는** 설치 안내가 나오고, 깔고 나면 코드가 따라옵니다(플레이 설치 referrer ·
+ * 클립보드 — install_referrer.dart · [InvitePasteChip]).
+ *
+ * 예전 글에는 아이폰 · 안드로이드 설치 주소를 둘 다 실었습니다. 그런데 주인이 갤럭시에서
+ * 아이폰 친구가 보낸 초대를 받았더니 TestFlight 가 먼저 떴습니다 — 보내는 사람이 받는
+ * 사람의 기기를 모릅니다. 그래서 글에는 설치 주소를 싣지 않고, 기기는 페이지가 가립니다.
+ * 링크가 안 열리는 사람을 위해 코드와 넣을 곳을 한 줄 덧붙입니다.
+ * -------------------------------------------------------------------------- */
+
+/// 초대 링크 — <서버 주소>/i/<코드>. 주소 끝의 / 는 뗍니다.
+String inviteUrl(String base, String code) =>
+    '${base.trim().replaceAll(RegExp(r'/+$'), '')}/i/${code.trim().toUpperCase()}';
+
+/// 「보내기」 로 나가는 글. [base] 는 이 앱이 쓰는 서버 주소(Api.baseUrl).
+///
+/// 서버 주소가 없으면(서버 없이 쓰는 중) 링크를 만들 수 없어 코드와 넣을 곳만 보냅니다.
+String inviteShareText(String code, String base) {
+  final c = code.trim().toUpperCase();
+  if (base.trim().isEmpty) {
+    return 'Mybody 같이 해요!\n앱에서 친구 탭 → 친구 추가에 코드 $c 를 넣어 주세요';
+  }
+  return 'Mybody 같이 해요! 링크를 누르면 친구 요청이 가요\n'
+      '${inviteUrl(base, c)}\n'
+      '(앱에서 친구 탭 → 친구 추가에 코드 $c 를 넣어도 돼요)';
+}
+
+/// 공유 시트를 여는 길. 시험에서는 바꿔 끼웁니다 — 진짜 공유 시트는 플랫폼 채널이라
+/// 시험 안에서는 열리지 않습니다. [origin] 은 아이패드에서 말풍선이 나올 자리.
+@visibleForTesting
+Future<void> Function(String text, Rect? origin) inviteShareOut = _shareOut;
+
+Future<void> _shareOut(String text, Rect? origin) async {
+  await SharePlus.instance.share(ShareParams(text: text, sharePositionOrigin: origin));
+}
+
+/// 이 기기에서 「보내기」 로 내보낸 **내** 코드(마지막 것). 셸이 탭 화면에서 클립보드를 한 번
+/// 읽을 때(안드로이드 — invite_link.dart clipboardInviteOnce) 이 코드는 친구의 초대로 보지
+/// 않습니다. 공유 시트의 「복사」 나 공유가 안 돼 복사해 둔 글은 **내** 초대 링크라, 테스터 인사
+/// 3쪽에서 보내고 닫은 바로 그때 클립보드를 읽으면 「초대 코드 <내 코드> 로 친구 요청할까요?」 를
+/// 묻게 됩니다.
+const String kMyInviteCodeKey = 'mybody.invite.mine.v1';
+
+/// [kMyInviteCodeKey] 에 적습니다. 모양이 틀리면 안 적습니다. 못 적어도 조용히 — 한 번 더
+/// 묻게 될 뿐입니다.
+Future<void> rememberMyInviteCode(String code) async {
+  final c = code.trim().toUpperCase();
+  if (!isInviteCode(c)) return;
+  try {
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(kMyInviteCodeKey, c);
+  } catch (_) {}
+}
+
+/// 내 코드([code])로 만든 보낼 글([inviteShareText] — [base] 는 Api.baseUrl)을 공유 시트로
+/// 엽니다. [anchor] 는 누른 단추(아이패드의 말풍선 자리). 내 코드는 이 기기에 적어 둡니다
+/// ([rememberMyInviteCode] — 그 글이 클립보드에 남아도 친구의 초대로 묻지 않게).
+/// 공유 시트가 없거나 실패하면 글을 복사해 두고 false — 부른 쪽이 "복사했어요" 를 알립니다.
+Future<bool> shareInviteText(BuildContext anchor, String code, String base) async {
+  final text = inviteShareText(code, base);
+  final box = anchor.findRenderObject();
+  final origin =
+      box is RenderBox && box.hasSize ? box.localToGlobal(Offset.zero) & box.size : null;
+  await rememberMyInviteCode(code);
+  try {
+    await inviteShareOut(text, origin);
+    return true;
+  } catch (_) {
+    await Clipboard.setData(ClipboardData(text: text));
+    return false;
   }
 }
 
 /* --- 친구 코드로 요청 ---------------------------------------------------------
  *
- * 친구 탭의 「친구 추가」 다이얼로그와 테스터 인사 3쪽의 코드 칸이 **이 함수 하나**로
- * 보냅니다. 요청 필드 이름을 틀려서(inviteCode 가 아니라 code) 앱에서 친구 추가가
+ * 친구 탭의 「친구 추가」 다이얼로그, 테스터 인사 3쪽의 코드 칸, 초대 링크가 **이 함수
+ * 하나**로 보냅니다. 요청 필드 이름을 틀려서(inviteCode 가 아니라 code) 앱에서 친구 추가가
  * 한 번도 안 된 적이 있습니다 — 길이 둘이면 그런 것이 한쪽에만 남습니다.
  *
- * 실패 문구는 서버가 준 까닭 그대로입니다(「그런 코드를 가진 사람이 없습니다」 ·
- * 「이미 친구입니다」 · 못 닿으면 「서버에 닿지 못했습니다」). **큐에 담지 않습니다**
- * — 수락 · 거절과 달리 요청은 서버가 코드를 봐야 되는지가 정해지고, 그 답을 지금
- * 보여 줘야 합니다. 나중에 조용히 보냈다가 "없는 코드" 로 실패하면 알릴 곳이
- * 없습니다. 그래서 못 닿으면 그 자리에서 실패로 보이고, 다시 누르면 됩니다.
+ * 실패 문구는 서버가 준 까닭입니다(「그런 코드를 가진 사람이 없습니다」 · 못 닿으면
+ * 「서버에 닿지 못했습니다」). 흔한 셋만 앱의 말투로 바꿉니다([friendRequestMessage]) —
+ * 초대 링크를 두 번 누른 사람 · 내 링크를 눌러 본 사람에게 "자기 자신은 추가할 수 없습니다"
+ * 는 꾸중처럼 읽힙니다. **큐에 담지 않습니다** — 수락 · 거절과 달리 요청은 서버가 코드를
+ * 봐야 되는지가 정해지고, 그 답을 지금 보여 줘야 합니다. 나중에 조용히 보냈다가 "없는
+ * 코드" 로 실패하면 알릴 곳이 없습니다. 그래서 못 닿으면 그 자리에서 실패로 보이고, 다시
+ * 누르면 됩니다.
  * -------------------------------------------------------------------------- */
 
-/// 붙여 넣은 글에서 친구 코드만 골라 냅니다.
-///
-/// 「카톡 등으로 보내기」 로 받은 글을 통째로 붙여 넣어도("… 내 친구 코드: ABCD2345 …")
-/// 코드만 갑니다 — 폰에서 글 한가운데 여덟 글자만 골라 복사하기는 어렵습니다. 코드만
-/// 넣었으면 사이의 빈칸 · 줄표만 뺍니다(「ABCD 2345」 · 「ABCD-2345」). 대소문자는
-/// 서버가 맞춥니다.
-String cleanInviteCode(String input) {
-  final m = RegExp(r'코드\s*[:：]\s*([A-Za-z0-9]{4,16})').firstMatch(input);
-  if (m != null) return m[1]!;
-  return input.replaceAll(RegExp(r'[\s\-]'), '');
-}
-
-/// 친구 코드로 친구 요청을 보냅니다. 코드가 비었으면 보내지 않고 null.
+/// 친구 코드로 친구 요청을 보냅니다. 코드가 비었으면 보내지 않고 null. 모양이 틀리면
+/// 서버에 묻지 않고 실패(까닭 [kInviteCodeInvalid])를 돌려줍니다.
 Future<ApiResult?> requestFriendByCode(Api api, String input) async {
   final code = cleanInviteCode(input);
   if (code.isEmpty) return null;
+  if (!isInviteCode(code)) {
+    return const ApiResult(400, {'ok': false, 'reason': kInviteCodeInvalid});
+  }
   return api.requestFriend(code);
 }
 
 /// 요청이 곧바로 친구가 됐나 — 상대가 먼저 나에게 요청해 둔 사이면 서버가 그 자리에서
 /// 맺습니다(`status: 'accepted'`). 그때 "수락을 기다려요" 라고 하면 틀린 말입니다.
 bool becameFriends(ApiResult r) => r.ok && r.body['status'] == 'accepted';
+
+/// 친구 요청의 답을 한 줄로 — 친구 탭 · 초대 링크가 같은 말을 합니다(테스터 인사는 실패
+/// 문구만 같이 씁니다). 서버가 상대 이름(displayName)을 실어 주면 이름을 넣습니다 — 지금
+/// 서버(POST /friends/request)는 이름 없이 {status, otherId} 만 주므로 이름 없는 말이 나갑니다.
+String friendRequestMessage(ApiResult r) {
+  if (!r.ok) {
+    return switch (r.body['reason']) {
+      '이미 친구입니다' => '이미 친구예요',
+      '자기 자신은 추가할 수 없습니다' => '내 코드예요',
+      '이미 보낸 요청입니다' => '이미 요청을 보냈어요',
+      _ => r.reason,
+    };
+  }
+  final other = r.body['other'];
+  final n = r.body['displayName'] ?? (other is Map ? other['displayName'] : null);
+  final name = n is String && n.trim().isNotEmpty ? n.trim() : null;
+  if (becameFriends(r)) return name == null ? '친구가 됐어요' : '$name님과 친구가 됐어요';
+  return name == null ? '친구 요청을 보냈어요' : '$name님에게 친구 요청을 보냈어요';
+}
 
 class _RequestRow extends StatelessWidget {
   const _RequestRow({required this.person, required this.onDone, this.defaults});

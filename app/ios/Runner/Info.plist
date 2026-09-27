@@ -24,6 +24,24 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<!-- 친구 초대 링크 — mybody://invite/<코드>. 서버의 초대 페이지(<서버 주소>/i/<코드>)의
+	     「앱에서 열기」 가 이 주소로 앱을 엽니다. 앱은 코드를 받아 친구 요청을 대신 보냅니다
+	     (lib/src/invite_link.dart). -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>io.github.iacobuschoi.mybody.invite</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>mybody</string>
+			</array>
+		</dict>
+	</array>
+	<!-- Flutter 가 링크를 화면 경로로 여는 것을 끕니다 — 이 앱은 경로 이름으로 화면을 찾지
+	     않아서 켜 두면 없는 경로 오류가 납니다. 링크는 app_links 가 받습니다. -->
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

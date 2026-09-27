@@ -8,10 +8,11 @@
  *   · 언제 뜨나   로그인 · 온보딩 화면에서는 안 뜨고, 탭 화면이 처음 설 때 한 번.
  *                다시 켜도 안 뜨고, 설정의 「다시 보기」(force)로는 뜨고, 두 장이 겹치지 않음.
  *   · 쪽 넘기기   「다음」 · 밀기 · 「건너뛰기」(본 것으로 적힘) · 마지막 「시작하기」.
- *   · 3쪽        로그인했으면 /me 의 코드 · 복사(클립보드) · 보내기(서버의 참여 주소까지)
- *                · 코드 넣고 「요청」(친구 탭과 같은 요청, 결과는 시트 안에) · 실패 문구.
+ *   · 3쪽        로그인했으면 /me 의 코드 · 복사(클립보드) · 보내기(초대 링크 — 서버가 참여
+ *                주소를 줘도 글에는 안 싣는다) · 코드 넣고 「요청」(친구 탭과 같은 요청 · 같은 칸,
+ *                결과는 시트 안에) · 틀린 모양은 서버에 안 묻고 · 실패 문구.
  *                로그인 안 했으면 로그인 카드 → 로그인하고 돌아오면 그 자리에 코드.
- *   · 보내는 글   inviteShareText — 주소가 있을 때 · 없을 때.
+ *   · 보내는 글   inviteShareText — 친구 탭과 한 벌(자세한 것은 invite_link_test.dart).
  *   · 새 판 답    VersionInfo 가 join 을 https 만 받아 둔다.
  *   · 360 폭 · 글자 1.3배 · 밝은/어두운 테마에서 넘치지 않고, 키보드가 올라와도
  *     「요청」 이 키보드 위에 보인다.
@@ -19,6 +20,8 @@
  *   · 1쪽 제목은 기종마다 — 아이폰은 「함께해 주셔서 고마워요!」(앱스토어 심사에 "테스트"
  *     라는 말이 안 가게), 안드로이드는 비공개 테스트 인사. 나머지 글은 같다.
  *   · 의견 시트가 떠 있으면(찍는 중 포함) 인사는 그 위에 안 뜨고, 닫히면 한 번 뜬다.
+ *   · 3쪽 「초대 코드 붙여넣기」(주인 의견 45) — 클립보드에 글이 있을 때만 칩, 누를 때만 읽는다
+ *     (아이폰은 읽는 순간 「붙여넣기 허용」 창). 코드만 칸에 채우고 보내는 것은 「요청」.
  * ========================================================================== */
 import 'dart:async';
 import 'dart:convert';
@@ -38,7 +41,16 @@ import 'package:mybody/src/screens/feedback.dart'
     show feedbackBusy, feedbackCapture, feedbackPick, openFeedback;
 import 'package:mybody/src/screens/feedback_bubble.dart' show appFrame, feedbackRoutes;
 import 'package:mybody/src/screens/onboarding.dart';
-import 'package:mybody/src/screens/social.dart' show cleanInviteCode;
+import 'package:mybody/src/screens/social.dart'
+    show
+        cleanInviteCode,
+        invitePasteHasStrings,
+        invitePasteRead,
+        inviteShareOut,
+        inviteShareText,
+        kInviteCodeExample,
+        kInviteCodeInvalid,
+        kInvitePasteNone;
 import 'package:mybody/src/screens/tester_welcome.dart';
 import 'package:mybody/src/shell.dart';
 import 'package:mybody/src/theme.dart';
@@ -179,50 +191,21 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   /* --- 보내는 글 --------------------------------------------------------------- */
-  group('inviteShareText', () {
-    test('주소가 없으면 코드와 넣을 곳 한 줄', () {
-      expect(inviteShareText('ABCD2345', const JoinLinks()),
-          'Mybody 같이 해요! 내 친구 코드: ABCD2345\n앱에서 친구 탭 → 친구 추가에 넣어 주세요');
-    });
-
-    test('아이폰 · 안드로이드(그룹 먼저) — 있는 것만, 차례대로', () {
-      const join = JoinLinks(
-          ios: 'https://testflight.apple.com/join/abc',
-          android: 'https://play.google.com/apps/testing/x',
-          androidGroup: 'https://groups.google.com/g/mybody');
-      expect(
-          inviteShareText('ABCD2345', join),
-          'Mybody 같이 해요! 내 친구 코드: ABCD2345\n'
-          '아이폰: https://testflight.apple.com/join/abc\n'
-          '안드로이드: ① https://groups.google.com/g/mybody 가입 ② https://play.google.com/apps/testing/x 에서 참여');
-    });
-
-    test('안드로이드만 · 그룹 없음 — 주소 한 줄, 넣을 곳 안내는 없음', () {
-      final s = inviteShareText('Q', const JoinLinks(android: 'https://play.google.com/apps/testing/x'));
-      expect(s.split('\n'), ['Mybody 같이 해요! 내 친구 코드: Q', '안드로이드: https://play.google.com/apps/testing/x']);
-    });
-
-    test('아이폰만', () {
-      final s = inviteShareText('Q', const JoinLinks(ios: 'https://testflight.apple.com/join/abc'));
-      expect(s.split('\n'), ['Mybody 같이 해요! 내 친구 코드: Q', '아이폰: https://testflight.apple.com/join/abc']);
-    });
-
-    test('그룹 주소만 있으면(참여 주소 없음) 반쪽 길이라 안 싣고 넣을 곳 안내', () {
-      final s = inviteShareText('Q', const JoinLinks(androidGroup: 'https://groups.google.com/g/x'));
-      expect(s, isNot(contains('groups.google.com')));
-      expect(s, contains('앱에서 친구 탭 → 친구 추가에 넣어 주세요'));
-    });
+  test('inviteShareText — 초대 링크와 코드 한 줄, 설치 주소는 없다', () {
+    expect(inviteShareText('ABCD2345', 'https://x.test'),
+        'Mybody 같이 해요! 링크를 누르면 친구 요청이 가요\n'
+        'https://x.test/i/ABCD2345\n'
+        '(앱에서 친구 탭 → 친구 추가에 코드 ABCD2345 를 넣어도 돼요)');
   });
 
   /* --- 친구 코드 다듬기 --------------------------------------------------------- */
-  test('cleanInviteCode — 받은 글을 통째로 붙여도 코드만, 빈칸 · 줄표는 뺀다', () {
-    expect(cleanInviteCode(' ab12cd '), 'ab12cd');
+  test('cleanInviteCode — 받은 글을 통째로 붙여도 코드만, 빈칸 · 줄표는 빼고 대문자로', () {
+    expect(cleanInviteCode(' wxyz2345 '), 'WXYZ2345');
     expect(cleanInviteCode('ABCD 2345'), 'ABCD2345');
     expect(cleanInviteCode('ABCD-2345'), 'ABCD2345');
-    expect(
-        cleanInviteCode(inviteShareText('WXYZ2345',
-            const JoinLinks(ios: 'https://testflight.apple.com/join/abc'))),
-        'WXYZ2345');
+    expect(cleanInviteCode(inviteShareText('WXYZ2345', 'https://x.test')), 'WXYZ2345');
+    expect(cleanInviteCode('Mybody 같이 해요! 내 친구 코드: WXYZ2345\n아이폰: https://testflight.apple.com/join/abc'),
+        'WXYZ2345', reason: '옛 글');
     expect(cleanInviteCode('   '), '');
   });
 
@@ -494,13 +477,15 @@ void main() {
 
   /* --- 3쪽: 친구 -------------------------------------------------------------- */
   group('3쪽 — 로그인했을 때', () {
-    testWidgets('내 친구 코드(/me) · 복사 · 보내기(서버의 참여 주소까지)', (t) async {
+    /* 주인 의견 44 — 갤럭시로 받은 초대에 TestFlight 가 먼저 떴습니다. 서버가 참여 주소를
+       줘도 글에는 싣지 않고, 링크의 페이지가 받는 사람의 기기에 맞춰 안내합니다. */
+    testWidgets('내 친구 코드(/me) · 복사 · 보내기(초대 링크 — 참여 주소는 안 싣는다)', (t) async {
       _phone(t, const Size(390, 844));
       final clip = _clipboard(t);
       final shared = <String>[];
-      final before = testerWelcomeShare;
-      testerWelcomeShare = (text, origin) async => shared.add(text);
-      addTearDown(() => testerWelcomeShare = before);
+      final before = inviteShareOut;
+      inviteShareOut = (text, origin) async => shared.add(text);
+      addTearDown(() => inviteShareOut = before);
 
       final s = _Server({
         '/me': _me,
@@ -541,24 +526,26 @@ void main() {
       await t.tap(find.byKey(const Key('welcome-share')));
       await t.pumpAndSettle();
       expect(shared, hasLength(1));
-      expect(shared.single, inviteShareText('ABCD2345', update.info!.join));
-      expect(shared.single, contains('아이폰: https://testflight.apple.com/join/abc'));
-      expect(shared.single, contains('① https://groups.google.com/g/mybody 가입'));
+      expect(shared.single, inviteShareText('ABCD2345', 'https://x.test'));
+      expect(shared.single, contains('https://x.test/i/ABCD2345'));
+      for (final w in ['testflight', 'play.google', 'groups.google']) {
+        expect(shared.single, isNot(contains(w)), reason: '받는 사람의 기기는 페이지가 가립니다');
+      }
       expect(t.takeException(), isNull);
     });
 
     testWidgets('공유 시트가 실패하면 보낼 글을 복사해 둔다', (t) async {
       _phone(t, const Size(390, 844));
       final clip = _clipboard(t);
-      final before = testerWelcomeShare;
-      testerWelcomeShare = (text, origin) async => throw StateError('공유 없음');
-      addTearDown(() => testerWelcomeShare = before);
+      final before = inviteShareOut;
+      inviteShareOut = (text, origin) async => throw StateError('공유 없음');
+      addTearDown(() => inviteShareOut = before);
       await _host(t, app: await _app(), api: _Server({'/me': _me}).api());
       await _open(t);
       await _toPage3(t);
       await t.tap(find.byKey(const Key('welcome-share')));
       await t.pumpAndSettle();
-      expect(clip.value, inviteShareText('ABCD2345', const JoinLinks()));
+      expect(clip.value, inviteShareText('ABCD2345', 'https://x.test'));
       expect(find.textContaining('보낼 글을 복사했어요'), findsOneWidget);
     });
 
@@ -576,6 +563,10 @@ void main() {
       expect(tf.autocorrect, isFalse, reason: '코드는 낱말이 아닙니다');
       expect(tf.enableSuggestions, isFalse);
       expect(tf.textInputAction, TextInputAction.done);
+      expect(tf.textCapitalization, TextCapitalization.characters);
+      expect(tf.maxLength, 8, reason: '코드는 여덟 글자');
+      expect(find.text('예: $kInviteCodeExample'), findsOneWidget);
+      expect(find.text('0/8'), findsNothing, reason: '글자 수는 안 그립니다');
       expect(t.widget<FilledButton>(find.byKey(const Key('welcome-request'))).onPressed, isNull,
           reason: '빈 칸이면 「요청」 은 못 누릅니다');
 
@@ -583,10 +574,11 @@ void main() {
       await t.pumpAndSettle();
       await t.enterText(field, ' wxyz2345 ');
       await t.pump();
+      expect(t.widget<TextField>(field).controller!.text, 'WXYZ2345', reason: '소문자로 쳐도 대문자로');
       await t.tap(find.byKey(const Key('welcome-request')));
       await t.pumpAndSettle();
       expect(s.bodiesTo('/friends/request'), [
-        {'inviteCode': 'wxyz2345'}
+        {'inviteCode': 'WXYZ2345'}
       ]);
       expect(find.text('요청을 보냈어요 — 친구가 수락하면 친구 탭에 떠요'), findsOneWidget);
       expect(find.byType(TesterWelcomeSheet), findsOneWidget, reason: '시트를 떠나지 않습니다');
@@ -597,9 +589,18 @@ void main() {
       await t.tap(field);
       await t.pumpAndSettle();
       await t.enterText(field, 'Mybody 같이 해요! 내 친구 코드: QRST6789');
+      await t.pump();
+      expect(t.widget<TextField>(field).controller!.text, 'QRST6789', reason: '칸에는 코드만 남습니다');
       await t.testTextInput.receiveAction(TextInputAction.done);
       await t.pumpAndSettle();
       expect(s.bodiesTo('/friends/request').last, {'inviteCode': 'QRST6789'});
+      /* 지금 보내는 글(초대 링크)을 붙여 넣어도. */
+      await t.tap(field);
+      await t.pumpAndSettle();
+      await t.enterText(field, inviteShareText('HJKM2345', 'https://x.test'));
+      await t.testTextInput.receiveAction(TextInputAction.done);
+      await t.pumpAndSettle();
+      expect(s.bodiesTo('/friends/request').last, {'inviteCode': 'HJKM2345'});
       expect(t.takeException(), isNull);
     });
 
@@ -626,12 +627,21 @@ void main() {
       await _open(t);
       await _toPage3(t);
       final field = find.byKey(const Key('welcome-code-input'));
+
+      /* 모양이 틀린 코드(O · 0 은 코드에 없음)는 서버에 묻지 않고 "다시 확인". */
       await t.enterText(field, 'NOPE0000');
       await t.pump();
       await t.tap(find.byKey(const Key('welcome-request')));
       await t.pumpAndSettle();
+      expect(find.text(kInviteCodeInvalid), findsOneWidget);
+      expect(s.bodiesTo('/friends/request'), isEmpty);
+
+      await t.enterText(field, 'ZZZZ9999');
+      await t.pump();
+      await t.tap(find.byKey(const Key('welcome-request')));
+      await t.pumpAndSettle();
       expect(find.text('그런 코드를 가진 사람이 없습니다'), findsOneWidget);
-      expect(t.widget<TextField>(field).controller!.text, 'NOPE0000');
+      expect(t.widget<TextField>(field).controller!.text, 'ZZZZ9999');
       expect(find.textContaining('요청을 보냈어요'), findsNothing);
 
       /* 서버에 못 닿으면 — 친구 탭과 같은 문구(큐에 담지 않음). */
@@ -688,6 +698,93 @@ void main() {
       expect(find.text('ABCD2345'), findsOneWidget);
       expect(find.text('친구 코드가 있나요?'), findsOneWidget);
       expect(_primaryLabel(t), '시작하기');
+      expect(t.takeException(), isNull);
+    });
+  });
+
+  /* --- 3쪽 「초대 코드 붙여넣기」 --------------------------------------------------
+     앱이 없던 친구는 초대 페이지의 설치 단추가 클립보드에 초대 글을 넣어 둡니다. 아이폰은 앱이
+     클립보드를 읽는 순간 「붙여넣기 허용」 창이 떠서, 인사가 뜨자마자 읽으면 무슨 앱인지도 모르고
+     거절합니다 — 칩을 누를 때만 읽습니다. */
+  group('3쪽 — 「초대 코드 붙여넣기」', () {
+    final paste = find.byKey(const Key('invite-paste'));
+    ({int reads}) Function() fake(String? text, {bool has = true}) {
+      var reads = 0;
+      final hasBefore = invitePasteHasStrings, readBefore = invitePasteRead;
+      invitePasteHasStrings = () async => has;
+      invitePasteRead = () async {
+        reads++;
+        return text;
+      };
+      addTearDown(() {
+        invitePasteHasStrings = hasBefore;
+        invitePasteRead = readBefore;
+      });
+      return () => (reads: reads);
+    }
+
+    testWidgets('아이폰 — 누를 때만 읽어 칸에 코드만, 「요청」 으로 보낸다', (t) async {
+      _phone(t, const Size(390, 844));
+      final clip = fake('Mybody 초대 K7M2QX9D https://x.test/i/K7M2QX9D');
+      final s = _Server({'/me': _me, '/friends/request': {'ok': true, 'status': 'pending'}});
+      await _host(t, app: await _app(), api: s.api());
+      await _open(t);
+      await _toPage3(t);
+      expect(paste, findsOneWidget);
+      expect(clip().reads, 0, reason: '인사가 떠도 · 3쪽에 와도 읽지 않습니다');
+
+      await t.ensureVisible(paste);
+      await t.tap(paste);
+      await t.pumpAndSettle();
+      expect(clip().reads, 1);
+      final field = find.byKey(const Key('welcome-code-input'));
+      expect(t.widget<TextField>(field).controller!.text, 'K7M2QX9D');
+      expect(s.bodiesTo('/friends/request'), isEmpty, reason: '보내는 것은 「요청」');
+      await t.tap(find.byKey(const Key('welcome-request')));
+      await t.pumpAndSettle();
+      expect(s.bodiesTo('/friends/request'), [
+        {'inviteCode': 'K7M2QX9D'}
+      ]);
+      expect(find.text('요청을 보냈어요 — 친구가 수락하면 친구 탭에 떠요'), findsOneWidget);
+      expect(clip().reads, 1);
+      expect(t.takeException(), isNull);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    testWidgets('코드가 없는 글이면 결과 줄에 한 줄 · 클립보드가 비었으면 칩이 없다', (t) async {
+      _phone(t, const Size(390, 844));
+      fake('오늘 저녁 7시에 만나');
+      final s = _Server({'/me': _me, '/friends/request': {'ok': true}});
+      await _host(t, app: await _app(), api: s.api());
+      await _open(t);
+      await _toPage3(t);
+      await t.ensureVisible(paste);
+      await t.tap(paste);
+      await t.pumpAndSettle();
+      expect(find.text(kInvitePasteNone), findsOneWidget);
+      expect(s.bodiesTo('/friends/request'), isEmpty);
+    });
+
+    testWidgets('클립보드가 비었으면 칩이 없고 읽지도 않는다', (t) async {
+      _phone(t, const Size(390, 844));
+      final clip = fake(null, has: false);
+      await _host(t, app: await _app(), api: _Server({'/me': _me}).api());
+      await _open(t);
+      await _toPage3(t);
+      expect(paste, findsNothing);
+      expect(clip().reads, 0);
+    });
+
+    testWidgets('360 폭 · 글자 1.3배 — 칩이 떠도 넘치지 않는다', (t) async {
+      _phone(t, const Size(360, 640), text: 1.3);
+      fake('초대 K7M2QX9D');
+      await _host(t, app: await _app(), api: _Server({'/me': _me}).api());
+      await _open(t);
+      await _toPage3(t);
+      expect(paste, findsOneWidget);
+      expect(t.takeException(), isNull);
+      await t.drag(find.byType(SingleChildScrollView).last, const Offset(0, -600));
+      await t.pumpAndSettle();
+      expect(_primary.hitTestable(), findsOneWidget);
       expect(t.takeException(), isNull);
     });
   });

@@ -530,53 +530,49 @@ function hostGet(port, p2, host) {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
-  console.log('\n[3-4] 안드로이드 앱 연결 파일(assetlinks.json)');
+  console.log('\n[3-4] 앱 링크 파일(assetlinks.json · apple-app-site-association)');
   {
-    /* 구글플레이에 PWA 를 올리는 길(TWA)은 앱과 주소가 서로를 자기 것이라고
-       인정해야 성립합니다. 이 파일이 그 인정입니다. 없으면 앱에 주소창이
-       뜨고, 그러면 심사에서 "웹사이트를 감싼 앱" 으로 읽힙니다. */
+    /* 초대 링크(https://<서버>/i/<코드>)를 폰이 브라우저 없이 앱으로 바로 열려면, 이 주소가
+       그 앱을 자기 것이라고 맞장구쳐야 합니다. 예전에는 웹 앱을 플레이에 감싸던 TWA 용으로
+       TWA_PACKAGE · TWA_FINGERPRINT 를 적어야만 나갔는데, 지금은 **설정 없이도 늘** 진짜 앱
+       (io.github.iacobuschoi.mybody · 업로드 키)을 내보냅니다. 자세한 모양 · 설정 · 다듬기는
+       tools/test-invite.js [12] 가 봅니다 — 여기서는 server.js 를 그대로 띄워 나오는지만. */
     const port = await freePort();
     const srv = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')], {
       env: Object.assign(baseEnv(), {
         PORT: String(port), DB: path.join(HOME, 'al.db'), PAIR_SECRET: 'x',
         STATIC: path.join(ROOT, 'release'),
-        TWA_PACKAGE: 'com.example.mybody',
-        /* 소문자와 꼬리 공백을 일부러 넣습니다 — 구글은 이런 걸 조용히
+        /* 소문자와 꼬리 공백 · 콜론 없는 모양을 일부러 넣습니다 — 구글은 이런 걸 조용히
            무시하고, 왜 안 되는지는 어디에도 안 적힙니다. */
-        TWA_FINGERPRINT: 'aa:bb:cc:dd:ee:ff  '
+        ANDROID_CERT_SHA256: '  ' + 'ab'.repeat(32) + '  ',
+        /* 옛 설정이 남아 있어도 엉뚱한 패키지를 내보내지 않습니다. */
+        TWA_PACKAGE: 'com.example.mybody', TWA_FINGERPRINT: 'aa:bb:cc:dd:ee:ff'
       }), stdio: 'ignore'
     });
     await wait(1200);
-    const r = await fetch('http://127.0.0.1:' + port + '/.well-known/assetlinks.json')
+    const get = p2 => fetch('http://127.0.0.1:' + port + p2, { redirect: 'manual' })
       .then(async x => ({ status: x.status, type: x.headers.get('content-type'), body: await x.text() }))
       .catch(e => ({ err: e.message }));
-    ok('주소로 나온다', r.status === 200, r);
-    ok('JSON 으로 내보낸다', /application\/json/.test(r.type || ''), r.type);
+    const r = await get('/.well-known/assetlinks.json');
+    ok('주소로 나온다 (설정 없이도 · 리디렉션 없이)', r.status === 200, r);
+    ok('JSON 으로 내보낸다', r.type === 'application/json', r.type);
     let j = null; try { j = JSON.parse(r.body); } catch (e) {}
     ok('구글이 읽는 모양이다',
-       Array.isArray(j) && j[0] && j[0].target && j[0].target.namespace === 'android_app', r.body);
-    ok('패키지 이름이 들어간다', j && j[0].target.package_name === 'com.example.mybody');
-    ok('지문을 대문자로 맞추고 공백을 턴다',
-       j && j[0].target.sha256_cert_fingerprints[0] === 'AA:BB:CC:DD:EE:FF',
+       Array.isArray(j) && j[0] && j[0].target && j[0].target.namespace === 'android_app' &&
+       j[0].relation[0] === 'delegate_permission/common.handle_all_urls', r.body);
+    ok('앱의 패키지 이름 (옛 TWA_PACKAGE 가 아니라)', j && j.length === 1 && j[0].target.package_name === 'io.github.iacobuschoi.mybody',
+       j && j.map(x => x.target.package_name));
+    ok('업로드 키가 먼저 · 더한 지문은 대문자 콜론 모양으로 다듬는다',
+       j && j[0].target.sha256_cert_fingerprints.length === 2 &&
+       j[0].target.sha256_cert_fingerprints[0] === '06:D9:45:A3:83:79:71:CE:A7:AF:0C:03:BC:EF:F3:13:96:4F:57:7B:C8:C1:6A:41:03:3A:A2:60:17:83:DE:11' &&
+       j[0].target.sha256_cert_fingerprints[1] === 'AB:'.repeat(31) + 'AB',
        j && j[0].target.sha256_cert_fingerprints);
+    const a = await get('/.well-known/apple-app-site-association');
+    let k = null; try { k = JSON.parse(a.body); } catch (e) {}
+    ok('아이폰 파일도 200 · application/json · /i/* 를 앱이 연다', a.status === 200 && a.type === 'application/json' &&
+       k && k.applinks.details[0].appIDs[0] === 'JT4YLVNKDZ.io.github.iacobuschoi.mybody' &&
+       k.applinks.details[0].components[0]['/'] === '/i/*', a);
     srv.kill();
-    await wait(300);
-
-    /* 설정 안 했으면 **빈 파일을 내주면 안 됩니다.** 빈 파일은 "설정했는데
-       안 된다" 를 만들고, 그건 원인을 못 찾는 종류입니다. */
-    const port2 = await freePort();
-    const srv2 = spawn(process.execPath, [path.join(ROOT, 'server', 'server.js')], {
-      env: Object.assign(baseEnv(), {
-        PORT: String(port2), DB: path.join(HOME, 'al2.db'), PAIR_SECRET: 'x',
-        STATIC: path.join(ROOT, 'release')
-      }), stdio: 'ignore'
-    });
-    await wait(1200);
-    const r2 = await fetch('http://127.0.0.1:' + port2 + '/.well-known/assetlinks.json')
-      .then(async x => ({ status: x.status, body: await x.text() })).catch(e => ({ err: e.message }));
-    ok('설정 안 했으면 404 (빈 파일을 안 내준다)', r2.status === 404, r2);
-    ok('무엇을 설정해야 하는지 말한다', /TWA_PACKAGE/.test(r2.body || ''), r2.body);
-    srv2.kill();
     await wait(300);
   }
 

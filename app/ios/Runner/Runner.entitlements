@@ -1,11 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- 앱 알림(APNs) 권한. 이 파일은 프로젝트에서 가리키지 않습니다 — 서명에 붙이는 것은 CI 가
-     조건을 볼 때만 합니다(그날만 tools/ios-sign-project.js 에 --entitlements 를 줘서 Runner 의
-     Release · Profile 에 CODE_SIGN_ENTITLEMENTS 를 넣음): 파이어베이스 설정 비밀이 있고, 설치된
-     프로파일에 aps-environment 가 있을 때. 늘 붙이면 푸시가 없는 프로파일로
-     서명하는 날 "doesn't match the entitlements file" 로 서명이 깨져 릴리스가 멈춥니다.
-     값은 CI 가 프로파일의 값으로 덮어씁니다(TestFlight · 앱스토어는 production). -->
+<!-- 앱 서명에 붙는 권한. 이 파일은 프로젝트에서 가리키지 않습니다 — 서명에 붙이는 것은 CI 가
+     조건을 볼 때만 합니다(그날만 tools/ios-sign-project.js 에 entitlements 인자를 줘서 Runner 의
+     Release · Profile 에 CODE_SIGN_ENTITLEMENTS 를 넣음). 프로파일에 없는 권한을 붙이면
+     "doesn't match the entitlements file" 로 서명이 깨져 릴리스가 멈추기 때문입니다.
+
+     CI(.github/workflows/ios-release.yml 「앱 타깃 서명 설정」)는 이 파일을 러너 안에서 그날
+     붙일 것만 남게 고칩니다(커밋 안 함):
+       · aps-environment (앱 알림) — 파이어베이스 설정 비밀이 있고 설치된 프로파일에 이 권한이
+         있을 때만 남기고, 값은 프로파일의 값으로 덮어씁니다(TestFlight · 앱스토어는 production).
+         아니면 지웁니다.
+       · com.apple.developer.associated-domains = ["applinks:<서버 호스트>"] (초대 링크 —
+         https://<서버>/i/<코드> 를 누르면 앱이 바로 열림) — 호스트는 앱에 박히는 서버 주소
+         (비밀 MYBODY_SERVER_URL)에서 떼고, 프로파일에 이 권한이 있을 때만 넣습니다. 호스트가
+         비밀에서 나오므로 여기에는 적어 두지 않습니다.
+     이 주석 안에는 빼기 두 개를 잇달아 쓰지 않습니다 — XML 주석 규칙 위반이라 엄격한 읽개가
+     파일을 거절합니다(예전 주석에 명령줄 인자 이름이 그대로 있었습니다). -->
 <plist version="1.0">
 <dict>
 	<key>aps-environment</key>

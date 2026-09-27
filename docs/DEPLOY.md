@@ -373,6 +373,41 @@ TestFlight 로 받은 사람은 `--testflight` 값을 봅니다(0.2.10 부터). 
 올리므로 **알림 때문에 TestFlight 가 멈추지는 않습니다.** 맥에서 만든 프로파일(수동 서명)을 쓰면 App ID 에 Push 를
 켠 뒤 프로파일을 다시 만들어 `IOS_PROFILE_BASE64` 를 갈아야 합니다.
 
+## 11. 초대 링크 — 누르면 앱이 바로 열리게 (App Links · Universal Links)
+
+앱의 「친구 초대」 가 보내는 링크는 `https://<서버>/i/<코드>` 입니다. 앱이 깔린 폰에서 누르면 **브라우저를
+거치지 않고 앱이 바로 열려** 친구 요청이 갑니다. 앱이 없거나 아래가 아직 안 맞으면 같은 링크가 서버의
+초대 페이지로 열리고, 거기서 「앱에서 열기」(mybody://) · 스토어 · 테스트 안내로 이어집니다 — 길이 끊기지는
+않고 한 번 더 누를 뿐입니다. **새로 넣을 비밀은 없습니다** — 호스트는 `MYBODY_SERVER_URL` 에서 뗍니다.
+
+| 어디 | 자동으로 되는 것 | 안 맞으면 |
+|---|---|---|
+| 서버 | `GET /.well-known/assetlinks.json`(패키지 + 서명 지문) · `GET /.well-known/apple-app-site-association`(`<팀 ID>.io.github.iacobuschoi.mybody` 가 `/i/*` 를 연다). 자세히: `server/README.md` 「앱 링크 파일」 | — |
+| 안드로이드 빌드 | `app/android/app/build.gradle.kts` 가 빌드 단계의 `SERVER_URL` 에서 호스트를 떼어 매니페스트의 https 필터(autoVerify · `/i/` 아래만)에 넣음. 비었으면 앱의 기본 서버 호스트 | 폰의 확인이 실패하면 링크가 브라우저로 열림 |
+| 아이폰 빌드 | 「아이폰 TestFlight」 가 (자동 서명이면) App ID 에 Associated Domains 를 애플 API 로 켜고 → 새 프로파일에 그 권한이 들어왔을 때만 서명에 `applinks:<서버 호스트>` 를 붙이고 → 나온 앱을 열어 확인. 요약 맨 아래 `초대 링크(Universal Links): 켜짐/꺼짐 — 이유` | 경고만 하고 없이 올림 — 링크는 사파리의 초대 페이지로 |
+
+**한 번 확인할 것 (노트북)**
+
+1. **플레이 앱 서명 키 지문.** 플레이에서 받은 앱은 플레이가 「앱 서명 키」 로 다시 서명합니다. 그 지문이
+   업로드 키(`06:D9:…:DE:11`, 서버에 늘 들어 있음)와 **다르면** 서버 설정에 더해야 플레이로 깐 폰에서도
+   바로 열립니다. 플레이 콘솔 → 앱 → 「Google Play로 보호됨 → Play 스토어 배포 → Play 앱 서명」(구 메뉴: 앱 무결성 → 앱 서명,
+   7절 5번과 같은 화면) → "앱 서명 키 인증서" 의 SHA-256 을 보고, 다르면
+   서버 컴퓨터의 `~/.mybody/config.json` 에 `"androidCertSha256": "AB:CD:…"`(여럿이면 배열)를 적습니다.
+   서버는 부를 때마다 읽으므로 다시 띄울 필요가 없습니다. (첫 출시 때 앱 서명 키를 주인 열쇠로 바꿔 두어
+   두 지문이 같다고 적어 두었습니다 — docs/LOCAL-REPORT.md 1절. 그대로면 할 일 없음.)
+2. **서버가 파일을 내 주는가.** `curl -s https://<서버>/.well-known/assetlinks.json` 에 지문이 보이고,
+   `curl -sI https://<서버>/.well-known/apple-app-site-association` 가 **200 · `application/json` · 리디렉션 없음**.
+   서버를 이 코드로 올리기 전에는 둘 다 없습니다.
+3. **안드로이드 폰.** 새 판을 깐 뒤 `adb shell pm get-app-links io.github.iacobuschoi.mybody` 에서 서버 호스트가
+   `verified`. 서버를 고친 뒤 다시 확인시키려면 `adb shell pm verify-app-links --re-verify io.github.iacobuschoi.mybody`.
+4. **아이폰.** TestFlight 요약에 `초대 링크(Universal Links): 켜짐`. 애플은 앱을 깔 때 자기 CDN 으로 파일을
+   받아 가고 한동안 기억하므로, 서버를 막 고쳤으면 앱을 지웠다 다시 까는 게 빠릅니다. 시험은 메모 · 카톡에
+   링크를 붙여 넣고 누르기로 합니다 — 사파리 주소창에 직접 치면 애플 규칙상 앱이 안 열립니다.
+
+- **서버 주소(호스트)를 바꾸면 두 앱을 새로 빌드해야 합니다.** 호스트가 빌드에 박힙니다(앱의 서버 주소와 같은 이유).
+- 수동 서명(맥에서 만든 `IOS_PROFILE_BASE64`)이면 CI 가 App ID 를 건드리지 않습니다. developer.apple.com →
+  Identifiers → 앱 → **Associated Domains** 를 켜고 프로파일을 다시 만들어 Secret 을 갈면 그다음 판부터 붙습니다.
+
 ## 되돌리기
 
 배포한 게 잘못됐으면:
