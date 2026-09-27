@@ -1,0 +1,135 @@
+"""데몬 흐름 시험 — 마이크 · 스피커 · 화면 · Claude 를 가짜로 바꿔 끼우고 상태가 맞게 바뀌는지.
+
+  자는 중 → 박수 두 번 → 깨어남(화면 켜짐 · 브리핑) → 말(로컬/Claude) → "조용히" → "다시 들어" → "화면 꺼" → 자는 중
+"""
+import os
+import sys
+import time
+import unittest
+
+import numpy as np
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+from desk import briefing, config, daemon, mac  # noqa: E402
+from tests.test_clap import clap, silence  # noqa: E402
+
+CALLS: list[str] = []
+
+
+class FakeVoice:
+    def __init__(self, *a, **k):
+        self.said, self.last_text = [], ""
+
+    def busy(self):
+        return False
+
+    def say(self, text, block=False):
+        self.said.append(text)
+        self.last_text = text
+
+    def stop(self):
+        CALLS.append("voice.stop")
+
+
+class FakeBrain:
+    def __init__(self, *a, **k):
+        self.asked = []
+
+    def busy(self):
+        return False
+
+    def cancel(self):
+        CALLS.append("brain.cancel")
+        return False
+
+    def ask(self, text):
+        self.asked.append(text)
+        return ("<IGNORE>" in text and (None, "")) or ("네, 가계부 시험을 돌렸어요.", "네, 가계부 시험을 돌렸어요.")
+
+
+def make():
+    CALLS.clear()
+    for name in ["display_on", "display_off", "open_dashboard", "keep_system_awake"]:
+        setattr(mac, name, (lambda n: (lambda *a, **k: CALLS.append(n)))(name))
+    mac.sound = lambda *a, **k: None
+    mac.change_volume = lambda d: 50
+    mac.Voice = FakeVoice
+    daemon.Brain = FakeBrain
+    briefing.gather = lambda cfg: {"weather": "맑음", "factory": {"ok": False}, "lab": {"runner": True, "iphone": True, "android": 1}}
+    cfg = config.load("/nonexistent")
+    cfg["wake"]["night"] = ["00:00", "00:00"]      # 시험 중엔 밤이 아니게
+    d = daemon.Desk(cfg)
+    return d
+
+
+def feed(d, sig):
+    for i in range(0, len(sig), 480):
+        d._on_audio(sig[i:i + 480])
+
+
+class DaemonFlow(unittest.TestCase):
+    def test_full_flow(self):
+        d = make()
+        self.assertEqual(d.mode, "sleep")
+
+        feed(d, np.concatenate([silence(1.0), clap()]))            # 한 번은 안 켜짐
+        feed(d, silence(1.5))
+        self.assertEqual(d.mode, "sleep")
+
+        feed(d, np.concatenate([silence(1.0), clap(), silence(0.3), clap(), silence(1.5)]))
+        self.assertEqual(d.mode, "awake")
+        self.assertIn("display_on", CALLS)
+        time.sleep(0.2)                                             # 브리핑 스레드
+        self.assertTrue(any("시스템을 시작합니다" in s for s in d.voice.said))
+        self.assertTrue(any("실험실은 정상" in s for s in d.voice.said))
+
+        d.handle("지금 몇 시야")
+        self.assertRegex(d.voice.said[-1], r"(오전|오후) \d+시 \d+분이에요")
+
+        d.handle("가계부 앱 실기기 시험 돌려 줘")
+        self.assertEqual(d.brain_q.get_nowait(), "가계부 앱 실기기 시험 돌려 줘")
+
+        d.handle("조용히 해")
+        self.assertEqual(d.mode, "muted")
+        d.handle("가계부 앱 실기기 시험 돌려 줘")                  # 조용히 모드: 아무 데도 안 감
+        self.assertTrue(d.brain_q.empty())
+        d.handle("다시 들어")
+        self.assertEqual(d.mode, "awake")
+
+        d.handle("화면 꺼 줘")
+        self.assertEqual(d.mode, "sleep")
+        self.assertIn("display_off", CALLS)
+
+    def test_muted_unmutes_on_double_clap(self):
+        d = make()
+        d.wake("test")
+        d.mute()
+        feed(d, np.concatenate([silence(1.0), clap(), silence(0.3), clap(), silence(1.5)]))
+        self.assertEqual(d.mode, "awake")
+
+    def test_night_needs_three_claps(self):
+        d = make()
+        d.cfg["wake"]["night"] = ["00:00", "23:59"]
+        feed(d, np.concatenate([silence(1.0), clap(), silence(0.3), clap(), silence(1.5)]))
+        self.assertEqual(d.mode, "sleep")
+        feed(d, np.concatenate([silence(1.0), clap(), silence(0.3), clap(), silence(0.3), clap(), silence(1.5)]))
+        self.assertEqual(d.mode, "awake")
+
+    def test_idle_goes_to_sleep(self):
+        d = make()
+        d.wake("test")
+        d.last_activity = time.time() - 16 * 60
+        feed(d, silence(0.1))
+        time.sleep(0.2)
+        self.assertEqual(d.mode, "sleep")
+
+    def test_stop_cancels_claude(self):
+        d = make()
+        d.wake("test")
+        d.handle("멈춰")
+        self.assertIn("brain.cancel", CALLS)
+        self.assertIn("voice.stop", CALLS)
+
+
+if __name__ == "__main__":
+    unittest.main()

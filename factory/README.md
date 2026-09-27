@@ -23,6 +23,7 @@ Claude Code · 스토어 · 시험 도구의 2026-09 현재 사실을 확인해 
 | [MONEY.md](MONEY.md) | 주제 고르기 · 수익 모델 · 수수료 · 정책 위험 · 세금 · ASO · 판정표 | 돈 |
 | [seed/](seed/) | `app-factory` 저장소의 씨앗: `CLAUDE.md` · `.claude/`(훅 · 권한 · 에이전트 · 스킬) · 워크플로 3개 · `scripts/` · `portfolio/` | bootstrap.sh 가 푸시 |
 | [ship-seed/](ship-seed/) | `app-factory-ship`(출시 창구) 의 씨앗: `ship.yml` · `ship-control.yml` | bootstrap.sh 가 푸시 |
+| [desk/](desk/README.md) | **방의 책상**: 박수 두 번 → 화면 켜기 · 브리핑 · 상시 음성 명령(로컬 명령 + Claude 비서) | 맥 미니에 `desk/install.sh` |
 | [scripts/](scripts/) | `macmini-setup.sh`(실험실 세팅) · `bootstrap.sh`(저장소 · 승인 환경 · 열쇠 · 러너) | 맥 미니에서 한 번 |
 
 ---

@@ -38,3 +38,8 @@ play/*.zip
 play/*.aab
 play/encryption-key.txt
 app/test_shots/private/
+
+# 책상 시스템 — 파이썬 캐시 · 가상환경
+__pycache__/
+*.pyc
+factory/desk/.venv/
