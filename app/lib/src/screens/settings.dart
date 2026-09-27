@@ -24,8 +24,12 @@
  * **「의견 보내기」 줄은 없습니다.** 주인의 말: "의견보내기는 설정 드가서 하는게
  * 아니라 앱 어딘가에 상시 떠있는 버튼으로". 화면 옆 말풍선(feedback_bubble.dart)이
  * 이 화면에도 떠 있어서, 여기 줄을 또 두면 같은 일을 하는 단추가 한 화면에 둘입니다.
- * 대신 그 말풍선을 켜고 끄는 스위치를 둡니다 — 말풍선을 길게 눌러 숨긴 사람이 되찾는
- * 곳이 여기이고, 숨길 때 "설정 → 도움말에서 다시 켤 수 있어요" 라고 이 자리를 알려 줍니다.
+ * 대신 그 말풍선을 켜고 끄는 스위치를 둡니다("설정에서 의견보내기 아이콘 표시 끄고
+ * 킬수있게해") — 말풍선을 X 로 끌어다 치운 사람이 되찾는 곳이 여기이고, 치울 때
+ * 「다시 켜려면 설정 → 도움말에서 켜세요」 라고 이 자리를 알려 줍니다.
+ * **비공개 시험 기간에는 켜진 채 잠급니다**(「테스트 기간에는 켜 둡니다」) — 말풍선의
+ * X 도 그동안은 못 치웁니다. 시험판의 의견이 시험의 전부라서입니다(feedback.dart 의
+ * feedbackBubbleLocked). 시험이 끝나면(서버 testing 거짓) 평소처럼 켜고 끕니다.
  *
  * **로그아웃은 맨 아래 한 곳입니다.** 예전엔 긴 페이지 한가운데 「계정」
  * 카드 안, 「계정 관리」 옆의 작은 버튼이었고 주인이 못 찾았습니다 —
@@ -51,7 +55,8 @@ import '../native_push.dart';
 import '../scope.dart';
 import '../update.dart';
 import 'account.dart';
-import 'feedback.dart' show feedbackBubbleOn, loadFeedbackBubbleOn, setFeedbackBubbleOn;
+import 'feedback.dart'
+    show feedbackBubbleLocked, feedbackBubbleOn, loadFeedbackBubbleOn, setFeedbackBubbleOn;
 import 'gym_settings.dart';
 import 'share_defaults.dart';
 import 'sync_settings.dart';
@@ -85,6 +90,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final st = app.state;
     final settings = ((st['settings'] as Map?) ?? const {}).cast<String, Object?>();
     final profile = app.profile;
+    final update = Scope.updateOf(context);
     final t = Theme.of(context);
 
     return Scaffold(
@@ -227,20 +233,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
         /* 도움말 — 「지우기」 바로 위(머리 주석). 말풍선 스위치와 「앱 안내 다시 보기」.
            로그인과 상관없이 둘 다 — 의견은 로그인 없이도 가고(서버가 익명으로 받음),
            안내는 누구에게나 같습니다. 스위치는 말풍선과 같은 값(feedbackBubbleOn)을
-           봐서, 켜면 뒤로 가기 전에도 이 화면 옆에 말풍선이 바로 돌아옵니다. */
+           봐서, 켜면 뒤로 가기 전에도 이 화면 옆에 말풍선이 바로 돌아옵니다.
+           시험 기간이면 켜진 채 잠급니다 — 새 판 확인기가 시험이 끝났다는 답을 받으면
+           이 화면을 연 채로도 곧바로 풀립니다(확인기도 같이 듣습니다). */
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             const SectionTitle('도움말'),
-            ValueListenableBuilder<bool>(
-              valueListenable: feedbackBubbleOn,
-              builder: (context, on, _) => SwitchListTile(
-                key: const Key('settings-feedback-bubble'),
-                contentPadding: EdgeInsets.zero,
-                title: const Text('의견 버튼 보이기'),
-                subtitle: Text('화면 옆 말풍선 · 끌어서 옮길 수 있어요', style: t.textTheme.labelSmall),
-                value: on,
-                onChanged: (v) => unawaited(setFeedbackBubbleOn(v)),
-              ),
+            ListenableBuilder(
+              listenable: Listenable.merge([feedbackBubbleOn, if (update != null) update]),
+              builder: (context, _) {
+                final locked = feedbackBubbleLocked(update);
+                return SwitchListTile(
+                  key: const Key('settings-feedback-bubble'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('의견 버튼 보이기'),
+                  subtitle: Text(locked ? '테스트 기간에는 켜 둡니다' : '화면 가장자리 말풍선 · 꾹 눌러 옮겨요',
+                      style: t.textTheme.labelSmall),
+                  value: locked || feedbackBubbleOn.value,
+                  onChanged: locked ? null : (v) => unawaited(setFeedbackBubbleOn(v)),
+                );
+              },
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(

@@ -19,6 +19,10 @@
  *   7. 시험판 참여 링크(join) — 적힌 https 만 나가고(기본 주소 없음, 비었으면 {}),
  *      도구의 --join-ios · --join-android · --join-android-group 은 https 가 아니면
  *      거절하고, 빈 값 · none 이면 지운다.
+ *   8. 시험 기간(testing) — 늘 싣고, **적지 않았거나 모르는 값이면 참**(분명히 끈 것만
+ *      거짓). 도구의 --testing=on|off 는 참/거짓으로 저장하고, none 이면 키를 빼서
+ *      기본값(켜짐)으로, 그 밖의 값은 거절한다. 끄기로 했는데 서버가 testing 을
+ *      모르는 옛 코드면 "다시 띄워야" 를 말한다.
  * ========================================================================== */
 'use strict';
 require('./testenv');
@@ -120,8 +124,10 @@ async function main() {
   ok('로그인 없이 200', a.status === 200 && a.json.ok === true, a);
   /* join(시험판 참여 링크)이 더해졌습니다. 늘 싣고, 아무것도 안 적었으면 {} 입니다 —
      앱이 "join 을 모르는 옛 서버" 와 "링크 없음" 을 가를 수 있게. */
-  ok('모양: ok · latest · min · urls · join 만 (개인정보 없음)',
-     same(Object.keys(a.json).sort(), ['join', 'latest', 'min', 'ok', 'urls']), Object.keys(a.json));
+  /* testing(시험 기간)도 더해졌습니다. 늘 싣고, 아무것도 안 적었으면 true 입니다. */
+  ok('모양: ok · latest · min · urls · join · testing 만 (개인정보 없음)',
+     same(Object.keys(a.json).sort(), ['join', 'latest', 'min', 'ok', 'testing', 'urls']), Object.keys(a.json));
+  ok('testing 은 기본 true (적지 않았으면 시험 기간)', a.json.testing === true, a.json.testing);
   ok('join 은 빈 객체 (기본 참여 링크는 없다)', same(a.json.join, {}), a.json.join);
   ok('latest 는 가게 셋, 전부 빈 값', same(a.json.latest, EMPTY), a.json.latest);
   ok('min 은 빈 값', a.json.min === '', a.json.min);
@@ -226,6 +232,20 @@ async function main() {
   fs.rmSync(CFG);
   ok('joinLinks 단독 — 없는 설정이면 {}', same(APPVER.joinLinks(undefined), {}));
 
+  console.log('\n[4-2] 시험 기간 (testing)');
+  const tcases = [[false, false], [true, true], ['off', false], [' OFF ', false], ['false', false], ['0', false],
+                  [0, false], ['끔', false], ['on', true], ['yes', true], ['아마', true], ['', true], [null, true],
+                  [['off'], true], [{ v: false }, true], [1, true]];
+  for (const [raw, want] of tcases) {
+    writeCfg(CFG, { appTesting: raw });
+    const t = await get('/version');
+    ok('appTesting ' + JSON.stringify(raw) + ' → ' + want + (want ? '' : ' (분명히 끈 것)'),
+       t.status === 200 && t.json.testing === want, t.json.testing);
+  }
+  fs.rmSync(CFG);
+  ok('cleanTesting 단독 — undefined 는 true', APPVER.cleanTesting(undefined) === true &&
+     APPVER.versionInfo(undefined).testing === true);
+
   console.log('\n[5] 판 견주기');
   const cmp = APPVER.compareVersions;
   ok('0.2.10 이 0.2.9 보다 뒤 (글자로 견주면 거꾸로)', cmp('0.2.10', '0.2.9') > 0);
@@ -268,7 +288,8 @@ async function main() {
   ok('가입 코드 · 판독 키 · 포트는 그대로다', c1.pairSecret === 'keep-this-pair' &&
      c1.anthropicKey === 'sk-keep-this' && c1.port === 9123, c1);
   ok('환경변수나 기본값을 파일에 굳히지 않는다',
-     !('openSignup' in c1) && !('static' in c1) && !('appUrlApk' in c1), Object.keys(c1));
+     !('openSignup' in c1) && !('static' in c1) && !('appUrlApk' in c1) && !('appTesting' in c1), Object.keys(c1));
+  ok('시험 기간을 안 적었으면 "켜짐 (기본값)" 으로 보여 준다', /시험 기간\s+켜짐 \(기본값\)/.test(s1.out), s1.out.slice(-400));
   const raw1 = fs.readFileSync(cfg2, 'utf8');
   ok('형식이 CONFIG.save 와 같다 (두 칸 들여쓰기 · 끝 줄바꿈)',
      raw1 === JSON.stringify(c1, null, 2) + '\n');
@@ -367,6 +388,53 @@ async function main() {
   ok('참여 링크를 모르는 옛 서버면 "다시 띄워야" 를 말한다', oj.code === 0 && /참여 링크\(join\)를 모르는/.test(oj.out) &&
      /다시 띄워야/.test(oj.out), oj.out.slice(-400));
   tool(['--join-ios=none', '--join-android-group=none'], home2);
+
+  console.log('\n[8] 도구 — 시험 기간 (--testing)');
+  const before = readCfg(cfg2);
+  const tOff = tool(['--testing=off'], home2);
+  const tc = readCfg(cfg2);
+  ok('--testing=off → false 로 저장 (참/거짓)', tOff.code === 0 && tc.appTesting === false, tc.appTesting);
+  ok('끈 것을 보여 준다', /시험 기간\s+꺼짐/.test(tOff.out) && /← 바꿈/.test(tOff.out), tOff.out.slice(-500));
+  ok('시험 기간을 적어도 다른 값은 그대로', tc.pairSecret === 'keep-this-pair' && tc.appLatestApk === before.appLatestApk &&
+     tc.appMin === before.appMin, tc);
+  const tOn = tool(['--testing', 'on'], home2);
+  ok('--testing on (띄어 써도) → true', tOn.code === 0 && readCfg(cfg2).appTesting === true, readCfg(cfg2).appTesting);
+  for (const bad of ['maybe', '', '2']) {
+    const r = tool(['--testing=' + bad], home2);
+    ok(`모르는 값 "${bad}" → 거절 (exit 1 · 그대로)`, r.code === 1 && readCfg(cfg2).appTesting === true &&
+       /on · off/.test(r.out), r.out.slice(0, 200));
+  }
+  const tNo = tool(['--testing'], home2);
+  ok('값 없는 --testing → 거절 (예시는 =off)', tNo.code === 1 && /--testing=off/.test(tNo.out), tNo.out.slice(0, 200));
+  const tClr = tool(['--testing=none'], home2);
+  ok('--testing=none → 키를 빼서 기본값(켜짐)으로', tClr.code === 0 && !('appTesting' in readCfg(cfg2)) &&
+     /시험 기간\s+켜짐 \(기본값\)/.test(tClr.out), tClr.out.slice(-400));
+  writeCfg(cfg2, Object.assign(readCfg(cfg2), { appTesting: 'nope' }));
+  const tOdd = tool([], home2);
+  ok('손으로 적은 이상한 값은 "켜짐으로 읽습니다" 라고 말한다', tOdd.code === 0 &&
+     /참\/거짓이 아니라 켜짐으로 읽습니다: "nope"/.test(tOdd.out), tOdd.out.slice(-500));
+  const tSrvOff = tool(['--testing=off'], null, PORT);
+  const tv = await get('/version');
+  ok('도구로 끈 것이 다시 띄우지 않아도 나간다 · 서버에 확인', tSrvOff.code === 0 && tv.json.testing === false &&
+     /확인했습니다/.test(tSrvOff.out), [tv.json.testing, tSrvOff.out.slice(-300)]);
+  tool(['--testing=none'], null, PORT);
+  ok('none 으로 지우면 서버도 다시 true', (await get('/version')).json.testing === true);
+  /* testing 을 모르는 옛 서버 — latest · min · urls · join 은 같은데 testing 칸이 없습니다. */
+  const oldT = http.createServer((q, s) => {
+    s.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    const v = APPVER.versionInfo(Object.assign({}, readCfg(cfg2)));
+    delete v.testing;
+    s.end(JSON.stringify(v));
+  });
+  await new Promise(r => oldT.listen(0, '127.0.0.1', r));
+  const ot1 = await toolAsync(['--testing=off'], home2, oldT.address().port);
+  ok('끄기로 했는데 testing 을 모르는 옛 서버면 "다시 띄워야" 를 말한다', ot1.code === 0 &&
+     /시험 기간\(testing\)을 모르는 옛 서버/.test(ot1.out) && /다시 띄워야/.test(ot1.out), ot1.out.slice(-400));
+  const ot2 = await toolAsync(['--testing=on'], home2, oldT.address().port);
+  oldT.close();
+  ok('켜짐이면 옛 서버로도 충분 (앱은 없으면 켜짐) → "확인했습니다"', ot2.code === 0 &&
+     /확인했습니다/.test(ot2.out) && !/옛 서버/.test(ot2.out), ot2.out.slice(-400));
+  tool(['--testing=none'], home2);
 
   const broken = '{ "pairSecret": "keep", 망가짐';
   writeCfg(cfg2, broken);

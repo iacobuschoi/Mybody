@@ -18,6 +18,8 @@
  *   · 360px · 글자 1.3배 · 밝게/어둡게 — 넘치지 않는다.
  *   · 설정       「도움말」 카드 — 「의견 버튼 보이기」 스위치(말풍선과 같은 값) · 앱 안내 다시
  *                보기. 「의견 보내기」 줄은 없다(화면 옆 말풍선이 설정 화면에도 떠 있음).
+ *                스위치는 비공개 시험 기간(서버 testing · 모르면 시험 중)에는 켜진 채 잠기고
+ *                (「테스트 기간에는 켜 둡니다」), 시험이 끝나면 평소처럼 켜고 끈다.
  *   · 셸         앱바에 의견 단추가 없고, 화면 옆 말풍선으로 탭마다 그 탭 이름이 간다.
  *                (말풍선 자체는 feedback_bubble_test.dart)
  *   · 캡처       앱 맨 위 경계를 실제로 PNG 로 굽는다(진짜 앱 main.dart 에서도, 켜는
@@ -51,6 +53,7 @@ import 'package:mybody/src/shell.dart';
 import 'package:mybody/src/theme.dart';
 import 'package:mybody/src/ui/edge.dart';
 import 'package:mybody/src/ui/widgets.dart';
+import 'package:mybody/src/update.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -96,6 +99,9 @@ class _Server {
   /// 서버에 못 닿음(status 0).
   bool offline = false;
 
+  /// GET /api/version 의 testing(비공개 시험 기간). null 이면 칸을 안 싣습니다(옛 서버).
+  Object? testing;
+
   final feedback = <_Sent>[];
 
   Api api() => Api(
@@ -105,6 +111,9 @@ class _Server {
               utf8.encode(jsonEncode(body)), status,
               headers: {'content-type': 'application/json; charset=utf-8'});
           final path = req.url.path.replaceFirst('/api', '');
+          if (path == '/version') {
+            return json({'ok': true, 'latest': {}, 'min': '', if (testing != null) 'testing': testing}, 200);
+          }
           if (path != '/feedback') return json({'ok': true}, 200);
           feedback.add(_Sent(Map.of(req.headers), (jsonDecode(req.body) as Map).cast<String, dynamic>()));
           if (gate != null) await gate!.future;
@@ -645,11 +654,26 @@ void main() {
   });
 
   group('설정 — 도움말', () {
-    Future<_Fakes> openSettings(WidgetTester t, {Size size = const Size(1000, 4000)}) async {
+    /* [testing] 을 주면 그 값을 답하는 서버에 물은 새 판 확인기를 겁니다. 안 주면 확인기가
+       없습니다 — 모르는 것이라 시험 중으로 봅니다. */
+    Future<UpdateCheck?> updateCheck(WidgetTester t, _Server server, Api api, Object? testing) async {
+      if (testing == null) return null;
+      server.testing = testing;
+      final u = UpdateCheck(api: api, platform: TargetPlatform.android, web: false);
+      await t.runAsync(u.start);
+      return u;
+    }
+
+    Future<_Fakes> openSettings(WidgetTester t,
+        {Size size = const Size(1000, 4000), Object? testing, double text = 1.0}) async {
       final s = await _host(t, size: size);
+      t.platformDispatcher.textScaleFactorTestValue = text;
+      addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
+      final update = await updateCheck(t, s.server, s.api, testing);
       await t.pumpWidget(Scope(
         state: await AppState.boot(),
         api: s.api,
+        update: update,
         onServerChange: (_) async {},
         child: MaterialApp(
           theme: mbLight(),
@@ -698,14 +722,16 @@ void main() {
       expect(t.getRect(bubble).width, closeTo(inner, 1.0));
     });
 
-    testWidgets('「의견 버튼 보이기」 — 말풍선과 같은 값: 끄면 곧바로 · 저장되고, 켜면 돌아온다', (t) async {
+    testWidgets('「의견 버튼 보이기」(시험 끝) — 말풍선과 같은 값: 끄면 곧바로 · 저장되고, 켜면 돌아온다', (t) async {
       feedbackBubbleOn.value = true;
       addTearDown(() => feedbackBubbleOn.value = true);
-      await openSettings(t, size: const Size(390, 844));
+      await openSettings(t, size: const Size(390, 844), testing: false);
       final sw = find.byKey(const Key('settings-feedback-bubble'));
       await t.scrollUntilVisible(sw, 300, scrollable: find.byType(Scrollable).first);
       await t.pumpAndSettle();
       expect(t.widget<SwitchListTile>(sw).value, isTrue, reason: '처음에는 켜져 있습니다');
+      expect(t.widget<SwitchListTile>(sw).onChanged, isNotNull, reason: '시험이 끝났으면 잠기지 않습니다');
+      expect(find.descendant(of: sw, matching: find.text('화면 가장자리 말풍선 · 꾹 눌러 옮겨요')), findsOneWidget);
       await t.tap(sw);
       await t.pumpAndSettle();
       expect(feedbackBubbleOn.value, isFalse);
@@ -714,21 +740,23 @@ void main() {
       expect(sp.getBool(kFeedbackBubbleOnKey), isFalse, reason: '이 기기에 저장(동기화 settings 가 아님)');
       expect(((await AppState.boot()).state['settings'] as Map?)?.containsKey('feedbackBubble') ?? false, isFalse);
 
-      /* 말풍선이 길게 눌러 숨긴 값도 같은 곳 — 스위치가 곧바로 따라옵니다. */
+      /* 말풍선을 X 로 치운 값도 같은 곳 — 스위치가 곧바로 따라옵니다. */
       await setFeedbackBubbleOn(true);
       await t.pump();
       expect(t.widget<SwitchListTile>(sw).value, isTrue);
       expect(sp.getBool(kFeedbackBubbleOnKey), isTrue);
     });
 
-    testWidgets('설정을 열면 저장된 값을 읽는다 — 숨겨 둔 기기에서는 꺼진 채로 보인다', (t) async {
+    Future<({UpdateCheck? update, _Server server})> savedOff(WidgetTester t, Object? testing) async {
       feedbackBubbleOn.value = true;
       addTearDown(() => feedbackBubbleOn.value = true);
       final s = await _host(t);
       SharedPreferences.setMockInitialValues({kFeedbackBubbleOnKey: false});
+      final update = await updateCheck(t, s.server, s.api, testing);
       await t.pumpWidget(Scope(
         state: await AppState.boot(),
         api: s.api,
+        update: update,
         onServerChange: (_) async {},
         child: MaterialApp(theme: mbLight(), builder: edgeSafe, home: const SettingsScreen()),
       ));
@@ -736,8 +764,66 @@ void main() {
       final sw = find.byKey(const Key('settings-feedback-bubble'));
       await t.scrollUntilVisible(sw, 300, scrollable: find.byType(Scrollable).first);
       await t.pumpAndSettle();
+      return (update: update, server: s.server);
+    }
+
+    testWidgets('설정을 열면 저장된 값을 읽는다 — 시험이 끝났고 숨겨 둔 기기에서는 꺼진 채로 보인다', (t) async {
+      await savedOff(t, false);
+      final sw = find.byKey(const Key('settings-feedback-bubble'));
       expect(t.widget<SwitchListTile>(sw).value, isFalse);
+      expect(t.widget<SwitchListTile>(sw).onChanged, isNotNull);
     });
+
+    /* 주인의 말: "테스트기간에는 … 없앨수없어요". 시험 중에는 스위치도 켜진 채 잠급니다 — 옛 판에서
+       꺼 둔 기기도(말풍선은 그래도 뜹니다, feedback_bubble_test.dart). 누르면 아무 일도 없습니다. */
+    for (final (name, testing) in [('서버 testing 참', true), ('확인기 없음(모름)', null), ('틀린 값', 'yes')]) {
+      testWidgets('시험 기간($name) — 저장이 꺼짐이어도 켜진 채 잠김 · 「테스트 기간에는 켜 둡니다」', (t) async {
+        await savedOff(t, testing);
+        final sw = find.byKey(const Key('settings-feedback-bubble'));
+        expect(feedbackBubbleOn.value, isFalse, reason: '저장된 값은 그대로');
+        expect(t.widget<SwitchListTile>(sw).value, isTrue);
+        expect(t.widget<SwitchListTile>(sw).onChanged, isNull, reason: '잠김');
+        expect(find.descendant(of: sw, matching: find.text('테스트 기간에는 켜 둡니다')), findsOneWidget);
+        await t.tap(sw);
+        await t.pumpAndSettle();
+        expect(feedbackBubbleOn.value, isFalse, reason: '눌러도 안 바뀝니다');
+        final sp = await SharedPreferences.getInstance();
+        expect(sp.getBool(kFeedbackBubbleOnKey), isFalse);
+        expect(t.takeException(), isNull);
+      });
+    }
+
+    testWidgets('시험이 끝나면(서버 testing 거짓) 연 채로도 곧바로 풀리고, 다시 시험을 켜면 잠긴다', (t) async {
+      final (:update, :server) = await savedOff(t, true);
+      final sw = find.byKey(const Key('settings-feedback-bubble'));
+      expect(t.widget<SwitchListTile>(sw).onChanged, isNull);
+      /* 주인이 시험을 끝냄(--testing=off) — 확인기가 새로 물으면. */
+      server.testing = false;
+      await t.runAsync(() => update!.check(force: true));
+      await t.pumpAndSettle();
+      expect(t.widget<SwitchListTile>(sw).value, isFalse, reason: '꺼 둔 대로');
+      expect(t.widget<SwitchListTile>(sw).onChanged, isNotNull, reason: '풀림');
+      await t.tap(sw);
+      await t.pumpAndSettle();
+      expect(feedbackBubbleOn.value, isTrue);
+
+      server.testing = true;
+      await t.runAsync(() => update!.check(force: true));
+      await t.pumpAndSettle();
+      expect(t.widget<SwitchListTile>(sw).value, isTrue);
+      expect(t.widget<SwitchListTile>(sw).onChanged, isNull);
+    });
+
+    for (final (name, testing) in [('잠김', true), ('풀림', false)]) {
+      testWidgets('360px · 글자 1.3배 — 도움말 카드가 넘치지 않는다($name)', (t) async {
+        await openSettings(t, size: const Size(360, 640), testing: testing, text: 1.3);
+        final sw = find.byKey(const Key('settings-feedback-bubble'));
+        await t.scrollUntilVisible(sw, 300, scrollable: find.byType(Scrollable).first);
+        await t.pumpAndSettle();
+        expect(t.takeException(), isNull);
+        expect(t.getRect(sw).right, lessThanOrEqualTo(360));
+      });
+    }
 
     testWidgets('「앱 안내 다시 보기」 — 눌러도 던지지 않는다', (t) async {
       await openSettings(t, size: const Size(390, 844));

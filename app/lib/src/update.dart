@@ -29,6 +29,14 @@
  * 받은 친구는 앱을 어디서 까는지부터 물어야 했습니다. 주소는 주인이 서버에서
  * 바꾸므로(tools/app-version.js --join-*) 앱에 박지 않고, 답을 받을 때마다 새로
  * 읽습니다. 받은 사람이 그대로 누르는 주소라 https 가 아니면 버립니다.
+ *
+ * 같은 답의 `testing` 은 **지금이 비공개 시험 기간인가** 입니다(주인이 서버에서
+ * tools/app-version.js --testing=on|off 로 바꿈). 시험 기간에는 화면 옆 「의견 보내기」
+ * 말풍선을 끌 수 없습니다(feedback_bubble.dart · 설정 「도움말」) — 시험판을 쓰는 사람의
+ * 의견이 이 앱이 시험을 하는 까닭이라, 그 길이 사라지면 안 됩니다. **칸이 없거나 참/거짓이
+ * 아니면 시험 중으로 읽습니다**: 옛 서버 · 아직 못 물은 때 · 틀린 값을 "시험 끝남" 으로 읽으면
+ * 시험 중에 말풍선을 치울 수 있게 되고, 거꾸로 읽는 쪽은 끝난 뒤 한동안 스위치가 잠길
+ * 뿐입니다. 이 값도 받은 답과 같이 이 기기에 둡니다(켤 때 서버가 꺼져 있어도 지난 답으로).
  * ========================================================================== */
 import 'dart:async';
 import 'dart:convert';
@@ -219,7 +227,11 @@ class JoinLinks {
 @immutable
 class VersionInfo {
   const VersionInfo(
-      {this.latest = const {}, this.min = '', this.urls = const {}, this.join = const JoinLinks()});
+      {this.latest = const {},
+      this.min = '',
+      this.urls = const {},
+      this.join = const JoinLinks(),
+      this.testing = true});
 
   /// 채널별 최신 판('appstore' · 'play' · 'apk'). '' 는 "안 알림".
   final Map<String, String> latest;
@@ -233,6 +245,10 @@ class VersionInfo {
   /// 비공개 테스트에 들어오는 길. 옛 서버처럼 칸이 없으면 비어 있습니다.
   final JoinLinks join;
 
+  /// 비공개 시험 기간인가. **거짓(false)이라고 적혀 온 때만 거짓**이고, 칸이 없거나
+  /// 참/거짓이 아닌 값이면 참입니다 — 모르는 것을 "시험 끝남" 으로 읽지 않습니다(머리 주석).
+  final bool testing;
+
   factory VersionInfo.fromJson(Object? j) {
     if (j is! Map) return const VersionInfo();
     final l = j['latest'], u = j['urls'];
@@ -244,15 +260,18 @@ class VersionInfo {
           if (u is Map && _okUrl(u[k])) k: (u[k] as String).trim(),
       },
       join: JoinLinks.fromJson(j['join']),
+      testing: j['testing'] != false,
     );
   }
 
-  /* join 은 있을 때만 적습니다 — 이 기기에 남기는 칸([UpdateCheck._save])이 옛 판과 같은 모양으로. */
+  /* join 은 있을 때만, testing 은 거짓일 때만 적습니다 — 이 기기에 남기는 칸([UpdateCheck._save])이
+     옛 판과 같은 모양으로. testing 이 없으면 참으로 읽으니(fromJson) 참은 적지 않아도 같습니다. */
   Map<String, Object?> toJson() => {
         'latest': latest,
         'min': min,
         'urls': urls,
         if (!join.isEmpty) 'join': join.toJson(),
+        if (!testing) 'testing': false,
       };
 
   String latestFor(UpdateChannel c) => latest[_slot(c)] ?? '';
@@ -383,6 +402,14 @@ class UpdateCheck extends ChangeNotifier {
   VersionInfo? get info => _info;
   DateTime? get checkedAt => _checkedAt;
   String get dismissed => _dismissed;
+
+  /// 이 기기에 둔 지난 답을 읽었나([start]). 읽기 전에는 [testing] 이 "모름(참)" 입니다 —
+  /// 시험이 끝난 뒤 말풍선을 꺼 둔 사람에게, 앱을 켤 때마다 말풍선이 한 번씩 번쩍이지 않게
+  /// 말풍선이 이것을 기다립니다(feedback_bubble.dart).
+  bool get loaded => _loaded;
+
+  /// 비공개 시험 기간인가(머리 주석). 받은 답이 없으면(아직 · 옛 서버 · 못 닿음) 참입니다.
+  bool get testing => _info?.testing ?? true;
 
   /// 지금 띄울 안내. 없으면 null.
   UpdateNotice? get notice {

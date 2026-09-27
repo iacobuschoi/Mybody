@@ -1,5 +1,5 @@
 /* =============================================================================
- * tools/app-version.js — 앱에게 알릴 "최신판 · 최소판 · 시험판 참여 링크" 를 정합니다
+ * tools/app-version.js — 앱에게 알릴 "최신판 · 최소판 · 시험판 참여 링크 · 시험 기간" 을 정합니다
  *
  *   node tools/app-version.js                    지금 값 보기
  *   node tools/app-version.js --apk=0.2.8        직접 설치한 APK 의 최신판
@@ -15,6 +15,8 @@
  *   node tools/app-version.js --join-android-group=https://groups.google.com/g/…
  *                                                그 테스트에 먼저 가입할 구글 그룹
  *   node tools/app-version.js --join-ios=        참여 링크 지우기 (none 도 됩니다)
+ *   node tools/app-version.js --testing=off      시험 기간 끝(정식 출시) — on 으로 되돌림
+ *   node tools/app-version.js --testing=none     적은 것 지우기 (= 기본값 켜짐)
  *
  * 앱은 켤 때(6시간에 한 번까지) GET /api/version 으로 이 값을 묻고, 자기
  * 판이 낮으면 홈 화면 맨 위에 안내를 띄웁니다. 서버는 부를 때마다 설정을
@@ -53,6 +55,12 @@
  *   기본 주소는 없습니다. 초대 링크는 시험을 새로 열면 바뀌니 그때 다시 적습니다.
  *   안드로이드 비공개 테스트는 구글 그룹에 먼저 들어가야 참여 주소가 열립니다 — 그래서
  *   그룹 주소를 따로 둡니다.
+ *
+ * 시험 기간(--testing=on|off)
+ *   GET /api/version 의 testing. **적지 않았으면 켜짐**입니다 — 지금은 비공개 시험
+ *   중이고, 모르는 값을 "출시됐다" 로 읽으면 아직 없는 가게로 사람을 보냅니다. 켜져
+ *   있으면 초대 링크 페이지(/i/<코드>)가 위 참여 링크로, 끄면 가게 주소로 안내합니다.
+ *   가게에 정식으로 올라간 **뒤에** 끕니다. on · off 말고는 받지 않습니다(참/거짓으로 저장).
  * ========================================================================== */
 'use strict';
 const fs = require('node:fs');
@@ -72,6 +80,9 @@ Object.keys(JOIN_FLAG).forEach(f => { FLAG_KEY[f] = APPVER.JOIN_KEY[JOIN_FLAG[f]
 const JOIN_NAME = { ios: '아이폰 시험판(TestFlight)', android: '플레이 비공개 테스트',
                     androidGroup: '플레이 테스트 구글 그룹' };
 const isJoinFlag = flag => Object.prototype.hasOwnProperty.call(JOIN_FLAG, flag);
+/* 시험 기간 깃발. 판 · 주소가 아니라 켜고 끄는 값이라 따로 읽습니다(toValue). */
+FLAG_KEY.testing = APPVER.TESTING_KEY;
+const TESTING_ON = /^(on|true|yes|1|켜기|켜짐)$/i, TESTING_OFF = /^(off|false|no|0|끄기|꺼짐)$/i;
 const CLEAR = /^(none|없음)$/i;
 
 function usage() {
@@ -85,6 +96,7 @@ function usage() {
   console.log('  node tools/app-version.js --apk=none         지우기');
   console.log('  node tools/app-version.js --join-ios=https://testflight.apple.com/join/…   시험판 참여 링크');
   console.log('      (--join-android · --join-android-group 도 같게, 지우기는 --join-ios=)');
+  console.log('  node tools/app-version.js --testing=off      시험 기간 끝 (정식 출시) · --testing=on 되돌리기');
   console.log('');
 }
 
@@ -114,7 +126,8 @@ function parseFlags(av) {
       const next = av[i + 1];
       if (next == null || /^--/.test(next)) {
         die(['--' + m[1] + ' 에 값이 없습니다. 예: --' + m[1] +
-             (isJoinFlag(m[1]) ? '=https://…' : '=0.2.8') + ' (지우려면 --' + m[1] + '=none)']);
+             (isJoinFlag(m[1]) ? '=https://…' : m[1] === 'testing' ? '=off' : '=0.2.8') +
+             (m[1] === 'testing' ? ' (켜기는 --testing=on)' : ' (지우려면 --' + m[1] + '=none)')]);
       }
       v = next; i++;
     }
@@ -124,12 +137,22 @@ function parseFlags(av) {
 }
 function usageLines() {
   return ['', '  쓰는 법: node tools/app-version.js --apk=0.2.8   (--appstore · --testflight · --play · --apk · --min)',
-          '          node tools/app-version.js --join-ios=https://…   (--join-android · --join-android-group)'];
+          '          node tools/app-version.js --join-ios=https://…   (--join-android · --join-android-group)',
+          '          node tools/app-version.js --testing=off   (시험 기간 끝 · --testing=on 으로 되돌림)'];
 }
 
-/** 받은 값을 저장할 값으로. 지우라는 말이면 '', 판이 아니면 멈춥니다. */
+/** 받은 값을 저장할 값으로. 지우라는 말이면 '', 판이 아니면 멈춥니다.
+ *  시험 기간은 참/거짓, 지우라는 말이면 undefined(키를 빼서 기본값 켜짐으로). */
 function toValue(flag, raw) {
   const s = String(raw).trim();
+  if (flag === 'testing') {
+    if (CLEAR.test(s)) return undefined;
+    if (TESTING_ON.test(s)) return true;
+    if (TESTING_OFF.test(s)) return false;
+    /* 빈 값을 "지움" 으로 받지 않습니다 — --testing= 은 끄려다 값을 빠뜨린 것일 수도 있습니다. */
+    die(['시험 기간은 on · off 로 적습니다: --testing=' + raw,
+         '  정식 출시 뒤에는 --testing=off, 되돌리려면 --testing=on']);
+  }
   if (s === '' || CLEAR.test(s)) return '';
   if (isJoinFlag(flag)) {
     /* 서버와 같은 검사(cleanUrl)를 지나야 저장합니다 — 여기서 받아 준 값을 서버가
@@ -212,6 +235,14 @@ function show(cfg, changed) {
       ? '   ← https 주소가 아니라 안 내보냅니다: ' + JSON.stringify(raw) : '';
     console.log('  참여 링크 · ' + JOIN_NAME[k] + '  ' + (info.join[k] || '(없음)') + mark(key) + skipped);
   });
+  const tk = APPVER.TESTING_KEY, traw = cfg[tk];
+  const tset = traw !== undefined && traw !== null && traw !== '';
+  /* 참/거짓이 아닌 값은 서버가 켜짐으로 읽습니다(분명히 끈 것만 꺼짐). 그 사실을 말합니다. */
+  const todd = tset && typeof traw !== 'boolean' ? '   ← 참/거짓이 아니라 ' + (info.testing ? '켜짐' : '꺼짐') +
+    '으로 읽습니다: ' + JSON.stringify(traw) : '';
+  console.log('  시험 기간  ' + (info.testing ? '켜짐' + (tset ? '' : ' (기본값)') + ' — 초대 링크는 참여 링크로 안내'
+                                               : '꺼짐 — 정식 출시 · 초대 링크는 가게 주소로 안내') +
+              mark(tk) + todd);
   console.log('');
 }
 
@@ -247,9 +278,17 @@ async function verify(want) {
     return;
   }
   const same = k => JSON.stringify(j[k]) === JSON.stringify(want[k]);
+  /* testing 이 없는 옛 서버 — 앱은 없으면 켜짐으로 읽으므로, 켜짐을 원하면 그걸로 충분합니다.
+     끄기로 했으면 다시 띄워야 나갑니다. */
+  const testingOk = j.testing === undefined ? want.testing !== false : same('testing');
+  if (same('latest') && same('min') && same('urls') && j.testing === undefined && want.testing === false) {
+    console.log('  ! 서버(' + port + ' 포트)가 시험 기간(testing)을 모르는 옛 서버 코드입니다.');
+    console.log('    서버를 지금 코드로 올리고 한 번 다시 띄워야 "시험 기간 끝" 이 나갑니다 (docs/DEPLOY.md 9절).');
+    return;
+  }
   /* join 이 아예 없으면 참여 링크가 생기기 전의 서버 코드입니다. 적은 링크가 없으면
      그 서버로도 충분하니 "확인했습니다" 로 두고, 있으면 다시 띄워야 한다고 말합니다. */
-  if (same('latest') && same('min') && same('urls') && j.join === undefined) {
+  if (same('latest') && same('min') && same('urls') && testingOk && j.join === undefined) {
     if (!Object.keys(want.join || {}).length) {
       console.log('  서버(' + port + ' 포트)가 이 값을 내보내는 것을 확인했습니다.');
     } else {
@@ -258,13 +297,14 @@ async function verify(want) {
     }
     return;
   }
-  if (same('latest') && same('min') && same('urls') && same('join')) {
+  if (same('latest') && same('min') && same('urls') && same('join') && testingOk) {
     console.log('  서버(' + port + ' 포트)가 이 값을 내보내는 것을 확인했습니다.');
     return;
   }
   const line = v => APPVER.CHANNELS.map(ch => NAME[ch] + ' ' + ((v.latest || {})[ch] || '없음')).join(' · ') +
                     ' · 최소판 ' + (v.min || '없음') +
-                    ' · 참여 링크 ' + Object.keys((v.join || {})).length + '개';
+                    ' · 참여 링크 ' + Object.keys((v.join || {})).length + '개' +
+                    ' · 시험 기간 ' + (v.testing === false ? '꺼짐' : v.testing === true ? '켜짐' : '(모름)');
   console.log('  ! 서버(' + port + ' 포트)가 내보내는 값이 여기 적힌 것과 다릅니다.');
   console.log('    서버: ' + line(j));
   console.log('    여기: ' + line(want));
@@ -283,6 +323,7 @@ async function main() {
     console.log('');
     console.log('바꾸기: node tools/app-version.js --apk=0.2.8   (지우기: --apk=none)');
     console.log('참여 링크: node tools/app-version.js --join-ios=https://…   (--join-android · --join-android-group)');
+    console.log('시험 기간: node tools/app-version.js --testing=off   (정식 출시 뒤 · 되돌리기는 --testing=on)');
     console.log('');
     return;
   }
@@ -292,7 +333,9 @@ async function main() {
   const changed = [];
   Object.keys(f).forEach(flag => {
     const key = FLAG_KEY[flag];
-    next[key] = toValue(flag, f[flag]);
+    const v = toValue(flag, f[flag]);
+    /* 시험 기간을 지우면 키를 뺍니다 — 빈 값 "" 을 남기면 사람 눈에는 "끔" 처럼 보입니다. */
+    if (v === undefined) delete next[key]; else next[key] = v;
     changed.push(key);
   });
 

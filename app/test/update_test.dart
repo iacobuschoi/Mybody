@@ -208,6 +208,30 @@ void main() {
       final back = VersionInfo.fromJson(jsonDecode(jsonEncode(i.toJson())));
       expect(back.toJson(), i.toJson());
     });
+
+    /* 시험 기간(testing) — 거짓이라고 적혀 온 때만 거짓. 모르는 값을 "시험 끝남" 으로 읽으면
+       시험 중에 의견 말풍선을 치울 수 있게 됩니다(update.dart 머리 주석). */
+    test('testing — 없으면 참, false 면 거짓, 그 밖(글자 · 숫자 · null)은 참', () {
+      expect(const VersionInfo().testing, isTrue);
+      expect(VersionInfo.fromJson(_server()).testing, isTrue, reason: '칸이 없는 옛 서버');
+      expect(VersionInfo.fromJson({..._server(), 'testing': true}).testing, isTrue);
+      expect(VersionInfo.fromJson({..._server(), 'testing': false}).testing, isFalse);
+      for (final v in <Object?>['false', 'off', 0, 1, null, [], {}]) {
+        expect(VersionInfo.fromJson({..._server(), 'testing': v}).testing, isTrue, reason: '$v');
+      }
+      for (final j in <Object?>[null, 'x', 3, []]) {
+        expect(VersionInfo.fromJson(j).testing, isTrue, reason: '맵이 아니어도 — $j');
+      }
+    });
+
+    test('testing 도 저장했다 다시 읽으면 같다 — 참은 옛 모양 그대로(칸 없음)', () {
+      final off = VersionInfo.fromJson({..._server(play: '0.2.9'), 'testing': false});
+      expect(off.toJson()['testing'], false);
+      expect(VersionInfo.fromJson(jsonDecode(jsonEncode(off.toJson()))).testing, isFalse);
+      final on = VersionInfo.fromJson({..._server(play: '0.2.9'), 'testing': true});
+      expect(on.toJson().containsKey('testing'), isFalse, reason: '없으면 참으로 읽으니 적지 않습니다');
+      expect(VersionInfo.fromJson(jsonDecode(jsonEncode(on.toJson()))).testing, isTrue);
+    });
   });
 
   /* --- 무엇을 띄울까 ------------------------------------------------------- */
@@ -332,6 +356,34 @@ void main() {
       clock = clock.add(const Duration(minutes: 2));
       await c.check();
       expect(server.hits, 2);
+    });
+
+    test('testing — 답을 받기 전 · 못 닿으면 참, 받은 값을 따르고, 이 기기에 남아 꺼져 있어도 지난 답으로', () async {
+      server.answer = 'offline';
+      final c = make();
+      expect(c.loaded, isFalse);
+      expect(c.testing, isTrue, reason: '아직 모름 — 시험 중으로');
+      await c.start();
+      expect(c.loaded, isTrue);
+      expect(c.testing, isTrue, reason: '못 닿음 — 시험 중으로');
+
+      server.answer = {..._server(play: '0.2.8'), 'testing': false};
+      await c.check(force: true);
+      expect(c.testing, isFalse);
+
+      /* 다시 켰는데 서버가 꺼져 있음 — 지난 답(시험 끝남)을 씁니다. */
+      server.answer = 'offline';
+      final c2 = make();
+      await c2.start();
+      expect(c2.testing, isFalse);
+
+      /* 주인이 시험을 다시 켬 — 곧바로 따라갑니다. */
+      server.answer = {..._server(play: '0.2.8'), 'testing': true};
+      var told = 0;
+      c2.addListener(() => told++);
+      await c2.check(force: true);
+      expect(c2.testing, isTrue);
+      expect(told, greaterThan(0), reason: '듣는 쪽(말풍선 · 설정)에 알립니다');
     });
 
     test('새로 켤 때는 지난 답이 얼마나 새것이든 다시 묻는다', () async {

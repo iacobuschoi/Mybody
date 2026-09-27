@@ -56,8 +56,9 @@
  *   · **우리 모달끼리 겹치지 않게** — 찍는 중부터 시트가 닫힐 때까지를 [feedbackBusy] 로
  *     알립니다. 말풍선은 그동안 숨고, 테스터 인사(tester_welcome.dart)는 그동안 기다렸다가
  *     시트가 닫히면 한 번 뜹니다. 쓰던 의견 위를 인사가 덮으면 쓰던 것이 가려집니다.
- *   · 말풍선을 보일지([feedbackBubbleOn])는 여기 한 곳 — 말풍선과 설정의 스위치가 같은
- *     값을 봐서, 길게 눌러 숨기면 설정 스위치가, 설정에서 켜면 말풍선이 곧바로 따라옵니다.
+ *   · 말풍선을 보일지([feedbackBubbleOn] · [feedbackBubbleLocked])는 여기 한 곳 — 말풍선과
+ *     설정의 스위치가 같은 값을 봐서, 꾹 눌러 X 로 끌어다 치우면 설정 스위치가, 설정에서
+ *     켜면 말풍선이 곧바로 따라옵니다. 비공개 시험 기간에는 치울 수 없습니다(아래).
  *   · 붙인 화면에 몸 숫자가 보일 수 있다는 한 줄 — 처리방침(docs/privacy.html
  *     「의견 보내기」)과 같은 말. 사진이 없으면 할 말이 아니라 숨깁니다.
  *   · 색은 전부 테마에서 — 어두운 테마에서도 같은 대비.
@@ -81,6 +82,7 @@ import '../api.dart';
 import '../scope.dart';
 import '../ui/edge.dart' show dismissKeyboard;
 import '../ui/widgets.dart';
+import '../update.dart' show UpdateCheck;
 
 /* 서버와 같은 숫자(server/feedback.js) — 여기가 더 너그러우면 앱이 받아 준 것을
    서버가 돌려보내고, 보낸 사람은 무엇을 고쳐야 할지 모릅니다. */
@@ -509,7 +511,19 @@ Future<String?> _appVersion(PackageInfo? known) async {
 ///
 /// 이 기기의 화면 취향이라 동기화하는 settings 가 아니라 SharedPreferences 에 둡니다 —
 /// 태블릿에서 숨겼다고 폰에서까지 사라지면, 폰에서는 왜 없어졌는지 모릅니다.
+///
+/// **시험 기간에는 이 값과 상관없이 보입니다**([feedbackBubbleLocked]). 옛 판에서 꺼 둔
+/// 기기도 시험 중에는 말풍선이 뜹니다 — 값은 그대로 두어, 시험이 끝나면 그 사람이 고른
+/// 대로(꺼진 채) 돌아갑니다.
 final ValueNotifier<bool> feedbackBubbleOn = ValueNotifier<bool>(true);
+
+/// 말풍선을 끌 수 없는 때 — 비공개 시험 기간(GET /api/version 의 testing, update.dart).
+///
+/// 주인의 말: "테스트기간에는 X표시에 갖다대면 '테스트 기간에는 없앨수없어요'". 시험판을
+/// 쓰는 사람의 의견이 시험의 전부라 그동안은 치우는 길(X · 설정 스위치)을 잠급니다.
+/// 확인기가 없거나(켜는 중 · 시험) 답을 아직 모르면 **시험 중으로** 봅니다 — 서버와 같은
+/// 규칙(모르는 값은 켜짐)입니다.
+bool feedbackBubbleLocked(UpdateCheck? update) => update?.testing ?? true;
 
 const String kFeedbackBubbleOnKey = 'mybody.feedbackBubble.on.v1';
 

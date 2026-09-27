@@ -15,6 +15,13 @@
  *   https 가 아니면 버립니다 — 기본 주소가 없습니다. 초대 링크는 판마다가 아니라 시험을
  *   새로 열 때 바뀌는 값이라, 코드에 박아 두면 닫힌 시험으로 사람을 보냅니다.
  *
+ * 시험 기간(testing)
+ *   비공개 시험(TestFlight · 플레이 비공개 테스트) 중인가. 켜져 있으면 앱은 시험판 안내를,
+ *   초대 링크 페이지(/i/<코드>)는 위 참여 링크를 보여 줍니다. 끄면(정식 출시) 초대 링크
+ *   페이지는 가게 주소로 안내합니다. **적지 않았으면 켜짐** — 지금이 시험 중이고, 모르는
+ *   값을 "출시됐다" 로 읽으면 아직 없는 가게 페이지로 사람을 보냅니다. 앱도 이 칸이
+ *   없거나 모르는 값이면 켜짐으로 읽습니다(옛 서버).
+ *
  * 값은 ~/.mybody/config.json 에 있고 tools/app-version.js 로 고칩니다.
  * 이 파일은 그 값을 **내보내도 되는 모양으로 다듬기만** 합니다. 서버와
  * 도구가 같은 규칙(x.y.z · 기본 주소)을 쓰도록 한 군데 둡니다 — 도구는
@@ -34,6 +41,10 @@ const URL_KEY = { appstore: 'appUrlAppStore', testflight: 'appUrlTestFlight',
 const MIN_KEY = 'appMin';
 /* 시험판 참여 링크 — 내보내는 이름 ↔ 설정 키. 이것도 tools/config.js 의 DEFAULTS 와 같아야 합니다. */
 const JOIN_KEY = { ios: 'appJoinIos', android: 'appJoinAndroid', androidGroup: 'appJoinAndroidGroup' };
+/* 시험 기간 — 도구(--testing=on|off)는 참/거짓으로 적습니다. 적지 않았으면 켜짐(cleanTesting).
+   tools/config.js 의 DEFAULTS 에는 일부러 두지 않습니다: 다른 도구가 설정을 통째로 저장할 때
+   기본값이 파일에 굳으면, "적은 적 없음" 과 "켜기로 정함" 이 구분되지 않습니다. */
+const TESTING_KEY = 'appTesting';
 
 /* 업데이트 단추가 여는 곳. 설정에 주소가 없으면 이걸 씁니다.
    APK 는 "최신 릴리스" 주소라서 판마다 고칠 필요가 없습니다. */
@@ -87,9 +98,19 @@ function joinLinks(cfg) {
   return join;
 }
 
+/** 시험 기간인가. **분명히 끈 것만 거짓**입니다 — false, 또는 손으로 적은 "off" · "false" 류.
+ *  빈칸 · 모르는 값 · 이상한 모양은 전부 참(켜짐). 거꾸로 두면 손으로 고치다 틀린 한 글자가
+ *  "정식 출시" 가 되어, 아직 없는 가게 페이지로 사람을 보냅니다. */
+function cleanTesting(v) {
+  if (v === false || v === 0) return false;
+  if (typeof v === 'string' && /^(off|false|no|0|끔|꺼짐)$/i.test(v.trim())) return false;
+  return true;
+}
+
 /** GET /api/version 이 돌려줄 것. 개인정보는 없습니다 — 설정 값뿐입니다.
  *  join 은 늘 싣습니다(비었으면 {}). 앱이 "이 서버는 join 을 모른다(옛 서버)" 와
- *  "링크가 없다" 를 가를 수 있게 — 옛 서버는 이 칸 자체가 없습니다. */
+ *  "링크가 없다" 를 가를 수 있게 — 옛 서버는 이 칸 자체가 없습니다.
+ *  testing 도 늘 싣습니다(참/거짓). 없으면 앱은 켜짐으로 읽습니다. */
 function versionInfo(cfg) {
   const c = cfg || {};
   const latest = {}, urls = {};
@@ -97,8 +118,9 @@ function versionInfo(cfg) {
     latest[ch] = cleanVersion(c[LATEST_KEY[ch]]);
     urls[ch] = cleanUrl(c[URL_KEY[ch]]) || DEFAULT_URLS[ch];
   });
-  return { ok: true, latest: latest, min: cleanVersion(c[MIN_KEY]), urls: urls, join: joinLinks(c) };
+  return { ok: true, latest: latest, min: cleanVersion(c[MIN_KEY]), urls: urls, join: joinLinks(c),
+           testing: cleanTesting(c[TESTING_KEY]) };
 }
 
-module.exports = { CHANNELS, LATEST_KEY, URL_KEY, MIN_KEY, JOIN_KEY, DEFAULT_URLS,
-                   cleanVersion, compareVersions, cleanUrl, joinLinks, versionInfo };
+module.exports = { CHANNELS, LATEST_KEY, URL_KEY, MIN_KEY, JOIN_KEY, TESTING_KEY, DEFAULT_URLS,
+                   cleanVersion, compareVersions, cleanUrl, joinLinks, cleanTesting, versionInfo };
