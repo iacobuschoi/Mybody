@@ -250,6 +250,23 @@ function describe(p, opts) {
   return lines.join('\n');
 }
 
+/** 이 빌드의 베타 심사(betaReviewState: WAITING_FOR_REVIEW · IN_REVIEW · APPROVED · REJECTED)와
+ *  외부 테스트 상태(externalBuildState: READY_FOR_BETA_TESTING · IN_BETA_TESTING …). 못 읽으면 null. */
+async function betaState(c, buildId) {
+  const out = { review: null, external: null };
+  try {
+    const r = await c.call('GET', `/v1/betaAppReviewSubmissions?filter[build]=${encodeURIComponent(buildId)}&limit=1`);
+    const d = (r && r.data || [])[0];
+    out.review = d && d.attributes ? String(d.attributes.betaReviewState || '') || null : null;
+  } catch (e) { /* 모름 */ }
+  try {
+    const r = await c.call('GET', `/v1/builds/${encodeURIComponent(buildId)}/buildBetaDetail`);
+    const a = r && r.data && r.data.attributes;
+    out.external = a ? String(a.externalBuildState || '') || null : null;
+  } catch (e) { /* 모름 */ }
+  return out;
+}
+
 /** TestFlight 공개 링크 — 읽거나(기본) 켭니다(--submit). 판 · 빌드와 상관없습니다. */
 async function publicLink(c, opts) {
   const log = opts.log;
@@ -302,6 +319,13 @@ async function run(argv, env, deps = {}) {
   const c = client();
   const p = await plan(c, opts);
   log(describe(p, opts));
+  /* 베타 심사 상태 — 읽기만 · 실패해도 멈추지 않습니다. 주인 결정(9/28): friends 베타가 승인되면
+     안드로이드 비공개 테스트를 시작합니다 — 그 신호를 여기서 읽습니다. */
+  if (p.build) {
+    const beta = await betaState(c, p.build.id);
+    p.beta = beta;
+    log(`베타 심사: ${beta.review || '모름'} · 외부 테스트 빌드 상태: ${beta.external || '모름'}`);
+  }
   if (!opts.submit) {
     log('읽기만 했습니다(--submit 없음).');
     return { plan: p, submitted: false };
@@ -319,4 +343,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { run, plan, publicLink, stateOf, EDITABLE, OPEN_REVIEW };
+module.exports = { run, plan, publicLink, betaState, stateOf, EDITABLE, OPEN_REVIEW };

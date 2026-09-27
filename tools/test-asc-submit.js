@@ -90,6 +90,14 @@ function fake(opts = {}) {
       return { data: v };
     }
     if (method === 'GET' && path === '/v1/betaGroups') return { data: st.groups };
+    if (method === 'GET' && path === '/v1/betaAppReviewSubmissions') {
+      if (opts.betaFail) err(500, '베타 조회 실패');
+      return { data: opts.betaReview ? [{ id: 'br1', attributes: { betaReviewState: opts.betaReview } }] : [] };
+    }
+    if (method === 'GET' && /^\/v1\/builds\/\w+\/buildBetaDetail$/.test(path)) {
+      if (opts.betaFail) err(500, '베타 조회 실패');
+      return { data: { id: 'bd1', attributes: { externalBuildState: opts.external || 'WAITING_FOR_BETA_REVIEW' } } };
+    }
     const g1 = path.match(/^\/v1\/betaGroups\/(\w+)$/);
     if (g1 && method === 'GET') return { data: st.groups.find(g => g.id === g1[1]) };
     if (g1 && method === 'PATCH') {
@@ -234,6 +242,20 @@ const quiet = { log: () => {}, noWait: true };
     let threw = null;
     try { await run(['--link-only'], {}, { client: fake().client, ...quiet }); } catch (e) { threw = e; }
     ok(threw && /--beta/.test(threw.message), '--beta 없으면 거절');
+  }
+
+  console.log('[11] 베타 심사 상태 — 읽기만에 같이 찍고, 못 읽어도 멈추지 않는다');
+  {
+    const lines = [];
+    const f = fake({ betaReview: 'APPROVED', external: 'IN_BETA_TESTING' });
+    const r = await run(['--version', '0.2.15', '--build', '298', '--beta', 'friends'], {},
+      { client: f.client, noWait: true, log: s => lines.push(s) });
+    ok(r.plan.beta.review === 'APPROVED' && r.plan.beta.external === 'IN_BETA_TESTING', '상태를 읽음');
+    ok(lines.some(l => /베타 심사: APPROVED · 외부 테스트 빌드 상태: IN_BETA_TESTING/.test(l)), '로그 한 줄');
+    ok(!f.st.calls.some(c => !c.startsWith('GET')), '읽기만은 GET 뿐');
+    const f2 = fake({ betaFail: true });
+    const r2 = await run(['--version', '0.2.15', '--build', '298'], {}, { client: f2.client, ...quiet });
+    ok(r2.plan.beta.review === null && r2.plan.beta.external === null, '못 읽으면 모름 — 멈추지 않음');
   }
 
   console.log(`\n통과 ${pass} / 실패 ${fail}`);
