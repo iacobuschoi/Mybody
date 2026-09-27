@@ -434,7 +434,7 @@ void main() {
 
       expect(_text('비공개 테스트에 참여해 주셔서 감사합니다!'), findsOneWidget);
       expect(_text('새 버전이 나오면 앱이 알려 드려요'), findsOneWidget);
-      expect(_text('의견은 화면 옆 말풍선으로 — 화면이 같이 붙어요'), findsOneWidget);
+      expect(_text('의견은 화면 옆 말풍선으로!'), findsOneWidget);
       expect(_primaryLabel(t), '다음');
       expect(find.byKey(const Key('welcome-skip')).hitTestable(), findsOneWidget);
 
@@ -800,7 +800,7 @@ void main() {
           expect(_text('Mybody 를 가장 먼저 써 보는 분이에요. 불편한 점은 뭐든 알려 주세요 — 바로 고칩니다.'),
               findsOneWidget);
           expect(_text('새 버전이 나오면 앱이 알려 드려요'), findsOneWidget);
-          expect(_text('의견은 화면 옆 말풍선으로 — 화면이 같이 붙어요'), findsOneWidget);
+          expect(_text('의견은 화면 옆 말풍선으로!'), findsOneWidget);
           expect(t.takeException(), isNull);
         } finally {
           debugDefaultTargetPlatformOverride = null;

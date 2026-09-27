@@ -470,7 +470,7 @@ class _TesterWelcomeSheetState extends State<TesterWelcomeSheet> {
         _title(t, welcomeTitle(),
             'Mybody 를 가장 먼저 써 보는 분이에요. 불편한 점은 뭐든 알려 주세요 — 바로 고칩니다.'),
         const _InfoRow(icon: LucideIcons.bell, text: '새 버전이 나오면 앱이 알려 드려요'),
-        const _InfoRow(icon: LucideIcons.messageSquare, text: '의견은 화면 옆 말풍선으로 — 화면이 같이 붙어요'),
+        const _InfoRow(icon: LucideIcons.messageSquare, text: '의견은 화면 옆 말풍선으로!'),
       ]);
 
   Widget _page2(ThemeData t) => _scroll([
