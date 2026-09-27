@@ -225,7 +225,8 @@ jobs:
           const TYPE = 'PUSH_NOTIFICATIONS';
           async function ensure(c, bundleIdId) {
             if (typeof asc.ensureCapability === 'function') return asc.ensureCapability(c, bundleIdId, TYPE);
-            const r = await c.call('GET', `/v1/bundleIds/${bundleIdId}/bundleIdCapabilities?limit=200`);
+            /* limit 을 붙이면 애플이 400 PARAMETER_ERROR.ILLEGAL 로 거절합니다(0.2.16 빌드 로그) — 없이. */
+            const r = await c.call('GET', `/v1/bundleIds/${bundleIdId}/bundleIdCapabilities`);
             if ((r.data || []).some(x => x.attributes && x.attributes.capabilityType === TYPE)) return { created: false };
             try {
               await c.call('POST', '/v1/bundleIdCapabilities', { data: {
