@@ -8,6 +8,13 @@
  *   옛 앱이 본 것은 "앱을 업데이트해 주세요" 한 줄뿐이었습니다 — 어디서,
  *   왜 해야 하는지는 없이.
  *
+ * 시험판 참여 링크(join)
+ *   아이폰 TestFlight 공개 링크 · 플레이 비공개 테스트 참여 주소 · 그 테스트에 들어가려면
+ *   먼저 가입해야 하는 구글 그룹 주소. 시험판을 쓰는 사람이 친구에게 "이걸로 들어와" 를
+ *   앱 안에서 바로 건넬 수 있게 내보냅니다(앱의 시험판 환영 화면). **적힌 것만** 나가고,
+ *   https 가 아니면 버립니다 — 기본 주소가 없습니다. 초대 링크는 판마다가 아니라 시험을
+ *   새로 열 때 바뀌는 값이라, 코드에 박아 두면 닫힌 시험으로 사람을 보냅니다.
+ *
  * 값은 ~/.mybody/config.json 에 있고 tools/app-version.js 로 고칩니다.
  * 이 파일은 그 값을 **내보내도 되는 모양으로 다듬기만** 합니다. 서버와
  * 도구가 같은 규칙(x.y.z · 기본 주소)을 쓰도록 한 군데 둡니다 — 도구는
@@ -25,6 +32,8 @@ const LATEST_KEY = { appstore: 'appLatestAppStore', testflight: 'appLatestTestFl
 const URL_KEY = { appstore: 'appUrlAppStore', testflight: 'appUrlTestFlight',
                   play: 'appUrlPlay', apk: 'appUrlApk' };
 const MIN_KEY = 'appMin';
+/* 시험판 참여 링크 — 내보내는 이름 ↔ 설정 키. 이것도 tools/config.js 의 DEFAULTS 와 같아야 합니다. */
+const JOIN_KEY = { ios: 'appJoinIos', android: 'appJoinAndroid', androidGroup: 'appJoinAndroidGroup' };
 
 /* 업데이트 단추가 여는 곳. 설정에 주소가 없으면 이걸 씁니다.
    APK 는 "최신 릴리스" 주소라서 판마다 고칠 필요가 없습니다. */
@@ -68,7 +77,19 @@ function cleanUrl(v) {
   } catch (e) { return ''; }
 }
 
-/** GET /api/version 이 돌려줄 것. 개인정보는 없습니다 — 설정 값뿐입니다. */
+/** 시험판 참여 링크 — **적혀 있고 https 인 것만.** 하나도 없으면 {}. */
+function joinLinks(cfg) {
+  const c = cfg || {}, join = {};
+  Object.keys(JOIN_KEY).forEach(k => {
+    const u = cleanUrl(c[JOIN_KEY[k]]);
+    if (u) join[k] = u;
+  });
+  return join;
+}
+
+/** GET /api/version 이 돌려줄 것. 개인정보는 없습니다 — 설정 값뿐입니다.
+ *  join 은 늘 싣습니다(비었으면 {}). 앱이 "이 서버는 join 을 모른다(옛 서버)" 와
+ *  "링크가 없다" 를 가를 수 있게 — 옛 서버는 이 칸 자체가 없습니다. */
 function versionInfo(cfg) {
   const c = cfg || {};
   const latest = {}, urls = {};
@@ -76,8 +97,8 @@ function versionInfo(cfg) {
     latest[ch] = cleanVersion(c[LATEST_KEY[ch]]);
     urls[ch] = cleanUrl(c[URL_KEY[ch]]) || DEFAULT_URLS[ch];
   });
-  return { ok: true, latest: latest, min: cleanVersion(c[MIN_KEY]), urls: urls };
+  return { ok: true, latest: latest, min: cleanVersion(c[MIN_KEY]), urls: urls, join: joinLinks(c) };
 }
 
-module.exports = { CHANNELS, LATEST_KEY, URL_KEY, MIN_KEY, DEFAULT_URLS,
-                   cleanVersion, compareVersions, cleanUrl, versionInfo };
+module.exports = { CHANNELS, LATEST_KEY, URL_KEY, MIN_KEY, JOIN_KEY, DEFAULT_URLS,
+                   cleanVersion, compareVersions, cleanUrl, joinLinks, versionInfo };

@@ -11,6 +11,10 @@
  *   1. 환경변수 — 한 번만 다르게 띄우고 싶을 때
  *   2. ~/.mybody/config.json — serve --setup 이 만드는 것
  *   3. ~/.mybody-pair — 예전에 가입 코드만 파일로 만들어 둔 사람
+ *
+ * 키를 새로 만들면 아래 DEFAULTS 에 설명과 함께 적고, 서버가 읽는 키라면
+ * server/server.js 의 loadSavedConfig 에도 put(...) 한 줄을 더합니다
+ * (예: feedbackNotify → FEEDBACK_NOTIFY). 한쪽만 고치면 "적었는데 안 먹는" 키가 됩니다.
  * ========================================================================== */
 'use strict';
 const fs = require('node:fs');
@@ -72,7 +76,18 @@ const DEFAULTS = {
   appUrlAppStore: '',
   appUrlTestFlight: '',
   appUrlPlay: '',
-  appUrlApk: ''
+  appUrlApk: '',
+  /* 시험판 참여 링크(GET /api/version 의 join) — tools/app-version.js --join-ios ·
+     --join-android · --join-android-group 으로 고칩니다. https 만, 빈 값이면 안 나갑니다.
+     기본값이 없습니다: 초대 링크는 시험을 새로 열 때 바뀌어서, 코드에 박아 두면 닫힌
+     시험으로 사람을 보냅니다. */
+  appJoinIos: '',
+  appJoinAndroid: '',
+  appJoinAndroidGroup: '',
+  /* 앱 안 「의견 보내기」 로 새 의견이 오면 알림을 받을 계정의 **아이디**(로그인할 때
+     치는 것). 비워 두면 알림 없이 쌓이기만 하고, 노트북에서 tools/feedback.js 로 봅니다.
+     알림은 10분에 한 번까지이고 "새 의견이 왔어요" 뿐입니다 — 내용은 안 실립니다. */
+  feedbackNotify: ''
 };
 
 function readFileJson() {
@@ -117,6 +132,7 @@ function load() {
   take('anthropicModel', 'OCR_MODEL');
   take('origin', 'ORIGIN');
   take('fcmServiceAccount', 'FCM_SERVICE_ACCOUNT');
+  take('feedbackNotify', 'FEEDBACK_NOTIFY');
   take('db', 'DB');
   take('port', 'PORT', v => Number(v) || DEFAULTS.port);
   if ((env.STATIC || '').trim()) { cfg.static = env.STATIC.trim(); from.static = '환경변수 STATIC'; }

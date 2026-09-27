@@ -16,6 +16,9 @@
  *      설정 파일의 다른 값(가입 코드 · 판독 키)은 건드리지 않는다.
  *   6. 도구는 저장한 뒤 이 컴퓨터의 서버에 물어서, 그 값이 정말 나가는지
  *      말한다(꺼짐 · 옛 서버 · 다른 설정 파일).
+ *   7. 시험판 참여 링크(join) — 적힌 https 만 나가고(기본 주소 없음, 비었으면 {}),
+ *      도구의 --join-ios · --join-android · --join-android-group 은 https 가 아니면
+ *      거절하고, 빈 값 · none 이면 지운다.
  * ========================================================================== */
 'use strict';
 require('./testenv');
@@ -115,8 +118,11 @@ async function main() {
   ok('설정 파일이 없는 집에서 시작한다', !fs.existsSync(CFG));
   const a = await get('/version');
   ok('로그인 없이 200', a.status === 200 && a.json.ok === true, a);
-  ok('모양: ok · latest · min · urls 만 (개인정보 없음)',
-     same(Object.keys(a.json).sort(), ['latest', 'min', 'ok', 'urls']), Object.keys(a.json));
+  /* join(시험판 참여 링크)이 더해졌습니다. 늘 싣고, 아무것도 안 적었으면 {} 입니다 —
+     앱이 "join 을 모르는 옛 서버" 와 "링크 없음" 을 가를 수 있게. */
+  ok('모양: ok · latest · min · urls · join 만 (개인정보 없음)',
+     same(Object.keys(a.json).sort(), ['join', 'latest', 'min', 'ok', 'urls']), Object.keys(a.json));
+  ok('join 은 빈 객체 (기본 참여 링크는 없다)', same(a.json.join, {}), a.json.join);
   ok('latest 는 가게 셋, 전부 빈 값', same(a.json.latest, EMPTY), a.json.latest);
   ok('min 은 빈 값', a.json.min === '', a.json.min);
   ok('urls 는 기본 주소 셋', same(a.json.urls, APPVER.DEFAULT_URLS), a.json.urls);
@@ -204,6 +210,21 @@ async function main() {
   ok('설정 파일이 아예 없으면 200 · 빈 값 (안내 없음)', g4.status === 200 &&
      same(g4.json.latest, EMPTY) && g4.json.min === '' &&
      same(g4.json.urls, APPVER.DEFAULT_URLS), g4);
+
+  console.log('\n[4-1] 시험판 참여 링크 (join)');
+  writeCfg(CFG, { appJoinIos: 'https://testflight.apple.com/join/AbCdEf12',
+                  appJoinAndroid: 'http://play.google.com/apps/testing/io.github.iacobuschoi.mybody',
+                  appJoinAndroidGroup: ' https://groups.google.com/g/mybody-testers ' });
+  const j1 = await get('/version');
+  ok('적힌 https 만 나간다 (http 는 버림 · 앞뒤 공백은 다듬음)', same(j1.json.join, {
+    ios: 'https://testflight.apple.com/join/AbCdEf12',
+    androidGroup: 'https://groups.google.com/g/mybody-testers'
+  }), j1.json.join);
+  writeCfg(CFG, { appJoinIos: ['https://x.example'], appJoinAndroid: 'javascript:alert(1)', appJoinAndroidGroup: '' });
+  const j2 = await get('/version');
+  ok('배열 · javascript: · 빈 값은 전부 빠진다 → {}', same(j2.json.join, {}), j2.json.join);
+  fs.rmSync(CFG);
+  ok('joinLinks 단독 — 없는 설정이면 {}', same(APPVER.joinLinks(undefined), {}));
 
   console.log('\n[5] 판 견주기');
   const cmp = APPVER.compareVersions;
@@ -303,6 +324,49 @@ async function main() {
   const z = tool(['--apk=0.2.08'], home2);
   ok('앞의 0 은 다듬어 저장한다 (0.2.08 → 0.2.8)', z.code === 0 &&
      readCfg(cfg2).appLatestApk === '0.2.8', readCfg(cfg2));
+
+  const jn = tool(['--join-ios=https://testflight.apple.com/join/AbCdEf12',
+                   '--join-android', 'https://play.google.com/apps/testing/io.github.iacobuschoi.mybody',
+                   '--join-android-group=https://groups.google.com/g/mybody-testers'], home2);
+  const jc = readCfg(cfg2);
+  ok('참여 링크 셋을 저장한다', jn.code === 0 &&
+     jc.appJoinIos === 'https://testflight.apple.com/join/AbCdEf12' &&
+     jc.appJoinAndroid === 'https://play.google.com/apps/testing/io.github.iacobuschoi.mybody' &&
+     jc.appJoinAndroidGroup === 'https://groups.google.com/g/mybody-testers', jc);
+  ok('저장한 참여 링크를 보여 준다', /아이폰 시험판\(TestFlight\)\s+https:\/\/testflight\.apple\.com\/join\/AbCdEf12/.test(jn.out) &&
+     /플레이 테스트 구글 그룹\s+https:\/\/groups\.google\.com/.test(jn.out), jn.out.slice(-600));
+  ok('참여 링크를 적어도 판 · 가입 코드는 그대로', jc.pairSecret === 'keep-this-pair' &&
+     jc.appLatestApk === '0.2.8', jc);
+  for (const badUrl of ['http://testflight.apple.com/join/x', 'javascript:alert(1)', 'testflight.apple.com/join/x']) {
+    const r = tool(['--join-ios=' + badUrl], home2);
+    ok(`https 가 아닌 참여 링크 "${badUrl}" → 거절 (exit 1 · 그대로)`, r.code === 1 &&
+       readCfg(cfg2).appJoinIos === 'https://testflight.apple.com/join/AbCdEf12', r.out.slice(0, 200));
+  }
+  const jnoval = tool(['--join-android-group'], home2);
+  ok('값 없는 참여 링크 깃발 → 거절 (예시는 https 주소)', jnoval.code === 1 && /https:\/\//.test(jnoval.out),
+     jnoval.out.slice(0, 200));
+  const jclr = tool(['--join-ios=', '--join-android=none'], home2);
+  const jcc = readCfg(cfg2);
+  ok('빈 값 · none 으로 참여 링크를 지운다', jclr.code === 0 && jcc.appJoinIos === '' && jcc.appJoinAndroid === '' &&
+     jcc.appJoinAndroidGroup === 'https://groups.google.com/g/mybody-testers', jcc);
+  const jsrv = tool(['--join-android-group=https://groups.google.com/g/mybody-testers'], null, PORT);
+  const jv = await get('/version');
+  ok('도구로 적은 참여 링크가 다시 띄우지 않아도 나간다',
+     jsrv.code === 0 && same(jv.json.join, { androidGroup: 'https://groups.google.com/g/mybody-testers' }) &&
+     /확인했습니다/.test(jsrv.out), [jv.json.join, jsrv.out.slice(-300)]);
+  /* join 을 모르는 옛 서버 — latest · min · urls 는 같은데 join 칸이 없습니다. */
+  const oldJoin = http.createServer((q, s) => {
+    s.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    const v = APPVER.versionInfo(Object.assign({}, readCfg(cfg2)));
+    delete v.join;
+    s.end(JSON.stringify(v));
+  });
+  await new Promise(r => oldJoin.listen(0, '127.0.0.1', r));
+  const oj = await toolAsync(['--join-ios=https://testflight.apple.com/join/ZzYy'], home2, oldJoin.address().port);
+  oldJoin.close();
+  ok('참여 링크를 모르는 옛 서버면 "다시 띄워야" 를 말한다', oj.code === 0 && /참여 링크\(join\)를 모르는/.test(oj.out) &&
+     /다시 띄워야/.test(oj.out), oj.out.slice(-400));
+  tool(['--join-ios=none', '--join-android-group=none'], home2);
 
   const broken = '{ "pairSecret": "keep", 망가짐';
   writeCfg(cfg2, broken);

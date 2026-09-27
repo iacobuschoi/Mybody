@@ -78,6 +78,10 @@ Mybody 서버 실행 중
 | `OCR_PER_DAY_TOTAL` | `250` | **서버 전체** 하루 판독 횟수. 가입 코드가 새면 계정을 늘려 사람당 한도를 피할 수 있어서, 청구서는 이걸로 막습니다 |
 | `OCR_API_URL` | 앤트로픽 API | 사내 프록시를 거쳐야 할 때만 바꾸세요 |
 | `FCM_SERVICE_ACCOUNT` | `~/.mybody/fcm-service-account.json` | 앱 알림(FCM) 서비스 계정 JSON 의 **경로**. 설정 파일의 `fcmServiceAccount` 로도 됩니다. **파일이 없으면 앱 알림만 꺼지고** 나머지는 그대로 돕니다 — 아래 "앱 알림 켜기" |
+| `FEEDBACK_NOTIFY` | (없음) | 앱 안 「의견 보내기」 로 새 의견이 오면 알림을 받을 계정의 **아이디**. 설정 파일의 `feedbackNotify` 로도 됩니다. 비워 두면 알림 없이 쌓이기만 합니다 — 아래 "의견 보내기" |
+| `FEEDBACK_PER_DAY` | `20` | 의견을 하루에 받는 개수 — 로그인했으면 **사람마다**, 아니면 **보낸 주소(IP)마다** |
+| `FEEDBACK_PER_DAY_TOTAL` | `300` | **서버 전체** 하루 의견 개수. 로그인 없이도 받는 길이라 디스크를 채우는 남용을 막는 울타리입니다 |
+| `FEEDBACK_NOTIFY_GAP_MS` | `600000` | 주인 알림 사이 최소 간격(10분). 시험이 줄여 쓰는 값이라 운영에서는 그대로 두세요 |
 | `FCM_BASE_URL` · `FCM_TOKEN_URL` | 구글 주소 | 시험(`tools/test-fcm.js`)이 가짜 서버로 바꿀 때만 씁니다. `https` 이면서 localhost(127.0.0.1)이거나 `NODE_ENV=test` 일 때만 받고, 받으면 뜰 때 "시험용 FCM 주소 사용 중" 을 찍습니다. 운영 서버에 새면 진짜 접근 토큰과 알림 본문이 그 주소로 가기 때문입니다 |
 
 ```bash
@@ -126,6 +130,52 @@ PORT=3000 DB=~/mybody.db ORIGIN=https://mybody.example.com node server/server.js
   소식이 앱으로도 안 갑니다. 알림이 공유 설정을 우회하는 뒷문이 되면 안 됩니다.
 - 앱이 없어진 기기(UNREGISTERED)는 FCM 이 알려 주는 대로 지우고, 잠깐 실패(429 · 5xx)는
   지우지 않고 셉니다. 로그에는 토큰의 앞 8자만 남습니다.
+
+### 의견 보내기 (앱 안 → 노트북)
+
+시험판을 쓰는 사람이 앱 안에서 화면 캡처(최대 3장)와 글(없어도 됨)을 바로 보냅니다
+(`POST /api/feedback`). **로그인 없이도 받습니다** — 로그인했으면 그 계정에 묶이고, 토큰이
+없거나 틀리면 익명입니다(401 을 주지 않습니다).
+
+보기 — 서버 컴퓨터에서:
+
+```bash
+node tools/feedback.js                    # 안 읽은 의견, 새것부터 + 붙인 화면을 파일로 꺼냄
+node tools/feedback.js --mark-read        # 방금 본 것을 읽음으로
+node tools/feedback.js --all              # 읽은 것까지
+node tools/feedback.js --since=2026-09-20 # 그날(한국 시각)부터, 읽은 것도 같이
+node tools/feedback.js --no-export        # 화면을 파일로 꺼내지 않음
+```
+
+한 줄에 번호 · 받은 시각(KST) · 앱 판 · 기종 · 화면 · 보낸 사람 · 사진 수가 나오고, 그 아래에
+글이 **전부** 나옵니다. 화면 캡처는 `~/.mybody/feedback/<번호>-<n>.png|jpg` 로 꺼냅니다(폴더 700 ·
+파일 600 — 몸 숫자가 찍혀 있을 수 있습니다). 보낸 사람은 **아이디 대신 가명 6자**
+(sha256(내부 id) 앞 6자)로만 나옵니다 — 같은 사람끼리는 묶어 볼 수 있고, 출력을 화면 공유하거나
+이슈에 붙여도 누구인지 드러나지 않습니다. 로그인 없이 보낸 것은 「익명」. DB 는 서버와 같은 규칙으로
+찾습니다(환경변수 `DB` → 설정의 `db` → `server/mybody.db`). HTTP 로 읽는 길은 일부러 없습니다.
+
+알림 — `~/.mybody/config.json` 에 `"feedbackNotify": "<내 아이디>"` 를 적고(또는 `FEEDBACK_NOTIFY`)
+서버를 다시 띄우면, 새 의견이 올 때 그 계정의 폰으로 「새 의견이 왔어요 · 노트북에서 확인하세요」
+한 줄이 **10분에 한 번까지** 갑니다. 의견 내용 · 보낸 사람은 싣지 않습니다(FCM 본문은 구글 · 애플이
+읽는 평문입니다). 뜰 때 `의견 알림 켜짐` 또는 `⚠ … 계정이 없습니다` 를 한 줄 찍습니다.
+
+막는 것
+- 글 2000자, 사진 3장 · 한 장 1.5MB(풀어 낸 크기). base64 는 엄격하게 풀고, 앞머리 바이트가
+  말한 형식과 맞아야 합니다(PNG `89 50 4E 47` · JPEG `FF D8 FF`). 이 길만 본문 상한이 6.2MB 입니다.
+- 하루 20개(사람마다 · 로그인 없으면 주소마다) + 서버 전체 300개. 거절된 요청은 세지 않습니다.
+  본문을 받기 전에 한 번, 저장 직전에 한 번 더 셉니다 — 동시에 여러 개를 열어도 한도를 못 넘습니다.
+  Cloudflare Tunnel 뒤에서 `TRUST_PROXY` 를 안 켰으면 익명은 전부 한 주소로 보여 20개를 나눠 씁니다.
+- 동시에 본문을 받는 의견은 서버 전체 6개 · 한 사람(주소) 2개까지이고, 넘치면 503 「잠시 뒤에 다시」
+  입니다(한 건이 받는 동안 6MB 넘게 메모리를 쥡니다). 본문을 기다리는 시간은 다른 길의 세 배
+  (`BODY_TIMEOUT_MS` × 3, 기본 90초) — 올리기가 느린 폰의 캡처 세 장이 중간에 끊기지 않게.
+- 제어 문자(ESC 등)는 저장할 때 빼고, 도구가 찍을 때도 한 번 더 뺍니다 — 로그인 없이 보낸 글이
+  주인의 터미널에 찍히기 때문입니다.
+
+지우는 것 — 계정을 지우면 그 계정의 의견과 화면이 같이 지워지고, **받은 지 1년**이 지난 것은 서버가
+뜰 때와 하루 한 번 지웁니다(처리방침과 같은 숫자 — `server/feedback.js` 의 `KEEP_DAYS`). 보낸 곳의
+주소(IP)는 저장하지 않습니다(하루 개수는 메모리에서만 셉니다). 노트북에 꺼내 둔 캡처도 같은 규칙입니다 —
+`tools/feedback.js` 는 돌릴 때마다 DB 에서 지워진 의견의 `~/.mybody/feedback/<번호>-<n>.*` 를 지웁니다
+(의견 번호는 다시 쓰이지 않습니다).
 
 ## 계정
 
@@ -225,15 +275,19 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 - 인터넷에 열 때는 `ORIGIN`을 실제 도메인으로 좁히세요.
 - 사진은 기본적으로 **기기 밖으로 나가지 않습니다.** 사용자가 설정에서 자동 판독을
   켜고 판독 버튼을 누를 때만 이 서버로 올라갑니다. 키가 없으면 그 경로 자체가 없습니다.
+  예외는 사용자가 「의견 보내기」 로 **직접 붙여 보낸 화면 캡처**뿐이고, 그건 이 서버의 DB 에
+  1년 동안 남습니다(위 "의견 보내기").
 
 ## API
 
-전부 `/api` 아래이고, 로그인 외에는 `Authorization: Bearer <token>` 이 필요합니다.
+전부 `/api` 아래이고, 로그인 · `/api/health` · `/api/version` · `/api/feedback` 외에는
+`Authorization: Bearer <token>` 이 필요합니다.
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | `GET` | `/api/health` | 살아 있는지 (로그인 불필요) |
-| `GET` | `/api/version` | `{latest:{appstore,play,apk}, min, urls:{appstore,play,apk}}` 앱 안 업데이트 안내용. 빈 값이면 안내 없음. `tools/app-version.js` 로 고치고, 부를 때마다 설정을 새로 읽습니다. 설정 파일이 망가졌으면 빈 값 대신 503 (로그인 불필요) |
+| `GET` | `/api/version` | `{latest:{appstore,testflight,play,apk}, min, urls:{…}, join:{ios?, android?, androidGroup?}}` 앱 안 업데이트 안내용. 빈 값이면 안내 없음. `join` 은 시험판 참여 링크(TestFlight 공개 링크 · 플레이 비공개 테스트 · 그 테스트의 구글 그룹) — **적힌 https 만** 나가고 비었으면 `{}`. `tools/app-version.js`(`--join-ios` · `--join-android` · `--join-android-group`)로 고치고, 부를 때마다 설정을 새로 읽습니다. 설정 파일이 망가졌으면 빈 값 대신 503 (로그인 불필요) |
+| `POST` | `/api/feedback` | `{text?, images?:[{type:'image/png'\|'image/jpeg', data:<base64>}], appVersion?, platform?:'android'\|'ios', screen?}` 앱 안 의견 보내기 → `{ok, id}`. 글(≤2000자)이나 사진(≤3장, 한 장 ≤1.5MB) 중 하나는 있어야 함. 로그인 선택 — 유효한 토큰이면 그 계정에 묶고, 없거나 틀리면 익명(401 없음). 틀리면 400 `{ok:false, error}`, 본문 6.2MB 초과 413, 하루 20개(사람 · 주소마다)를 넘으면 429, 동시에 받는 것이 넘치면 503 |
 | `POST` | `/api/auth/signup` | `{handle, password, displayName, pairSecret, healthConsent}` → `{token, user, recoveryCode}` (로그인 불필요) |
 | `POST` | `/api/auth/signin` | `{handle, password}` → `{token, user}` (로그인 불필요) |
 | `POST` | `/api/auth/signout` | 이 토큰만 폐기 |
@@ -243,7 +297,7 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 | `POST` | `/api/auth/recovery-code` | `{password}` 복구 코드 재발급 → `{recoveryCode}` |
 | `GET` | `/api/me` | 내 정보 + 기록 수 |
 | `PATCH` | `/api/me` | `{displayName}` |
-| `DELETE` | `/api/me` | 계정 삭제 (친구·공유·스냅샷·기록 연쇄 삭제) |
+| `DELETE` | `/api/me` | 계정 삭제 (친구·공유·스냅샷·기록 · 보낸 의견과 화면 연쇄 삭제) |
 | `POST` | `/api/me/consent` | `{healthConsent}` 현재 판으로 건강정보 동의를 다시 받음 → `{user}` |
 | `GET` | `/api/friends` | 친구 · 받은 요청 · 보낸 요청 · 차단 |
 | `POST` | `/api/friends/request` | `{inviteCode}` |
@@ -272,6 +326,8 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 node tools/test-social.js        # 친구·공유 권한 (서버를 띄워 실제 요청)
 node tools/test-ocr.js           # 판독 프록시 (가짜 모델 API 로)
 node tools/test-fcm.js           # 앱 알림 (가짜 OAuth · FCM 으로 — JWT 서명까지 검증)
+node tools/test-feedback.js      # 의견 보내기 (검사 · 한도 · 탈퇴 · 1년 · 주인 알림 · 노트북 도구)
+node tools/test-appversion.js    # 앱 안 업데이트 안내 · 시험판 참여 링크
 node tools/test-crosscheck.js    # 결과지 검산
 node tools/validate.js           # 엔진 예측 대 실제 논문 (게이트)
 USERS=100 YEARS=3 node tools/simulate.js

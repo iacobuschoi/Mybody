@@ -1,5 +1,5 @@
 /* =============================================================================
- * tools/app-version.js — 앱에게 알릴 "최신판 · 최소판" 을 정합니다
+ * tools/app-version.js — 앱에게 알릴 "최신판 · 최소판 · 시험판 참여 링크" 를 정합니다
  *
  *   node tools/app-version.js                    지금 값 보기
  *   node tools/app-version.js --apk=0.2.8        직접 설치한 APK 의 최신판
@@ -8,6 +8,13 @@
  *   node tools/app-version.js --testflight=0.2.10 TestFlight(아이폰 시험판)의 최신판
  *   node tools/app-version.js --min=0.2.9        이보다 낮은 앱은 "서버와 안 맞음"
  *   node tools/app-version.js --apk=none         지웁니다 (빈 값 "" 도 됩니다)
+ *   node tools/app-version.js --join-ios=https://testflight.apple.com/join/XXXX
+ *                                                아이폰 시험판(TestFlight) 참여 링크
+ *   node tools/app-version.js --join-android=https://play.google.com/apps/testing/…
+ *                                                플레이 비공개 테스트 참여 주소
+ *   node tools/app-version.js --join-android-group=https://groups.google.com/g/…
+ *                                                그 테스트에 먼저 가입할 구글 그룹
+ *   node tools/app-version.js --join-ios=        참여 링크 지우기 (none 도 됩니다)
  *
  * 앱은 켤 때(6시간에 한 번까지) GET /api/version 으로 이 값을 묻고, 자기
  * 판이 낮으면 홈 화면 맨 위에 안내를 띄웁니다. 서버는 부를 때마다 설정을
@@ -38,6 +45,14 @@
  *
  * 단추가 여는 주소를 바꾸려면 설정 파일에 appUrlAppStore · appUrlPlay ·
  * appUrlApk 를 직접 적습니다(https 만). 비워 두면 기본 주소입니다.
+ *
+ * 시험판 참여 링크(--join-*)
+ *   앱의 시험판 환영 화면이 "친구도 불러 오세요" 에 쓰는 주소입니다(GET /api/version
+ *   의 join). **https 만** 받고, 아니면 저장하지 않고 멈춥니다 — 앱이 이 주소를 그대로
+ *   열기 때문에, 조용히 버리면 "적었는데 단추가 안 뜬다" 가 됩니다. 적힌 것만 나가고
+ *   기본 주소는 없습니다. 초대 링크는 시험을 새로 열면 바뀌니 그때 다시 적습니다.
+ *   안드로이드 비공개 테스트는 구글 그룹에 먼저 들어가야 참여 주소가 열립니다 — 그래서
+ *   그룹 주소를 따로 둡니다.
  * ========================================================================== */
 'use strict';
 const fs = require('node:fs');
@@ -51,6 +66,12 @@ const NAME = { appstore: '앱스토어', testflight: 'TestFlight', play: '플레
 const FIRST_WITH_NOTICE = '0.2.8';
 /* 깃발 이름 ↔ 설정 키. 채널 이름을 그대로 깃발로 씁니다. */
 const FLAG_KEY = Object.assign({}, APPVER.LATEST_KEY, { min: APPVER.MIN_KEY });
+/* 참여 링크 깃발 ↔ /api/version 의 join 안 이름. 설정 키는 APPVER.JOIN_KEY 가 정합니다. */
+const JOIN_FLAG = { 'join-ios': 'ios', 'join-android': 'android', 'join-android-group': 'androidGroup' };
+Object.keys(JOIN_FLAG).forEach(f => { FLAG_KEY[f] = APPVER.JOIN_KEY[JOIN_FLAG[f]]; });
+const JOIN_NAME = { ios: '아이폰 시험판(TestFlight)', android: '플레이 비공개 테스트',
+                    androidGroup: '플레이 테스트 구글 그룹' };
+const isJoinFlag = flag => Object.prototype.hasOwnProperty.call(JOIN_FLAG, flag);
 const CLEAR = /^(none|없음)$/i;
 
 function usage() {
@@ -62,6 +83,8 @@ function usage() {
   console.log('  node tools/app-version.js --testflight=0.2.10 TestFlight 최신판');
   console.log('  node tools/app-version.js --min=0.2.9        최소판');
   console.log('  node tools/app-version.js --apk=none         지우기');
+  console.log('  node tools/app-version.js --join-ios=https://testflight.apple.com/join/…   시험판 참여 링크');
+  console.log('      (--join-android · --join-android-group 도 같게, 지우기는 --join-ios=)');
   console.log('');
 }
 
@@ -77,7 +100,8 @@ function die(lines) {
 function parseFlags(av) {
   const out = {};
   for (let i = 0; i < av.length; i++) {
-    const m = /^--([a-z]+)(?:=([\s\S]*))?$/.exec(av[i]);
+    /* 이름에 - 가 들어갑니다(--join-android-group). */
+    const m = /^--([a-z][a-z-]*)(?:=([\s\S]*))?$/.exec(av[i]);
     if (!m) die(['모르는 인자입니다: ' + av[i]].concat(usageLines()));
     if (m[1] === 'help') { usage(); process.exit(0); }
     /* `in` 은 쓰지 않습니다 — --constructor 같은 것이 Object 의 물려받은
@@ -89,7 +113,8 @@ function parseFlags(av) {
     if (v == null) {
       const next = av[i + 1];
       if (next == null || /^--/.test(next)) {
-        die(['--' + m[1] + ' 에 값이 없습니다. 예: --' + m[1] + '=0.2.8 (지우려면 --' + m[1] + '=none)']);
+        die(['--' + m[1] + ' 에 값이 없습니다. 예: --' + m[1] +
+             (isJoinFlag(m[1]) ? '=https://…' : '=0.2.8') + ' (지우려면 --' + m[1] + '=none)']);
       }
       v = next; i++;
     }
@@ -98,13 +123,25 @@ function parseFlags(av) {
   return out;
 }
 function usageLines() {
-  return ['', '  쓰는 법: node tools/app-version.js --apk=0.2.8   (--appstore · --testflight · --play · --apk · --min)'];
+  return ['', '  쓰는 법: node tools/app-version.js --apk=0.2.8   (--appstore · --testflight · --play · --apk · --min)',
+          '          node tools/app-version.js --join-ios=https://…   (--join-android · --join-android-group)'];
 }
 
 /** 받은 값을 저장할 값으로. 지우라는 말이면 '', 판이 아니면 멈춥니다. */
 function toValue(flag, raw) {
   const s = String(raw).trim();
   if (s === '' || CLEAR.test(s)) return '';
+  if (isJoinFlag(flag)) {
+    /* 서버와 같은 검사(cleanUrl)를 지나야 저장합니다 — 여기서 받아 준 값을 서버가
+       버리면, 주인은 적었는데 앱에는 단추가 안 뜹니다. */
+    const u = APPVER.cleanUrl(s);
+    if (!u) {
+      die(['https 주소가 아닙니다: --' + flag + '=' + raw,
+           '  앱이 이 주소를 그대로 엽니다. https:// 로 시작하는 주소만 받습니다.',
+           '  지우려면 --' + flag + '=none']);
+    }
+    return u;
+  }
   const v = APPVER.cleanVersion(s);
   if (!v) {
     die(['판 번호가 아닙니다: --' + flag + '=' + raw,
@@ -168,6 +205,14 @@ function show(cfg, changed) {
   console.log('  최소판  ' + (info.min || '(없음)') + mark(APPVER.MIN_KEY) +
               bad(APPVER.MIN_KEY, info.min));
   console.log('');
+  Object.keys(APPVER.JOIN_KEY).forEach(k => {
+    const key = APPVER.JOIN_KEY[k];
+    const raw = cfg[key];
+    const skipped = !info.join[k] && raw !== undefined && raw !== null && raw !== ''
+      ? '   ← https 주소가 아니라 안 내보냅니다: ' + JSON.stringify(raw) : '';
+    console.log('  참여 링크 · ' + JOIN_NAME[k] + '  ' + (info.join[k] || '(없음)') + mark(key) + skipped);
+  });
+  console.log('');
 }
 
 /* 이 컴퓨터에서 도는 서버가 **정말로** 이 값을 내보내는지 물어봅니다.
@@ -202,12 +247,24 @@ async function verify(want) {
     return;
   }
   const same = k => JSON.stringify(j[k]) === JSON.stringify(want[k]);
-  if (same('latest') && same('min') && same('urls')) {
+  /* join 이 아예 없으면 참여 링크가 생기기 전의 서버 코드입니다. 적은 링크가 없으면
+     그 서버로도 충분하니 "확인했습니다" 로 두고, 있으면 다시 띄워야 한다고 말합니다. */
+  if (same('latest') && same('min') && same('urls') && j.join === undefined) {
+    if (!Object.keys(want.join || {}).length) {
+      console.log('  서버(' + port + ' 포트)가 이 값을 내보내는 것을 확인했습니다.');
+    } else {
+      console.log('  ! 서버(' + port + ' 포트)가 참여 링크(join)를 모르는 옛 서버 코드입니다.');
+      console.log('    서버를 지금 코드로 올리고 한 번 다시 띄워야 참여 링크가 나갑니다 (docs/DEPLOY.md 9절).');
+    }
+    return;
+  }
+  if (same('latest') && same('min') && same('urls') && same('join')) {
     console.log('  서버(' + port + ' 포트)가 이 값을 내보내는 것을 확인했습니다.');
     return;
   }
   const line = v => APPVER.CHANNELS.map(ch => NAME[ch] + ' ' + ((v.latest || {})[ch] || '없음')).join(' · ') +
-                    ' · 최소판 ' + (v.min || '없음');
+                    ' · 최소판 ' + (v.min || '없음') +
+                    ' · 참여 링크 ' + Object.keys((v.join || {})).length + '개';
   console.log('  ! 서버(' + port + ' 포트)가 내보내는 값이 여기 적힌 것과 다릅니다.');
   console.log('    서버: ' + line(j));
   console.log('    여기: ' + line(want));
@@ -225,6 +282,7 @@ async function main() {
     await verify(effective(saved || {}));
     console.log('');
     console.log('바꾸기: node tools/app-version.js --apk=0.2.8   (지우기: --apk=none)');
+    console.log('참여 링크: node tools/app-version.js --join-ios=https://…   (--join-android · --join-android-group)');
     console.log('');
     return;
   }

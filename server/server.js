@@ -6,6 +6,14 @@
  *
  * 권한은 전부 서버에서 겁니다. 클라이언트가 보내는 "나는 누구다"를 믿지 않고
  * 토큰으로만 판단합니다.
+ *
+ * 가입 · 로그인 · 복구 말고 로그인 없이 받는 길은 셋뿐입니다 — /health · /version,
+ * 그리고 앱 안 「의견 보내기」(POST /api/feedback). 의견은 로그인 없이 쓰는 사람도 보낼 수 있어야 해서
+ * 토큰이 없거나 틀려도 401 이 아니라 익명으로 받습니다. 그 대신 하루 개수(사람마다 ·
+ * 주소마다 · 서버 전체 — 본문을 받기 전과 저장 직전에 두 번), 동시에 받는 수, 사진
+ * 검사(server/feedback.js)로 막습니다. 설정에
+ * feedbackNotify(아이디)를 적어 두면 새 의견이 올 때 그 사람 폰으로 "새 의견이
+ * 왔어요" 한 줄이 10분에 한 번까지 갑니다 — 의견 내용은 알림에 안 실립니다.
  * ========================================================================== */
 'use strict';
 /* 노드가 너무 오래됐으면 여기서 사람 말로 끝냅니다.
@@ -43,6 +51,7 @@ const { runOcr: callOcr } = require('./ocr.js');
 const PUSH = require('./push.js');
 const FCMLIB = require('./fcm.js');
 const APPVER = require('./appversion.js');
+const FEEDBACK = require('./feedback.js');
 
 /* --- 저장해 둔 설정을 읽어 옵니다 ------------------------------------------
  *
@@ -82,6 +91,8 @@ const APPVER = require('./appversion.js');
   put('OWNER_CONTACT', cfg.ownerContact);
   put('ORIGIN', cfg.origin);
   put('DB', cfg.db);
+  /* 새 의견이 오면 알림을 받을 계정의 **아이디**. 비워 두면 알림 없음. */
+  put('FEEDBACK_NOTIFY', cfg.feedbackNotify);
   if (cfg.openSignup && !(process.env.OPEN_SIGNUP || '').trim()) process.env.OPEN_SIGNUP = '1';
   if (cfg.trustProxy && !(process.env.TRUST_PROXY || '').trim()) process.env.TRUST_PROXY = '1';
 })();
@@ -450,10 +461,14 @@ function send(res, status, body, headers = {}) {
  * 않으면 그 요청이 최대 2MB 를 붙든 채 영원히 남았습니다. 인증도
  * 필요 없으니, 그런 연결을 수백 개 열면 메모리가 그만큼 묶입니다
  * (slowloris). 요청을 보내다 만 것과 보내기 싫은 것은 서버가 구분할
- * 수 없으니, 시간으로 끊습니다. */
+ * 수 없으니, 시간으로 끊습니다.
+ *
+ * 상한을 올린 길(의견 6.2MB)은 시간도 같은 비율로 늘려 받습니다(timeoutMs) — 같은
+ * 30초에 세 배를 올리라고 하면, 올리기가 느린 폰(1Mbps 면 6MB 에 50초)의 의견은
+ * 다 오기 전에 408 로 끊기고 앱은 90초를 기다린 끝에 「못 보냈어요」 를 봅니다. */
 const BODY_TIMEOUT_MS = Number(process.env.BODY_TIMEOUT_MS || 30_000);
 
-function readBody(req, limit = 2_000_000) {
+function readBody(req, limit = 2_000_000, timeoutMs = BODY_TIMEOUT_MS) {
   const HARD = limit * 4;
   return new Promise((resolve, reject) => {
     let n = 0, over = false, done = false; const chunks = [];
@@ -463,7 +478,7 @@ function readBody(req, limit = 2_000_000) {
       chunks.length = 0;
       reject(Object.assign(new Error('본문이 너무 느립니다'), { status: 408 }));
       req.destroy();
-    }, BODY_TIMEOUT_MS);
+    }, timeoutMs);
     const finish = (fn, arg) => { if (done) return; done = true; clearTimeout(timer); fn(arg); };
     req.on('data', c => {
       n += c.length;
@@ -567,7 +582,10 @@ const APP_TEXT = {
   poke: { t: '친구가 운동하라고 콕 찔렀어요', b: '오늘 운동 어때요?' },
   workout: { t: '친구가 운동했어요', b: '친구 탭에서 확인하세요' },
   friend_request: { t: '친구 요청이 왔어요', b: '친구 탭에서 확인하세요' },
-  friend_accept: { t: '친구 요청이 수락됐어요', b: '친구 탭에서 확인하세요' }
+  friend_accept: { t: '친구 요청이 수락됐어요', b: '친구 탭에서 확인하세요' },
+  /* 주인에게만 갑니다(FEEDBACK_NOTIFY). 의견 글 · 보낸 사람 · 판은 싣지 않습니다 —
+     읽는 곳은 노트북(tools/feedback.js)이고, 알림은 "왔다" 만 알리면 됩니다. */
+  feedback: { t: '새 의견이 왔어요', b: '노트북에서 확인하세요' }
 };
 const APP_TEXT_FALLBACK = { t: '친구 알림이 왔어요', b: '앱에서 확인하세요' };
 
@@ -656,6 +674,119 @@ async function fanoutPush(ownerId, snap) {
   for (const viewer of api.newsViewersFor(ownerId)) await pushToUser(viewer, note);
 }
 
+/* --- 앱 안 「의견 보내기」 ------------------------------------------------
+ *
+ * 검사 규칙(글 2000자 · 사진 3장 · 한 장 1.5MB · PNG/JPEG 앞머리)은 server/feedback.js,
+ * 저장은 db.js 입니다. 여기서는 누가 보냈나 · 오늘 몇 개째인가 · 주인에게 알릴까만 봅니다.
+ * -------------------------------------------------------------------------- */
+/* 하루 개수. 로그인했으면 사람마다(DB 에서 셈 — 껐다 켜도 안 풀림), 아니면 보내온
+   주소마다(메모리 — 주소를 DB 에 남기지 않으려고). 터널 뒤에서 TRUST_PROXY 를 안 켰으면
+   익명은 전부 한 주소로 보여 한 칸을 나눠 씁니다(위 clientIp 주석과 같은 사정). */
+const FEEDBACK_PER_DAY = Number(process.env.FEEDBACK_PER_DAY || FEEDBACK.PER_DAY);
+const FEEDBACK_PER_DAY_TOTAL = Number(process.env.FEEDBACK_PER_DAY_TOTAL || FEEDBACK.PER_DAY_TOTAL);
+const FEEDBACK_NOTIFY = (process.env.FEEDBACK_NOTIFY || '').trim();
+/* 알림 사이 간격. 시험(tools/test-feedback.js)이 10분을 기다리지 않고 "간격이 지나면
+   다시 울린다" 를 보려고 줄입니다 — 운영에서는 기본값(10분) 그대로 두세요. */
+const FEEDBACK_NOTIFY_GAP_MS = Number(process.env.FEEDBACK_NOTIFY_GAP_MS || FEEDBACK.NOTIFY_GAP_MS);
+const feedbackNotifyAllowed = FEEDBACK.makeThrottle(FEEDBACK_NOTIFY_GAP_MS);
+const anonFeedback = new Map();   // 'ip|YYYY-MM-DD' → 개수
+let feedbackOwnerWarned = false;
+/* 지금 본문을 받고 있는 의견 — 서버 전체 · 보낸 사람(계정 또는 주소)마다.
+   의견 한 건은 받는 동안 본문(6MB)과 그걸 푼 사본 몇 벌을 메모리에 듭니다. 하루 개수는
+   **저장한 것**만 세므로, 동시에 백 개를 열면 전부 "아직 0개" 로 보고 들어와 서버가
+   메모리를 다 씁니다. 그래서 받는 중인 것의 수를 따로 묶습니다. 넘치면 503 — 429 는
+   앱이 "오늘은 끝, 내일 다시" 로 읽지만 이건 잠시 뒤면 풀리는 일입니다. */
+const FEEDBACK_INFLIGHT_MAX = 6;
+const FEEDBACK_INFLIGHT_PER = 2;
+let feedbackInflight = 0;
+const feedbackInflightOf = new Map();   // 'u:<id>' · 'ip:<주소>' → 받는 중인 수
+
+function anonFeedbackCount(ip, day) { return anonFeedback.get(ip + '|' + day) || 0; }
+function anonFeedbackBump(ip, day) {
+  const k = ip + '|' + day;
+  anonFeedback.set(k, anonFeedbackCount(ip, day) + 1);
+  // 지난 날 것만 버립니다 — 통째로 비우면 오늘 한도에 걸린 주소까지 풀립니다.
+  if (anonFeedback.size > 5000) {
+    for (const key of anonFeedback.keys()) { if (!key.endsWith('|' + day)) anonFeedback.delete(key); }
+  }
+}
+
+/* 주인에게 "새 의견이 왔어요". 응답을 기다리게 하지 않습니다 — 알림이 늦는 것은
+   괜찮지만, 보낸 사람 화면이 FCM 을 기다리며 굳으면 안 됩니다. 간격은 **보낼 사람을
+   찾은 뒤에** 셉니다: 아이디를 잘못 적어 둔 동안 들어온 의견이 간격만 깎지 않게. */
+function notifyOwnerOfFeedback() {
+  if (!FEEDBACK_NOTIFY || (!VAPID && !FCM)) return;
+  const owner = api.userIdByHandle(FEEDBACK_NOTIFY);
+  if (!owner) {
+    if (!feedbackOwnerWarned) {
+      feedbackOwnerWarned = true;
+      console.log('  ⚠ 의견 알림: 설정(feedbackNotify)에 적은 아이디의 계정이 없어 알림을 못 보냅니다.');
+    }
+    return;
+  }
+  if (!feedbackNotifyAllowed()) return;
+  pushToUser(owner, Object.assign({ kind: 'feedback', appTag: 'feedback', u: '/' }, APP_TEXT.feedback))
+    .catch(() => {});
+}
+
+/* 오늘 한도에 걸렸으면 그 까닭(429 로 내보낼 말), 아니면 null. 저장한 것만 셉니다:
+   형식이 틀려 거절된 요청은 한도를 안 깎습니다(판독 ocrCount 와 같은 이유). */
+function feedbackOverLimit(uid, ip, day) {
+  const since = day + 'T00:00:00.000Z';
+  if (api.countFeedbackSince(null, since) >= FEEDBACK_PER_DAY_TOTAL) {
+    return '오늘은 이 서버가 의견을 더 받을 수 없습니다. 내일 다시 보내 주세요';
+  }
+  const mine = uid ? api.countFeedbackSince(uid, since) : anonFeedbackCount(ip, day);
+  if (mine >= FEEDBACK_PER_DAY) {
+    return '오늘은 의견을 ' + FEEDBACK_PER_DAY + '개까지 보낼 수 있습니다. 내일 다시 보내 주세요';
+  }
+  return null;
+}
+
+async function handleFeedback(req, res, ip) {
+  /* 약속한 모양은 {ok:false, error}. 앱의 Api 는 reason 을 읽으므로 같은 말을 둘 다 싣습니다. */
+  const fail = (status, msg) => send(res, status, { ok: false, error: msg, reason: msg });
+  /* 토큰이 없거나 틀리거나 만료됐으면 **익명**입니다. 401 을 주면 로그아웃된 채로 보낸
+     사람의 의견이 통째로 사라지고, 앱은 그걸 "로그인이 풀렸다" 로 읽습니다. */
+  const who = api.userForToken(bearer(req));
+  const uid = who ? who.id : null;
+  const day = ocrDay();
+
+  /* 한도는 본문을 받기 **전에** 봅니다 — 6MB 를 다 받아 놓고 거절하지 않게. */
+  const over = feedbackOverLimit(uid, ip, day);
+  if (over) return fail(429, over);
+  const key = uid ? 'u:' + uid : 'ip:' + ip;
+  if (feedbackInflight >= FEEDBACK_INFLIGHT_MAX || (feedbackInflightOf.get(key) || 0) >= FEEDBACK_INFLIGHT_PER) {
+    return fail(503, '지금 받는 의견이 많습니다. 잠시 뒤에 다시 보내 주세요');
+  }
+
+  let body;
+  feedbackInflight++;
+  feedbackInflightOf.set(key, (feedbackInflightOf.get(key) || 0) + 1);
+  try {
+    /* 본문이 다른 길의 세 배라 기다리는 시간도 세 배(readBody 주석) — 앱은 90초를 기다립니다. */
+    body = await readBody(req, FEEDBACK.BODY_LIMIT, BODY_TIMEOUT_MS * 3);
+  } catch (e) {
+    if (!e || !e.status) throw e;
+    return fail(e.status, e.status === 413 ? '보낸 내용이 너무 큽니다 (사진은 한 장 1.5MB · 3장까지)' : e.message);
+  } finally {
+    feedbackInflight--;
+    const left = (feedbackInflightOf.get(key) || 1) - 1;
+    if (left > 0) feedbackInflightOf.set(key, left); else feedbackInflightOf.delete(key);
+  }
+  const r = FEEDBACK.parseFeedback(body);
+  if (!r.ok) return fail(400, r.reason);
+  /* 한 번 더 봅니다. 본문을 받는 몇십 초 사이에 같은 사람(주소)의 다른 요청이 먼저
+     저장됐을 수 있습니다 — 앞의 검사만 믿으면 동시에 보낸 것들이 전부 "19개째" 로 보고
+     한도를 넘어 들어옵니다. 여기서 저장까지는 await 가 없어 끼어들 틈이 없습니다. */
+  const late = feedbackOverLimit(uid, ip, day);
+  if (late) return fail(429, late);
+  const id = api.addFeedback(uid, r.value);
+  if (!uid) anonFeedbackBump(ip, day);
+  notifyOwnerOfFeedback();
+  return send(res, 200, { ok: true, id });
+}
+
 async function handleApi(req, res, url) {
   const reqIp = clientIp(req);
   const p = url.pathname.replace(/^\/api/, '') || '/';
@@ -698,6 +829,10 @@ async function handleApi(req, res, url) {
     }
     return send(res, 200, APPVER.versionInfo(saved));
   }
+
+  /* 앱 안 「의견 보내기」 — 로그인은 **있으면 묶고, 없어도 받습니다.** 그래서 아래
+     로그인 관문(401)보다 앞에 둡니다. 자세한 것은 handleFeedback. */
+  if (p === '/feedback' && method === 'POST') return handleFeedback(req, res, reqIp);
 
   /* 계정 만들기 — 페어링 비밀이 필요합니다.
      이 서버는 주인 것이지 공개 가입 서비스가 아닙니다. 비밀을 아는 사람만
@@ -1246,11 +1381,14 @@ if (require.main === module) {
      세션은 쓰일 때만 지워졌어서, 앱을 지운 폰의 세션과 거기 묶인 앱 알림 기기 행이
      90일이 지나도 끝없이 남았습니다(처리방침의 보관 기간과 어긋남). 기기 행은 세션을
      지우면 cascade 로 같이 지워집니다. unref — 이 타이머 때문에 서버가 안 꺼지면 안 됩니다. */
-  const pruneSessions = () => {
+  /* 보관 기간(1년)이 지난 의견과 붙인 화면도 같은 때 지웁니다 — 처리방침에 적은
+     "1년" 을 지키는 곳이 여기입니다. 서버를 몇 달 안 껐다 켜도 하루 한 번은 돕니다. */
+  const pruneDaily = () => {
     try { api.pruneExpiredSessions(); } catch (e) { console.error('만료된 로그인 정리 실패:', e.message); }
+    try { api.pruneOldFeedback(); } catch (e) { console.error('오래된 의견 정리 실패:', e.message); }
   };
-  pruneSessions();
-  setInterval(pruneSessions, 24 * 3600 * 1000).unref();
+  pruneDaily();
+  setInterval(pruneDaily, 24 * 3600 * 1000).unref();
 
   server.listen(PORT, () => {
     console.log('Mybody 서버 실행 중');
@@ -1268,6 +1406,16 @@ if (require.main === module) {
        꺼진 채로 돌고, 그걸 알 수 있는 곳이 여기뿐입니다. */
     console.log('  앱 알림(FCM) ' + FCMLIB.describe(FCM_STATE));
     for (const w of (FCM_STATE.warnings || [])) console.log('  ⚠ 앱 알림(FCM): ' + w);
+    /* 의견 알림도 뜰 때 한 번 말합니다. 아이디를 잘못 적었거나 알림 길이 꺼져 있으면
+       켜 둔 줄 아는데 안 오는 상태가 됩니다. 아이디 자체는 찍지 않습니다. */
+    if (FEEDBACK_NOTIFY) {
+      const why = !(VAPID || FCM) ? '⚠ 알림 길(앱 알림 · 웹 푸시)이 꺼져 있어 못 보냅니다'
+        : (api.userIdByHandle(FEEDBACK_NOTIFY) ? '켜짐 — 새 의견이 오면 설정한 계정의 폰으로 (' +
+             (FEEDBACK_NOTIFY_GAP_MS >= 60000 ? Math.round(FEEDBACK_NOTIFY_GAP_MS / 60000) + '분'
+               : (FEEDBACK_NOTIFY_GAP_MS / 1000) + '초') + '에 한 번까지)'
+           : '⚠ 설정(feedbackNotify)에 적은 아이디의 계정이 없습니다');
+      console.log('  의견 알림 ' + why);
+    }
     /* 열어 둔 상태는 띄울 때마다 눈에 띄어야 합니다. 설정 파일 안에만
        있으면 몇 주 뒤엔 자기가 열어 뒀다는 것도 잊습니다. */
     if (OPEN_SIGNUP) {

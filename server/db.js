@@ -2,12 +2,18 @@
  * server/db.js — 스키마와 질의. Node 22 내장 SQLite 만 씁니다 (설치할 것 없음).
  *
  * 권한은 전부 여기와 server.js 에서 겁니다. 클라이언트를 믿지 않습니다.
+ *
+ * 앱 안 「의견 보내기」 가 쌓는 feedback · feedback_images 도 여기 있습니다. 검사는
+ * server/feedback.js 가 하고, 여기서는 넣기 · 세기 · 읽음 표시 · 지우기만 합니다.
+ * 지우는 길은 둘입니다 — 탈퇴(deleteMe)와 1년 보관 기간(pruneOldFeedback). 주인이
+ * 읽었다고 지우지는 않습니다(읽음 표시만). 처리방침에 적은 것과 어긋나지 않게.
  * ========================================================================== */
 'use strict';
 const { DatabaseSync } = require('node:sqlite');
 const crypto = require('node:crypto');
 const path = require('node:path');
 const fs = require('node:fs');
+const FEEDBACK = require('./feedback.js');
 
 const SHARE_FIELDS = ['weightTrend', 'smmTrend', 'bfmTrend', 'planProgress', 'streak', 'schedule', 'absolute', 'diet'];
 
@@ -140,6 +146,39 @@ function open(file) {
       -- 계정으로 옮기지 못하게 합니다(addPushDevice).
       secret_hash TEXT
     );
+    /* 앱 안 「의견 보내기」 (POST /api/feedback · server/feedback.js).
+     *
+     * user_id 가 NULL 이면 로그인 없이 보낸 것입니다 — 로그인 없이 쓰는 사람도
+     * "여기 이상해요" 는 말할 수 있어야 합니다. 로그인했으면 그 계정에 묶여서
+     * **탈퇴하면 같이 지워집니다**(외래키 연쇄 + deleteMe 가 한 번 더). 보낸 곳의
+     * 주소(IP)는 저장하지 않습니다 — 하루 개수 세기는 메모리에서만 합니다.
+     * 1년이 지나면 지웁니다(pruneOldFeedback — 서버가 뜰 때와 하루 한 번).
+     * read_at 은 주인이 노트북 도구(tools/feedback.js --mark-read)로 읽음 표시한 때.
+     * AUTOINCREMENT — 지운 번호를 다시 쓰지 않습니다. 도구가 꺼낸 캡처 파일 이름이
+     * <번호>-<n>.png 라서, 번호가 돌아오면 탈퇴한 사람의 캡처가 새 의견의 것으로 보이고
+     * 도구가 "지워진 의견의 파일" 을 가려 지울 수도 없습니다. */
+    CREATE TABLE IF NOT EXISTS feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at TEXT NOT NULL,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      app_version TEXT,
+      platform TEXT,
+      screen TEXT,
+      text TEXT,
+      read_at TEXT
+    );
+    /* 붙인 화면 캡처. 몸 숫자가 찍혀 있을 수 있는 사진이라 의견과 운명을 같이합니다 —
+       의견 행이 지워지면 연쇄로 사라집니다. 파일이 아니라 DB 안에 두는 이유는 프로필
+       사진과 같습니다: 백업(VACUUM INTO) 한 번에 따라오고, 지울 곳이 하나입니다. */
+    CREATE TABLE IF NOT EXISTS feedback_images (
+      feedback_id INTEGER NOT NULL REFERENCES feedback(id) ON DELETE CASCADE,
+      idx INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      data BLOB NOT NULL,
+      PRIMARY KEY (feedback_id, idx)
+    );
+    CREATE INDEX IF NOT EXISTS idx_feedback_user ON feedback(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at);
     CREATE INDEX IF NOT EXISTS idx_push_devices_user ON push_devices(user_id, updated_at);
     CREATE INDEX IF NOT EXISTS idx_push_devices_session ON push_devices(session_token);
     CREATE INDEX IF NOT EXISTS idx_push_user ON push_subs(user_id);
@@ -531,7 +570,32 @@ function makeApi(db) {
       'WHERE d.user_id=? AND s.expires_at > ? AND d.updated_at >= ? ' +
       "AND COALESCE(d.permission,'granted') <> 'denied' LIMIT 1"),
     bumpDeviceFail: db.prepare('UPDATE push_devices SET fails=fails+1 WHERE token=?'),
-    prevSnap: db.prepare('SELECT payload FROM snapshots WHERE owner_id=? AND week_start=?')
+    prevSnap: db.prepare('SELECT payload FROM snapshots WHERE owner_id=? AND week_start=?'),
+
+    /* --- 의견 보내기 --- */
+    insertFeedback: db.prepare(
+      'INSERT INTO feedback (created_at,user_id,app_version,platform,screen,text) VALUES (?,?,?,?,?,?)'),
+    insertFeedbackImage: db.prepare(
+      'INSERT INTO feedback_images (feedback_id,idx,type,data) VALUES (?,?,?,?)'),
+    countFeedbackOf: db.prepare('SELECT COUNT(*) c FROM feedback WHERE user_id=? AND created_at >= ?'),
+    countFeedbackAll: db.prepare('SELECT COUNT(*) c FROM feedback WHERE created_at >= ?'),
+    /* 새것부터. read 가 1 이면 읽은 것까지, since 는 ISO(UTC) 시각. */
+    listFeedback: db.prepare(
+      'SELECT f.*, (SELECT COUNT(*) FROM feedback_images i WHERE i.feedback_id = f.id) AS n_images ' +
+      'FROM feedback f WHERE (? = 1 OR f.read_at IS NULL) AND f.created_at >= ? ' +
+      'ORDER BY f.created_at DESC, f.id DESC'),
+    feedbackImages: db.prepare('SELECT idx, type, data FROM feedback_images WHERE feedback_id=? ORDER BY idx'),
+    feedbackIds: db.prepare('SELECT id FROM feedback'),
+    markFeedbackRead: db.prepare('UPDATE feedback SET read_at=? WHERE id=? AND read_at IS NULL'),
+    /* 사진 먼저 지웁니다. 외래키 연쇄(ON DELETE CASCADE)로도 지워지지만, 그건 이
+       연결에 PRAGMA foreign_keys 가 켜져 있을 때만입니다 — 몸 숫자가 찍혔을 수 있는
+       사진을 설정 한 줄에 맡기지 않습니다. */
+    deleteFeedbackImagesOf: db.prepare(
+      'DELETE FROM feedback_images WHERE feedback_id IN (SELECT id FROM feedback WHERE user_id=?)'),
+    deleteFeedbackOf: db.prepare('DELETE FROM feedback WHERE user_id=?'),
+    pruneFeedbackImages: db.prepare(
+      'DELETE FROM feedback_images WHERE feedback_id IN (SELECT id FROM feedback WHERE created_at < ?)'),
+    pruneFeedback: db.prepare('DELETE FROM feedback WHERE created_at < ?')
   };
 
   /* 프로필 사진 검사.
@@ -785,10 +849,23 @@ function makeApi(db) {
        `{ day: '2026-09-21', who: 'user_e73fe…', n: 1 }`.
        한 줄이고 그날 안에 지워질 것이긴 한데, 바로 그것이 이 파일이
        "안 남기기로 했다" 고 적어 둔 종류의 기록입니다(bumpOcr 주석).
-       탈퇴는 "이제 없다" 여야 하고, 그 말에 예외를 두지 않습니다. */
+       탈퇴는 "이제 없다" 여야 하고, 그 말에 예외를 두지 않습니다.
+       **보낸 의견과 붙인 화면도** 여기서 직접 지웁니다. 외래키로도 연쇄되지만, 화면
+       캡처에는 몸 숫자가 찍혀 있을 수 있어서 연쇄 설정 하나에 기대지 않습니다
+       (처리방침: "계정을 지우면 보낸 의견도 함께 지워집니다"). 로그인 없이 보낸
+       의견은 계정과 이어져 있지 않아 여기서 찾을 수 없고, 1년 뒤에 지워집니다. */
     deleteMe(uid) {
       q.deleteOcrOf.run(uid);
-      q.deleteUser.run(uid);
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        q.deleteFeedbackImagesOf.run(uid);
+        q.deleteFeedbackOf.run(uid);
+        q.deleteUser.run(uid);
+        db.exec('COMMIT');
+      } catch (e) {
+        try { db.exec('ROLLBACK'); } catch {}
+        throw e;
+      }
     },
 
     areFriends(a, b) {
@@ -1023,6 +1100,81 @@ function makeApi(db) {
     },
 
     exists(uid) { return !!(uid && q.userById.get(uid)); },
+
+    /** 아이디 → 내부 id. 없으면 null. 주인 알림(FEEDBACK_NOTIFY)이 아이디로 적혀 있어서. */
+    userIdByHandle(handle) {
+      const u = q.userByHandle.get(str(handle).trim().toLowerCase());
+      return u ? u.id : null;
+    },
+
+    /* --- 의견 보내기 ------------------------------------------------------
+     * 검사는 server/feedback.js 의 parseFeedback 이 끝낸 값만 받습니다. 여기서는
+     * 한 트랜잭션으로 넣기만 합니다 — 사진 둘째 장에서 실패했는데 의견과 첫 장만
+     * 남으면, 주인은 "사진 3장" 이라던 의견에서 1장만 봅니다.
+     * ------------------------------------------------------------------- */
+    addFeedback(userId, v) {
+      const at = nowISO();
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const r = q.insertFeedback.run(at, userId || null, v.appVersion || null, v.platform || null,
+                                       v.screen || null, v.text || null);
+        const fid = Number(r.lastInsertRowid);
+        (v.images || []).forEach((im, i) => q.insertFeedbackImage.run(fid, i + 1, im.type, im.data));
+        db.exec('COMMIT');
+        return fid;
+      } catch (e) {
+        try { db.exec('ROLLBACK'); } catch {}
+        throw e;
+      }
+    },
+    /** since(ISO) 이후 이 사람이 보낸 개수. userId 가 없으면 서버 전체. */
+    countFeedbackSince(userId, since) {
+      const s = str(since);
+      return userId ? q.countFeedbackOf.get(userId, s).c : q.countFeedbackAll.get(s).c;
+    },
+    /** 노트북 도구용 목록 — 새것부터. 사진은 개수만(내용은 feedbackImages). */
+    listFeedback({ includeRead = false, since = '' } = {}) {
+      return q.listFeedback.all(includeRead ? 1 : 0, str(since)).map(r => ({
+        id: r.id, createdAt: r.created_at, userId: r.user_id || null,
+        appVersion: r.app_version || null, platform: r.platform || null, screen: r.screen || null,
+        text: r.text || null, readAt: r.read_at || null, images: Number(r.n_images) || 0
+      }));
+    },
+    feedbackImages(id) {
+      return q.feedbackImages.all(Number(id)).map(r => ({ idx: r.idx, type: r.type, data: Buffer.from(r.data) }));
+    },
+    /** 지금 남아 있는 의견 번호 전부. 노트북 도구가 꺼내 둔 캡처 중 탈퇴 · 1년으로
+     *  지워진 의견의 것을 가려 지울 때 씁니다(번호는 다시 쓰이지 않습니다 — AUTOINCREMENT). */
+    feedbackIds() { return q.feedbackIds.all().map(r => Number(r.id)); },
+    /** 읽음 표시. 이미 읽은 것은 그 시각을 그대로 둡니다. 바뀐 개수를 돌려줍니다. */
+    markFeedbackRead(ids) {
+      const at = nowISO();
+      let n = 0;
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        for (const id of ids || []) n += Number(q.markFeedbackRead.run(at, Number(id)).changes) || 0;
+        db.exec('COMMIT');
+      } catch (e) {
+        try { db.exec('ROLLBACK'); } catch {}
+        throw e;
+      }
+      return n;
+    },
+    /** 보관 기간(기본 1년)이 지난 의견과 그 사진을 지웁니다. 지운 의견 수를 돌려줍니다.
+     *  서버가 뜰 때와 하루 한 번 부릅니다(server.js) — 처리방침에 적은 "1년" 을 지키는 곳. */
+    pruneOldFeedback(days = FEEDBACK.KEEP_DAYS) {
+      const cutoff = new Date(Date.now() - Number(days) * 86400000).toISOString();
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        q.pruneFeedbackImages.run(cutoff);
+        const n = Number(q.pruneFeedback.run(cutoff).changes) || 0;
+        db.exec('COMMIT');
+        return n;
+      } catch (e) {
+        try { db.exec('ROLLBACK'); } catch {}
+        throw e;
+      }
+    },
 
     publishSnapshot(me, weekStart, payload) {
       if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다' };
