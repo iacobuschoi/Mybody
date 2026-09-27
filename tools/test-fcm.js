@@ -120,9 +120,15 @@ async function unit() {
     fs.chmodSync(loose, 0o644);
     const lw = FCM.load({ FCM_SERVICE_ACCOUNT: loose }, { log: () => {}, platform: 'linux' }).warnings;
     ok('남도 읽을 수 있는 파일(644)이면 chmod 600 을 알려 준다', lw.length === 1 && /chmod 600/.test(lw[0]), lw);
-    fs.chmodSync(loose, 0o600);
-    ok('600 이면 경고 없음',
-       FCM.load({ FCM_SERVICE_ACCOUNT: loose }, { log: () => {}, platform: 'linux' }).warnings.length === 0);
+    /* 윈도우의 chmod 는 읽기 전용 표만 바꿔서 600 인 파일을 만들 수 없습니다(stat 은 늘 666) —
+       platform: 'linux' 를 넣어도 파일 쪽이 따라오지 않으니, 진짜 윈도우에서는 이 한 줄을 건너뜁니다. */
+    if (process.platform === 'win32') {
+      console.log('  - 600 이면 경고 없음 — 윈도우라 건너뜀(600 파일을 만들 수 없음)');
+    } else {
+      fs.chmodSync(loose, 0o600);
+      ok('600 이면 경고 없음',
+         FCM.load({ FCM_SERVICE_ACCOUNT: loose }, { log: () => {}, platform: 'linux' }).warnings.length === 0);
+    }
     ok('윈도우는 모드 비트가 뜻이 없어 보지 않는다', FCM.looseModeWarning(good, 'win32') === '');
   }
 
