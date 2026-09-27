@@ -697,3 +697,21 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
 - 이제 이메일 목록 「비공개 테스트」(12명)는 이 트랙에 안 붙어 있음 → 그 12명도 테스트 때는 **그룹 가입 페이지(https://groups.google.com/g/mybody-testers)로 가입**해야 함.
 - 게시 개요에는 지금 **데이터 보안(31: 기기 ID) · 테스터 변경** 이 검토 대기로 쌓여 있음 — 비공개 테스트를 시작할 때 같이 전송.
 - 서버 `--join-android` · `--join-android-group` 은 지시대로 아직 안 넣음.
+
+---
+
+# 33 끝 (2026-09-28 04:04 KST) — 0.2.18 (N = 325): 서버 먼저 · 내부 325 · 데이터 보안 · app-version (5 폰 확인은 주인 몫)
+
+- **0. 서버**: `git pull`(c2fbed9) → **03:57 재시작**. 안(8080): `/.well-known/assetlinks.json` **200 application/json**(패키지 io.github.iacobuschoi.mybody ·
+  지문 06:D9:45:A3…DE:11) · `/.well-known/apple-app-site-association` **200 application/json**(appIDs JT4YLVNKDZ.io.github.iacobuschoi.mybody · `/i/*`) ·
+  `/i/K7M2QX9D` **200 text/html** — 셋 다 리다이렉트 0. 밖(check-host): 셋 다 **200 (각 5/5)**. `test-invite` **221 통과 · 0 실패**(150초 안).
+- **1. 앱 서명 키**: 플레이 「앱 서명」 화면이 앱 링크용으로 주는 디지털 애셋 링크 JSON 의 지문 = 업로드 키 **06:D9…DE:11 — 같음** → config 안 건드림.
+- **2. 플레이 내부 테스트만**: Releases v0.2.18 AAB(33.8MB, 03:59 받기 6초) SHA-256 `565e5c8f…fd71` · 서명 확인 → **325 (0.2.18)** → 출시 노트 「0.2.18」 179자 →
+  **「내부 테스터에게 제공됨」 04:02**. 비공개 트랙 안 건드림. **무거운 작업 끝 04:01.**
+- **3. 데이터 보안**: 라이브 페이지에 「4. 계정은 두고 기록만 지우기」(id="data") 있는 것 확인 → 「계정을 삭제하지 않고 데이터 삭제 요청 방법」 **예** ·
+  데이터 URL `https://iacobuschoi.github.io/Mybody/delete-account.html#data` → 미리보기에 「앱 데이터 관리 — 전체 계정을 삭제하지 않고도 … 요청할 수 있습니다」 →
+  **저장만**(검토 전송은 비공개 시작 때 — 게시 개요에 31 데이터 보안 · 테스터 변경과 함께 대기).
+- **4. app-version**: TestFlight 「0.2.18 (325) available to test」 **09-27 18:51Z** · 플레이 내부 제공됨 뒤 → **play 0.2.18 · testflight 0.2.18 · apk 0.2.8 · appstore "" · min ""**,
+  시험 기간 켜짐(기본값, `--testing` 안 건드림), 참여 링크: 아이폰만(안드로이드 `--join-android*` 는 비공개 시작 때).
+- **5. 폰 확인** — 새벽이라 안 함(주인 갤럭시에서 카카오톡 초대 링크 → 앱 열림 · 「친구 요청을 보냈어요」, 안 열리면 `adb shell pm get-app-links io.github.iacobuschoi.mybody`).
+- **6. 심사** 안 건드림(App Store · friends 는 0.2.17 (314) 그대로).
