@@ -610,3 +610,16 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
 - **2. 애플**: ASC 웹 로그인 풀림 → CI 로그로만: 「아이폰 TestFlight」 run(3a16efd) `Build Number: 298` · `UPLOAD SUCCEEDED`(08:32Z).
   이 빌드는 CI 로그대로 **「푸시 설정 없음 — 푸시 없이 빌드」**(Secrets 를 넣기 전에 돈 것). friends 제출은 로그인 필요라 못 함.
 - **3. app-version**: **play 0.2.15 · testflight 0.2.15 · apk 0.2.8 · appstore "" · min ""** (8080 확인).
+
+---
+
+# 30 끝 — 확인만 (2026-09-27 17:00 KST) — 심사 0.2.15 (298) 상태
+
+- ASC 웹은 여전히 로그인 풀림 → 화면 확인은 못 함. **취소 · 교체 · 재제출은 하지 않음.**
+- 대신 주인 Gmail 의 애플 알림 메일로 확인(App Store Connect · TestFlight 발신만 검색, 읽기만):
+  - TestFlight 「is now available to test」 — **0.2.13 (288) 09-25 05:27Z · 0.2.14 (294) 09-26 06:03Z · 0.2.15 (298) 09-26 08:35Z**.
+    → 25 · 27 · 29 의 「처리 완료 → 내부 그룹 `my`」 가 이걸로 확인됨(그때는 CI 업로드 성공만 적었음).
+  - App Store 심사: 마지막 메일은 0.2.8 제출 때의 「Thank You for Submitting Your App」(09-24 12:46Z). **승인 · 거절 · 판매 준비됨 메일 없음.**
+    0.2.15 재제출(09-27 07:48Z) 관련 메일도 아직 없음.
+  - friends 베타 심사 결과 메일 없음.
+- 승인 메일이 오면 주인이 「출시」 를 누르고, 그 뒤 `node tools/app-version.js --appstore=0.2.15` 는 노트북이 함.
