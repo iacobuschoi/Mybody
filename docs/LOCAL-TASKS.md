@@ -944,3 +944,5 @@ CI 요약: 안드로이드 「앱 알림(FCM): **켜짐**」, 아이폰 「plist
 **빌드 확인(클라우드)** — `v0.2.17` = 4d1ba60 · N = 314 · https://github.com/iacobuschoi/Mybody/releases/tag/v0.2.17 ·
 AAB SHA-256 5a4f09c5…6dda · APK 2252e9c0…034a · 서명 지문 `06d945a3…83de11` 일치 · versionCode 314 ·
 안드로이드 앱 알림 켜짐 · 아이폰 plist yes · aps-environment production · TestFlight 업로드 성공(11:52Z).
+**심사(클라우드, 12:09Z)** — App Store: 0.2.15 심사 대기를 취소하고 같은 판을 0.2.17 로 바꿔 빌드 314 로 다시 제출(제출 919665c3…).
+TestFlight friends: 314 넣고 「테스트할 내용」 적고 베타 심사 제출 · 옛 298 뺌. 노트북은 메일 · 화면 확인만.
