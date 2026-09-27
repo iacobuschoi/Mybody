@@ -946,3 +946,35 @@ AAB SHA-256 5a4f09c5…6dda · APK 2252e9c0…034a · 서명 지문 `06d945a3…
 안드로이드 앱 알림 켜짐 · 아이폰 plist yes · aps-environment production · TestFlight 업로드 성공(11:52Z).
 **심사(클라우드, 12:09Z)** — App Store: 0.2.15 심사 대기를 취소하고 같은 판을 0.2.17 로 바꿔 빌드 314 로 다시 제출(제출 919665c3…).
 TestFlight friends: 314 넣고 「테스트할 내용」 적고 베타 심사 제출 · 옛 298 뺌. 노트북은 메일 · 화면 확인만.
+
+## 33. v0.2.18 (N = 325) — 친구 초대 링크 · 의견 말풍선 (**서버 먼저 · 구글은 내부 테스트만 · 심사는 0.2.17 그대로**)
+
+주인 피드백 41~45: 초대 링크를 누르기만 하면 친구 요청(앱이 있으면 앱이 바로 열림), 앱이 없으면 기기별 설치 안내
+(테스트 기간: 아이폰 TestFlight · 안드로이드 구글 그룹 → 참여 → 플레이), 말풍선 꾹 눌러 옮기기 · X 로 치우기.
+**안드로이드는 앱을 설치하는 순간 링크 파일을 확인하므로 서버를 먼저 올려야 합니다.** 로그인 · 비밀번호 화면이면 멈추고 보고.
+
+0. **서버 업데이트(먼저)** — `git pull` → 「Mybody 서버」 끝냈다 다시 실행 → 확인:
+   `curl -s localhost:8080/.well-known/assetlinks.json` · `curl -s localhost:8080/.well-known/apple-app-site-association` 가 JSON 200,
+   `curl -s -o NUL -w "%{http_code}" localhost:8080/i/K7M2QX9D` 가 200, 바깥 주소로도 셋 다 200(리다이렉트 없이).
+   `node tools/test-invite.js`(2분 넘게 멈추면 끊고 보고). **test-selfhost 는 돌리지 않음.**
+1. **플레이 앱 서명 키** — 플레이 콘솔 → 테스트 및 출시 → 설정 → 앱 무결성 → 「앱 서명 키 인증서」 SHA-256 이 업로드 키
+   `06:D9:45:A3 … 83:DE:11` 과 같은지만 봅니다. 같으면 할 일 없음. 다르면 `~\.mybody\config.json` 에
+   `"androidCertSha256": ["<그 값>"]` 을 넣습니다(재시작 필요 없음 — 매 요청 읽음). 보고에는 같다/다르다와 앞뒤 4자만.
+2. **플레이 내부 테스트만** — v0.2.18 AAB → `keytool` 지문 확인 → 내부 테스트 새 버전 **325** → 출시 노트 「0.2.18」(179자) →
+   저장 및 출시. 비공개 트랙은 건드리지 않음(출시 · 검토 전송 금지).
+3. **데이터 보안** — 「계정을 삭제하지 않고 데이터 삭제 요청 방법」 을 **예**, 주소
+   `https://iacobuschoi.github.io/Mybody/delete-account.html#data` (페이지에 「4. 계정은 두고 기록만 지우기」 가 보이는지 먼저 확인).
+   저장만 · 검토 전송은 비공개 시작 때.
+4. **안내 값** — 플레이 내부 「제공됨」 과 TestFlight 325 「처리 완료」 뒤 `node tools/app-version.js --play=0.2.18 --testflight=0.2.18`.
+   테스트 기간 스위치는 그대로(켜짐 — `--testing` 안 건드림). 안드로이드 참여 링크(`--join-android*`)는 비공개 시작 때.
+5. (가능하면) **주인 폰으로 확인** — 갤럭시에 0.2.18 을 깔고 카카오톡에서 초대 링크를 누르면 앱이 바로 열리고 「친구 요청을 보냈어요」.
+   안 열리면 `adb shell pm get-app-links io.github.iacobuschoi.mybody` 결과(verified 여부)를 보고.
+6. 앱스토어 · friends 베타 심사는 **0.2.17 (314) 그대로** — 제출 · 취소 안 함.
+
+끝나면 "33 끝" + 서버 재시작 시각 · well-known 둘과 /i/ 확인(안 · 밖) · test-invite 결과 · 앱 서명 키 같음/다름 · 내부 테스트 상태 ·
+데이터 보안 · app-version 값 · (했으면) 폰 확인.
+
+**빌드 확인(클라우드)** — `v0.2.18` = 391305f · N = 325 · https://github.com/iacobuschoi/Mybody/releases/tag/v0.2.18 ·
+AAB SHA-256 565e5c8f…fd71 · APK c2fddaec…6dd6 · 서명 지문 `06d945a3…83de11` 일치 · versionCode 325 · APK 매니페스트에 App Links
+(서버 호스트 · /i/ · autoVerify) 확인. 아이폰 325: 앱 알림 켜짐 · **초대 링크(Universal Links) 켜짐**(App ID Associated Domains 자동으로 켬 ·
+서명에 applinks) · TestFlight 업로드 성공(18:48Z).
