@@ -486,7 +486,7 @@ void main() {
     expect(food, isNot(contains('-')));
   });
 
-  test('인바디 없음 → 인바디 올리기; 일정에 헬스가 있으면 그 줄은 보여 준다', () async {
+  test('인바디 없음 → 인바디 올리기 · 인바디 없이 시작; 일정에 헬스가 있으면 그 줄은 보여 준다', () async {
     final app = await seeded(withPlan: false, withScan: false);
     final now = at(2, 18);
     clock(app, now);
@@ -500,7 +500,10 @@ void main() {
     expect(b.lines.first.icon, 'scan');
     expect(b.lines.first.text, '사진 한 장이면 오늘 할 일이 나옵니다');
     expect(texts(b), contains('오늘은 헬스 하는 날'));
-    expect(labels(b.secondary), ['운동 시작']);
+    /* 결과지가 없는 사람의 길이 보조 버튼 첫 자리 — 운동과 합쳐 둘까지. */
+    expect(labels(b.secondary), ['인바디 없이 시작', '운동 시작']);
+    expect(b.secondary.first.route, 'estimate');
+    expect(b.secondary.first.route, kEstimateRoute);
     /* 계획도 목표도 없으니 식단 · 체크인 줄은 없습니다 */
     expect(texts(b).where((s) => s.contains('kcal')), isEmpty);
     expect(texts(b), isNot(contains('이번 주 체크인 아직')));
@@ -585,7 +588,7 @@ void main() {
     expect(find.widgetWithText(FilledButton, '유산소 · 스포츠 시작'), findsOneWidget);
   });
 
-  testWidgets('홈 — 인바디 없음: 브리핑이 올리기 버튼 하나만 든다', (t) async {
+  testWidgets('홈 — 인바디 없음: 브리핑이 올리기 버튼과 「인바디 없이 시작」 을 든다', (t) async {
     t.view.physicalSize = const Size(1000, 3000);
     t.view.devicePixelRatio = 1.0;
     addTearDown(t.view.reset);
@@ -596,6 +599,7 @@ void main() {
     expect(find.byType(BriefingCard), findsOneWidget);
     expect(find.text('인바디 결과지를 올려주세요'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, '인바디 올리기'), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, '인바디 없이 시작'), findsOneWidget);
     expect(find.text('이번 주 운동'), findsOneWidget);
   });
 

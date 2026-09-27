@@ -12,10 +12,19 @@
  * 지난 기록을 나중에 넣는 경우(backfill)에는 **계획을 다시 세우지
  * 않습니다.** 추이를 채우려고 옛날 결과지를 넣었는데 계획이 통째로
  * 바뀌면, 사용자는 자기가 뭘 망가뜨렸는지 모릅니다.
+ *
+ * **키 · 체중 추정(estimate.dart)은 "지난 측정" 이 아닙니다.** 자리를 잡아 둔
+ * 어림값일 뿐이라, 검산의 이전 측정 · 같은 시각 판단 · backfill 판단 모두 실측만
+ * 봅니다. 추정 뒤에 넣은 첫 실측은 날짜가 추정보다 앞서도 backfill 이 아니라
+ * **교체**입니다 — 저장하면 추정을 걷어 내고 추정 위에 세운 계획을 실측에서 다시
+ * 세운 뒤(estimate_upgrade.dart) 「실측으로 바꿨어요」 라고 말합니다. "계획은
+ * 그대로" 라고 말하지 않습니다 — 그대로가 아니니까요.
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
+import '../estimate.dart';
+import '../estimate_upgrade.dart';
 import '../scope.dart';
 import '../sheet_history.dart';
 import '../ui/fmt.dart';
@@ -102,6 +111,7 @@ class _ReviewScreenState extends State<ReviewScreen> {
     if (at == null) return null;
     for (final s in scans) {
       if (s['id'] == widget.draft['id']) continue;
+      if (isEstimate(s)) continue; // 추정은 덮어쓸 기록이 아닙니다 — 실측이 오면 걷어 냅니다
       final t = DateTime.tryParse('${s['measuredAt']}');
       if (t != null && t.isAtSameMomentAs(at)) return s;
     }
@@ -174,7 +184,12 @@ class _ReviewScreenState extends State<ReviewScreen> {
     final app = Scope.of(context);
     final profile = app.profile ?? core.kSeedProfile;
     final scans = app.store.sortedScans();
-    final prev = scans.isEmpty ? null : scans.last;
+    /* 검산의 "이전 측정" 은 **실측만**. 추정의 골격근/제지방 비율로 실측을 대조하면
+       멀쩡한 결과지가 틀렸다고 나옵니다 — 오너는 추정 비율 0.529 로 "골격근량이
+       35.3kg 근처여야" 가 뜨는데 실측은 38.0 입니다. 변화량 경고도 추정 → 실측의
+       차이(공식의 오차)를 몸의 변화로 읽습니다. */
+    final real = realScans(scans);
+    final prev = real.isEmpty ? null : real.last;
     final s = _filled(profile);
     final same = _sameMoment(scans);
     final twin = same != null && _sameValues(s, same);
@@ -352,7 +367,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
 
   void _save(app, Map<String, Object?> profile) {
     final s = _filled(profile);
-    final before = app.store.sortedScans();
+    /* 추정은 기록이 아니라 자리 표시입니다 — 최신 · backfill · 같은 시각 판단은 실측만. */
+    final before = realScans(app.store.sortedScans());
     final prevLatest = before.isEmpty ? null : before.last;
 
     /* 같은 시각의 기록을 갱신할 때는 그 기록의 이름표를 씁니다 — 저장소가
@@ -389,6 +405,18 @@ class _ReviewScreenState extends State<ReviewScreen> {
       added++;
     }
 
+    /* 첫 실측이면 추정을 걷어 내고, 추정 위에 세운 계획은 실측에서 다시 세웁니다.
+       onChange 쪽(AppState)도 같은 일을 하지만 여기서 바로 불러야 토스트가 무엇이
+       바뀌었는지 말할 수 있습니다. 두 번째 부름은 null 이라 겹치지 않습니다. */
+    Map<String, Object?>? up;
+    try {
+      up = upgradeEstimates(app.store);
+    } catch (_) {
+      /* 결과지는 이미 저장됐습니다. 정리가 이상한 모양(동기화로 온 옛 기록)에 걸려도
+         화면이 안 닫히면 사용자는 저장이 안 된 줄 압니다 — 듣는 쪽(AppState)이 다음
+         저장 때 다시 해 봅니다. */
+    }
+
     /* **지난 기록을 채운 것이면 계획을 건드리지 않습니다.**
        추이를 채우려고 옛날 결과지를 넣었는데 계획이 통째로 바뀌면,
        사용자는 자기가 뭘 망가뜨렸는지 모릅니다. */
@@ -400,9 +428,11 @@ class _ReviewScreenState extends State<ReviewScreen> {
     toast(context,
         (replacing
                 ? '이미 있던 기록을 갱신했습니다'
-                : backfill
-                    ? '지난 기록으로 저장했습니다 — 계획은 그대로입니다'
-                    : '저장했습니다') +
+                : up != null
+                    ? '실측으로 바꿨어요'
+                    : backfill
+                        ? '지난 기록으로 저장했습니다 — 계획은 그대로입니다'
+                        : '저장했습니다') +
             (added > 0 ? ' · 지난 측정 $added개 추가' : ''));
   }
 }

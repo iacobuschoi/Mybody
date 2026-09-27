@@ -31,6 +31,7 @@
 import 'package:flutter/material.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
+import '../estimate.dart';
 import '../scope.dart';
 import '../ui/charts.dart';
 import '../ui/fmt.dart';
@@ -79,6 +80,11 @@ class _IntensityScreenState extends State<IntensityScreen> {
   Map<String, Object?>? _cmp;
   String? _level;
   bool _busy = true;
+  /// 강도 표를 **추정 몸**에서 세웠는가. 표는 화면을 열 때 한 번 만드는데, 그 사이
+  /// 동기화로 실측이 들어와 추정이 걷히면(estimate_upgrade.dart) 저장할 때의
+  /// scans.last 는 실측입니다 — 그걸 보고 도장을 빼면 추정에서 출발한 계획이
+  /// 영영 실측으로 안 바뀝니다.
+  bool _onEstimate = false;
 
   @override
   void didChangeDependencies() {
@@ -92,6 +98,7 @@ class _IntensityScreenState extends State<IntensityScreen> {
     }
     final profile = app.profile ?? core.kSeedProfile;
     final modeDef = widget.modeId == null ? null : core.modeById(widget.modeId);
+    _onEstimate = isEstimate(scans.last);
     final compute = widget.compute;
     final cmp = compute != null
         ? compute(widget.goal)
@@ -270,6 +277,12 @@ class _IntensityScreenState extends State<IntensityScreen> {
     if (plan == null) {
       toast(context, '계획을 만들지 못했습니다');
       return;
+    }
+    /* 실측이 들어오면 이 표시를 보고 다시 세웁니다 — estimate_upgrade.dart.
+       표를 세운 몸이 추정이었으면, 그 사이 실측이 들어왔어도 도장을 찍습니다 —
+       찍어 두면 저장소 듣는 쪽이 곧바로 실측에서 다시 세웁니다. */
+    if (_onEstimate || (scans.isNotEmpty && isEstimate(scans.last))) {
+      plan['fromEstimate'] = true;
     }
     app.store.setGoal(widget.goal);
     app.store.setPlan(plan);

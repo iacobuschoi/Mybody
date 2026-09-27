@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
+import '../estimate.dart';
 import '../scope.dart';
 import 'adherence.dart';
 import '../ui/charts.dart';
@@ -168,6 +169,21 @@ class _PlanScreenState extends State<PlanScreen> {
               trailing: Text('${plan['strategyLabel']}',
                   style: Theme.of(context).textTheme.labelSmall
                       ?.copyWith(color: Theme.of(context).hintColor))),
+          /* 키·체중 추정 위에 세운 계획 — 출발점이 공식으로 낸 값입니다.
+             인바디를 넣으면 실측 기준으로 다시 세워집니다(estimate_upgrade.dart). */
+          if (planFromEstimate(plan))
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(children: [
+                const Pill('추정 기준', tone: Tone.warn),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(kEstimateHint,
+                      style: Theme.of(context).textTheme.labelSmall
+                          ?.copyWith(color: Theme.of(context).hintColor)),
+                ),
+              ]),
+            ),
           Text('${plan['strategyDesc']}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.5)),
           const SizedBox(height: 12),

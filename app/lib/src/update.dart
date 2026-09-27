@@ -22,6 +22,13 @@
  *  - 「서버와 안 맞음」은 닫을 수 없지만 앱을 막지도 않습니다. 기기의
  *    기록은 서버 없이도 됩니다.
  *  - 이 앱의 판을 서버에 보내지 않습니다. 묻기만 하고 비교는 여기서 합니다.
+ *
+ * 같은 답에 **비공개 테스트에 들어오는 길**([JoinLinks] — TestFlight 공개 링크,
+ * 플레이 테스트 참여 주소, 그 앞에 들어야 하는 구글 그룹)도 실려 옵니다. 테스터
+ * 인사의 「카톡 등으로 보내기」 가 친구 코드와 함께 이 주소를 싣습니다 — 코드만
+ * 받은 친구는 앱을 어디서 까는지부터 물어야 했습니다. 주소는 주인이 서버에서
+ * 바꾸므로(tools/app-version.js --join-*) 앱에 박지 않고, 답을 받을 때마다 새로
+ * 읽습니다. 받은 사람이 그대로 누르는 주소라 https 가 아니면 버립니다.
  * ========================================================================== */
 import 'dart:async';
 import 'dart:convert';
@@ -159,12 +166,60 @@ bool _okUrl(Object? v) {
   return u != null && u.scheme == 'https' && u.host.isNotEmpty;
 }
 
+/* --- 테스트에 들어오는 길 --------------------------------------------------- */
+
+/// 비공개 테스트에 참여하는 주소들 — GET /api/version 의 `join`.
+///
+/// 서버는 **정해 둔 칸만** 보냅니다. 여기서도 없는 칸 · https 가 아닌 값은 '' 로
+/// 둡니다(던지지 않습니다) — 친구에게 보내는 글에 빈 줄이나 엉뚱한 주소가 실리면
+/// 안 되니까요.
+@immutable
+class JoinLinks {
+  const JoinLinks({this.ios = '', this.android = '', this.androidGroup = ''});
+
+  /// 아이폰 — TestFlight 공개 링크.
+  final String ios;
+
+  /// 안드로이드 — 플레이 테스트 참여 주소.
+  final String android;
+
+  /// 안드로이드 비공개 테스트는 이 구글 그룹에 **먼저** 들어야 참여 주소가 열립니다.
+  /// 그래서 두 주소를 차례(① 가입 ② 참여)로 싣습니다.
+  final String androidGroup;
+
+  bool get isEmpty => ios.isEmpty && android.isEmpty && androidGroup.isEmpty;
+
+  factory JoinLinks.fromJson(Object? j) {
+    if (j is! Map) return const JoinLinks();
+    String pick(String k) => _okUrl(j[k]) ? (j[k] as String).trim() : '';
+    return JoinLinks(ios: pick('ios'), android: pick('android'), androidGroup: pick('androidGroup'));
+  }
+
+  /* 있는 칸만 — 서버가 보내는 모양과 같게. */
+  Map<String, String> toJson() => {
+        if (ios.isNotEmpty) 'ios': ios,
+        if (android.isNotEmpty) 'android': android,
+        if (androidGroup.isNotEmpty) 'androidGroup': androidGroup,
+      };
+
+  @override
+  bool operator ==(Object other) =>
+      other is JoinLinks &&
+      other.ios == ios &&
+      other.android == android &&
+      other.androidGroup == androidGroup;
+
+  @override
+  int get hashCode => Object.hash(ios, android, androidGroup);
+}
+
 /* --- 서버가 알려 준 것 ------------------------------------------------------- */
 
 /// GET /api/version 의 답. 모르는 칸 · 틀린 값은 '' 로 둡니다 — 던지지 않습니다.
 @immutable
 class VersionInfo {
-  const VersionInfo({this.latest = const {}, this.min = '', this.urls = const {}});
+  const VersionInfo(
+      {this.latest = const {}, this.min = '', this.urls = const {}, this.join = const JoinLinks()});
 
   /// 채널별 최신 판('appstore' · 'play' · 'apk'). '' 는 "안 알림".
   final Map<String, String> latest;
@@ -174,6 +229,9 @@ class VersionInfo {
 
   /// 채널별 업데이트 주소. 없는 칸은 [kUpdateUrls] 로 채웁니다.
   final Map<String, String> urls;
+
+  /// 비공개 테스트에 들어오는 길. 옛 서버처럼 칸이 없으면 비어 있습니다.
+  final JoinLinks join;
 
   factory VersionInfo.fromJson(Object? j) {
     if (j is! Map) return const VersionInfo();
@@ -185,10 +243,17 @@ class VersionInfo {
         for (final k in _slots)
           if (u is Map && _okUrl(u[k])) k: (u[k] as String).trim(),
       },
+      join: JoinLinks.fromJson(j['join']),
     );
   }
 
-  Map<String, Object?> toJson() => {'latest': latest, 'min': min, 'urls': urls};
+  /* join 은 있을 때만 적습니다 — 이 기기에 남기는 칸([UpdateCheck._save])이 옛 판과 같은 모양으로. */
+  Map<String, Object?> toJson() => {
+        'latest': latest,
+        'min': min,
+        'urls': urls,
+        if (!join.isEmpty) 'join': join.toJson(),
+      };
 
   String latestFor(UpdateChannel c) => latest[_slot(c)] ?? '';
 

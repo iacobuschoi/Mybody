@@ -12,8 +12,20 @@
  *     않으므로 계정 삭제로는 사라지지 않습니다 — 두 개는 다른 일입니다.
  *
  * 차례(위 → 아래): 내 몸 정보 · 화면 · 운동 환경 · 계정 · 기본 공유(로그인
- * 했을 때) · 동기화 · 지우기 · **로그아웃(로그인했을 때)** · 작은 글씨
- * (내보내기 · 가져오기 · 개인정보처리방침) · 앱 버전.
+ * 했을 때) · 동기화 · **도움말(의견 버튼 보이기 · 앱 안내 다시 보기)** · 지우기 ·
+ * **로그아웃(로그인했을 때)** · 작은 글씨(내보내기 · 가져오기 ·
+ * 개인정보처리방침) · 앱 버전.
+ *
+ * **도움말은 「지우기」 바로 위입니다.** 사람은 "어디다 말하지" · "처음 안내 다시
+ * 보고 싶은데" 를 설정의 끝 쪽에서 찾습니다. 그렇다고 「지우기」 와 「로그아웃」
+ * 사이에 끼우면 둘이 갈라집니다 — 빨간 카드 바로 밑에 로그아웃이 있어야 "지우는
+ * 것" 과 "나가는 것" 이 한눈에 구분됩니다(아래).
+ *
+ * **「의견 보내기」 줄은 없습니다.** 주인의 말: "의견보내기는 설정 드가서 하는게
+ * 아니라 앱 어딘가에 상시 떠있는 버튼으로". 화면 옆 말풍선(feedback_bubble.dart)이
+ * 이 화면에도 떠 있어서, 여기 줄을 또 두면 같은 일을 하는 단추가 한 화면에 둘입니다.
+ * 대신 그 말풍선을 켜고 끄는 스위치를 둡니다 — 말풍선을 길게 눌러 숨긴 사람이 되찾는
+ * 곳이 여기이고, 숨길 때 "설정 → 도움말에서 다시 켤 수 있어요" 라고 이 자리를 알려 줍니다.
  *
  * **로그아웃은 맨 아래 한 곳입니다.** 예전엔 긴 페이지 한가운데 「계정」
  * 카드 안, 「계정 관리」 옆의 작은 버튼이었고 주인이 못 찾았습니다 —
@@ -39,9 +51,11 @@ import '../native_push.dart';
 import '../scope.dart';
 import '../update.dart';
 import 'account.dart';
+import 'feedback.dart' show feedbackBubbleOn, loadFeedbackBubbleOn, setFeedbackBubbleOn;
 import 'gym_settings.dart';
 import 'share_defaults.dart';
 import 'sync_settings.dart';
+import 'tester_welcome.dart' show showTesterWelcome;
 import 'workout_tutorial.dart';
 import '../ui/edge.dart';
 import '../ui/widgets.dart';
@@ -55,6 +69,14 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _wiping = false;
   bool _signingOut = false;
+
+  @override
+  void initState() {
+    super.initState();
+    /* 말풍선 켜짐은 앱이 켤 때 말풍선이 이미 읽어 둡니다. 여기서 한 번 더 읽는 것은
+       스위치가 저장된 값과 어긋나 보이는 일이 없게 — 싸고, 같은 값을 다시 실을 뿐입니다. */
+    unawaited(loadFeedbackBubbleOn());
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -201,6 +223,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
         /* 동기화 — 두 기기의 기록을 합치는 것. 상태와 「지금 동기화」 는 여기서. */
         SyncSettingsCard(cloud: Scope.cloudOf(context), api: api),
+
+        /* 도움말 — 「지우기」 바로 위(머리 주석). 말풍선 스위치와 「앱 안내 다시 보기」.
+           로그인과 상관없이 둘 다 — 의견은 로그인 없이도 가고(서버가 익명으로 받음),
+           안내는 누구에게나 같습니다. 스위치는 말풍선과 같은 값(feedbackBubbleOn)을
+           봐서, 켜면 뒤로 가기 전에도 이 화면 옆에 말풍선이 바로 돌아옵니다. */
+        MbCard(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            const SectionTitle('도움말'),
+            ValueListenableBuilder<bool>(
+              valueListenable: feedbackBubbleOn,
+              builder: (context, on, _) => SwitchListTile(
+                key: const Key('settings-feedback-bubble'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('의견 버튼 보이기'),
+                subtitle: Text('화면 옆 말풍선 · 끌어서 옮길 수 있어요', style: t.textTheme.labelSmall),
+                value: on,
+                onChanged: (v) => unawaited(setFeedbackBubbleOn(v)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              key: const Key('settings-welcome'),
+              style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+              /* 처음 한 번만 뜨는 인사(tester_welcome.dart) — 다시 보는 길은 여기뿐. */
+              onPressed: () => showTesterWelcome(context, force: true),
+              icon: const Icon(LucideIcons.bookOpen, size: 18),
+              label: const Text('앱 안내 다시 보기'),
+            ),
+          ]),
+        ),
 
         /* 백업 카드는 뺐습니다 — 기록이 내 계정에 저장되고 새 기기에서
            로그인하면 따라옵니다. 내보내기·가져오기는 맨 아래 작은 글씨로

@@ -16,6 +16,11 @@
  *   2. **시간 제한을 겁니다.** 서버가 주인 노트북이라 꺼져 있을 수 있습니다.
  *      제한이 없으면 화면이 영원히 도는 원으로 남고, 사용자는 앱이 고장 난
  *      줄 압니다. "컴퓨터가 꺼져 있는 것 같습니다" 라고 말할 수 있어야 합니다.
+ *      사진을 싣고 가는 두 길(판독 /ocr · 의견 /feedback)만 길게 줍니다.
+ *
+ * 로그인 없이 가는 길도 같은 [Api.send] 로 갑니다 — 토큰이 있을 때만 머리에
+ * 붙이므로, 로그인 안 한 사람의 「의견 보내기」 는 그냥 토큰 없이 나갑니다
+ * (서버가 그때는 익명으로 받습니다).
  * ========================================================================== */
 import 'dart:async';
 
@@ -31,6 +36,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// 기기에서 다른 계정으로 로그인한 뒤 서버에 못 닿을 때 앞 사람의 설정이
 /// 「마지막으로 본 설정」 으로 보이고 스위치가 그 값을 기준으로 움직입니다.
 const kAccountCachePrefixes = ['mybody.share.', 'mybody.friends.cache.'];
+
+/// 의견에 붙이는 사진 한 장 — [type] 은 'image/png' 또는 'image/jpeg' 만(서버가
+/// 앞머리 바이트로 한 번 더 봅니다). 바이트는 풀린 그대로, base64 는 [Api.sendFeedback] 가.
+typedef FeedbackImage = ({String type, Uint8List bytes});
 
 class ApiResult {
   final int status;
@@ -118,8 +127,13 @@ class Api extends ChangeNotifier {
         ..headers.addAll(headers)
         ..body = body == null ? '' : jsonEncode(body);
       /* 20초. 지금 앱과 같은 값입니다. 판독(/ocr)만 따로 길게 줍니다 —
-         사진 한 장 읽는 데 7초쯤 걸리고, 느릴 때는 15초까지 갑니다. */
-      final timeout = path == '/ocr' ? const Duration(seconds: 90) : const Duration(seconds: 20);
+         사진 한 장 읽는 데 7초쯤 걸리고, 느릴 때는 15초까지 갑니다.
+         의견(/feedback)도 — 화면 캡처 3장이면 6MB 가까이 올라갑니다. 느린 데이터
+         (올리기 1Mbps)에서 50초쯤이라, 20초에 끊으면 다 간 의견을 「못 보냈어요」
+         라고 말하고 사람은 같은 것을 또 보냅니다. */
+      final timeout = path == '/ocr' || path == '/feedback'
+          ? const Duration(seconds: 90)
+          : const Duration(seconds: 20);
       final streamed = await _client.send(req).timeout(timeout);
       final res = await http.Response.fromStream(streamed);
       Map<String, dynamic> j;
@@ -171,6 +185,35 @@ class Api extends ChangeNotifier {
   /// 사람에게 "핵심 세 칸을 못 읽었습니다" 라고 하면 같은 사진을 다시 찍습니다.
   Future<ApiResult> ocr({required String mediaType, required String data}) =>
       _send('POST', '/ocr', {'mediaType': mediaType, 'data': data});
+
+  /// 앱 안 「의견 보내기」(screens/feedback.dart). `{ok, id}`, 틀리면 `{ok:false, error}`.
+  ///
+  /// **로그인 없이도 갑니다.** 토큰이 있으면 [_send] 가 머리에 붙여 그 계정에 묶이고,
+  /// 없으면 안 붙어서 서버가 익명으로 받습니다 — 서버는 이 길에서 401 을 주지
+  /// 않습니다. 로그인 안 하고 쓰는 사람이 제일 먼저 막히는 사람일 수 있습니다.
+  ///
+  /// 글과 사진은 **둘 중 하나만 있어도** 됩니다. 비어 있는 칸은 아예 안 싣습니다 —
+  /// 서버가 "글이 비었다" 와 "글을 안 보냈다" 를 가를 까닭이 없게.
+  /// 사진은 여기서 base64 로 바꿉니다(부르는 쪽은 바이트만 들고 있게).
+  Future<ApiResult> sendFeedback({
+    String? text,
+    List<FeedbackImage> images = const [],
+    String? appVersion,
+    String? platform,
+    String? screen,
+  }) {
+    final t = text?.trim() ?? '';
+    return _send('POST', '/feedback', {
+      if (t.isNotEmpty) 'text': t,
+      if (images.isNotEmpty)
+        'images': [
+          for (final i in images) {'type': i.type, 'data': base64Encode(i.bytes)},
+        ],
+      if (appVersion != null && appVersion.isNotEmpty) 'appVersion': appVersion,
+      if (platform != null && platform.isNotEmpty) 'platform': platform,
+      if (screen != null && screen.isNotEmpty) 'screen': screen,
+    });
+  }
 
   Future<ApiResult> signUp({
     required String handle,

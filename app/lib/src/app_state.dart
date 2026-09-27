@@ -20,6 +20,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:mybody_core/news.dart';
 
+import 'estimate.dart';
+import 'estimate_upgrade.dart';
 import 'news_store.dart';
 import 'photos.dart';
 import 'pokes.dart';
@@ -75,6 +77,33 @@ class AppState extends ChangeNotifier {
       'workoutDays': schedule.workoutStreak()['days'],
       'foodDays': schedule.foodStreak()['days'],
     };
+    /* 실측이 들어왔는데 추정이 남아 있으면 정리합니다(estimate_upgrade.dart).
+       검수 화면은 저장하자마자 직접 부르지만, 다른 기기 · 옛 판 기기에서 동기화로
+       들어온 실측이나 백업 가져오기는 그 화면을 안 거칩니다 — 저장소의 바뀜을 듣는
+       이 자리가 그 길을 다 받습니다. */
+    store.onChange((_) => _upgradeSoon());
+  }
+
+  /* 저장소가 아직 듣는 쪽들에게 알리는 중에 또 저장하면 알림이 겹칩니다. 마이크로태스크로
+     한 박자 미뤄서, 지금 저장이 끝난 뒤에 정리합니다(동기화 가져오기도 그 사이에
+     _importing 을 내려서, 이 정리가 "이 기기가 바꾼 것" 으로 찍혀 올라갑니다).
+     이미 줄 서 있으면 또 세우지 않습니다. 줄 표시는 정리가 **끝난 뒤에** 내립니다 —
+     정리 자신의 저장이 또 줄을 세우면, 정리가 중간에 던지는 경우 저장 → 줄 → 던짐 →
+     저장 … 으로 마이크로태스크가 끝없이 돌 수 있습니다. */
+  bool _upgradeQueued = false;
+  void _upgradeSoon() {
+    if (_upgradeQueued || !needsEstimateUpgrade(store.get())) return;
+    _upgradeQueued = true;
+    scheduleMicrotask(() {
+      /* 다른 기기에서 온 이상한 모양 하나 때문에 앱이 멈추면 안 됩니다 — 못 하면
+         다음 저장 때 다시 해 봅니다. */
+      try {
+        upgradeEstimates(store);
+      } catch (_) {
+      } finally {
+        _upgradeQueued = false;
+      }
+    });
   }
 
   static Future<AppState> boot() async {
@@ -92,6 +121,8 @@ class AppState extends ChangeNotifier {
     store.load();
     final pokes = sp == null ? null : PokeBox(sp);
     final app = AppState._(store, news, pokes);
+    /* 섞인 상태(실측 + 추정)로 저장된 채 앱이 꺼졌으면 켜자마자 한 번 정리합니다. */
+    app._upgradeSoon();
 
     /* 사진 보관소는 **기다리지 않습니다.**
      *

@@ -11,6 +11,13 @@
  * 골격근량, 체지방률. 사진을 보며 세 칸을 채우는 데 15초쯤 걸립니다.
  * 그리고 2층이 아무리 좋아져도 0층은 남습니다. 서버가 죽어도, 비행기
  * 안이어도, 결과지가 처음 보는 양식이어도 숫자는 들어가야 하니까요.
+ *
+ * **결과지가 아예 없는 사람의 문도 여기 둡니다.** 측정이 하나도 없고 사진도
+ * 아직 안 골랐을 때만 맨 위 안내 밑에 「인바디가 없어요 · 키·체중으로 시작」. 누르면 키·체중
+ * 시트(estimate_sheet.dart)가 뜨고, 저장하면 이 화면을 목표 화면으로
+ * 바꿔 끼웁니다 — 뒤로 가기로 빈 업로드 화면에 돌아오지 않게. 측정이
+ * 하나라도 생기면 이 버튼은 사라집니다. 그때부터 이 화면은 추정을 실측으로
+ * 바꾸는 길입니다.
  * ========================================================================== */
 import 'dart:io';
 
@@ -20,11 +27,14 @@ import 'package:image_picker/image_picker.dart';
 
 import 'package:mybody_core/mybody_core.dart' as core;
 
+import '../estimate.dart';
 import '../scope.dart';
 import '../sheet_history.dart';
 import '../ui/fmt.dart';
 import '../ui/widgets.dart';
 import 'account.dart';
+import 'estimate_sheet.dart';
+import 'goal.dart';
 import 'review.dart';
 
 /// 사진 판독(외부 AI)에 동의한 문구의 판. 문구가 바뀌면 이 값도 바꿔서
@@ -258,8 +268,11 @@ class _UploadScreenState extends State<UploadScreen> {
        말합니다 — 다 있는 결과지면 말할 것이 없습니다. */
     final hist = r.body['history'];
     _serverHistory = hist is List ? hist : null;
+    /* 내 기록과 대조할 때 추정은 뺍니다 — 추정한 날과 같은 날의 그래프 점이
+       "이미 있는 날" 로 빠지면, 추정이 지워질 때 그 점도 같이 사라집니다. */
     final fresh = sheetHistory(_serverHistory,
-        currentAt: measuredAtIso(), scans: Scope.of(context).store.sortedScans()).length;
+        currentAt: measuredAtIso(),
+        scans: realScans(Scope.of(context).store.sortedScans())).length;
     setState(() {
       _reading = false;
       final base = filled == _quick.length
@@ -323,15 +336,30 @@ class _UploadScreenState extends State<UploadScreen> {
     /* 그래프의 지난 측정 중 내 기록에 없는 날. 이번 측정 날짜를 손으로
        고쳤을 수 있으니 여기서, 확정된 시각으로 고릅니다. */
     final history = sheetHistory(_serverHistory,
-        currentAt: scan['measuredAt'], scans: Scope.of(context).store.sortedScans());
+        currentAt: scan['measuredAt'],
+        scans: realScans(Scope.of(context).store.sortedScans()));
     Navigator.of(context).pushReplacement(MaterialPageRoute(
         builder: (_) => ReviewScreen(
             draft: mergeOcrExtras(scan, _serverExtra), history: history)));
   }
 
+  /* 결과지가 없는 사람 — 키·체중 시트. 저장했으면 이 화면을 목표 화면으로
+     바꿔 끼웁니다. 목표 흐름은 끝나면 스스로 셸까지 닫힙니다(기간 한 번 ·
+     강도 두 번). */
+  Future<void> _estimate() async {
+    final ok = await showEstimateSheet(context);
+    if (!ok || !mounted) return;
+    Navigator.of(context)
+        .pushReplacement(MaterialPageRoute<void>(builder: (_) => const GoalScreen()));
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
+    /* 결과지 사진을 이미 골랐으면 「인바디가 없어요」 는 거꾸로 된 말이고, 그걸
+       누르면 이 화면이 목표 화면으로 바뀌면서 고른 사진이 어느 측정에도 안 붙은
+       채 기기에 남습니다(이름 · 나이가 인쇄된 사진 — history.dart 머리의 교훈). */
+    final offerEstimate = _photoId == null && Scope.of(context).store.sortedScans().isEmpty;
     return Scaffold(
       appBar: AppBar(title: const Text('인바디 올리기')),
       body: ListView(
@@ -342,6 +370,16 @@ class _UploadScreenState extends State<UploadScreen> {
         keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
         children: [
           const Note(text: '숫자 세 개만 넣으면 됩니다 — 나머지는 자동으로 계산합니다'),
+          if (offerEstimate)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: const ValueKey('upload-estimate'),
+                onPressed: _estimate,
+                icon: const Icon(LucideIcons.ruler, size: 18),
+                label: const Text('인바디가 없어요 · 키·체중으로 시작'),
+              ),
+            ),
           MbCard(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               const SectionTitle('결과지 사진'),

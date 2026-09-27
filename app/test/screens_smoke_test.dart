@@ -30,6 +30,7 @@ import 'package:mybody/src/screens/review.dart';
 import 'package:mybody/src/screens/scandetail.dart';
 import 'package:mybody/src/screens/settings.dart';
 import 'package:mybody/src/screens/social.dart';
+import 'package:mybody/src/screens/tester_welcome.dart';
 import 'package:mybody/src/screens/upload.dart';
 import 'package:mybody/src/nudge.dart';
 import 'package:mybody/src/shell.dart';
@@ -59,6 +60,9 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final app = await AppState.boot();
     app.store.set({'profile': _profile, 'onboarded': true});
+    /* 테스터 인사는 본 것으로 — 셸을 세우는 시험들이 탭 · 뒤로 가기를 보는데 그 위에
+       인사 시트가 덮이면 엉뚱한 것을 누릅니다. 인사는 tester_welcome_test 가 봅니다. */
+    markTesterWelcomeSeen(app);
     app.store.addScan({..._scan});
     if (twoScans) app.store.addScan({..._scan2});
     if (withPlan) {
@@ -755,6 +759,7 @@ void main() {
   testWidgets('온보딩을 마치면 프로필이 남고 홈이 열린다', (t) async {
     SharedPreferences.setMockInitialValues({});
     final app = await AppState.boot();
+    markTesterWelcomeSeen(app);   // 온보딩 뒤 인사 시트는 tester_welcome_test 에서
     await t.pumpWidget(host(app, const Shell()));
     await t.pump();
 

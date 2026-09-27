@@ -5,11 +5,15 @@
  * 두고 왔습니다. 사용자는 "이 측정을 지웠다" 고 생각하는데 결과지 사진은
  * 기기에 남아 있었고, 어디서도 안 보이니 지울 방법도 없었습니다.
  * 결과지에는 보통 이름·나이·성별이 같이 인쇄돼 있습니다.
+ *
+ * 키·체중 추정(estimate.dart)은 줄 끝에 「추정」 알약을 답니다. 목록에서
+ * 숫자만 보면 결과지와 구별이 안 됩니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
+import '../estimate.dart';
 import '../scope.dart';
 import '../ui/fmt.dart';
 import '../ui/widgets.dart';
@@ -43,7 +47,13 @@ class HistoryScreen extends StatelessWidget {
                       '${n1(d['weightKg'])}kg · 근 ${n1(d['smmKg'])} · 지 ${n1(d['bfmKg'])} '
                       '(${n1(d['pbfPct'])}%)',
                       style: t.textTheme.bodySmall),
-                  trailing: const Icon(LucideIcons.chevronRight),
+                  trailing: isEstimate(s)
+                      ? const Row(mainAxisSize: MainAxisSize.min, children: [
+                          Pill('추정', tone: Tone.warn),
+                          SizedBox(width: 4),
+                          Icon(LucideIcons.chevronRight),
+                        ])
+                      : const Icon(LucideIcons.chevronRight),
                   onTap: () => Navigator.of(ctx).push(MaterialPageRoute(
                       builder: (_) => ScanDetailScreen(scanId: s['id']))),
                 );

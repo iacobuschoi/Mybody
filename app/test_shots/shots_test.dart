@@ -28,6 +28,7 @@ import 'package:mybody/src/scope.dart';
 import 'package:mybody/src/screens/goal.dart';
 import 'package:mybody/src/screens/review.dart';
 import 'package:mybody/src/screens/social.dart';
+import 'package:mybody/src/screens/tester_welcome.dart' show markTesterWelcomeSeen;
 import 'package:mybody/src/screens/upload.dart';
 import 'package:mybody/src/sheet_history.dart';
 import 'package:mybody/src/shell.dart';
@@ -159,6 +160,7 @@ Future<AppState> rich() async {
   SharedPreferences.setMockInitialValues({});
   final app = await AppState.boot();
   app.store.seed();
+  markTesterWelcomeSeen(app);   // 스크린샷 위에 테스터 인사 시트가 덮이지 않게
   final scans = app.store.sortedScans();
   final latest = scans.last;
   final profile = ((app.state['profile'] as Map).cast<String, Object?>());

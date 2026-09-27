@@ -8,10 +8,26 @@
  * **폰 뒤로가기는 여기서 공짜입니다.** 지금 쓰는 웹 앱에서는 popstate 를
  * 직접 엮어야 했고(그게 없어서 뒤로가기가 앱을 통째로 닫았습니다),
  * Flutter 의 Navigator 는 안드로이드 뒤로가기를 원래 받습니다.
+ *
+ * **의견 보내기는 앱바에 없습니다.** 앱바의 말풍선은 탭 화면에만 있어서 밀어 올린
+ * 화면 · 로그인 · 첫 설정에서는 못 눌렀습니다. 이제 앱 맨 위에 늘 떠 있는 말풍선이
+ * 모든 화면에서 같은 일을 합니다(screens/feedback_bubble.dart) — 같은 일을 하는
+ * 단추가 한 화면에 둘이면 어느 쪽이 진짜인지 묻게 되어 여기서는 뺐습니다. 앱바에는
+ * 톱니 하나만 남습니다.
+ *
+ * **테스터 인사**(screens/tester_welcome.dart)는 탭 화면이 처음 **보일 때** 한 번
+ * 띄웁니다 — 로그인 · 온보딩 화면 위에는 안 뜨고(거기선 탭이 안 서니까), 이미 쓰던
+ * 사람도 업데이트 뒤 한 번 봅니다(주인이 정한 것). 셸이 다시 그려질 때마다 부르지
+ * 않게 이 상태에 한 번 묻고, 다시 켠 뒤에는 settings 의 표가 막습니다. 옛 동의로
+ * 로그인한 사람은 동의 화면이 탭보다 늦게 뜨므로, /me 로 먼저 보고 동의를 마친 뒤
+ * 탭이 다시 설 때 띄웁니다 — 동의 화면을 인사가 덮지 않게.
  * ========================================================================== */
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
+import 'api.dart' show ApiResult;
 import 'nudge.dart' show notificationRoute, tappedMealReminder, parseWorkoutPayload;
 import 'scope.dart';
 import 'ui/symbols.dart';
@@ -28,6 +44,7 @@ import 'screens/account.dart';
 import 'screens/checkin.dart';
 import 'screens/onboarding.dart';
 import 'screens/scandetail.dart';
+import 'screens/tester_welcome.dart';
 import 'screens/workout_session.dart';
 
 class Shell extends StatefulWidget {
@@ -38,6 +55,14 @@ class Shell extends StatefulWidget {
 
 class _ShellState extends State<Shell> {
   int _tab = 0;
+
+  /// 이 셸에서 테스터 인사를 이미 물었나. 셸은 로그인 · 동의 · 앱 상태가 바뀔 때마다
+  /// 다시 그려지고 탭 화면이 새로 서기도 합니다 — 그때마다 묻지 않게.
+  bool _welcomeAsked = false;
+
+  /// 탭 화면([_Shown])이 지금 몇 개 붙어 있나. 동의 게이트가 탭 대신 동의 화면을
+  /// 세우면 0 이 됩니다 — 인사를 띄우기 직전에 이것을 봅니다.
+  int _tabsUp = 0;
 
   /* 알림을 누르면 그 알림이 가리키는 곳으로(끼니 · 간식 알림은 식단 탭).
      알림으로 앱이 새로 켜졌으면 셸이 뜨기 전에 값이 와 있을 수 있어 처음에도 봅니다. */
@@ -146,6 +171,46 @@ class _ShellState extends State<Shell> {
     }
   }
 
+  /* 탭 화면이 처음 선 뒤(그린 다음 프레임)에 한 번. 본 적이 있으면 showTesterWelcome 이
+     그냥 돌아옵니다 — 본 것으로 적는 것도, 두 장이 겹치지 않게 막는 것도 그쪽 일입니다.
+     위에 다른 화면(알림을 눌러 열린 운동 화면 등)이 떠 있어도 그 위에 띄웁니다 —
+     한 번뿐이고, 닫으면 그 화면 그대로입니다. */
+  void _tabsShown() {
+    _tabsUp++;
+    if (_welcomeAsked) return;
+    _welcomeAsked = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_welcome()));
+  }
+
+  void _tabsGone() => _tabsUp--;
+
+  /* **동의 화면 위에는 안 띄웁니다.** 동의 게이트는 /me 를 받기 전까지 탭을 세워 두었다가
+     옛 동의면 그제야 동의 화면으로 바꿉니다 — 그 사이에 띄우면 인사가 동의 화면을 덮고,
+     닫으면 갑자기 다른 화면이 나옵니다. 그래서 로그인했으면 같은 /me 를 먼저 봅니다
+     (아직 안 봤을 때만 — 본 사람은 켤 때마다 묻지 않습니다). 서버가 늦으면 4초만
+     기다립니다 — 게이트도 서버가 안 닿으면 막지 않고, 20초 뒤에 불쑥 뜨는 인사는
+     쓰던 손을 가로챕니다. 옛 동의였거나 그사이 탭 화면이 내려갔으면(로그아웃 · 동의
+     화면) 물은 것을 되돌려, 탭 화면이 다시 설 때 묻습니다. */
+  Future<void> _welcome() async {
+    if (!mounted || testerWelcomeSeen(Scope.of(context).state)) return;
+    final api = Scope.apiOf(context);
+    if (api.signedIn) {
+      final r = await api.me().timeout(const Duration(seconds: 4),
+          onTimeout: () => const ApiResult(0, {}));
+      if (!mounted) return;
+      final u = r.body['user'];
+      if (r.ok && u is Map && needsReconsent(u)) {
+        _welcomeAsked = false;
+        return;
+      }
+    }
+    if (_tabsUp <= 0) {
+      _welcomeAsked = false;
+      return;
+    }
+    unawaited(showTesterWelcome(context));
+  }
+
   (String, String) _workoutArg(Object? arg) {
     if (arg is ({String dateKey, String type})) return (arg.dateKey, arg.type);
     if (arg is Map) {
@@ -213,8 +278,14 @@ class _ShellState extends State<Shell> {
 
     /* **다른 탭에서 뒤로 가기는 홈입니다.** 폰의 뒤로 가기가 식단 탭에서
        앱을 통째로 닫았습니다 — 셸은 화면 하나라 Navigator 에 뺄 것이 없어서.
-       홈에서만 앱이 닫힙니다. */
-    return PopScope(
+       홈에서만 앱이 닫힙니다.
+       _Shown 은 탭 화면이 **실제로 섰을 때** 테스터 인사를 부릅니다. 여기(빌드)서
+       바로 부르지 않는 까닭: 동의 게이트는 child 를 만들어 두고도 옛 동의면 대신
+       동의 화면을 세웁니다 — 만들어진 것과 보이는 것이 다릅니다. */
+    return _Shown(
+      onShown: _tabsShown,
+      onGone: _tabsGone,
+      child: PopScope(
       canPop: _tab == 0,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) setState(() => _tab = 0);
@@ -223,6 +294,7 @@ class _ShellState extends State<Shell> {
       appBar: AppBar(
         title: Text(_tabs[_tab].label),
         actions: [
+          /* 의견 보내기는 화면 옆 말풍선으로 옮겼습니다(머리 주석). */
           IconButton(
             tooltip: '설정',
             icon: const Icon(LucideIcons.settings),
@@ -250,8 +322,38 @@ class _ShellState extends State<Shell> {
               label: const Text('인바디'),
             )
           : null,
-    ));
+    )));
   }
+}
+
+/// 처음 붙을 때 [onShown], 떨어질 때 [onGone] 을 한 번씩 부릅니다. 셸의 빌드 안에서
+/// 부르면 "만들어졌다" 이지 "보인다" 가 아닙니다 — 동의 게이트가 만들어 둔 탭 대신
+/// 동의 화면을 세우면 여기가 떨어집니다.
+class _Shown extends StatefulWidget {
+  const _Shown({required this.onShown, required this.onGone, required this.child});
+  final VoidCallback onShown;
+  final VoidCallback onGone;
+  final Widget child;
+
+  @override
+  State<_Shown> createState() => _ShownState();
+}
+
+class _ShownState extends State<_Shown> {
+  @override
+  void initState() {
+    super.initState();
+    widget.onShown();
+  }
+
+  @override
+  void dispose() {
+    widget.onGone();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 /// 화면들이 같이 쓰는 "로그인이 필요합니다" 안내.

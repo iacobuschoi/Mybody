@@ -26,6 +26,7 @@ import 'package:mybody/src/nudge.dart' show notificationRoute;
 import 'package:mybody/src/pokes.dart';
 import 'package:mybody/src/scope.dart';
 import 'package:mybody/src/screens/settings.dart';
+import 'package:mybody/src/screens/tester_welcome.dart' show markTesterWelcomeSeen;
 import 'package:mybody/src/shell.dart';
 import 'package:mybody/src/theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -517,6 +518,7 @@ void main() {
         'profile': {'sex': 'male', 'age': 30, 'heightCm': 175, 'activityLevel': 'moderate',
             'trainingAge': 'novice', 'daysPerWeek': 3, 'mealsPerDay': 3},
       });
+      markTesterWelcomeSeen(app);   // 테스터 인사 시트가 탭을 덮지 않게
       final api = Api(baseUrl: '', client: MockClient((_) async => http.Response('{"ok":false}', 404)));
       await t.pumpWidget(Scope(
           state: app, api: api, onServerChange: (_) async {},

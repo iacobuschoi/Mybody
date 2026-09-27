@@ -54,6 +54,7 @@ import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../app_state.dart';
+import '../estimate.dart';
 import '../scope.dart';
 import '../ui/confetti.dart';
 import '../ui/fmt.dart';
@@ -142,9 +143,14 @@ double? latestWeightKg(AppState app) {
 }
 
 /// 마지막 인바디의 골격근량. 없으면 null — 무게 추천이 체중만으로 계산합니다.
+///
+/// 키 · 체중 추정이면 null 입니다. 추정 골격근은 체중(과 키 · 나이)에서 나온
+/// 숫자라 체중이 이미 말한 것 말고는 보태는 게 없습니다 — 그걸 근육으로 믿고
+/// 무게를 올리면 공식의 오차가 바벨에 실립니다. 체중만 쓰는 길로 갑니다.
+/// (체중은 저울 값이라 [latestWeightKg] 는 추정에서도 그대로입니다.)
 double? latestSmmKg(AppState app) {
   final scans = app.store.sortedScans();
-  if (scans.isEmpty) return null;
+  if (scans.isEmpty || isEstimate(scans.last)) return null;
   try {
     final d = core.derive(scans.last, app.profile ?? core.kSeedProfile);
     final s = core.jsToNumber(d['smmKg']);
@@ -154,10 +160,11 @@ double? latestSmmKg(AppState app) {
   }
 }
 
-/// 마지막 인바디의 체지방률. 없으면 null.
+/// 마지막 인바디의 체지방률. 없으면 null. 추정이면 null — 골격근과 같은 이유로
+/// 칼로리 계산이 체중만 쓰는 길로 갑니다.
 double? latestPbfPct(AppState app) {
   final scans = app.store.sortedScans();
-  if (scans.isEmpty) return null;
+  if (scans.isEmpty || isEstimate(scans.last)) return null;
   try {
     final d = core.derive(scans.last, app.profile ?? core.kSeedProfile);
     final p = core.jsToNumber(d['pbfPct']);

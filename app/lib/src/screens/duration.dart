@@ -36,6 +36,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
+import '../estimate.dart';
 import '../scope.dart';
 import '../theme.dart';
 import '../ui/charts.dart';
@@ -299,6 +300,8 @@ class _DurationPanelState extends State<DurationPanel> {
       toast(context, '계획을 만들지 못했습니다');
       return;
     }
+    /* 실측이 들어오면 이 표시를 보고 다시 세웁니다 — estimate_upgrade.dart. */
+    if (scans.isNotEmpty && isEstimate(scans.last)) plan['fromEstimate'] = true;
     app.store.setGoal(goal);
     app.store.setPlan(plan);
     if (!app.store.saved()) {

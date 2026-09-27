@@ -13,6 +13,15 @@
  *
  *  3. **저장이 실패했는데 "체크했습니다" 라고 하지 않습니다.** 새로고침하면
  *     그 체크가 없고, 사람은 앱을 의심하기 전에 자기 기억을 의심합니다.
+ *
+ *  4. **추정은 추정이라고 씁니다.** 인바디 없이 키·체중으로 시작한 사람의
+ *     첫 측정은 공식으로 낸 값입니다(estimate.dart). 요약 카드의 제목이
+ *     「키·체중 추정」 이 되고 날짜 자리에 「추정」 알약이 붙습니다. 추정과
+ *     다른 측정 사이의 차이(±)는 안 찍습니다 — 공식의 오차(골격근 ±3kg)가
+ *     몸의 변화보다 커서, 그 숫자는 변화가 아니라 공식과 기계의 차이입니다.
+ *     인바디가 들어와 실측으로 바뀌면 맨 위에 한 번, 무엇이 얼마나
+ *     바뀌었는지를 말합니다(_UpgradeCard) — 숫자가 말없이 바뀌면 사람은
+ *     앱이 고장 났다고 생각합니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -20,12 +29,14 @@ import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../briefing.dart';
 import '../checkins.dart';
+import '../estimate.dart';
 import '../scope.dart';
 import '../ui/charts.dart';
 import '../ui/fmt.dart';
 import '../ui/symbols.dart';
 import '../ui/widgets.dart';
 import 'adherence.dart' show DayMark, DayMarkLegend, dayMarkState;
+import 'estimate_sheet.dart';
 import 'plan.dart' show cardioStat;
 import 'update_banner.dart';
 
@@ -60,12 +71,21 @@ class HomeScreen extends StatelessWidget {
     final scan = scans.last;
     final d = core.derive(scan, profile);
     final prev = scans.length > 1 ? scans[scans.length - 2] : null;
-    final pd = prev == null ? null : core.derive(prev, profile);
+    /* 추정이 낀 차이는 안 찍습니다 — 파일 머리의 약속 4. */
+    final pd = prev == null || isEstimate(scan) || isEstimate(prev)
+        ? null
+        : core.derive(prev, profile);
+    /* 추정이 실측으로 바뀐 직후 한 번(7일 안 · 닫기 전까지). */
+    final notice = upgradeNotice(st, (app.store.now ?? DateTime.now)());
 
     return ListView(padding: _pad, children: [
       /* 맨 위에 둡니다 — 서버와 안 맞는 판이면 아래 무엇보다 먼저 알아야
          로그인 · 동기화가 왜 안 되는지 헤매지 않습니다. */
       const UpdateBanner(),
+      /* 추정 → 실측 알림은 브리핑보다 위에 — 숫자와 목표가 바뀐 이유를 먼저
+         알아야 브리핑의 새 숫자가 이상해 보이지 않습니다. */
+      if (notice != null)
+        _UpgradeCard(key: const ValueKey('estimate-upgrade-card'), record: notice, go: go),
       /* 그다음이 브리핑 — 오늘 무엇을 하는 날인지 · 어떻게 먹을지 · 지금
          당장 무엇을 할지. 숫자(최신 인바디)보다 할 일이 먼저입니다. 숫자는
          읽는 것이고 할 일은 하는 것이라, 앱을 연 사람이 찾는 쪽은 뒤쪽입니다. */
@@ -90,7 +110,11 @@ class HomeScreen extends StatelessWidget {
    수 없습니다.
 
    버튼은 주 버튼 하나(FilledButton)에 보조 둘까지(tonal). 360px 폭에서 셋이
-   한 줄에 안 들어가면 Wrap 이 다음 줄로 내립니다 — 잘리지 않습니다. */
+   한 줄에 안 들어가면 Wrap 이 다음 줄로 내립니다 — 잘리지 않습니다.
+
+   「인바디 없이 시작」(kEstimateRoute)만은 셸에 넘기지 않고 여기서 받습니다.
+   셸(shell.dart)의 go 는 이 이름을 모르고, 키·체중 시트는 화면이 아니라
+   모달이라 홈 위에 바로 뜨는 게 맞습니다. 저장했으면 곧장 목표 화면. */
 class BriefingCard extends StatelessWidget {
   const BriefingCard({super.key, required this.go, this.now});
   final void Function(String route, [Object? arg]) go;
@@ -114,6 +138,17 @@ class BriefingCard extends StatelessWidget {
     final b = buildBriefing(app, now: now);
     final t = Theme.of(context);
     final c = mb(context);
+
+    Future<void> tap(BriefAction a) async {
+      if (a.route != kEstimateRoute) {
+        go(a.route, a.arg);
+        return;
+      }
+      final ok = await showEstimateSheet(context);
+      /* go 는 셸의 것이라 이 카드가 다시 그려졌어도(측정이 생겨 홈이 바뀜)
+         그대로 부를 수 있습니다 — context 를 쓰지 않습니다. */
+      if (ok) go('goal');
+    }
 
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -163,11 +198,71 @@ class BriefingCard extends StatelessWidget {
           Wrap(spacing: 8, runSpacing: 8, children: [
             if (b.primary != null)
               FilledButton(
-                  onPressed: () => go(b.primary!.route, b.primary!.arg),
+                  onPressed: () => tap(b.primary!),
                   child: Text(b.primary!.label)),
             for (final a in b.secondary)
-              FilledButton.tonal(onPressed: () => go(a.route, a.arg), child: Text(a.label)),
+              FilledButton.tonal(onPressed: () => tap(a), child: Text(a.label)),
           ]),
+        ],
+      ]),
+    );
+  }
+}
+
+/* --- 추정 → 실측 알림 ------------------------------------------------------
+   인바디가 들어와 추정이 지워진 뒤 한 번. 기록(state['estimateUpgrade'])은
+   estimate_upgrade.dart 가 남기고, 언제까지 보일지(7일 · 닫기 전)는
+   upgradeNotice 가 정합니다. 여기는 그리기만 합니다.
+
+   숫자는 둘만 — 골격근과 체지방률. 체중은 추정이 아니었으니(저울 값) 안
+   바뀝니다. 목표가 다시 세워졌으면 목표 골격근과 주 수, 원래 목표가 실측
+   기준으로 무리면 다시 정하는 버튼. 닫기는 기기 사이로 같이 넘어갑니다. */
+class _UpgradeCard extends StatelessWidget {
+  const _UpgradeCard({super.key, required this.record, required this.go});
+  final Map<String, Object?> record;
+  final void Function(String route, [Object? arg]) go;
+
+  static Map<String, Object?>? _m(Object? x) => x is Map ? x.cast<String, Object?>() : null;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = Scope.of(context);
+    final t = Theme.of(context);
+    final style = t.textTheme.bodySmall?.copyWith(height: 1.5);
+    final b = _m(record['before']), a = _m(record['after']);
+    final gb = _m(record['goalBefore']), ga = _m(record['goalAfter']);
+    final wb = record['weeksBefore'], wa = record['weeksAfter'];
+    final plan = record['plan'];
+    /* 「다시 정해 주세요」 는 계획이 비어 있는 동안만 — 버튼으로 새 계획을 세우고
+       돌아왔는데 7일 내내 같은 부탁이 남아 있으면, 방금 한 일이 안 먹은 것처럼
+       보입니다. 세운 뒤에는 무엇이 바뀌었는지(숫자 한 줄)만 남깁니다. */
+    final needsGoal = plan == 'needsGoal' && app.state['plan'] == null;
+
+    return MbCard(
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Expanded(
+            child: Text('실측으로 바꿨어요',
+                style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+          ),
+          IconButton(
+            key: const ValueKey('estimate-upgrade-close'),
+            tooltip: '닫기',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(LucideIcons.x, size: 18),
+            onPressed: () => dismissUpgradeNotice(app.store),
+          ),
+        ]),
+        if (b != null && a != null)
+          Text('골격근 ${n1(b['smmKg'])} → ${n1(a['smmKg'])}kg · '
+              '체지방률 ${n1(b['pbfPct'])} → ${n1(a['pbfPct'])}%', style: style),
+        if (plan == 'rebuilt' && gb != null && ga != null)
+          Text('목표도 실측에 맞췄어요 · 골격근 ${n1(gb['smmKg'])} → ${n1(ga['smmKg'])}kg'
+              '${wb is num && wa is num ? ' · ${n0(wb)} → ${n0(wa)}주' : ''}', style: style),
+        if (needsGoal) ...[
+          Text('실측 기준으론 원래 목표가 무리예요 — 다시 정해 주세요', style: style),
+          const SizedBox(height: 8),
+          FilledButton.tonal(onPressed: () => go('goal'), child: const Text('목표 다시 정하기')),
         ],
       ]),
     );
@@ -219,6 +314,8 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = mb(context);
+    final t = Theme.of(context);
+    final est = isEstimate(scan);
     double? delta(String k) => pd == null
         ? null
         : core.jsToNumber(d[k]) - core.jsToNumber(pd![k]);
@@ -226,10 +323,13 @@ class _SummaryCard extends StatelessWidget {
     return MbCard(
       onTap: onTap,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        SectionTitle('최신 인바디',
-            trailing: Text(dateK(scan['measuredAt']),
-                style: Theme.of(context).textTheme.labelSmall
-                    ?.copyWith(color: Theme.of(context).hintColor))),
+        /* 추정이면 제목부터 다르게 — 「최신 인바디」 라고 쓰면 결과지로 읽힙니다.
+           날짜 대신 「추정」 알약. 추정한 날은 눌러 들어가면 보입니다. */
+        SectionTitle(est ? '키·체중 추정' : '최신 인바디',
+            trailing: est
+                ? const Pill('추정', tone: Tone.warn)
+                : Text(dateK(scan['measuredAt']),
+                    style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
         Row(children: [
           Expanded(child: Stat(label: '체중', value: n1(d['weightKg']), unit: 'kg',
               delta: pd == null ? null : signed(delta('weightKg')), color: c.weight)),
@@ -243,6 +343,11 @@ class _SummaryCard extends StatelessWidget {
           Expanded(child: Stat(label: '체지방률', value: n1(d['pbfPct']), unit: '%',
               delta: pd == null ? null : signed(delta('pbfPct')), color: c.fat)),
         ]),
+        /* 바꾸는 길은 떠 있는 「인바디」 버튼 — 여기는 한 줄만. */
+        if (est) ...[
+          const SizedBox(height: 8),
+          Text(kEstimateHint, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+        ],
         if (core.jsTruthy(scan['inbodyScore'])) ...[
           const Divider(height: 24),
           _Kv('InBody 점수', '${n0(scan['inbodyScore'])} / 100'),
@@ -330,6 +435,21 @@ class _GoalCard extends StatelessWidget {
               if (mode != null) Pill('${mode['nameKo']}'),
               Pill('${plan['label']} 강도', tone: Tone.none),
             ])),
+        /* 추정으로 세운 계획 — 출발점(궤적 첫 칸)이 공식으로 낸 값입니다.
+           인바디를 넣으면 실측 기준으로 다시 세워집니다. */
+        if (planFromEstimate(plan))
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(children: [
+              const Pill('추정 기준', tone: Tone.warn),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(kEstimateHint,
+                    style: Theme.of(context).textTheme.labelSmall
+                        ?.copyWith(color: Theme.of(context).hintColor)),
+              ),
+            ]),
+          ),
         Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
           Donut(pct: overall, size: 62),
           const SizedBox(width: 14),

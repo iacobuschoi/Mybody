@@ -25,11 +25,17 @@
  * 두 번 고르게 했고, 폰에서 첫 반응이 "이미 골랐는데 또 고르라니" 였습니다).
  * 강도 화면이 여섯 달을 넘는 계획 앞에서 「기간으로 정하기」를 권하고 사용자가
  * 그걸 고르면, 그 답을 들고 여기로 돌아와 기간 모드로 바뀝니다.
+ *
+ * 모드를 고르는 규칙(2번)은 파일 맨 아래 selectGoalMode 로 꺼내 두었습니다. 키 · 체중
+ * 추정으로 세운 계획을 실측으로 다시 세울 때(estimate_upgrade.dart)도 같은 안전
+ * 규칙을 거쳐야 해서입니다 — 추정 몸에선 괜찮던 목표가 실측 몸에선 하한 아래일 수
+ * 있습니다. 지금 몸이 추정이면 「현재」 카드에 「추정」 알약이 붙습니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../app_state.dart';
+import '../estimate.dart';
 import '../scope.dart';
 import '../ui/fmt.dart';
 import '../ui/widgets.dart';
@@ -179,7 +185,9 @@ class _GoalScreenState extends State<GoalScreen> {
         _chooser(),
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            SectionTitle('현재 (${dateK(scans.last['measuredAt'])})'),
+            /* 키 · 체중으로 어림한 몸이면 그렇다고 — 아래 목표 숫자도 그 위에 섭니다. */
+            SectionTitle('현재 (${dateK(scans.last['measuredAt'])})',
+                trailing: isEstimate(scans.last) ? const Pill('추정', tone: Tone.warn) : null),
             Row(children: [
               Expanded(child: Stat(label: '체중', value: n1(cur['weightKg']), unit: 'kg')),
               Expanded(child: Stat(label: '골격근', value: n1(cur['smmKg']), unit: 'kg')),
@@ -376,64 +384,16 @@ class _GoalScreenState extends State<GoalScreen> {
     );
   }
 
-  Map<String, Object?> _select(app, Map<String, Object?> cur, Map<String, Object?> g,
-      Map<String, Object?> profile) {
-    final gi = core.classifyGoal(cur, g);
-    final scans = app.store.sortedScans() as List<Map<String, Object?>>;
-    Map<String, Object?>? trend;
-    if (scans.length >= 2) {
-      final a = core.derive(scans.first, profile);
-      final b = core.derive(scans.last, profile);
-      final da = DateTime.tryParse('${scans.first['measuredAt']}');
-      final db = DateTime.tryParse('${scans.last['measuredAt']}');
-      if (da != null && db != null) {
-        final days = db.difference(da).inMilliseconds / 86400000;
-        trend = {
-          'weeksSpan': days / 7,
-          'gapDays': days,
-          'dWeightKg': core.jsToNumber(b['weightKg']) - core.jsToNumber(a['weightKg']),
-          'dSmmKg': core.jsToNumber(b['smmKg']) - core.jsToNumber(a['smmKg']),
-          'dBfmKg': core.jsToNumber(b['bfmKg']) - core.jsToNumber(a['bfmKg']),
-        };
-      }
-    }
-    final input = <String, Object?>{
-      'dWeightKg': gi['dWeightKg'], 'dSmmKg': gi['dSmmKg'], 'dBfmKg': gi['dBfmKg'],
-      'curWeightKg': cur['weightKg'], 'curSmmKg': cur['smmKg'], 'curBfmKg': cur['bfmKg'],
-      'curPbfPct': cur['pbfPct'], 'curBmi': cur['bmi'],
-      'heightCm': profile['heightCm'], 'tdeeKcal': cur['tdeeKcal'],
-      'sex': profile['sex'], 'age': profile['age'], 'trainingAge': profile['trainingAge'],
-      'hadPriorPeak': core.jsTruthy(profile['hadPriorPeak']),
-      'deadlineWeeks': _deadlineWeeks,
-      'recentTrend': trend,
-      'currentPhase': _phaseFrom(trend),
-    };
-    final r = core.modeSelect(input);
-    if (r['refused'] != true && _manualModeId != null) {
-      final m = core.modeById(_manualModeId);
-      if (m != null) {
-        r['mode'] = m;
-        r['modeId'] = m['id'];
-        r['manual'] = true;
-      }
-    }
-    return r;
-  }
-
-  /// 최근 추세로 지금 어느 국면인지 — 증량 중이면 미니컷 규칙이 열립니다.
-  static String? _phaseFrom(Map<String, Object?>? trend) {
-    if (trend == null || core.jsToNumber(trend['weeksSpan']) < 4) {
-      return null;
-    }
-    final nw = core.jsToNumber(core.kNoise['weight']);
-    final ns = core.jsToNumber(core.kNoise['smm']);
-    if (core.jsToNumber(trend['dWeightKg']) > nw &&
-        core.jsToNumber(trend['dSmmKg']) > -ns) {
-      return 'bulk';
-    }
-    if (core.jsToNumber(trend['dWeightKg']) < -nw) return 'cut';
-    return null;
-  }
+  Map<String, Object?> _select(AppState app, Map<String, Object?> cur, Map<String, Object?> g,
+      Map<String, Object?> profile) =>
+      selectGoalMode(
+        scans: app.store.sortedScans(),
+        cur: cur,
+        goal: g,
+        profile: profile,
+        deadlineWeeks: _deadlineWeeks,
+        manualModeId: _manualModeId,
+      );
 
   Future<void> _pickMode(BuildContext context, Map<String, Object?> sel) async {
     final chosen = await showModalBottomSheet<String>(
@@ -504,4 +464,82 @@ class _GoalScreenState extends State<GoalScreen> {
     if (!mounted || answer != IntensityScreen.pickDuration) return;
     setState(() => _how = GoalHow.duration);
   }
+}
+
+/* --- 모드 고르기 (목표 화면 밖에서도) ------------------------------------------
+ *
+ * 목표 화면 안에만 있던 규칙을 밖으로 꺼냈습니다. 추정으로 세운 계획을 실측으로
+ * 다시 세울 때(estimate_upgrade.dart)도 **같은 안전 규칙**을 거쳐야 합니다 —
+ * 추정 몸에서는 괜찮던 목표가 실측 몸에서는 필수지방 아래일 수 있습니다. 규칙을
+ * 두 벌 두면 한 벌은 반드시 뒤처집니다.
+ *
+ * 추세는 **실측끼리만** 봅니다(chartScans). 추정 → 실측의 차이는 몸이 변한 게
+ * 아니라 공식의 오차라서, 그걸 추세로 읽으면 "증량 중" · "감량 중" 이 거짓으로 섭니다.
+ * ------------------------------------------------------------------------- */
+
+/// 목표가 만들어도 되는 목표인지 따지고 모드를 고릅니다(core.modeSelect).
+/// [manualModeId] 가 있으면, 거절이 아닐 때 그 모드로 바꿔 끼웁니다('manual': true).
+Map<String, Object?> selectGoalMode({
+  required List<Map<String, Object?>> scans,
+  required Map<String, Object?> cur,
+  required Map<String, Object?> goal,
+  required Map<String, Object?> profile,
+  Object? deadlineWeeks,
+  String? manualModeId,
+}) {
+  final gi = core.classifyGoal(cur, goal);
+  final s = chartScans(scans);
+  Map<String, Object?>? trend;
+  if (s.length >= 2) {
+    final a = core.derive(s.first, profile);
+    final b = core.derive(s.last, profile);
+    final da = DateTime.tryParse('${s.first['measuredAt']}');
+    final db = DateTime.tryParse('${s.last['measuredAt']}');
+    if (da != null && db != null) {
+      final days = db.difference(da).inMilliseconds / 86400000;
+      trend = {
+        'weeksSpan': days / 7,
+        'gapDays': days,
+        'dWeightKg': core.jsToNumber(b['weightKg']) - core.jsToNumber(a['weightKg']),
+        'dSmmKg': core.jsToNumber(b['smmKg']) - core.jsToNumber(a['smmKg']),
+        'dBfmKg': core.jsToNumber(b['bfmKg']) - core.jsToNumber(a['bfmKg']),
+      };
+    }
+  }
+  final input = <String, Object?>{
+    'dWeightKg': gi['dWeightKg'], 'dSmmKg': gi['dSmmKg'], 'dBfmKg': gi['dBfmKg'],
+    'curWeightKg': cur['weightKg'], 'curSmmKg': cur['smmKg'], 'curBfmKg': cur['bfmKg'],
+    'curPbfPct': cur['pbfPct'], 'curBmi': cur['bmi'],
+    'heightCm': profile['heightCm'], 'tdeeKcal': cur['tdeeKcal'],
+    'sex': profile['sex'], 'age': profile['age'], 'trainingAge': profile['trainingAge'],
+    'hadPriorPeak': core.jsTruthy(profile['hadPriorPeak']),
+    'deadlineWeeks': deadlineWeeks,
+    'recentTrend': trend,
+    'currentPhase': phaseFromTrend(trend),
+  };
+  final r = core.modeSelect(input);
+  if (r['refused'] != true && manualModeId != null) {
+    final m = core.modeById(manualModeId);
+    if (m != null) {
+      r['mode'] = m;
+      r['modeId'] = m['id'];
+      r['manual'] = true;
+    }
+  }
+  return r;
+}
+
+/// 최근 추세로 지금 어느 국면인지 — 증량 중이면 미니컷 규칙이 열립니다.
+String? phaseFromTrend(Map<String, Object?>? trend) {
+  if (trend == null || core.jsToNumber(trend['weeksSpan']) < 4) {
+    return null;
+  }
+  final nw = core.jsToNumber(core.kNoise['weight']);
+  final ns = core.jsToNumber(core.kNoise['smm']);
+  if (core.jsToNumber(trend['dWeightKg']) > nw &&
+      core.jsToNumber(trend['dSmmKg']) > -ns) {
+    return 'bulk';
+  }
+  if (core.jsToNumber(trend['dWeightKg']) < -nw) return 'cut';
+  return null;
 }

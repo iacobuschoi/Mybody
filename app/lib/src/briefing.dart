@@ -34,6 +34,18 @@
  *   체크인 — 12시 전이면 끼니 다음 순서로 주 버튼. 체중은 아침에 재야
  *            지난주와 견줄 수 있습니다. 오후에는 보조 버튼입니다.
  *
+ * **인바디가 없을 때의 두 번째 길 — 「인바디 없이 시작」.** 결과지가 없는
+ * 사람에게 "올려 주세요" 만 말하면 거기서 앱이 끝납니다. 그래서 빈 화면에는
+ * 보조 버튼으로 키·체중 추정(estimate_sheet.dart)을 둡니다. 주 버튼은 여전히
+ * 「인바디 올리기」 입니다 — 결과지가 있는 사람에게는 그쪽이 맞는 길이고,
+ * 추정은 인바디가 들어오면 지워질 임시값입니다. 셸(shell.dart)은 이 길을
+ * 모릅니다 — 시트는 화면이 아니라 모달이라 홈의 BriefingCard 가 직접 엽니다.
+ *
+ * 추정을 저장하고 나면 그 추정은 **측정 하나로 셉니다.** 목표 · 식단 목표 ·
+ * 운동 · 체크인 줄은 실측이 있을 때와 똑같이 나옵니다 — 시작하는 이유가
+ * 그것이라, 추정이라고 여기서 따로 가리지 않습니다. 「추정」 표시는 숫자를
+ * 보여 주는 화면들(홈 요약 · 추이 · 기록)이 답니다.
+ *
  * 문구에 기호와 이모지를 안 넣습니다(체크 표시 · 폭죽). 앱에 넣은 한글
  * 글꼴에 없는 글자라 웹에서는 구글 글꼴 요청이 나갑니다 — symbols.dart 의
  * 교훈. 완료는 화면이 아이콘(icon: 'done')과 색으로 그립니다.
@@ -88,6 +100,10 @@ class Briefing {
   /// 오늘 몫을 다 했는가 — 화면이 폭죽 아이콘을 그립니다.
   final bool allDone;
 }
+
+/// 「인바디 없이 시작」 의 route. 셸의 go 가 모르는 이름이라 홈의 BriefingCard 가
+/// 받아서 키·체중 시트를 엽니다(estimate_sheet.dart) — 시트는 화면이 아닙니다.
+const String kEstimateRoute = 'estimate';
 
 /// 이 시각부터 운동이 주 버튼입니다. 그 전엔 끼니 기록이 먼저입니다.
 const int kWorkoutHour = 15;
@@ -270,11 +286,14 @@ Briefing buildBriefing(AppState app, {DateTime? now}) {
     /* 인바디가 없으면 다른 무엇보다 그것부터. 일정에 적어 둔 운동은 그대로
        보여 줍니다 — 체중을 모른다고 오늘 헬스가 없어지는 건 아닙니다. */
     lines.insert(0, const BriefLine(icon: 'scan', text: '사진 한 장이면 오늘 할 일이 나옵니다'));
+    /* 결과지가 없는 사람의 길 — 키·체중으로 추정해서 시작합니다. 주 버튼은 그대로
+       「인바디 올리기」, 이건 보조 버튼의 첫 자리입니다. 운동 버튼과 합쳐 둘까지. */
+    const estimateAct = BriefAction(label: '인바디 없이 시작', route: kEstimateRoute);
     return Briefing(
       headline: '인바디 결과지를 올려주세요',
       lines: lines,
       primary: uploadAct.asPrimary(),
-      secondary: [for (final a in order) if (a.route == 'workout') a].take(2).toList(),
+      secondary: [estimateAct, for (final a in order) if (a.route == 'workout') a].take(2).toList(),
     );
   }
 

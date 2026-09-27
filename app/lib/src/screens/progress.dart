@@ -21,12 +21,22 @@
  * 주차라 측정 위에 놓을 수 없었습니다. 여기서는 시작일 + 주차×7일을 측정과 같은
  * "에포크 이후 일수" 로 바꿔 카드마다 그 항목의 계획선을 겹칩니다. 계획선은 목표일까지
  * 이어지므로 x축이 미래로 늘어납니다 — 그래야 "지금 어디쯤인가" 가 한눈에 보입니다.
+ *
+ * **추정과 실측은 한 선에 안 놓습니다.** 인바디 없이 키·체중으로 시작한
+ * 사람(estimate.dart)의 첫 점은 공식이 낸 값입니다. 그 뒤 인바디를 넣으면
+ * 추정은 지워지지만, 그 사이(동기화가 늦은 기기)에 둘이 같이 있으면
+ * 추정 35.7 → 실측 38.0 의 선이 "4주에 근육 +2.3kg" 으로 읽힙니다. 몸의
+ * 변화가 아니라 공식의 오차입니다. 그래서 실측이 하나라도 있으면 실측만
+ * 그립니다(chartScans). 추정뿐일 때는 그 한 점을 그리고, 「측정이 한 번
+ * 뿐입니다」 대신 「추정치로 시작했어요」 를, 골격근 · 체지방률 카드에
+ * 「추정」 알약을 답니다. 체중은 저울로 잰 값이라 알약이 없습니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../checkins.dart';
+import '../estimate.dart';
 import '../scope.dart';
 import '../ui/charts.dart';
 import '../ui/fmt.dart';
@@ -39,8 +49,8 @@ class ProgressScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = Scope.of(context);
-    final scans = app.store.sortedScans();
-    if (scans.isEmpty) {
+    final all = app.store.sortedScans();
+    if (all.isEmpty) {
       return EmptyState(
         title: '아직 측정이 없습니다',
         detail: '인바디를 두 번 이상 넣으면 추이를 그립니다.',
@@ -48,6 +58,9 @@ class ProgressScreen extends StatelessWidget {
       );
     }
 
+    /* 선은 실측끼리만 — 파일 머리. 실측이 없으면 추정 한 점. */
+    final scans = chartScans(all);
+    final estimated = scans.every(isEstimate);
     final profile = app.profile ?? core.kSeedProfile;
     final c = mb(context);
     final t = Theme.of(context);
@@ -89,7 +102,9 @@ class ProgressScreen extends StatelessWidget {
     final noise = core.kNoise;
 
     return ListView(padding: const EdgeInsets.all(16), children: [
-      if (scans.length < 2)
+      if (estimated)
+        const Note(tone: Tone.warn, title: '추정치로 시작했어요.', text: ' $kEstimateHint')
+      else if (scans.length < 2)
         const Note(text: '측정이 한 번뿐입니다 — 4주 뒤에 한 번 더 재세요')
       else
         MbCard(
@@ -128,7 +143,7 @@ class ProgressScreen extends StatelessWidget {
       ),
 
       _TrendCard(
-        title: '골격근', unit: 'kg', color: c.muscle, times: times,
+        title: '골격근', unit: 'kg', color: c.muscle, times: times, estimated: estimated,
         values: [for (final d in derived) core.jsToNumber(d['smmKg'])],
         floor: core.jsToNumber(noise['smm']),
         plan: planSmm,
@@ -138,7 +153,7 @@ class ProgressScreen extends StatelessWidget {
       ),
 
       _TrendCard(
-        title: '체지방률', unit: '%', color: c.fat, times: times,
+        title: '체지방률', unit: '%', color: c.fat, times: times, estimated: estimated,
         values: [for (final d in derived) core.jsToNumber(d['pbfPct'])],
         /* %의 오차 폭은 따로 없습니다 — 지방 ±1.0kg 을 지금 체중으로 나눈 값,
            같은 규칙의 다른 단위입니다. */
@@ -155,7 +170,8 @@ class ProgressScreen extends StatelessWidget {
         child: Row(children: [
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('측정 기록 ${scans.length}건', style: t.textTheme.titleSmall),
+              /* 기록은 전부 — 추정도 기록 화면에서 보고 지울 수 있습니다. */
+              Text('측정 기록 ${all.length}건', style: t.textTheme.titleSmall),
               Text('하나하나 다시 보거나 지울 수 있습니다',
                   style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
             ]),
@@ -220,7 +236,7 @@ class _TrendCard extends StatelessWidget {
   const _TrendCard({
     required this.title, required this.unit, required this.color,
     required this.times, required this.values, required this.floor,
-    this.extra, this.plan, this.goal, this.note,
+    this.extra, this.plan, this.goal, this.note, this.estimated = false,
   });
   final String title, unit;
   final Color color;
@@ -232,6 +248,10 @@ class _TrendCard extends StatelessWidget {
   final Series? plan;
   final GoalLine? goal;
   final String? note;
+
+  /// 이 카드의 값이 키·체중 추정인가 — 제목 옆에 「추정」 알약. 체중 카드는 늘 false
+  /// (저울로 잰 값입니다).
+  final bool estimated;
 
   @override
   Widget build(BuildContext context) {
@@ -245,8 +265,14 @@ class _TrendCard extends StatelessWidget {
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         SectionTitle(title,
-            trailing: Text(trailing,
-                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+            trailing: estimated
+                ? Row(mainAxisSize: MainAxisSize.min, children: [
+                    const Pill('추정', tone: Tone.warn),
+                    const SizedBox(width: 6),
+                    Text(trailing, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+                  ])
+                : Text(trailing,
+                    style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
         LineChart(
           height: 150,
           /* 범례는 선이 둘 이상일 때만 — 하나뿐이면 제목이 범례입니다. */

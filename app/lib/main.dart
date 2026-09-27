@@ -9,6 +9,13 @@
  * 폰 뒤로가기는 여기서 **공짜입니다.** 지금 쓰는 웹 앱에서는 popstate 를
  * 직접 엮어야 했는데(그게 없어서 뒤로가기가 앱을 통째로 닫았습니다),
  * Flutter 의 Navigator 는 안드로이드 뒤로가기를 원래 받습니다.
+ *
+ * 앱 맨 위(MaterialApp.builder)는 캡처 경계로 감쌉니다 — 「의견 보내기」 가
+ * 누르는 순간의 화면을 찍어 붙이는 범위입니다(screens/feedback.dart). 화면마다
+ * 달면 밀어 올린 화면 · 다이얼로그가 빠지고, 여기 한 곳이면 빠질 화면이 없습니다.
+ * 그 경계의 **옆**(형제)에 늘 떠 있는 의견 말풍선을 둡니다(screens/feedback_bubble.dart)
+ * — 같은 까닭으로 모든 화면에 뜨고, 경계 밖이라 찍히지는 않습니다. 말풍선은 Navigator
+ * 위에 있어서 Navigator 를 지켜보는 쪽(feedbackRoutes)을 같이 겁니다.
  * ========================================================================== */
 import 'dart:async';
 
@@ -26,9 +33,9 @@ import 'src/publish.dart';
 import 'src/sync_queue.dart';
 import 'src/app_state.dart';
 import 'src/scope.dart';
+import 'src/screens/feedback_bubble.dart' show appFrame, feedbackRoutes;
 import 'src/shell.dart';
 import 'src/theme.dart';
-import 'src/ui/edge.dart';
 import 'src/update.dart';
 
 void main() {
@@ -279,8 +286,15 @@ class _MyBodyAppState extends State<MyBodyApp> {
       darkTheme: mbDark(),
       debugShowCheckedModeBanner: false,
       /* 아래 시스템 막대 밑으로 버튼이 안 들어가게, 그리고 입력칸 밖을 탭하면
-         키보드가 내려가게 — 모든 화면 한 번에(ui/edge.dart). */
-      builder: edgeSafe,
+         키보드가 내려가게 — 모든 화면 한 번에(ui/edge.dart).
+         그 바깥을 캡처 경계로 — 「의견 보내기」 가 찍는 것이 이 안 전부입니다
+         (막대 뒤 바탕 띠까지 들어가게 edgeSafe 바깥에). 맨 바깥은 의견 말풍선 층 —
+         경계의 형제라 찍히지 않습니다. 셋을 한 함수(appFrame)로 묶어 시험도 같은 겹을
+         씁니다. */
+      builder: appFrame,
+      /* 말풍선이 "지금 맨 위 화면" 을 알려고 — 누르면 그 화면의 앱바 제목과 함께 엽니다.
+         navigatorKey 로 하지 않는 까닭은 feedback_bubble.dart 머리 주석. */
+      navigatorObservers: [feedbackRoutes],
       /* 서버가 없어도 바로 들어갑니다 — 주소와 로그인은 나중 일입니다. */
       home: !_ready
           ? const Scaffold(body: Center(child: CircularProgressIndicator()))

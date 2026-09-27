@@ -12,6 +12,10 @@
  * 친구 소식(친구가 운동했다는 좋은 소식). **안 한 것에는 절대 안 켭니다** —
  * 친구가 이번 주에 운동을 안 했다는 것은 알림이 되지 않습니다.
  * 이 구분이 이 앱이 두는 압박의 상한선입니다.
+ *
+ * 친구 코드로 요청하는 일([requestFriendByCode])은 이 파일에 한 벌만 있습니다.
+ * 친구 탭의 「친구 추가」 와 테스터 인사(3쪽)가 같은 함수로 보냅니다 — 같은 일을
+ * 두 군데서 따로 짜면 한쪽만 고쳐집니다.
  * ========================================================================== */
 import 'dart:async';
 import 'dart:convert';
@@ -303,13 +307,50 @@ class _SocialScreenState extends State<SocialScreen> {
         ],
       ),
     );
-    if (code == null || code.isEmpty || !context.mounted) return;
-    final r = await Scope.apiOf(context).requestFriend(code);
-    if (!context.mounted) return;
-    toast(context, r.ok ? '요청을 보냈습니다' : r.reason);
+    if (code == null || !context.mounted) return;
+    final r = await requestFriendByCode(Scope.apiOf(context), code);
+    /* 빈 칸(null)은 조용히 — 취소와 같습니다. */
+    if (r == null || !context.mounted) return;
+    toast(context, !r.ok ? r.reason : (becameFriends(r) ? '친구가 되었습니다' : '요청을 보냈습니다'));
     if (r.ok) _load();
   }
 }
+
+/* --- 친구 코드로 요청 ---------------------------------------------------------
+ *
+ * 친구 탭의 「친구 추가」 다이얼로그와 테스터 인사 3쪽의 코드 칸이 **이 함수 하나**로
+ * 보냅니다. 요청 필드 이름을 틀려서(inviteCode 가 아니라 code) 앱에서 친구 추가가
+ * 한 번도 안 된 적이 있습니다 — 길이 둘이면 그런 것이 한쪽에만 남습니다.
+ *
+ * 실패 문구는 서버가 준 까닭 그대로입니다(「그런 코드를 가진 사람이 없습니다」 ·
+ * 「이미 친구입니다」 · 못 닿으면 「서버에 닿지 못했습니다」). **큐에 담지 않습니다**
+ * — 수락 · 거절과 달리 요청은 서버가 코드를 봐야 되는지가 정해지고, 그 답을 지금
+ * 보여 줘야 합니다. 나중에 조용히 보냈다가 "없는 코드" 로 실패하면 알릴 곳이
+ * 없습니다. 그래서 못 닿으면 그 자리에서 실패로 보이고, 다시 누르면 됩니다.
+ * -------------------------------------------------------------------------- */
+
+/// 붙여 넣은 글에서 친구 코드만 골라 냅니다.
+///
+/// 「카톡 등으로 보내기」 로 받은 글을 통째로 붙여 넣어도("… 내 친구 코드: ABCD2345 …")
+/// 코드만 갑니다 — 폰에서 글 한가운데 여덟 글자만 골라 복사하기는 어렵습니다. 코드만
+/// 넣었으면 사이의 빈칸 · 줄표만 뺍니다(「ABCD 2345」 · 「ABCD-2345」). 대소문자는
+/// 서버가 맞춥니다.
+String cleanInviteCode(String input) {
+  final m = RegExp(r'코드\s*[:：]\s*([A-Za-z0-9]{4,16})').firstMatch(input);
+  if (m != null) return m[1]!;
+  return input.replaceAll(RegExp(r'[\s\-]'), '');
+}
+
+/// 친구 코드로 친구 요청을 보냅니다. 코드가 비었으면 보내지 않고 null.
+Future<ApiResult?> requestFriendByCode(Api api, String input) async {
+  final code = cleanInviteCode(input);
+  if (code.isEmpty) return null;
+  return api.requestFriend(code);
+}
+
+/// 요청이 곧바로 친구가 됐나 — 상대가 먼저 나에게 요청해 둔 사이면 서버가 그 자리에서
+/// 맺습니다(`status: 'accepted'`). 그때 "수락을 기다려요" 라고 하면 틀린 말입니다.
+bool becameFriends(ApiResult r) => r.ok && r.body['status'] == 'accepted';
 
 class _RequestRow extends StatelessWidget {
   const _RequestRow({required this.person, required this.onDone, this.defaults});
