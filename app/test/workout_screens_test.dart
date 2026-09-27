@@ -525,14 +525,14 @@ void main() {
       await t.pumpAndSettle();
     }
 
-    testWidgets('무게 칩 — 체성분 추천이 보이고, 스테퍼로 올리면 그 kg 이 기록에 남는다', (t) async {
+    testWidgets('무게 단추 — 체성분 추천이 보이고, 스테퍼로 올리면 그 kg 이 기록에 남는다', (t) async {
       final app = await seeded();
       final day = gymDay(app);
       final (target, load) = weightedFirst(app, day);
       final name = '${target['name']}';
       await open(t, app, WorkoutSessionScreen(dateKey: day, type: 'gym'));
 
-      final chip = kgChip(name);
+      final chip = kgButton(name);
       expect(chip, findsOneWidget);
       expect(find.descendant(of: chip, matching: find.text('추천 ${kgText(load.kg!)}kg')), findsOneWidget);
       expect(find.text(load.hint), findsNothing, reason: '힌트는 줄마다 되풀이하지 않습니다 — 스테퍼 시트에만');
@@ -554,8 +554,8 @@ void main() {
       await t.tap(find.byKey(const ValueKey('kg-ok')));
       await t.pumpAndSettle();
       /* 정한 뒤에는 '추천' 이 떨어지고 숫자만 */
-      expect(find.descendant(of: kgChip(name), matching: find.text('${kgText(up)}kg')), findsOneWidget);
-      expect(find.descendant(of: kgChip(name), matching: find.textContaining('추천')), findsNothing);
+      expect(find.descendant(of: kgButton(name), matching: find.text('${kgText(up)}kg')), findsOneWidget);
+      expect(find.descendant(of: kgButton(name), matching: find.textContaining('추천')), findsNothing);
 
       await t.tap(setButton(name));
       await t.pump();
@@ -575,14 +575,14 @@ void main() {
       final (target, _) = weightedFirst(app, day);
       final name = '${target['name']}';
       await open(t, app, WorkoutSessionScreen(dateKey: day, type: 'gym'));
-      await t.tap(kgChip(name));
+      await t.tap(kgButton(name));
       await t.pumpAndSettle();
       await t.tap(find.byKey(const ValueKey('kg-none')));
       await t.pump();
       expect(t.widget<Text>(find.byKey(const ValueKey('kg-value'))).data, '맨몸');
       await t.tap(find.byKey(const ValueKey('kg-ok')));
       await t.pumpAndSettle();
-      expect(find.descendant(of: kgChip(name), matching: find.text('맨몸')), findsOneWidget);
+      expect(find.descendant(of: kgButton(name), matching: find.text('맨몸')), findsOneWidget);
       await t.tap(setButton(name));
       await t.pump();
       await finish(t);
@@ -591,7 +591,7 @@ void main() {
       expect(xs.single['kg'], isNull);
     });
 
-    testWidgets('지난 30일 기록이 있으면 그 무게 — 다 채웠으면 한 단위 위, 칩에 "추천" 이 없다', (t) async {
+    testWidgets('지난 30일 기록이 있으면 그 무게 — 다 채웠으면 한 단위 위, 무게 단추에 "추천" 이 없다', (t) async {
       final app = await seeded();
       final day = gymDay(app);
       final (target, load) = weightedFirst(app, day);
@@ -605,10 +605,10 @@ void main() {
       });
       await open(t, app, WorkoutSessionScreen(dateKey: day, type: 'gym'));
       final up = load.kg! + load.step;
-      expect(find.descendant(of: kgChip(name), matching: find.text('${kgText(up)}kg')), findsOneWidget);
+      expect(find.descendant(of: kgButton(name), matching: find.text('${kgText(up)}kg')), findsOneWidget);
       final hint = '지난번 ${kgText(load.kg!)}kg · 다 채워서 +${kgText(load.step)}kg';
-      expect(find.text(hint), findsNothing, reason: '칩의 숫자로 충분합니다 — 힌트는 시트에');
-      await t.tap(kgChip(name));
+      expect(find.text(hint), findsNothing, reason: '무게 단추의 숫자로 충분합니다 — 힌트는 시트에');
+      await t.tap(kgButton(name));
       await t.pumpAndSettle();
       expect(find.text(hint), findsOneWidget);
       expect(find.text('추천 ${kgText(up)}kg'), findsOneWidget, reason: '올린 값은 「추천」 — 「지난번 60kg」 은 거짓말');
@@ -629,7 +629,7 @@ void main() {
       t.platformDispatcher.textScaleFactorTestValue = 1.3;
       addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
       await open(t, app, WorkoutSessionScreen(dateKey: day, type: 'gym'));
-      await t.tap(kgChip(name));
+      await t.tap(kgButton(name));
       await t.pumpAndSettle();
       final value = find.byKey(const ValueKey('kg-value'));
       expect(t.widget<Text>(value).data, '${kgText(112.5 + load.step)} kg');
@@ -711,7 +711,7 @@ void main() {
       expect(exerciseRow(pick.name), findsOneWidget);
       expect(find.descendant(of: exerciseRow(pick.name), matching: find.text(line)), findsOneWidget);
       expect(find.text('0/${total + (row['sets'] as int)} 세트'), findsOneWidget);
-      expect(kgChip(pick.name), findsOneWidget, reason: '머신이니 추천 무게가 붙습니다');
+      expect(kgButton(pick.name), findsOneWidget, reason: '머신이니 추천 무게가 붙습니다');
 
       /* 같은 종목은 다시 못 고릅니다 — 목록에 있는 것은 고르기에서 빠집니다. */
       await t.tap(find.byKey(const ValueKey('ex-add')));
@@ -928,7 +928,7 @@ void main() {
       expect(find.text('0/3 세트'), findsOneWidget);
     });
 
-    testWidgets('360px 폭에서도 줄이 넘치지 않는다 — 무게 칩 · 완료 · 초과 세트까지', (t) async {
+    testWidgets('360px 폭에서도 줄이 넘치지 않는다 — 무게 단추 · 완료 · 초과 세트까지', (t) async {
       final app = await seeded();
       final day = gymDay(app);
       final plan = gymExercisesFor(app.state, day);
@@ -1175,6 +1175,155 @@ void main() {
     });
   });
 
+  group('헬스 — 무게 단추 (피드백 38: "무게 눌러보라는데 좀 비직관적이야")', () {
+    /// 종목 줄 하나 — 폭 · 글자 배율 · 테마를 바꿔 가며 세워 봅니다.
+    Future<void> pumpRow(WidgetTester t, GymExercise ex,
+        {double width = 1000, double scale = 1.0, ThemeData? theme}) async {
+      t.view.physicalSize = Size(width, 800);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.reset);
+      if (scale != 1.0) {
+        t.platformDispatcher.textScaleFactorTestValue = scale;
+        addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
+      }
+      await t.pumpWidget(MaterialApp(
+        theme: theme ?? mbLight(),
+        home: Scaffold(
+          body: ListView(padding: const EdgeInsets.fromLTRB(16, 4, 16, 24), children: [
+            ExerciseRow(ex: ex, onSet: () {}, onUndo: () {}, onKg: () {}),
+          ]),
+        ),
+      ));
+      await t.pump();
+      expect(t.takeException(), isNull);
+    }
+
+    /// 단추의 판(Material) — 바탕색과 테두리를 봅니다.
+    Material plate(WidgetTester t, Finder button) =>
+        t.widget<Material>(find.descendant(of: button, matching: find.byType(Material)).first);
+
+    testWidgets('실제 화면 — 무게는 덤벨 · 글자 · ▾ 단추이고, 누르면 스테퍼가 뜬다(알약 아님 · 두근 없음)', (t) async {
+      final app = await seeded();
+      final day = gymDay(app);
+      await open(t, app, WorkoutSessionScreen(dateKey: day, type: 'gym'));
+      final buttons = find.byType(WeightButton);
+      expect(buttons, findsWidgets, reason: '플랜에 기구 종목이 있습니다');
+      final b = t.widget<WeightButton>(buttons.first);
+      final key = b.key! as ValueKey<String>;
+      expect(key.value, startsWith('kg-'), reason: '시험 손잡이 kg-(slug) 는 단추 자신에');
+      final button = find.byKey(key);
+      expect(b.label, startsWith('추천 '));
+      expect(b.highlight, isFalse, reason: '강조는 튜토리얼에서만');
+      expect(find.descendant(of: button, matching: find.text(b.label)), findsOneWidget);
+      expect(find.descendant(of: button, matching: find.byIcon(LucideIcons.dumbbell)), findsOneWidget);
+      expect(find.descendant(of: button, matching: find.byIcon(LucideIcons.chevronDown)), findsOneWidget,
+          reason: '▾ — 누르면 뭔가 열린다는 표시');
+      expect(find.descendant(of: button, matching: find.byType(InkWell)), findsOneWidget);
+      expect(find.ancestor(of: button, matching: find.byType(Pill)), findsNothing);
+      expect(find.descendant(of: button, matching: find.byType(Pill)), findsNothing, reason: '글자 딱지가 아니라 단추');
+      expect(t.getSize(button).height, greaterThanOrEqualTo(WeightButton.minHeight));
+      /* 무게가 있으면 초록 — 알약 시절(Tone.ok)과 같은 뜻 */
+      expect(plate(t, button).color, MbColors.light.okBg);
+      expect(t.hasRunningAnimations, isFalse, reason: '실제 화면의 무게 단추는 두근거리지 않습니다');
+
+      /* 읽는 기계에게도 단추 */
+      final sem = t.ensureSemantics();
+      expect(t.getSemantics(button), isSemantics(isButton: true, hasTapAction: true));
+      sem.dispose();
+
+      await t.tap(button);
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('kg-value')), findsOneWidget, reason: '누르면 스테퍼 시트');
+      expect(find.byKey(const ValueKey('kg-ok')), findsOneWidget);
+      /* 「확인」 없이 닫으면 그대로 */
+      await t.tapAt(const Offset(500, 20));
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('kg-value')), findsNothing);
+      expect(find.descendant(of: button, matching: find.text(b.label)), findsOneWidget);
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('「애니메이션 줄이기」 가 켜진 폰 — 두근 없이 강조색 테두리만, 그리고 끝이 있다', (t) async {
+      final button = find.byKey(const ValueKey('wb'));
+      await t.pumpWidget(MaterialApp(
+        theme: mbLight(),
+        home: Builder(
+          builder: (context) => MediaQuery(
+            data: MediaQuery.of(context).copyWith(disableAnimations: true),
+            child: Scaffold(
+              body: Center(
+                child: WeightButton(key: const ValueKey('wb'), label: '추천 20kg', highlight: true, onTap: () {}),
+              ),
+            ),
+          ),
+        ),
+      ));
+      /* 두근이었다면 한창일 때(150ms) — 번짐도, 커짐도 없어야 합니다 */
+      await t.pump(const Duration(milliseconds: 150));
+      final halo = t.widget<DecoratedBox>(find.descendant(of: button, matching: find.byType(DecoratedBox)).first);
+      expect((halo.decoration as ShapeDecoration).shadows, isEmpty, reason: '움직임을 줄인 폰에서 번짐 없음');
+      final scale = t.widget<Transform>(find.descendant(of: button, matching: find.byType(Transform)).first);
+      expect(scale.transform.getMaxScaleOnAxis(), 1.0, reason: '커졌다 줄지도 않습니다');
+      expect((plate(t, button).shape! as StadiumBorder).side.color, mbLight().colorScheme.primary,
+          reason: '강조색 테두리는 남습니다 — 어디를 누를지는 여전히 보여야');
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('맨몸이면 무채색 · 다크에서도 테마 색 — 뜻(무게 있음 / 맨몸)은 알약 시절 그대로', (t) async {
+      final ex = GymExercise(
+          id: 'lp', name: '레그프레스', sets: 3, reps: '10-12', restSec: 90, equip: 'machine',
+          load: const Load(kg: 40, step: 5, source: 'body', hint: ''));
+      await pumpRow(t, ex, theme: mbDark());
+      final button = kgButton('레그프레스');
+      expect(plate(t, button).color, MbColors.dark.okBg);
+      expect(t.widget<Icon>(find.descendant(of: button, matching: find.byIcon(LucideIcons.dumbbell))).color,
+          MbColors.dark.ok);
+      ex.kg = null;
+      ex.kgSet = true;
+      await pumpRow(t, ex, theme: mbDark());
+      expect(find.descendant(of: button, matching: find.text('맨몸')), findsOneWidget);
+      expect(plate(t, button).color, MbColors.dark.accentSub);
+      expect(t.widget<Icon>(find.descendant(of: button, matching: find.byIcon(LucideIcons.dumbbell))).color,
+          mbDark().colorScheme.onSurface);
+    });
+
+    for (final dark in [false, true]) {
+      testWidgets('360px · 글자 1.3배 · 긴 이름${dark ? ' · 다크' : ''} — 무게 단추가 줄 안에 다 들어가고 넘치지 않는다', (t) async {
+        final ex = GymExercise(
+          id: 'long',
+          name: '싱글 암 케이블 크로스오버 플라이 (한쪽씩 천천히)',
+          sets: 4,
+          reps: '10-12',
+          restSec: 90,
+          equip: 'machine',
+          note: '팔꿈치는 살짝 굽힌 채로 · 가슴을 모으는 느낌으로 천천히 돌아옵니다',
+          load: const Load(kg: 117.5, step: 5, source: 'body', hint: ''),
+        );
+        final button = kgButton(ex.name);
+        final row = exerciseRow(ex.name);
+        for (final done in [0, 2, 4, 5]) {
+          ex.done = done;
+          await pumpRow(t, ex, width: 360, scale: 1.3, theme: dark ? mbDark() : mbLight());
+          expect(t.takeException(), isNull, reason: '$done 세트에서 넘쳤습니다');
+          expect(find.descendant(of: button, matching: find.text('추천 117.5kg')), findsOneWidget);
+          final r = t.getRect(button);
+          final card = t.getRect(row);
+          expect(r.left, greaterThanOrEqualTo(card.left));
+          expect(r.right, lessThanOrEqualTo(card.right), reason: '$done 세트 — 단추가 줄 밖으로');
+          expect(r.height, greaterThanOrEqualTo(WeightButton.minHeight));
+          /* 글자는 줄임표로 잘리지 않고(「추천 11…」 은 무게를 못 읽습니다), 너무 작아지지도 않습니다. */
+          final label = find.descendant(of: button, matching: find.text('추천 117.5kg'));
+          expect(t.renderObject<RenderParagraph>(label).didExceedMaxLines, isFalse);
+          final shown = t.getRect(label).width;                       // FittedBox 로 줄어든 뒤의 폭
+          final natural = t.renderObject<RenderParagraph>(label).size.width;
+          expect(shown / natural, greaterThan(0.75), reason: '$done 세트 — 무게 글자가 너무 줄었습니다');
+          expect(find.descendant(of: button, matching: find.byIcon(LucideIcons.chevronDown)), findsOneWidget);
+        }
+      });
+    }
+  });
+
   group('운동 알림 — 헬스를 계획했는데 안 간 날 저녁 8시 반', () {
     final schedule = <String, Object?>{
       '2026-09-24': {'plan': ['gym'], 'done': {}},                       // 오늘 — 안 감
@@ -1228,7 +1377,8 @@ void main() {
 /// 글자('세트')는 줄마다 같아서 글자로는 어느 줄인지 못 고릅니다.
 Finder exerciseRow(String name) => find.byKey(ValueKey('ex-${slugOf(name)}'));
 Finder setButton(String name) => find.byKey(ValueKey('set-${slugOf(name)}'));
-Finder kgChip(String name) => find.byKey(ValueKey('kg-${slugOf(name)}'));
+/// 무게 단추(WeightButton) — 예전 이름은 「무게 칩」(피드백 38 에서 알약 → 단추).
+Finder kgButton(String name) => find.byKey(ValueKey('kg-${slugOf(name)}'));
 
 /// 꾹 눌러(긴 누름) 끌어다 놓기 — ReorderableDelayedDragStartListener 는 kLongPressTimeout 뒤에
 /// 끌기를 시작합니다. 몇 걸음에 나눠 움직여야 목록이 자리를 바꿉니다.

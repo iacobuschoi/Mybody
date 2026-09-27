@@ -13,6 +13,14 @@
  *   · 「하루에 쓸 머신 수」 — 헬스장에 있는 머신 수가 아니라 한 번 운동에 돌
  *     머신 수입니다(13). 세그먼트 2 · 4 · 6 · 제한 없음.
  *   · 익숙한 종목은 부위별로 묶인 칩, 「추가」 는 종목 고르기 시트(두 번 터치).
+ *     칩은 접혀 있습니다(피드백 39: "설정에서 익숙한 종목은 펼치기 버튼 만들어서
+ *     펼쳐야 보이게"). 칩이 17개를 넘으면 설정이 끝없이 길어져 그 아래 「계정」
+ *     까지 한참 내려가야 했습니다. 머리글 한 줄 「익숙한 종목 17개 ⌄」 이 전부이고,
+ *     그 줄 어디를 눌러도 펼쳐집니다. 「추가」 는 접힌 채로도 됩니다 — 넣는 데
+ *     목록을 볼 필요는 없고, 숫자가 늘어난 것으로 들어간 줄 압니다. 펼친 목록
+ *     끝에도 「접기」 — 긴 목록을 내려오면 머리글은 이미 화면 밖이기 때문입니다.
+ *     접힘은 저장하지 않습니다: 설정을 열 때마다 짧은 설정이 기본입니다.
+ *     플랜 탭에서 여는 GymSettingsScreen 도 같은 카드라 똑같이 접혀 있습니다.
  *   · 맨 위 한 줄 요약. 설정을 안 만진 사람은 초보 프리셋(머신 4개 + 덤벨,
  *     15)이고 「초보 기본」 표가 붙습니다. 바꾼 뒤에는 「초보 기본으로」 로 돌아옵니다.
  *
@@ -207,27 +215,14 @@ class GymSettingsCard extends StatelessWidget {
               maxLines: 1, overflow: TextOverflow.ellipsis, style: hint),
         ],
 
-        const SizedBox(height: 12),
-        Row(children: [
-          Expanded(child: Text('익숙한 종목', style: label)),
-          TextButton.icon(
-            key: const Key('gym-fam-add'),
-            style: TextButton.styleFrom(
-                visualDensity: VisualDensity.compact,
-                padding: const EdgeInsets.symmetric(horizontal: 8)),
-            onPressed: () => _addFamiliar(context, app),
-            icon: const Icon(LucideIcons.plus, size: 16),
-            label: const Text('추가'),
-          ),
-        ]),
-        if (prefs.familiar.isEmpty)
-          Text('없음', style: hint)
-        else
-          _FamiliarChips(
-            ids: prefs.familiar,
-            onRemove: (id) => updateGymPrefs(
-                app, (p) => p.copyWith(familiar: [for (final x in p.familiar) if (x != id) x])),
-          ),
+        /* 익숙한 종목 — 접힌 채 시작합니다(피드백 39). 펼침은 이 카드가 아니라 아래
+           위젯이 들고 있어, 카드는 상태 없이 저장소만 읽는 모양을 지킵니다. */
+        _FamiliarSection(
+          ids: prefs.familiar,
+          onAdd: () => _addFamiliar(context, app),
+          onRemove: (id) => updateGymPrefs(
+              app, (p) => p.copyWith(familiar: [for (final x in p.familiar) if (x != id) x])),
+        ),
       ]),
     );
   }
@@ -440,6 +435,171 @@ class _EquipTile extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// 익숙한 종목 칸 — 머리글 한 줄 「익숙한 종목 17개 ⌄ ··· + 추가」 와, 펼쳤을 때만
+/// 보이는 칩(피드백 39). 접힘은 이 위젯의 것이고 저장하지 않습니다 — 설정을 다시
+/// 열면 언제나 접힌 짧은 설정입니다.
+///   · 머리글은 「추가」 를 뺀 자리 전체가 펼치기 단추입니다(작은 ⌄ 만 누르게 하면
+///     빗나갑니다). 개수는 머리글에 — 접힌 채로도 몇 개인지는 보여야 합니다.
+///   · 목록이 비면 펼칠 것이 없어 ⌄ 도 없고 「없음」 한 마디뿐입니다.
+///   · 「추가」 는 접힌 채로 둡니다 — 개수가 늘어난 것이 곧 답입니다.
+///   · 접힌 동안 칩은 트리에서 빠집니다(안 보이는 칩 스무 개를 그리지 않게). 펼침 ·
+///     접힘은 높이가 짧게 늘고 줄어드는 것 하나 — 칩이 뚝 사라지고 빈자리가 줄어드는
+///     것보다, 칩을 품은 채 닫히는 쪽이 「접혔다」 로 읽힙니다.
+class _FamiliarSection extends StatefulWidget {
+  const _FamiliarSection({required this.ids, required this.onAdd, required this.onRemove});
+
+  final List<String> ids;
+  final VoidCallback onAdd;
+  final ValueChanged<String> onRemove;
+
+  @override
+  State<_FamiliarSection> createState() => _FamiliarSectionState();
+}
+
+class _FamiliarSectionState extends State<_FamiliarSection> with SingleTickerProviderStateMixin {
+  static const _dur = Duration(milliseconds: 220);
+
+  /* initState 에서 만듭니다 — `late final ... = AnimationController(...)` 로 두면
+     목록이 빈 채(한 번도 안 쓴 채) 닫힐 때 dispose() 가 처음 만들려다 이미 떨어진
+     트리에서 TickerMode 를 찾아 터집니다. */
+  late final AnimationController _ctl;
+  late final Animation<double> _size;
+  /// ⌄ 가 펼칠 때 반 바퀴 돌아 ⌃ — 같은 자리에서 다시 누르면 접힌다는 표.
+  late final Animation<double> _turns;
+
+  /// 머리글(위 12px 여백 포함) — 끝의 「접기」 가 여기로 화면을 되돌립니다.
+  final _head = GlobalKey();
+  bool _open = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctl = AnimationController(vsync: this, duration: _dur);
+    _size = CurvedAnimation(parent: _ctl, curve: Curves.easeOutCubic, reverseCurve: Curves.easeInCubic);
+    _turns = Tween<double>(begin: 0, end: 0.5).animate(_size);
+  }
+
+  @override
+  void didUpdateWidget(covariant _FamiliarSection old) {
+    super.didUpdateWidget(old);
+    /* 마지막 칩을 빼면 「없음」. 그 뒤 「추가」 로 다시 채워도 처음처럼 접힌 채입니다 —
+       빈 목록에는 펼침이라는 상태가 없습니다. */
+    if (widget.ids.isEmpty && _open) {
+      _open = false;
+      _ctl.value = 0;
+    }
+  }
+
+  @override
+  void dispose() {
+    _ctl.dispose();
+    super.dispose();
+  }
+
+  /// [reveal] — 목록 끝의 「접기」 에서만. 긴 목록을 내려와 접으면 칩이 빠진 자리로
+  /// 아래 카드가 올라와, 방금 무엇을 접었는지 안 보입니다. 머리글이 화면 위로
+  /// 나가 있을 때만 그 머리글이 보이는 데까지 되돌립니다(보이면 가만히).
+  void _toggle({bool reveal = false}) {
+    setState(() => _open = !_open);
+    if (_open) {
+      _ctl.forward();
+    } else {
+      _ctl.reverse();
+    }
+    final head = _head.currentContext;
+    if (reveal && head != null) {
+      Scrollable.ensureVisible(head,
+          duration: _dur,
+          curve: Curves.easeOutCubic,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtStart);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final hint = t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5);
+    final label = t.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700);
+    final n = widget.ids.length;
+    final compact = TextButton.styleFrom(
+        visualDensity: VisualDensity.compact, padding: const EdgeInsets.symmetric(horizontal: 8));
+
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Padding(
+        key: _head,
+        padding: const EdgeInsets.only(top: 12),
+        child: Row(children: [
+          Expanded(
+            child: n == 0
+                ? Text('익숙한 종목', maxLines: 1, overflow: TextOverflow.ellipsis, style: label)
+                : Semantics(
+                    button: true,
+                    expanded: _open,
+                    child: InkWell(
+                      key: const Key('gym-fam-toggle'),
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: _toggle,
+                      /* 높이는 옆 「추가」(compact 40px)와 같게 — 손가락이 닿는 줄 전체. */
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 40),
+                        child: Row(children: [
+                          Flexible(
+                            child: Text('익숙한 종목',
+                                maxLines: 1, overflow: TextOverflow.ellipsis, style: label),
+                          ),
+                          const SizedBox(width: 6),
+                          Text('$n개',
+                              key: const Key('gym-fam-count'),
+                              maxLines: 1,
+                              style: label?.copyWith(color: t.hintColor)),
+                          const SizedBox(width: 2),
+                          RotationTransition(
+                            turns: _turns,
+                            child: Icon(LucideIcons.chevronDown, size: 16, color: t.hintColor),
+                          ),
+                        ]),
+                      ),
+                    ),
+                  ),
+          ),
+          TextButton.icon(
+            key: const Key('gym-fam-add'),
+            style: compact,
+            onPressed: widget.onAdd,
+            icon: const Icon(LucideIcons.plus, size: 16),
+            label: const Text('추가'),
+          ),
+        ]),
+      ),
+      if (n == 0)
+        Text('없음', style: hint)
+      else
+        AnimatedBuilder(
+          animation: _ctl,
+          /* 다 접히면(dismissed) 칩을 트리에서 뺍니다 — 그 전까지는 높이만 줄입니다. */
+          builder: (context, child) => _ctl.isDismissed
+              ? const SizedBox(width: double.infinity)
+              : ClipRect(
+                  child: Align(alignment: Alignment.topLeft, heightFactor: _size.value, child: child)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            _FamiliarChips(ids: widget.ids, onRemove: widget.onRemove),
+            const SizedBox(height: 4),
+            /* 목록 끝의 「접기」 — 머리글까지 다시 올라가지 않아도 되게. */
+            Center(
+              child: TextButton.icon(
+                key: const Key('gym-fam-collapse'),
+                style: compact,
+                onPressed: () => _toggle(reveal: true),
+                icon: const Icon(LucideIcons.chevronUp, size: 16),
+                label: const Text('접기'),
+              ),
+            ),
+          ]),
+        ),
+    ]);
   }
 }
 

@@ -573,7 +573,10 @@ void main() {
     await t.pump(const Duration(milliseconds: 200));
     expect(find.text('서버'), findsNothing);
     expect(find.text('계정'), findsOneWidget);
+    /* 로그아웃은 계정 카드가 아니라 맨 아래 한 곳(피드백 40 — 자세한 건
+       settings_logout_test.dart). */
     expect(find.text('로그아웃'), findsOneWidget);
+    expect(find.byKey(const Key('settings-logout')), findsOneWidget);
     expect(find.text('계정 관리'), findsOneWidget);
     expect(find.textContaining('서버 주소'), findsNothing);
     expect(find.text('내 기록 내보내기'), findsOneWidget);

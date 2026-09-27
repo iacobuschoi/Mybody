@@ -1,13 +1,16 @@
 /* =============================================================================
  * workout_tutorial_test.dart — 헬스 화면 「따라 해 보기」 가 **실제로 가르치는가**
  *
- * 네 단계를 손으로 따라 해 봅니다(세트 · 무게 칩 · 밀어 빼기 · 꾹 눌러 옮기기).
+ * 네 단계를 손으로 따라 해 봅니다(세트 · 무게 단추 · 밀어 빼기 · 꾹 눌러 옮기기).
  * 단계마다 체크가 뜨고 알아서 다음으로 가는지, 넷째를 해내면 닫히는지, 「건너뛰기」 가 늘 되는지,
  * 한 번 본 뒤에는 안 뜨는지, 그리고 연습이 실제 기록에 아무것도 남기지 않는지.
  * 헬스 화면의 첫 진입(튜토리얼 → 건너뛴 사람의 첫 줄 힌트)도 여기서 봅니다.
+ * 무게 단계(피드백 38)는 따로: 「칩」 없는 말, 두근이 끝나는지(끝없는 애니메이션이면
+ * pumpAndSettle 이 안 끝납니다), 「확인」 없이 닫으면 넘어가지 않는지.
  * ========================================================================== */
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -44,6 +47,7 @@ final Finder practiceSet = find.byKey(ValueKey('set-${slugOf('연습 종목')}')
 final Finder practiceKg = find.byKey(ValueKey('kg-${slugOf('연습 종목')}'));
 final Finder check = find.byKey(const ValueKey('tut-check'));
 final Finder skip = find.byKey(const ValueKey('tut-skip'));
+final Finder sub = find.byKey(const ValueKey('tut-sub'));
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -86,11 +90,11 @@ void main() {
     return a;
   }
 
-  Widget host(AppState app, Widget child) => Scope(
+  Widget host(AppState app, Widget child, {ThemeData? theme}) => Scope(
         state: app,
         api: api(),
         onServerChange: (_) async {},
-        child: MaterialApp(theme: mbLight(), home: child),
+        child: MaterialApp(theme: theme ?? mbLight(), home: child),
       );
 
   void size(WidgetTester t, double width) {
@@ -124,7 +128,10 @@ void main() {
     expect(check, findsNothing);
     expect(t.takeException(), isNull);
 
-    /* ② 무게 칩 → 실제와 같은 스테퍼 */
+    /* ② 무게 단추 → 실제와 같은 스테퍼. 「칩」 이라는 말은 없습니다(피드백 38). */
+    expect(find.text('무게를 눌러 보세요'), findsOneWidget);
+    expect(find.textContaining('칩'), findsNothing);
+    expect(t.widget<WeightButton>(practiceKg).highlight, isTrue, reason: '누를 곳이 두근거립니다');
     expect(find.descendant(of: practiceKg, matching: find.text('추천 20kg')), findsOneWidget);
     await t.tap(practiceKg);
     await t.pumpAndSettle();
@@ -134,7 +141,7 @@ void main() {
     await t.tap(find.byKey(const ValueKey('kg-ok')));
     await t.pumpAndSettle();
     final up = kgText(20 + stepFor('machine', 20));
-    expect(find.descendant(of: practiceKg, matching: find.text('${up}kg')), findsOneWidget, reason: '정한 무게가 칩에 — 머신 단위만큼');
+    expect(find.descendant(of: practiceKg, matching: find.text('${up}kg')), findsOneWidget, reason: '정한 무게가 단추에 — 머신 단위만큼');
     expect(check, findsOneWidget);
     await t.pump(const Duration(milliseconds: 800));
     expect(step(t), '3/4');
@@ -214,6 +221,176 @@ void main() {
       final app = await fresh();
       size(t, 360);
       await t.pumpWidget(host(app, _Launch(onResult: (_) {})));
+      await t.tap(find.text('열기'));
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+      await followAll(t);
+    });
+  });
+
+  group('2단계 — 무게 (피드백 38: "무게 눌러보라는데 좀 비직관적이야")', () {
+    /// 튜토리얼을 열고 1단계(세트)를 해내 2단계에 섭니다.
+    Future<void> toWeightStep(WidgetTester t, AppState app, {ThemeData? theme}) async {
+      await t.pumpWidget(host(app, _Launch(onResult: (_) {}), theme: theme));
+      await t.tap(find.text('열기'));
+      await t.pumpAndSettle();
+      expect(t.widget<WeightButton>(practiceKg).highlight, isFalse, reason: '1단계에서는 무게 단추를 강조하지 않습니다');
+      await t.tap(practiceSet);
+      await t.pump();
+      await t.pump(const Duration(milliseconds: 800));
+      expect(step(t), '2/4');
+    }
+
+    String subText(WidgetTester t) => t.widget<Text>(sub).data!;
+
+    /// 무게 단추의 판 — 테두리를 봅니다.
+    BorderSide ring(WidgetTester t) {
+      final m = t.widget<Material>(find.descendant(of: practiceKg, matching: find.byType(Material)).first);
+      return (m.shape! as StadiumBorder).side;
+    }
+
+    testWidgets('말은 「무게를 눌러 보세요」 · 「+ · − 로 맞추고 「확인」」 — 칩이라는 말 없이, 시트의 실제 단추 이름으로', (t) async {
+      final app = await fresh();
+      size(t, 1000);
+      await toWeightStep(t, app);
+      expect(find.text('무게를 눌러 보세요'), findsOneWidget);
+      expect(subText(t), '+ · − 로 맞추고 「확인」');
+      expect(find.textContaining('칩'), findsNothing);
+      await t.tap(practiceKg);
+      await t.pumpAndSettle();
+      /* 밑줄이 부르는 이름이 시트의 단추와 같아야 합니다 */
+      expect(find.descendant(of: find.byKey(const ValueKey('kg-ok')), matching: find.text('확인')), findsOneWidget);
+      expect(find.byKey(const ValueKey('kg-plus')), findsOneWidget);
+      expect(find.byKey(const ValueKey('kg-minus')), findsOneWidget);
+    });
+
+    testWidgets('「확인」 없이 닫으면 넘어가지 않고 밑줄이 알려 준다 — 「확인」 하면 그때 넘어간다', (t) async {
+      final app = await fresh();
+      size(t, 1000);
+      await toWeightStep(t, app);
+
+      /* 열어 보고 그냥 닫기 — 바깥(막)을 눌러서 */
+      await t.tap(practiceKg);
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('kg-value')), findsOneWidget);
+      await t.tapAt(const Offset(500, 20));
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('kg-value')), findsNothing, reason: '시트가 닫혔습니다');
+      expect(check, findsNothing, reason: '열어 보기만 한 것은 해낸 것이 아닙니다');
+      await t.pump(const Duration(seconds: 1));
+      expect(step(t), '2/4', reason: '「확인」 없이 닫으면 그 자리');
+      expect(subText(t), '「확인」 을 눌러야 바뀝니다');
+      expect(find.descendant(of: practiceKg, matching: find.text('추천 20kg')), findsOneWidget, reason: '무게도 그대로');
+
+      /* 아래로 끌어 닫아도 마찬가지 */
+      await t.tap(practiceKg);
+      await t.pumpAndSettle();
+      await t.fling(find.byKey(const ValueKey('kg-value')), const Offset(0, 600), 2000);
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('kg-value')), findsNothing);
+      await t.pump(const Duration(seconds: 1));
+      expect(step(t), '2/4');
+      expect(check, findsNothing);
+
+      /* 다시 열어 올리고 「확인」 — 이번엔 넘어갑니다 */
+      await t.tap(practiceKg);
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('kg-plus')));
+      await t.pump();
+      await t.tap(find.byKey(const ValueKey('kg-ok')));
+      await t.pumpAndSettle();
+      expect(find.descendant(of: practiceKg, matching: find.text('${kgText(20 + stepFor('machine', 20))}kg')),
+          findsOneWidget);
+      expect(check, findsOneWidget);
+      /* 체크가 뜬 0.7초 동안 밑줄이 아직 「「확인」 을 눌러야…」 면 방금 누른 사람에게 거짓말 */
+      expect(subText(t), '+ · − 로 맞추고 「확인」', reason: '「확인」 했으니 알림은 바로 거둡니다');
+      await t.pump(const Duration(milliseconds: 800));
+      expect(step(t), '3/4');
+      expect(subText(t), '5초 안에 「되돌리기」 할 수 있습니다', reason: '다음 장은 그 장의 밑줄 — 알림은 남지 않습니다');
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('무게를 안 바꿔도 「확인」 이면 해낸 것 — 추천 그대로 확인', (t) async {
+      final app = await fresh();
+      size(t, 1000);
+      await toWeightStep(t, app);
+      await t.tap(practiceKg);
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('kg-ok')));
+      await t.pumpAndSettle();
+      expect(check, findsOneWidget);
+      expect(find.descendant(of: practiceKg, matching: find.text('20kg')), findsOneWidget, reason: '정했으니 「추천」 이 떨어집니다');
+      await t.pump(const Duration(milliseconds: 800));
+      expect(step(t), '3/4');
+    });
+
+    testWidgets('「건너뛰기」 는 무게 단계에서도 — 시트를 한 번 닫은 뒤에도', (t) async {
+      final app = await fresh();
+      size(t, 1000);
+      await toWeightStep(t, app);
+      await t.tap(practiceKg);
+      await t.pumpAndSettle();
+      await t.tapAt(const Offset(500, 20));
+      await t.pumpAndSettle();
+      expect(subText(t), '「확인」 을 눌러야 바뀝니다');
+      await t.tap(skip);
+      await t.pumpAndSettle();
+      expect(find.byType(WorkoutTutorial), findsNothing);
+      expect(WorkoutTutorial.seen(app.state), isTrue);
+    });
+
+    testWidgets('무게 단추는 강조색 테두리로 몇 번 두근거리고 멈춘다 — 끝이 있어서 pumpAndSettle 이 끝난다', (t) async {
+      final app = await fresh();
+      size(t, 1000);
+      await toWeightStep(t, app);
+      final primary = mbLight().colorScheme.primary;
+      expect(ring(t).color, primary);
+      expect(ring(t).width, 2);
+      await t.pump(const Duration(milliseconds: 150));
+      expect(t.hasRunningAnimations, isTrue, reason: '두근거리는 중');
+      /* 두근 중에는 둘레에 강조색 번짐이 있습니다 */
+      final halo = t.widget<DecoratedBox>(find.descendant(of: practiceKg, matching: find.byType(DecoratedBox)).first);
+      expect((halo.decoration as ShapeDecoration).shadows, isNotEmpty);
+
+      final pumps = await t.pumpAndSettle();                 // 끝없으면 여기서 시간 초과로 실패합니다
+      expect(pumps * 100, lessThanOrEqualTo(WeightButton.pulseDuration.inMilliseconds + 300),
+          reason: '두근은 ${WeightButton.pulseDuration.inMilliseconds}ms 안에 끝납니다');
+      expect(t.hasRunningAnimations, isFalse);
+      expect(ring(t).color, primary, reason: '두근이 끝나도 테두리는 남습니다');
+      final still = t.widget<DecoratedBox>(find.descendant(of: practiceKg, matching: find.byType(DecoratedBox)).first);
+      expect((still.decoration as ShapeDecoration).shadows, isEmpty);
+      final scale = t.widget<Transform>(find.descendant(of: practiceKg, matching: find.byType(Transform)).first);
+      expect(scale.transform.getMaxScaleOnAxis(), 1.0, reason: '제 크기로 돌아옵니다');
+      expect(step(t), '2/4', reason: '두근이 끝났다고 넘어가지 않습니다');
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('360px · 글자 1.3배 · 다크 — 네 장 모두 넘치지 않고, 알림 밑줄도 들어간다', (t) async {
+      final app = await fresh();
+      size(t, 360);
+      t.platformDispatcher.textScaleFactorTestValue = 1.3;
+      addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
+      await toWeightStep(t, app, theme: mbDark());
+      expect(t.takeException(), isNull);
+      expect(ring(t).color, mbDark().colorScheme.primary);
+      final button = t.getRect(practiceKg);
+      expect(button.right, lessThanOrEqualTo(t.getRect(practiceRow).right));
+      expect(button.height, greaterThanOrEqualTo(WeightButton.minHeight));
+      await t.tap(practiceKg);
+      await t.pumpAndSettle();
+      await t.tapAt(const Offset(180, 20));
+      await t.pumpAndSettle();
+      expect(subText(t), '「확인」 을 눌러야 바뀝니다');
+      expect(t.renderObject<RenderParagraph>(sub).didExceedMaxLines, isFalse);
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('360px · 글자 1.3배 — 네 장을 끝까지 따라 해도 넘치지 않는다', (t) async {
+      final app = await fresh();
+      size(t, 360);
+      t.platformDispatcher.textScaleFactorTestValue = 1.3;
+      addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
+      await t.pumpWidget(host(app, _Launch(onResult: (_) {}), theme: mbDark()));
       await t.tap(find.text('열기'));
       await t.pumpAndSettle();
       expect(t.takeException(), isNull);

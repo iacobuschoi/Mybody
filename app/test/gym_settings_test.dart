@@ -8,6 +8,13 @@
  * 보는 것: 장소 카드 → 프리셋, 기구 타일 토글(맨몸은 잠김), 머신 수 세그먼트 →
  * machineCount, 익숙한 종목은 고르기 시트를 거쳐 id 로 남고 부위별 칩이 되는가,
  * 초보 프리셋 표와 되돌리기.
+ *
+ * 익숙한 종목 칩은 접힌 채 시작합니다(피드백 39: "설정에서 익숙한 종목은 펼치기
+ * 버튼 만들어서 펼쳐야 보이게"). 그래서 칩을 보는 시험은 먼저 머리글을 눌러
+ * 펼칩니다(expandFamiliar). 접힘 자체는 맨 아래 묶음이 봅니다 — 처음엔 접힘 ·
+ * 머리글 어디를 눌러도 펼침/접힘 · 목록 끝 「접기」 가 화면 밖 머리글을 되돌림 ·
+ * 「추가」 는 접힌 채 개수만 · 빈 목록은 「없음」 뿐 · 360px 에 글자 1.3배, 밝게 ·
+ * 어둡게 둘 다 넘치지 않음.
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -51,22 +58,36 @@ void main() {
     return a;
   }
 
-  Widget host(AppState app, Widget child) => Scope(
+  Widget host(AppState app, Widget child, {ThemeData? theme}) => Scope(
         state: app,
         api: api(),
         onServerChange: (_) async {},
-        child: MaterialApp(theme: mbLight(), home: child),
+        child: MaterialApp(theme: theme ?? mbLight(), home: child),
       );
 
   /// 360px 폰. 높이는 넉넉히 — 카드가 한 화면에 다 그려져야 찾을 수 있습니다.
-  Future<AppState> open(WidgetTester t, {double height = 1600}) async {
+  /// [below] 는 카드 아래 자리 — 설정 화면처럼 밑에 다른 카드가 이어지는 모양.
+  Future<AppState> open(WidgetTester t, {double height = 1600, List<Widget> below = const []}) async {
     final app = await seeded();
     t.view.physicalSize = Size(360, height);
     t.view.devicePixelRatio = 1.0;
     addTearDown(t.view.reset);
-    await t.pumpWidget(host(app, Scaffold(body: ListView(children: const [GymSettingsCard()]))));
+    await t.pumpWidget(host(app, Scaffold(body: ListView(children: [const GymSettingsCard(), ...below]))));
     await t.pump();
     return app;
+  }
+
+  final famToggle = find.byKey(const Key('gym-fam-toggle'));
+  final famCollapse = find.byKey(const Key('gym-fam-collapse'));
+  final famAdd = find.byKey(const Key('gym-fam-add'));
+  String? famCount(WidgetTester t) => t.widget<Text>(find.byKey(const Key('gym-fam-count'))).data;
+
+  /// 익숙한 종목 칩을 펼칩니다 — 칩은 접힌 채 시작합니다(피드백 39).
+  Future<void> expandFamiliar(WidgetTester t) async {
+    await t.ensureVisible(famToggle);
+    await t.pumpAndSettle();
+    await t.tap(famToggle);
+    await t.pumpAndSettle();
   }
 
   Map<String, Object?> saved(AppState app) =>
@@ -231,9 +252,12 @@ void main() {
       await t.tap(find.byKey(const ValueKey('pick-done')));                        // 터치 3
       await t.pumpAndSettle();
       expect(saved(app)['familiar'], ['chest-press-machine']);
+      expect(find.textContaining('익숙한 종목 1개'), findsOneWidget);
+      /* 칩은 접힌 채(피드백 39) — 펼쳐야 보입니다. */
+      expect(find.byType(InputChip), findsNothing);
+      await expandFamiliar(t);
       expect(find.widgetWithText(InputChip, '체스트 프레스 머신'), findsOneWidget);
       expect(find.text('가슴'), findsOneWidget, reason: '부위 머리글');
-      expect(find.textContaining('익숙한 종목 1개'), findsOneWidget);
 
       /* 다시 열면 체크된 채 — 하나 더 고르면 둘, 순서는 먼저 고른 것이 앞. */
       await t.tap(find.byKey(const Key('gym-fam-add')));
@@ -251,7 +275,7 @@ void main() {
       /* 칩의 x 로 뺍니다. */
       await t.tap(find.descendant(
           of: find.byKey(const Key('gym-fam-chest-press-machine')), matching: find.byType(Icon)));
-      await t.pump();
+      await t.pumpAndSettle();
       expect(saved(app)['familiar'], ['leg-press']);
       expect(find.text('가슴'), findsNothing);
       expect(t.takeException(), isNull);
@@ -261,6 +285,7 @@ void main() {
       final app = await open(t, height: 2400);
       updateGymPrefs(app, (p) => p.copyWith(familiar: ['plank', 'future-machine-x', 'old-id-y']));
       await t.pump();
+      await expandFamiliar(t);
       expect(find.text('기타'), findsOneWidget);
       await t.tap(find.byKey(const Key('gym-fam-add')));
       await t.pumpAndSettle();
@@ -280,6 +305,7 @@ void main() {
       final app = await open(t, height: 2400);
       updateGymPrefs(app, (p) => p.copyWith(familiar: ['plank']));
       await t.pump();
+      await expandFamiliar(t);
       await t.tap(find.byKey(const Key('gym-fam-add')));
       await t.pumpAndSettle();
       await t.tapAt(const Offset(180, 20));                                          // 시트 밖
@@ -324,6 +350,7 @@ void main() {
       ids.add('unknown-exercise-id');
       updateGymPrefs(app, (p) => p.copyWith(equipment: {...kGymEquipment, 'band', 'kettlebell'}, familiar: ids));
       await t.pump();
+      await expandFamiliar(t);
       for (final g in kGroupLabel.values) {
         expect(find.text(g), findsOneWidget, reason: g);
       }
@@ -337,6 +364,8 @@ void main() {
       await t.pumpWidget(host(app, const GymSettingsScreen()));
       await t.pump();
       expect(find.byType(GymSettingsCard), findsOneWidget);
+      expect(find.byType(InputChip), findsNothing, reason: '플랜 탭에서 연 화면도 접힌 채');
+      await expandFamiliar(t);
       for (final s in ['무제한', '2', '초보 기본으로', '머신은 이만큼만, 나머지는 프리웨이트·맨몸',
           '머신·프리웨이트', '맨몸·소도구', ...kEquipLabel.values, ...kGroupLabel.values]) {
         fits(t, s);
@@ -345,5 +374,158 @@ void main() {
       expect(summary.didExceedMaxLines, isFalse, reason: '요약이 잘렸습니다');
       expect(t.takeException(), isNull);
     });
+  });
+
+  /* --- 익숙한 종목 — 접어 두기(피드백 39) ------------------------------------
+   * "설정에서 익숙한 종목은 펼치기 버튼 만들어서 펼쳐야 보이게" — 칩이 17개를 넘으면
+   * 설정이 끝없이 길어졌습니다. 머리글 한 줄(「익숙한 종목 n개 ⌄」 + 「추가」)이 전부. */
+  group('설정 — 익숙한 종목은 접힌 채(피드백 39)', () {
+    /// 부위마다 이름이 가장 긴 종목 셋씩 + 사전에 없는 번호 하나 — 긴 목록.
+    List<String> longList() {
+      final ids = <String>[];
+      for (final g in kGroupLabel.keys) {
+        final xs = exercisesFor(g).toList()..sort((a, b) => b.name.length.compareTo(a.name.length));
+        ids.addAll(xs.take(3).map((e) => e.id));
+      }
+      return ids..add('unknown-exercise-id');
+    }
+
+    testWidgets('처음은 접힘 — 칩 없이 개수만, 머리글 어디를 눌러도 펼치고 다시 누르면 접는다', (t) async {
+      final app = await open(t, height: 2400);
+      const ids = ['plank', 'leg-press', 'chest-press-machine'];
+      updateGymPrefs(app, (p) => p.copyWith(familiar: ids));
+      await t.pump();
+      expect(famToggle, findsOneWidget);
+      expect(famCount(t), '3개');
+      expect(find.byType(InputChip), findsNothing);
+      for (final id in ids) {
+        expect(find.byKey(Key('gym-fam-$id')), findsNothing, reason: id);
+      }
+      expect(find.text('가슴'), findsNothing, reason: '부위 머리글도 같이 접힙니다');
+      expect(famCollapse, findsNothing);
+      expect(famAdd, findsOneWidget, reason: '「추가」 는 접힌 채로도 보입니다');
+
+      /* 글자(왼쪽 끝)를 눌러도 펼칩니다. */
+      await t.tap(find.text('익숙한 종목'));
+      await t.pumpAndSettle();
+      for (final id in ids) {
+        expect(find.byKey(Key('gym-fam-$id')), findsOneWidget, reason: id);
+      }
+      expect(find.text('가슴'), findsOneWidget);
+      expect(famCollapse, findsOneWidget, reason: '목록 끝의 「접기」');
+
+      /* 「추가」 바로 왼쪽 빈자리(⌄ 에서 먼 곳)를 눌러도 접힙니다 — 머리글 줄 전체가 단추. */
+      final r = t.getRect(famToggle);
+      expect(t.getRect(famAdd).left, greaterThanOrEqualTo(r.right - 0.01), reason: '「추가」 는 따로');
+      await t.tapAt(Offset(r.right - 4, r.center.dy));
+      await t.pumpAndSettle();
+      expect(find.byType(InputChip), findsNothing);
+      expect(famCollapse, findsNothing);
+      expect(saved(app)['familiar'], ids, reason: '펼치고 접는 것은 저장된 값을 건드리지 않습니다');
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('목록 끝의 「접기」 — 접히고, 화면 위로 나간 머리글이 다시 보인다', (t) async {
+      /* 설정처럼 카드 밑에 다른 것이 길게 이어지는 700px 화면. */
+      const height = 700.0;
+      final app = await open(t, height: height, below: const [SizedBox(height: 1600)]);
+      final ids = longList();
+      updateGymPrefs(app, (p) => p.copyWith(familiar: ids));
+      await t.pump();
+      await expandFamiliar(t);
+      await t.scrollUntilVisible(famCollapse, 200);
+      await t.pumpAndSettle();
+      expect(t.getRect(famToggle).bottom, lessThan(0), reason: '긴 목록 끝에서는 머리글이 화면 밖입니다');
+
+      await t.tap(famCollapse);
+      await t.pumpAndSettle();
+      expect(find.byType(InputChip), findsNothing);
+      expect(famCollapse, findsNothing);
+      final r = t.getRect(famToggle);
+      expect(r.top, greaterThanOrEqualTo(0), reason: '접은 뒤 머리글이 보여야 무엇을 접었는지 압니다');
+      expect(r.bottom, lessThanOrEqualTo(height));
+      expect(famCount(t), '${ids.length}개');
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('「추가」 는 접힌 채로 된다 — 칩은 안 펼쳐지고 개수만 는다', (t) async {
+      final app = await open(t, height: 2400);
+      updateGymPrefs(app, (p) => p.copyWith(familiar: ['plank']));
+      await t.pump();
+      expect(famCount(t), '1개');
+      await t.tap(famAdd);
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('pick-group-chest')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('pick-chest-press-machine')));
+      await t.pump();
+      await t.tap(find.byKey(const ValueKey('pick-done')));
+      await t.pumpAndSettle();
+      expect(saved(app)['familiar'], unorderedEquals(['plank', 'chest-press-machine']));
+      expect(famCount(t), '2개');
+      expect(find.textContaining('익숙한 종목 2개'), findsOneWidget, reason: '맨 위 요약도');
+      expect(find.byType(InputChip), findsNothing, reason: '접힌 채 그대로');
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('비어 있으면 「없음」 뿐 — ⌄ 도 개수도 없다. 마지막 칩을 빼면 「없음」 으로', (t) async {
+      final app = await open(t, height: 2400);
+      expect(find.text('없음'), findsOneWidget);
+      expect(famToggle, findsNothing);
+      expect(find.byKey(const Key('gym-fam-count')), findsNothing);
+      expect(find.text('익숙한 종목'), findsOneWidget, reason: '머리글 글자는 남습니다');
+      expect(famAdd, findsOneWidget);
+
+      updateGymPrefs(app, (p) => p.copyWith(familiar: ['plank']));
+      await t.pump();
+      expect(find.text('없음'), findsNothing);
+      await expandFamiliar(t);
+      await t.tap(find.descendant(of: find.byKey(const Key('gym-fam-plank')), matching: find.byType(Icon)));
+      await t.pumpAndSettle();
+      expect(saved(app)['familiar'], isEmpty);
+      expect(find.text('없음'), findsOneWidget);
+      expect(famToggle, findsNothing);
+      expect(famCollapse, findsNothing);
+
+      /* 다시 채우면 처음처럼 접힌 채 — 빈 목록에는 펼침이라는 상태가 없습니다. */
+      updateGymPrefs(app, (p) => p.copyWith(familiar: ['leg-press']));
+      await t.pumpAndSettle();
+      expect(famToggle, findsOneWidget);
+      expect(find.byType(InputChip), findsNothing);
+      expect(t.takeException(), isNull);
+    });
+
+    for (final (name, theme) in [('밝게', mbLight), ('어둡게', mbDark)]) {
+      testWidgets('360px · 글자 1.3배 · $name — 머리글 · 칩 · 「접기」 가 넘치거나 잘리지 않는다', (t) async {
+        t.platformDispatcher.textScaleFactorTestValue = 1.3;
+        addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
+        final app = await seeded();
+        t.view.physicalSize = const Size(360, 3200);
+        t.view.devicePixelRatio = 1.0;
+        addTearDown(t.view.reset);
+        final ids = longList();
+        updateGymPrefs(app, (p) => p.copyWith(equipment: {...kGymEquipment, 'band', 'kettlebell'}, familiar: ids));
+        /* 설정 화면과 같은 폭 — Scaffold + AppBar, 16px 여백 → 카드 안 294px. */
+        await t.pumpWidget(host(app, const GymSettingsScreen(), theme: theme()));
+        await t.pump();
+        expect(t.takeException(), isNull);
+        for (final s in ['익숙한 종목', '${ids.length}개', '추가']) {
+          fits(t, s);
+        }
+        /* 머리글 줄은 「추가」 와 같은 높이 한 줄 — 1.3배에도 두 줄로 접히지 않습니다. */
+        expect(t.getRect(famToggle).height, lessThanOrEqualTo(t.getRect(famAdd).height + 0.01));
+
+        await expandFamiliar(t);
+        expect(t.takeException(), isNull);
+        for (final s in ['접기', ...kGroupLabel.values]) {
+          fits(t, s);
+        }
+        expect(find.byType(InputChip), findsNWidgets(ids.length));
+        await t.tap(famCollapse);
+        await t.pumpAndSettle();
+        expect(find.byType(InputChip), findsNothing);
+        expect(t.takeException(), isNull);
+      });
+    }
   });
 }

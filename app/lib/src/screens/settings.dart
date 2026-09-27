@@ -10,6 +10,21 @@
  *  2. **계정을 지워도 이 기기의 측정 기록은 안 지워집니다.** 그걸 숨기지
  *     않고 말하고, 지우는 길도 같이 놓습니다. 몸 숫자는 서버에 올라가지
  *     않으므로 계정 삭제로는 사라지지 않습니다 — 두 개는 다른 일입니다.
+ *
+ * 차례(위 → 아래): 내 몸 정보 · 화면 · 운동 환경 · 계정 · 기본 공유(로그인
+ * 했을 때) · 동기화 · 지우기 · **로그아웃(로그인했을 때)** · 작은 글씨
+ * (내보내기 · 가져오기 · 개인정보처리방침) · 앱 버전.
+ *
+ * **로그아웃은 맨 아래 한 곳입니다.** 예전엔 긴 페이지 한가운데 「계정」
+ * 카드 안, 「계정 관리」 옆의 작은 버튼이었고 주인이 못 찾았습니다 —
+ * "설정 하단에 로그아웃 버튼 만들어". 사람은 로그아웃을 설정의 맨 끝에서
+ * 찾습니다. 그래서 거기에 한 줄 폭으로, 아이콘과 함께 두고, 계정 카드에서는
+ * 뺐습니다(두 곳이면 어느 게 진짜인지 또 찾게 됩니다). 색은 빨강이 아니라
+ * 보통 글자색입니다 — 로그아웃은 아무것도 지우지 않습니다. 이 기기의 기록
+ * (Store)도, 계정에 저장된 사본도 그대로이고, 다시 로그인하면 동기화
+ * (cloud.dart, 켜져 있으면)가 둘을 합쳐 이어 갑니다. 빨강은 바로 위 「지우기」 카드의
+ * 몫입니다. 그래도 한 번은 묻습니다 — 잘못 누르면 비밀번호를 다시 쳐야
+ * 하고, 그동안 친구 알림도 이 폰으로 안 옵니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'dart:async';
@@ -39,6 +54,7 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   bool _wiping = false;
+  bool _signingOut = false;
 
   @override
   Widget build(BuildContext context) {
@@ -153,40 +169,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
               style: t.textTheme.bodySmall?.copyWith(color: t.hintColor),
             ),
             const SizedBox(height: 10),
-            Wrap(spacing: 8, children: [
-              if (api.signedIn)
-                OutlinedButton(
-                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => AccountScreen(
-                            api: api,
-                            onServerChange: Scope.serverSetterOf(context),
-                          ))),
-                  child: const Text('계정 관리'),
-                ),
-              if (api.signedIn)
-                OutlinedButton(
-                  onPressed: () async {
-                    await api.signOut();
-                    /* 로그아웃하면 셸이 로그인 화면으로 바뀝니다. 그 위에
-                       설정이 남아 있으면 이상하니 같이 닫습니다. */
-                    if (context.mounted) Navigator.of(context).pop();
-                  },
-                  child: const Text('로그아웃'),
-                ),
-              if (!api.signedIn)
-                FilledButton(
-                  onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-                      builder: (_) => SignInScreen(
-                            api: api,
-                            onDone: () {
-                              Navigator.of(context).pop();
-                              setState(() {});
-                            },
-                            onServerChange: Scope.serverSetterOf(context),
-                          ))),
-                  child: const Text('로그인'),
-                ),
-            ]),
+            /* 로그아웃은 여기 없습니다 — 맨 아래 한 곳(머리 주석). 여기엔
+               「계정 관리」 나 「로그인」 중 하나만 남습니다. */
+            if (api.signedIn)
+              OutlinedButton(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => AccountScreen(
+                          api: api,
+                          onServerChange: Scope.serverSetterOf(context),
+                        ))),
+                child: const Text('계정 관리'),
+              )
+            else
+              FilledButton(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => SignInScreen(
+                          api: api,
+                          onDone: () {
+                            Navigator.of(context).pop();
+                            setState(() {});
+                          },
+                          onServerChange: Scope.serverSetterOf(context),
+                        ))),
+                child: const Text('로그인'),
+              ),
           ]),
         ),
 
@@ -230,6 +236,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ],
           ]),
         ),
+
+        /* 로그아웃 — 설정의 맨 끝, 한 줄 폭(머리 주석). 「지우기」 카드 밑,
+           작은 글씨 위: 카드들을 다 지나 내려온 곳에서 바로 보이고, 빨간
+           「지우기」 와는 카드 경계로 갈라져 헷갈리지 않습니다. 색은
+           onSurface — 파랑(primary)이면 「고치기」 같은 할 일로, 빨강이면
+           지우는 일로 읽힙니다. 로그아웃은 둘 다 아닙니다. */
+        if (api.signedIn)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: OutlinedButton.icon(
+              key: const Key('settings-logout'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: t.colorScheme.onSurface,
+                minimumSize: const Size.fromHeight(48),
+              ),
+              /* 서버가 느리면 로그아웃이 몇 초 걸립니다(알림 등록 빼기 4초 +
+                 요청). 그동안 두 번 누르지 않게 막고, 누른 게 먹었다고 보여 줍니다. */
+              onPressed: _signingOut ? null : () => _signOut(context),
+              icon: const Icon(LucideIcons.logOut, size: 18),
+              label: Text(_signingOut ? '로그아웃하는 중…' : '로그아웃'),
+            ),
+          ),
 
         /* 맨 아래 작은 글씨들 — 자주 쓸 일 없는 것. */
         Wrap(children: [
@@ -462,6 +490,61 @@ class _SettingsScreenState extends State<SettingsScreen> {
          말하고, 그 말을 믿은 사람이 원본 백업 파일을 지웁니다. */
       toast(context, '$e');
     }
+  }
+
+  /* 로그아웃 — 한 번 묻고, 예전 버튼과 똑같이 합니다(api.signOut → 설정 닫기;
+   * 닫기만 셸까지 걷는 쪽으로 — 맨 아래 주석).
+   *
+   * 다이얼로그의 한 줄은 코드가 실제로 하는 일입니다:
+   *   · 이 기기의 기록 — 로그아웃은 Store 를 건드리지 않습니다(지우는 건
+   *     아래 _wipe 의 app.store.reset 뿐). 셸이 로그인 화면으로 가도 기록은
+   *     그대로라 「로그인 없이 쓰기」 로 들어가도 보입니다.
+   *   · 내 계정의 기록 — Api.signOut 은 POST /auth/signout(세션 끝내기)과
+   *     토큰 · 친구/공유 캐시 지우기뿐, 서버 사본은 안 건드립니다.
+   *   · 다시 로그인하면 — cloud.dart 가 로그아웃 때 기준본만 버리고, 로그인
+   *     하면 받아서 이 기기 것과 합칩니다(어느 쪽도 통째로 덮지 않음).
+   *     동기화를 꺼 뒀어도 이 기기 기록이 그대로이니 "이어집니다" 는 참입니다.
+   * 그래서 「지우기」 처럼 "되돌릴 수 없습니다" 가 아니라 안심시키는 한 줄입니다
+   * — 로그아웃을 망설이게 하는 건 "내 기록 날아가나?" 한 가지입니다.
+   *
+   * **알림 등록 빼기는 여기서 따로 부르지 않습니다.** 앱의 Api 는 PushAwareApi
+   * (native_push.dart)라서 signOut 이 로그인이 살아 있을 때 먼저 이 기기를
+   * 알림 받는 곳에서 뺍니다. 로그아웃 길이 여러 곳이라 거기 한 곳에서 잡고,
+   * 예전 버튼도 그것에 기댔습니다. 여기서 또 부르면 DELETE 가 두 번 갑니다. */
+  Future<void> _signOut(BuildContext context) async {
+    final api = Scope.apiOf(context);
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('로그아웃할까요?'),
+        content: const Text('이 기기와 내 계정의 기록은 그대로 남습니다 — 다시 로그인하면 이어집니다.'),
+        actions: [
+          TextButton(
+            key: const Key('settings-logout-cancel'),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('취소'),
+          ),
+          FilledButton(
+            key: const Key('settings-logout-confirm'),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('로그아웃'),
+          ),
+        ],
+      ),
+    );
+    if (yes != true || !context.mounted) return;
+    setState(() => _signingOut = true);
+    /* signOut 은 던지지 않습니다 — 요청 실패 · 저장 실패 · 알림 빼기 실패를
+       전부 안에서 삼키고 토큰은 지웁니다(api.dart · native_push.dart). */
+    await api.signOut();
+    /* 로그아웃하면 셸이 로그인 화면으로 바뀝니다. 그 위에 설정이 남아
+       있으면 이상하니 같이 닫습니다.
+       pop() 이 아니라 셸까지 — 아래 _wipe · _deleteAccount 와 같은 방식.
+       로그아웃은 몇 초 걸리고 그동안 설정의 다른 단추는 살아 있습니다. 그 사이
+       「내 기록 내보내기」 같은 창을 열었으면 pop() 은 **그 창**을 닫고 설정은
+       로그아웃된 채 남았고, 뒤로 가기로 설정이 닫히는 중이었으면 밑의 **셸**을
+       닫았습니다. 셸(첫 자리)까지 걷으면 둘 다 없습니다 — 설정은 셸에서만 엽니다. */
+    if (context.mounted) Navigator.of(context).popUntil((r) => r.isFirst);
   }
 
   /* **지우면 로그아웃까지 합니다.**

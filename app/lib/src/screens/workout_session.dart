@@ -19,13 +19,18 @@
  *     분 칸은 시계를 안 켠 사람(이미 하고 온 사람)에게만 보입니다.
  *   · 아직 오지 않은 날은 저장을 막습니다(코어도 거부합니다) — 내일 할 운동을
  *     오늘 적는 건 기록이 아니라 소원입니다.
- *   · 이 화면에서 바로 고칩니다(2차 피드백 18~21). 종목 줄의 무게 칩은 체성분으로
- *     어림한 시작 무게(workout/loads.dart)이고 지난 30일 기록이 있으면 그 무게 —
- *     누르면 스테퍼로 오늘 쓸 무게를 정합니다. 세트를 다 채운 뒤에도 「+」 로
- *     더 할 수 있고(4/3), 목록 끝의 「종목 추가」 는 두 번 터치(부위 → 종목)로
- *     끝나며, 줄을 왼쪽으로 밀면 빠집니다(5초 안에 되돌리기). 오늘 바꾼 구성은
- *     그 날 기록에 그대로 남고, 종료 시트에서 「내 루틴으로 저장」 을 켜면
- *     workout/routines.dart 에 남아 같은 라벨의 날에 자동으로 다시 씁니다.
+ *   · 이 화면에서 바로 고칩니다(2차 피드백 18~21). 종목 줄의 무게 단추(덤벨 ·
+ *     「추천 20kg」 · ▾ — WeightButton)는 체성분으로 어림한 시작 무게
+ *     (workout/loads.dart)이고 지난 30일 기록이 있으면 그 무게 — 누르면 스테퍼로
+ *     오늘 쓸 무게를 정합니다. 예전엔 글자만 든 알약이라 누르는 것인지 몰랐습니다
+ *     (피드백 38 — "무게 눌러보라는데 좀 비직관적이야"). 단추는 이름 밑 한 줄을
+ *     따로 씁니다 — 좁은 폰에서 무게 글자가 줄지 않게. 튜토리얼의 무게 단계는
+ *     ExerciseRow.highlightKg 로 그 단추를 몇 번 두근거리게 합니다. 세트를 다 채운
+ *     뒤에도 「+」 로 더 할 수 있고(4/3), 목록 끝의 「종목 추가」 는 두 번
+ *     터치(부위 → 종목)로 끝나며, 줄을 왼쪽으로 밀면 빠집니다(5초 안에 되돌리기).
+ *     오늘 바꾼 구성은 그 날 기록에 그대로 남고, 종료 시트에서 「내 루틴으로
+ *     저장」 을 켜면 workout/routines.dart 에 남아 같은 라벨의 날에 자동으로 다시
+ *     씁니다.
  *   · 줄을 꾹 누르면 끌어서 순서를 바꿉니다(3차 피드백 33) — 목록이
  *     ReorderableListView 이고 줄마다 Dismissible 안에 드래그 손잡이(줄 전체)가
  *     있습니다. 바뀐 순서가 곧 기록과 루틴의 순서입니다.
@@ -189,7 +194,7 @@ class WorkoutSessionScreen extends StatefulWidget {
 class _LoadCtx {
   _LoadCtx(AppState app, String dateKey)
       : profile = app.profile ?? core.kSeedProfile,
-        /* 측정이 없으면 체중 70kg 기준 — 칩이 아예 없는 것보다 "안 되면 줄여 보세요"
+        /* 측정이 없으면 체중 70kg 기준 — 무게 단추가 아예 없는 것보다 "안 되면 줄여 보세요"
            가 붙은 어림값이 낫습니다. */
         weightKg = latestWeightKg(app) ?? kFallbackWeightKg,
         smmKg = latestSmmKg(app),
@@ -249,7 +254,7 @@ class GymExercise {
   /// 시간으로 하는 종목의 초(플랭크 30). 반복 종목이면 null. reps 에 '30초' 로도 있지만
   /// 루틴 · 기록에는 숫자로도 남겨야 다음에 읽는 쪽이 문자열을 풀지 않습니다.
   final int? seconds;
-  /// 추천(또는 지난 기록) — 칩의 글자와 힌트, 스테퍼의 단위.
+  /// 추천(또는 지난 기록) — 무게 단추의 글자와 힌트, 스테퍼의 단위.
   final Load load;
   /// 오늘 쓰는 무게. null 은 맨몸.
   double? kg;
@@ -259,7 +264,7 @@ class GymExercise {
 
   bool get complete => done >= sets;
 
-  /// 무게가 있는 기구인가 — 맨몸 · 밴드 줄에는 칩이 없습니다.
+  /// 무게가 있는 기구인가 — 맨몸 · 밴드 줄에는 무게 단추가 없습니다.
   bool get weighted => load.source != 'none';
 
   String get kgLabel {
@@ -344,7 +349,7 @@ class KgPick {
   final double? kg;
 }
 
-/// 무게 칩 → 스테퍼. − · 숫자 · +, 「맨몸」 과 「추천」 한 번에. 답은 [KgPick] —
+/// 무게 단추 → 스테퍼. − · 숫자 · +, 「맨몸」 과 「추천」 한 번에. 답은 [KgPick] —
 /// null 은 "닫았다". 헬스 화면과 튜토리얼의 연습 줄이 같은 시트를 씁니다.
 Future<KgPick?> showKgStepper(BuildContext context, GymExercise e) async {
   final step = e.load.step > 0 ? e.load.step : 2.5;
@@ -735,7 +740,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
       ));
   }
 
-  /// 무게 칩 → 스테퍼(showKgStepper). 정하면 '추천' 이 떨어지고 숫자만 남습니다.
+  /// 무게 단추 → 스테퍼(showKgStepper). 정하면 '추천' 이 떨어지고 숫자만 남습니다.
   Future<void> _editKg(GymExercise e) async {
     final r = await showKgStepper(context, e);
     if (r == null || !mounted) return;
@@ -1745,18 +1750,29 @@ class _RestBanner extends StatelessWidget {
 /// 작게 남습니다 — 계획보다 더 한 세트도 기록입니다(4/3). 줄 자체는 다 한 뒤에는
 /// 안 눌립니다. 초과는 일부러 누르는 것이어야지 스치는 손가락이 아닙니다.
 ///
-/// 이름 밑의 무게 칩('추천 40kg' · 지난 기록이면 '40kg' · '맨몸')은 누르면 스테퍼.
-/// 힌트('안 되면 2.5~5kg 씩 줄여 보세요')는 스테퍼 시트에만 — 줄마다 붙이면 상체
-/// 일곱 줄에 같은 문장 일곱 개입니다. 맨몸 · 밴드 줄에는 칩이 없습니다.
+/// 이름 밑의 무게 단추([WeightButton] — 덤벨 · '추천 40kg' · 지난 기록이면 '40kg' ·
+/// '맨몸' · ▾)는 누르면 스테퍼. 힌트('안 되면 2.5~5kg 씩 줄여 보세요')는 스테퍼
+/// 시트에만 — 줄마다 붙이면 상체 일곱 줄에 같은 문장 일곱 개입니다. 맨몸 · 밴드 줄에는
+/// 무게 단추가 없습니다. [highlightKg] 는 튜토리얼의 무게 단계가 켭니다.
 ///
 /// 키(ex-… · set-… · kg-…)는 종목 이름의 slug — 시험이 줄과 단추를 찾는 손잡이입니다.
 /// 같은 종목은 한 세션에 두 번 안 나오므로(planner 규칙 4) 이름이면 충분합니다.
 class ExerciseRow extends StatelessWidget {
-  const ExerciseRow({super.key, required this.ex, required this.onSet, required this.onUndo, required this.onKg});
+  const ExerciseRow({
+    super.key,
+    required this.ex,
+    required this.onSet,
+    required this.onUndo,
+    required this.onKg,
+    this.highlightKg = false,
+  });
   final GymExercise ex;
   final VoidCallback onSet;
   final VoidCallback onUndo;
   final VoidCallback onKg;
+  /// 무게 단추에 눈길을 모읍니다(강조색 테두리 + 몇 번 두근) — 튜토리얼의 「무게를 눌러
+  /// 보세요」 단계만 켭니다. 실제 헬스 화면에서는 늘 false.
+  final bool highlightKg;
 
   /// 줄 사이 틈(줄 자신의 아래 여백). 밀어 빼는 바탕과 힌트의 빨간 띠가 같은 높이여야 합니다.
   static const double gap = 10;
@@ -1783,89 +1799,260 @@ class ExerciseRow extends StatelessWidget {
           onTap: done ? null : onSet,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
-            child: Row(children: [
-              Icon(done ? LucideIcons.checkCircle2 : LucideIcons.circle,
-                  size: 22, color: done ? c.ok : t.hintColor),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(ex.name,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 2),
-                  /* 계획 한 줄 — 좁은 폰에서 넘치면 뒤(휴식)부터 줄임표. 세트 × 횟수가 앞입니다. */
-                  Text(ex.planLine,
-                      key: ValueKey('plan-$slug'),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
-                  if (ex.note != null)
-                    Text(ex.note!,
-                        key: ValueKey('note-$slug'),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Icon(done ? LucideIcons.checkCircle2 : LucideIcons.circle,
+                    size: 22, color: done ? c.ok : t.hintColor),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(ex.name,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
-                        style: t.textTheme.labelSmall
-                            ?.copyWith(color: t.hintColor.withValues(alpha: t.hintColor.a * 0.7))),
-                  if (ex.weighted)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Pill(ex.kgLabel, key: ValueKey('kg-$slug'), onTap: onKg,
-                            tone: ex.kg == null ? Tone.none : Tone.ok),
-                      ),
-                    ),
+                        style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 2),
+                    /* 계획 한 줄 — 좁은 폰에서 넘치면 뒤(휴식)부터 줄임표. 세트 × 횟수가 앞입니다. */
+                    Text(ex.planLine,
+                        key: ValueKey('plan-$slug'),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
+                    if (ex.note != null)
+                      Text(ex.note!,
+                          key: ValueKey('note-$slug'),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: t.textTheme.labelSmall
+                              ?.copyWith(color: t.hintColor.withValues(alpha: t.hintColor.a * 0.7))),
+                  ]),
+                ),
+                const SizedBox(width: 8),
+                Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+                  _SetDots(done: ex.done, total: ex.sets),
+                  if (done)
+                    Text('완료',
+                        style: t.textTheme.labelSmall?.copyWith(color: c.ok, fontWeight: FontWeight.w700)),
                 ]),
-              ),
-              const SizedBox(width: 8),
-              Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
-                _SetDots(done: ex.done, total: ex.sets),
-                if (done)
-                  Text('완료',
-                      style: t.textTheme.labelSmall?.copyWith(color: c.ok, fontWeight: FontWeight.w700)),
-              ]),
-              const SizedBox(width: 6),
-              if (ex.done > 0)
-                IconButton(
-                  tooltip: '한 세트 빼기',
-                  onPressed: onUndo,
-                  /* 48px 표적 여백을 끄지 않으면 줄에서 48px 을 차지해 이름 자리가 줄어듭니다. */
-                  style: IconButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      minimumSize: const Size(36, 36),
-                      fixedSize: const Size(36, 36),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                  icon: const Icon(LucideIcons.minus, size: 18),
-                ),
-              if (done)
-                IconButton.filledTonal(
-                  key: ValueKey('set-$slug'),
-                  tooltip: '세트 추가',
-                  onPressed: onSet,
-                  style: IconButton.styleFrom(
-                      padding: EdgeInsets.zero,
-                      minimumSize: const Size(36, 36),
-                      fixedSize: const Size(36, 36),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                  icon: const Icon(LucideIcons.plus, size: 18),
-                )
-              else
-                SizedBox(
-                  height: 40,
-                  child: FilledButton.tonalIcon(
-                    key: ValueKey('set-$slug'),
-                    onPressed: onSet,
-                    style: FilledButton.styleFrom(
-                        padding: const EdgeInsets.fromLTRB(12, 0, 14, 0),
-                        minimumSize: const Size(0, 40)),
-                    icon: const Icon(LucideIcons.plus, size: 16),
-                    label: const Text('세트'),
+                const SizedBox(width: 6),
+                if (ex.done > 0)
+                  IconButton(
+                    tooltip: '한 세트 빼기',
+                    onPressed: onUndo,
+                    /* 48px 표적 여백을 끄지 않으면 줄에서 48px 을 차지해 이름 자리가 줄어듭니다. */
+                    style: IconButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(36, 36),
+                        fixedSize: const Size(36, 36),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                    icon: const Icon(LucideIcons.minus, size: 18),
                   ),
+                if (done)
+                  IconButton.filledTonal(
+                    key: ValueKey('set-$slug'),
+                    tooltip: '세트 추가',
+                    onPressed: onSet,
+                    style: IconButton.styleFrom(
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(36, 36),
+                        fixedSize: const Size(36, 36),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                    icon: const Icon(LucideIcons.plus, size: 18),
+                  )
+                else
+                  SizedBox(
+                    height: 40,
+                    child: FilledButton.tonalIcon(
+                      key: ValueKey('set-$slug'),
+                      onPressed: onSet,
+                      style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.fromLTRB(12, 0, 14, 0),
+                          minimumSize: const Size(0, 40)),
+                      icon: const Icon(LucideIcons.plus, size: 16),
+                      label: const Text('세트'),
+                    ),
+                  ),
+              ]),
+            /* 무게는 「단추」 로 — 예전 알약(Pill)은 글자 딱지처럼 보여서 튜토리얼이
+               "무게 칩을 눌러 보세요" 라고 해도 주인이 "좀 비직관적이야" 라고 했습니다
+               (피드백 38). 덤벨 · 무게 · ▾ 에 테두리 — 누르면 뭔가 열린다는 모양입니다.
+               이름 칸 안이 아니라 그 밑 한 줄에 둡니다(왼쪽 끝은 이름과 맞춤): 이름 칸은
+               오른쪽의 점 · 「세트」 에 밀려 360px · 글자 1.3배에서 130px 남짓이라, 덤벨 · ▾
+               까지 들어가면 「추천 117.5kg」 의 글자가 줄어 읽기 어려웠습니다. */
+            if (ex.weighted)
+              Padding(
+                padding: const EdgeInsets.only(left: 32, top: 6),
+                child: WeightButton(
+                  key: ValueKey('kg-$slug'),
+                  label: ex.kgLabel,
+                  weighted: ex.kg != null,
+                  highlight: highlightKg,
+                  onTap: onKg,
                 ),
+              ),
             ]),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// 종목 줄의 무게 단추 — 덤벨 · 「추천 20kg」 · ▾. 누르면 스테퍼 시트(showKgStepper).
+///
+/// 예전엔 글자만 든 알약이었는데 누를 수 있는 것처럼 안 보였습니다(피드백 38 — "무게
+/// 눌러보라는데 좀 비직관적이야"). 그래서 단추의 문법을 다 답니다: 테두리 있는 둥근
+/// 판, 앞에 덤벨(무게라는 뜻), 뒤에 ▾(누르면 고르는 것이 열린다는 뜻). 글자는 그대로
+/// [label] 이라 줄에서 읽는 값은 달라지지 않습니다.
+///
+///   · 색은 알약 시절의 뜻을 지킵니다 — 무게가 있으면(추천이든 정한 것이든) 초록
+///     바탕(okBg · ok), 맨몸이면 무채색. 테마 색만 씁니다(다크도 같은 뜻).
+///   · [highlight] 면 강조색 테두리 + 몇 번 두근([pulses] 번, [pulseDuration] 동안)
+///     그 뒤엔 테두리만 남습니다. 끝이 있는 애니메이션이어야 합니다 — 끝없이 돌면
+///     눈이 피곤하고, 위젯 시험의 pumpAndSettle 이 영영 안 끝납니다. 기기의 「애니메이션
+///     줄이기」 가 켜져 있으면 두근은 건너뛰고 테두리만.
+///   · 높이는 [minHeight] 에서 글자 크기를 따라 자랍니다(고정 높이면 1.3배 글자가
+///     잘립니다). 좁은 줄에서는 무게 글자가 먼저 줄어듭니다 — 넘치지 않게.
+class WeightButton extends StatefulWidget {
+  const WeightButton({
+    super.key,
+    required this.label,
+    required this.onTap,
+    this.weighted = true,
+    this.highlight = false,
+  });
+
+  /// 단추 글자 — GymExercise.kgLabel('추천 20kg' · '20kg' · '맨몸').
+  final String label;
+  final VoidCallback onTap;
+  /// 무게가 있는가(추천 · 정한 무게). false 면 맨몸 — 무채색.
+  final bool weighted;
+  /// 눈길을 모읍니다 — 튜토리얼의 무게 단계.
+  final bool highlight;
+
+  /// 두근 횟수와 전체 시간. 한 번은 놓치고, 끝없이는 방해 — 세 번이면 봅니다.
+  static const int pulses = 3;
+  static const Duration pulseDuration = Duration(milliseconds: 2400);
+  /// 단추의 최소 높이. 줄 높이를 크게 늘리지 않으면서 엄지로 누를 만큼.
+  static const double minHeight = 34;
+
+  @override
+  State<WeightButton> createState() => _WeightButtonState();
+}
+
+class _WeightButtonState extends State<WeightButton> with SingleTickerProviderStateMixin {
+  /// 두근 — 강조가 켜질 때만 만듭니다. 헬스 화면의 줄 여러 개가 쓰지 않을 컨트롤러를
+  /// 하나씩 들고 있을 까닭이 없습니다.
+  AnimationController? _pulse;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.highlight) _startPulse();
+  }
+
+  /* 튜토리얼은 1단계 → 2단계에서 같은 줄을 그대로 두고 강조만 켭니다 — 그때 두근이
+     시작돼야 합니다. 꺼지면 멈춥니다. */
+  @override
+  void didUpdateWidget(WeightButton old) {
+    super.didUpdateWidget(old);
+    if (widget.highlight && !old.highlight) _startPulse();
+    if (!widget.highlight && old.highlight) _pulse?.stop();
+  }
+
+  void _startPulse() {
+    final c = _pulse ??= AnimationController(vsync: this, duration: WeightButton.pulseDuration);
+    c.forward(from: 0);
+  }
+
+  @override
+  void dispose() {
+    _pulse?.dispose();
+    super.dispose();
+  }
+
+  /// 지금 두근의 어디쯤인가(0 → 1, 한 번 두근마다 다시 0). 두근이 없으면 null —
+  /// 끝난 뒤(값 1)에는 3 % 1 = 0 이 되어 첫 박자처럼 보이므로 따로 막습니다.
+  double? _phase(BuildContext context) {
+    final c = _pulse;
+    if (!widget.highlight || c == null || c.value >= 1 || c.value <= 0) return null;
+    if (MediaQuery.maybeDisableAnimationsOf(context) ?? false) return null;
+    return (c.value * WeightButton.pulses) % 1;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final c = mb(context);
+    final ring = t.colorScheme.primary;
+    final fg = widget.weighted ? c.ok : t.colorScheme.onSurface;
+    final bg = widget.weighted ? c.okBg : c.accentSub;
+    final side = widget.highlight
+        ? BorderSide(color: ring, width: 2)
+        : BorderSide(color: widget.weighted ? c.ok.withValues(alpha: 0.4) : t.dividerColor);
+    final button = Material(
+      color: bg,
+      shape: StadiumBorder(side: side),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: widget.onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: WeightButton.minHeight),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(10, 4, 8, 4),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(LucideIcons.dumbbell, size: 16, color: fg),
+              const SizedBox(width: 6),
+              /* 좁은 줄 · 큰 글자에서는 줄임표보다 살짝 줄이는 편이 낫습니다 —
+                 「추천 1…」 은 무게를 못 읽습니다. */
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(widget.label,
+                      maxLines: 1,
+                      style: t.textTheme.labelLarge?.copyWith(
+                          fontSize: 13,
+                          color: fg,
+                          fontWeight: FontWeight.w700,
+                          fontFeatures: const [FontFeature.tabularFigures()])),
+                ),
+              ),
+              const SizedBox(width: 2),
+              Icon(LucideIcons.chevronDown, size: 16, color: fg),
+            ]),
+          ),
+        ),
+      ),
+    );
+    /* container — 줄 전체(누르면 한 세트)의 의미에 섞이지 않고 따로 「단추」 로 읽히게.
+       두근 = 단추 둘레로 강조색 번짐이 퍼지며 옅어지고, 단추가 살짝 커졌다 돌아옵니다.
+       그림자와 Transform 은 자리를 차지하지 않아 줄 높이가 흔들리지 않습니다. 두근이
+       없을 때도 같은 모양(배율 1 · 그림자 없음)으로 감쌉니다 — 강조가 켜지고 꺼질 때
+       나무 모양이 바뀌면 단추가 새로 만들어져 누르던 잉크가 끊깁니다. */
+    return Semantics(
+      container: true,
+      button: true,
+      child: AnimatedBuilder(
+        animation: _pulse ?? kAlwaysCompleteAnimation,
+        child: button,
+        builder: (context, child) {
+          final p = _phase(context);
+          final grow = p == null ? 0.0 : Curves.easeOut.transform(p);
+          final bump = p == null ? 0.0 : (p < 0.3 ? p / 0.3 : (1 - p) / 0.7);
+          return Transform.scale(
+            scale: 1 + 0.05 * Curves.easeInOut.transform(bump.clamp(0.0, 1.0)),
+            child: DecoratedBox(
+              decoration: ShapeDecoration(
+                shape: const StadiumBorder(),
+                shadows: [
+                  if (p != null)
+                    BoxShadow(color: ring.withValues(alpha: 0.45 * (1 - grow)), spreadRadius: 8 * grow),
+                ],
+              ),
+              child: child,
+            ),
+          );
+        },
       ),
     );
   }

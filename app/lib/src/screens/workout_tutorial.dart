@@ -2,7 +2,7 @@
  * workout_tutorial.dart — 헬스 화면 「따라 해 보기」 와 스와이프 힌트
  *
  * 헬스 화면의 길은 눈에 안 보입니다: 줄을 밀면 빠지고, 꾹 누르면 옮겨지고, 무게
- * 칩을 누르면 스테퍼가 뜹니다. 주인이 실기기에서 "제거가 없어 보인다" 고 했습니다
+ * 단추를 누르면 스테퍼가 뜹니다. 주인이 실기기에서 "제거가 없어 보인다" 고 했습니다
  * (3차 피드백 29) — 있었는데 못 찾은 것입니다. 글로 설명하는 대신 한 번 해 보게
  * 합니다(34-보강): 연습용 종목 줄 하나로 세트 → 무게 → 밀어 빼기 → 꾹 눌러 옮기기,
  * 네 단계. 단계마다 해내면 체크와 함께 다음으로, 넷째를 해내면 닫힙니다 — 글로 된
@@ -15,6 +15,16 @@
  *     gymTutorialSeen — 건너뛰어도 본 것입니다(다시 보려면 설정) — 과, 끝까지 한
  *     사람에게는 gymSwipeHintSeen(밀어 빼기를 이미 해 봤으니 힌트도 본 것). 둘 다
  *     [show] 가 적습니다 — 헬스 화면에서 열든 설정에서 열든 같아야 합니다.
+ *   · 2단계(무게)는 "눌러 봤다" 가 아니라 「확인」 까지 해 봐야 끝납니다(무게를
+ *     안 바꾸고 「확인」 해도, 「맨몸」 을 골라도 끝 — 시트 쓰는 법을 배운 것).
+ *     예전엔 「무게 칩을 눌러 보세요」 였고 시트를 닫기만 해도 넘어갔는데, 주인이
+ *     "무게 눌러보라는데 좀 비직관적이야" 라고 했습니다(피드백 38) — 알약이 단추처럼
+ *     안 보였고 「칩」 은 우리말이 아닙니다. 이제 줄의 무게는 덤벨 · 무게 · ▾
+ *     단추(WeightButton)이고, 이 단계에선 그 단추가 강조색 테두리로 세 번
+ *     두근거립니다(ExerciseRow.highlightKg).
+ *     밑줄은 시트 쓰는 법 「+ · − 로 맞추고 「확인」」 — 「확인」 없이 닫으면 넘어가지
+ *     않고 밑줄이 「「확인」 을 눌러야 바뀝니다」 로 바뀝니다. 해 보지 않은 것은 배운
+ *     것이 아닙니다.
  *   · SwipeHint 는 첫 줄이 살짝 밀렸다 돌아오는 그림 — 3단계와, 튜토리얼을 건너뛴
  *     사람의 실제 첫 줄에 한 번 씁니다. 그림만 움직이고 아무것도 빼지 않습니다.
  * ========================================================================== */
@@ -139,10 +149,16 @@ class _Step {
 
 const List<_Step> _steps = [
   _Step('「세트」 를 눌러 보세요', '줄 어디를 눌러도 한 세트 · 시간은 알아서 갑니다'),
-  _Step('무게 칩을 눌러 보세요', '오늘 쓸 무게를 정합니다'),
+  /* 「칩」 은 개발자 말입니다(피드백 38). 밑줄은 시트의 실제 단추 이름 그대로 —
+     스테퍼의 + · − 와 「확인」(showKgStepper 의 kg-plus · kg-minus · kg-ok). 빼기는
+     fmt.dart 의 변화량과 같은 '−'(U+2212) — 앱 글꼴(Pretendard)에 있습니다. */
+  _Step('무게를 눌러 보세요', '+ · − 로 맞추고 「확인」'),
   _Step('줄을 왼쪽으로 밀어 빼 보세요', '5초 안에 「되돌리기」 할 수 있습니다'),
   _Step('꾹 눌러 「다른 종목」 아래로 옮겨 보세요', '순서는 기록에도 그대로 남습니다'),
 ];
+
+/// 2단계에서 「확인」 없이 시트를 닫았을 때의 밑줄 — 무엇을 빠뜨렸는지만 짧게.
+const String _kgNudge = '「확인」 을 눌러야 바뀝니다';
 
 /// 헬스 화면 첫 진입의 「따라 해 보기」. 전체 화면으로 올라오고, 끝까지 하면 true,
 /// 건너뛰면 false 로 닫힙니다. 여는 곳은 [show] — 닫히면 어느 쪽이든 본 것으로 적습니다.
@@ -192,8 +208,11 @@ class _WorkoutTutorialState extends State<WorkoutTutorial> {
   /// 밀어 뺀 줄을 다음 단계에서 다시 세울 때 키가 달라야 합니다 — 같은 키면
   /// Dismissible 이 "이미 뺀 줄" 로 봅니다.
   int _epoch = 0;
+  /// 2단계에서 시트를 「확인」 없이 닫았는가 — 밑줄이 [_kgNudge] 로 바뀝니다.
+  /// 다음 단계로 가면 지웁니다.
+  bool _nudge = false;
 
-  /// 연습 줄 — 머신 종목이라 무게 칩이 붙습니다(2단계). 이름과 메모가 "연습" 이라고
+  /// 연습 줄 — 머신 종목이라 무게 단추가 붙습니다(2단계). 이름과 메모가 "연습" 이라고
   /// 말하고, 기록에는 가지 않습니다.
   final GymExercise _ex = GymExercise(
     id: 'practice',
@@ -240,6 +259,7 @@ class _WorkoutTutorialState extends State<WorkoutTutorial> {
       setState(() {
         _step++;
         _done = false;
+        _nudge = false;
         _epoch++;
       });
     });
@@ -254,7 +274,9 @@ class _WorkoutTutorialState extends State<WorkoutTutorial> {
     if (e.done > 0) setState(() => e.done--);
   }
 
-  /// 실제 화면과 같은 스테퍼 시트 — 닫기만 해도 "칩을 누르면 이게 뜬다" 는 배웠습니다.
+  /// 실제 화면과 같은 스테퍼 시트. 2단계는 「확인」 으로 닫아야(답이 있어야) 끝납니다 —
+  /// 열어 보기만 하고 닫은 사람은 무게를 바꾸는 법을 아직 모릅니다. 그때는 넘어가지
+  /// 않고 밑줄로 무엇을 빠뜨렸는지 알려 줍니다. 「맨몸」 을 골라 「확인」 해도 답입니다.
   Future<void> _onKg(GymExercise e) async {
     final r = await showKgStepper(context, e);
     if (!mounted) return;
@@ -262,9 +284,18 @@ class _WorkoutTutorialState extends State<WorkoutTutorial> {
       setState(() {
         e.kg = r.kg;
         e.kgSet = true;
+        /* 「확인」 했는데 체크 옆 밑줄이 0.7초 동안 「「확인」 을 눌러야 바뀝니다」 로
+           남아 있으면 거짓말입니다 — 눌렀으니 원래 밑줄로. */
+        _nudge = false;
       });
     }
-    if (_step == 1) _complete();
+    /* 이미 해낸 단계(체크가 뜬 0.7초)에 한 번 더 열었다 닫은 것은 빠뜨린 게 아닙니다. */
+    if (_step != 1 || _done) return;
+    if (r != null) {
+      _complete();
+    } else {
+      setState(() => _nudge = true);
+    }
   }
 
   void _onReorder(int oldIndex, int newIndex) {
@@ -274,11 +305,14 @@ class _WorkoutTutorialState extends State<WorkoutTutorial> {
     if (_order.first.id != _ex.id) _complete();
   }
 
+  /// 연습 줄. 2단계(무게)에서는 연습 종목의 무게 단추가 강조색 테두리로 몇 번
+  /// 두근거립니다 — "어디를 누르라는 거지?" 를 글이 아니라 그림으로.
   ExerciseRow _row(GymExercise e) => ExerciseRow(
         ex: e,
         onSet: () => _onSet(e),
         onUndo: () => _onUndo(e),
         onKg: () => _onKg(e),
+        highlightKg: _step == 1 && identical(e, _ex),
       );
 
   @override
@@ -286,6 +320,7 @@ class _WorkoutTutorialState extends State<WorkoutTutorial> {
     final t = Theme.of(context);
     final c = mb(context);
     final step = _steps[_step];
+    final sub = _step == 1 && _nudge ? _kgNudge : step.sub;
     return Scaffold(
       appBar: AppBar(
         automaticallyImplyLeading: false,
@@ -340,11 +375,17 @@ class _WorkoutTutorialState extends State<WorkoutTutorial> {
                     child: Icon(LucideIcons.checkCircle2, key: const ValueKey('tut-check'), color: c.ok),
                   ),
               ]),
-              if (step.sub.isNotEmpty)
-                Text(step.sub,
+              /* 「확인」 없이 닫았으면 밑줄이 강조색으로 바뀝니다 — 같은 회색이면 바뀐 줄
+                 모릅니다. */
+              if (sub.isNotEmpty)
+                Text(sub,
+                    key: const ValueKey('tut-sub'),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
+                    style: t.textTheme.bodySmall?.copyWith(
+                        color: _nudge ? t.colorScheme.primary : t.hintColor,
+                        fontWeight: _nudge ? FontWeight.w700 : null,
+                        height: 1.5)),
             ]),
           ),
           Expanded(child: _practice(context)),
