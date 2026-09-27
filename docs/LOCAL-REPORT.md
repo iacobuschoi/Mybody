@@ -585,8 +585,14 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
 - [x] **서비스 계정** — `mybody-fcm-sender`, 역할 **Firebase Cloud Messaging API 관리자 하나**(IAM 화면에서 확인). JSON 키 1개(만료 없음) →
   `~\.mybody\fcm-service-account.json`, `icacls` 결과 **`DESKTOP-IL9C3IF\user:(R,W)` 한 줄** — 서버 작업 실행 계정도 `user`(같음).
   Admin SDK 키는 받지 않음. **Firebase Cloud Messaging API(V1) 사용 설정됨**(API 라이브러리 화면).
-- [ ] **APNs 열쇠 · App ID Push** — 애플 개발자 사이트 로그인이 풀려 있어 **주인 로그인 대기**(Chrome 의 「로그인 - Apple」 탭).
-- [ ] **Firebase 에 APNs 열쇠 올리기(8)** — 비공개 키를 웹 입력칸에 넣는 일이라 제 규칙상 **주인이 직접**(페이지는 열어 둠).
+- [x] **APNs 열쇠 · App ID Push** (09-27) — 주인이 **다른 컴퓨터**에서 애플에 로그인 → 그 컴퓨터 Chrome 에 Claude 확장을 깔아 연결해서 진행.
+  Keys 는 비어 있었음(새로 만듦). `Mybody APNs` · **Sandbox & Production** · **Team Scoped (All Topics)**(등록 전 Edit 로 저장값 재확인),
+  Key ID 끝 **J96Q**. `.p8` 은 **그 컴퓨터의 다운로드 폴더**에 받아짐 → 노트북 `~\.mybody\` 로는 아직 안 옮김(주인이 옮길 예정).
+  App ID `io.github.iacobuschoi.mybody` → **Push Notifications 켬**(In-App Purchase 는 원래 켜져 있던 그대로) → 「Modify App Capabilities」
+  확인(`IOS_PROFILE_BASE64` 없음, 빌드는 매번 프로파일을 새로 만듦) → 새로고침 뒤에도 켜짐.
+- [x] **Firebase 에 APNs 열쇠 올리기(8)** — 주인이 직접 업로드. 새 콘솔은 칸이 둘이라 **개발 · 프로덕션 둘 다** 같은 열쇠로 올림 —
+  「클라우드 메시징 → Apple 앱 구성 → APN 인증 키」 에 두 줄 모두 키 ID 끝 J96Q · 팀 ID `JT4YLVNKDZ` 로 보임. APN 인증서(.p12) 칸은 비워 둠.
+- **28 끝.** 남은 것은 `.p8` 사본을 노트북 `~\.mybody\` 로 옮기는 일뿐(서버는 .p8 을 안 씀 — 백업용). 0.2.16 빌드해도 됩니다.
 - [x] **서버** — **18:11 재시작**, 로그 `앱 알림(FCM) 켜짐 — 프로젝트 mybody-fdbe7`, `token ok`, 바깥 `/api/health` **200 (8/8)**.
   `test-fcm`: **207 통과 · 1 실패** — 「600 이면 경고 없음」: 리눅스 흉내(`platform: 'linux'`)로 `chmod 600` 을 보는데 윈도우에선
   chmod 가 모드 비트를 못 바꿔 늘 경고가 남음(바로 뒤 「윈도우는 모드 비트가 뜻이 없어 보지 않는다」 는 통과, 운영 로그에도 경고 없음) —
