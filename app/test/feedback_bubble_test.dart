@@ -32,7 +32,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
 
-import 'package:flutter/gestures.dart' show kLongPressTimeout;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -281,11 +280,11 @@ class _Hand {
   }
 }
 
-/// 말풍선 가운데를 꾹(0.5초 넘게) — 들린 채로 돌려줍니다.
+/// 말풍선 가운데를 꾹(kBubbleLongPress 넘게) — 들린 채로 돌려줍니다.
 Future<_Hand> _lift(WidgetTester t) async {
   final c = t.getCenter(_bubble);
   final g = await t.startGesture(c);
-  await t.pump(kLongPressTimeout + const Duration(milliseconds: 50));
+  await t.pump(kBubbleLongPress + const Duration(milliseconds: 50));
   await t.pump(const Duration(milliseconds: 200));
   return _Hand(g, c);
 }
@@ -618,6 +617,24 @@ void main() {
       await _tapBubble(t);
       expect(env.captures, 1, reason: '누르기는 그대로 의견 시트');
       expect(t.takeException(), isNull);
+    });
+
+    testWidgets('꾹 누르기는 0.35초 — 예전 기본(0.5초)보다 짧고, 그 전에 떼면 탭(피드백 46)', (t) async {
+      expect(kBubbleLongPress, const Duration(milliseconds: 350));
+      final haptics = _haptics(t);
+      await _boot(t);
+      /* 0.35초가 되기 전(0.3초)에는 아직 안 들립니다. */
+      final g = await t.startGesture(t.getCenter(_bubble));
+      await t.pump(const Duration(milliseconds: 300));
+      expect(_binUp(t), isFalse, reason: '0.3초에는 아직');
+      expect(haptics, isEmpty);
+      /* 0.4초 — 예전 기본(0.5초)이면 아직이었을 때 — 들립니다. */
+      await t.pump(const Duration(milliseconds: 100));
+      await t.pump(const Duration(milliseconds: 200));
+      expect(haptics, ['HapticFeedbackType.mediumImpact'], reason: '0.4초에 잡힘');
+      expect(_binUp(t), isTrue);
+      await g.up();
+      await _settle(t);
     });
 
     testWidgets('꾹 누르면 들린다 — 커지고 한 번 떨리고, X 는 들린 동안만 아래 가운데에', (t) async {

@@ -86,6 +86,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show HapticFeedback;
 import 'package:lucide_icons/lucide_icons.dart';
@@ -401,6 +402,10 @@ class FeedbackBubbleLayer extends StatelessWidget {
 }
 
 /* 흐려지기 · 떠오르기 · 들리기 — 모두 끝이 있는 짧은 애니메이션. */
+/// 말풍선을 들어 올리는 꾹 누르기 시간. 기본(0.5초)은 길다는 주인 말(피드백 46: "꾹누르기 시간을
+/// 살짝만 줄여봐") — 0.35초. 더 줄이면 탭하려던 손가락이 들어 올리기로 잡힙니다.
+const Duration kBubbleLongPress = Duration(milliseconds: 350);
+
 const Duration _fade = Duration(milliseconds: 180);
 const Duration _quick = Duration(milliseconds: 120);
 
@@ -665,16 +670,31 @@ class _BubbleState extends State<_Bubble> with SingleTickerProviderStateMixin {
                     button: true,
                     label: '의견 보내기',
                     onTap: _open,
-                    child: GestureDetector(
+                    /* GestureDetector 대신 RawGestureDetector — 꾹 누르기 시간을 정하려면
+                       인식기를 직접 만들어야 합니다(GestureDetector 는 0.5초 고정). 탭과 꾹
+                       누르기가 같은 경기장에서 겨루는 것은 GestureDetector 와 같습니다. */
+                    child: RawGestureDetector(
                       behavior: HitTestBehavior.opaque,
                       excludeFromSemantics: true,
-                      onTap: _open,
-                      /* 꾹 눌러야 들립니다(머리 주석). 끌기(pan)는 걸지 않습니다 — 그냥 끄는
-                         손가락에는 아무 일도 없습니다. */
-                      onLongPressStart: _lift,
-                      onLongPressMoveUpdate: _move,
-                      onLongPressEnd: (_) => _drop(),
-                      onLongPressCancel: () => _drop(cancelled: true),
+                      gestures: <Type, GestureRecognizerFactory>{
+                        TapGestureRecognizer:
+                            GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+                          () => TapGestureRecognizer(debugOwner: this),
+                          (r) => r.onTap = _open,
+                        ),
+                        /* 꾹 눌러야 들립니다(머리 주석). 끌기(pan)는 걸지 않습니다 — 그냥 끄는
+                           손가락에는 아무 일도 없습니다. */
+                        LongPressGestureRecognizer:
+                            GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
+                          () => LongPressGestureRecognizer(
+                              duration: kBubbleLongPress, debugOwner: this),
+                          (r) => r
+                            ..onLongPressStart = _lift
+                            ..onLongPressMoveUpdate = _move
+                            ..onLongPressEnd = ((_) => _drop())
+                            ..onLongPressCancel = (() => _drop(cancelled: true)),
+                        ),
+                      },
                       child: AnimatedScale(
                         scale: lifted ? 1.15 : 1.0,
                         duration: _quick,
