@@ -6,6 +6,7 @@
 #   beta     외부 테스트 그룹 이름 (비우면 베타는 건너뜀)
 #   submit   끄면 읽기만 합니다 — 지금 걸린 심사 · 판 · 빌드 상태와 할 일을 찍습니다.
 #            켜면 걸린 심사를 취소하고 그 판을 새 번호 · 새 빌드로 바꿔 다시 제출합니다.
+#   link_only  판 · 빌드는 두고 beta 그룹의 TestFlight 공개 링크만 봅니다(submit 이면 켭니다).
 #
 # Secrets 는 아이폰 TestFlight 와 같습니다: ASC_KEY_ID · ASC_ISSUER_ID · ASC_KEY_P8(또는 _BASE64).
 # 하는 일의 자세한 순서와 멈추는 자리: tools/asc-submit.js 머리말.
@@ -16,11 +17,13 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '판 번호 (예: 0.2.15)'
-        required: true
+        description: '판 번호 (예: 0.2.15) — link_only 면 비워도 됨'
+        required: false
+        default: ''
       build:
-        description: '빌드 번호 (예: 298)'
-        required: true
+        description: '빌드 번호 (예: 298) — link_only 면 비워도 됨'
+        required: false
+        default: ''
       beta:
         description: '외부 테스트 그룹 (비우면 베타 건너뜀)'
         required: false
@@ -37,6 +40,10 @@ on:
         description: 'TestFlight 「테스트할 내용」'
         required: false
         default: ''
+      link_only:
+        description: 'TestFlight 공개 링크만 (읽기 · submit 이면 켜기)'
+        type: boolean
+        default: false
       submit:
         description: '실제로 제출 (끄면 읽기만)'
         type: boolean
@@ -70,8 +77,15 @@ jobs:
           IN_BETA_ONLY: ${{ inputs.beta_only }}
           IN_WHATS_NEW: ${{ inputs.whats_new }}
           IN_SUBMIT: ${{ inputs.submit }}
+          IN_LINK_ONLY: ${{ inputs.link_only }}
         run: |
           set +x
+          if [ "$IN_LINK_ONLY" = "true" ]; then
+            args=(--link-only --beta "$IN_BETA")
+            [ "$IN_SUBMIT" = "true" ] && args+=(--submit)
+            node tools/asc-submit.js "${args[@]}"
+            exit $?
+          fi
           args=(--version "$IN_VERSION" --build "$IN_BUILD")
           [ -n "$IN_BETA" ] && args+=(--beta "$IN_BETA")
           [ "$IN_DROP" = "true" ] && args+=(--drop-old-beta)

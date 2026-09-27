@@ -5,6 +5,8 @@
  *   node tools/asc-submit.js --version 0.2.15 --build 298 [--beta friends] [--drop-old-beta]
  *                            [--submit] [--whats-new "…"]
  *
+ *   node tools/asc-submit.js --link-only --beta friends [--submit]
+ *
  *   --submit 이 없으면 **읽기만** 합니다(지금 상태와 할 일을 찍음). 있을 때만 바꿉니다.
  *   환경변수: ASC_KEY_ID · ASC_ISSUER_ID · ASC_KEY_P8 또는 ASC_KEY_P8_BASE64 (tools/asc.js 와 같음)
  *            ASC_BUNDLE_ID (기본 io.github.iacobuschoi.mybody)
@@ -25,6 +27,12 @@
  * 무엇을 하는가 (--beta 그룹이름)
  *   그 외부 테스트 그룹에 빌드를 넣고, 「테스트할 내용」(--whats-new)을 적고, 베타 심사를 제출합니다.
  *   --drop-old-beta 면 그 그룹의 다른 빌드는 뺍니다(옛 판이 먼저 승인돼 친구들이 옛 판을 받는 일을 막음).
+ *
+ * 무엇을 하는가 (--link-only --beta 그룹이름)
+ *   그 외부 그룹의 TestFlight 공개 링크를 찍습니다(판 · 빌드 번호는 안 받음). --submit 이면 꺼져 있을 때
+ *   켭니다(인원 제한 없음). 친구에게 보내는 초대 문구의 「아이폰: …」 이 이 링크입니다 — 주소를 받으면
+ *   노트북이 tools/app-version.js --join-ios=<링크> 로 서버에 넣습니다. 누구나 받을 수 있지만, 그룹에
+ *   승인된 빌드가 있어야 실제로 깔립니다(베타 심사 통과 뒤).
  *
  * 멈추는 자리
  *   빌드가 없거나 처리 중이면(processingState ≠ VALID) 아무것도 바꾸지 않고 멈춥니다. 취소한 뒤 판이
@@ -242,6 +250,32 @@ function describe(p, opts) {
   return lines.join('\n');
 }
 
+/** TestFlight 공개 링크 — 읽거나(기본) 켭니다(--submit). 판 · 빌드와 상관없습니다. */
+async function publicLink(c, opts) {
+  const log = opts.log;
+  const app = await findApp(c, opts.bundleId);
+  const r = await c.call('GET',
+    `/v1/betaGroups?filter[app]=${app.id}&filter[name]=${encodeURIComponent(opts.beta)}&limit=5`);
+  const g = (r.data || []).find(x => x.attributes && x.attributes.name === opts.beta);
+  if (!g) throw new Error(`TestFlight 그룹 「${opts.beta}」 이 없습니다`);
+  if (g.attributes.isInternalGroup) throw new Error(`「${opts.beta}」 는 내부 그룹입니다 — 공개 링크가 없습니다`);
+  let a = g.attributes;
+  if (!a.publicLinkEnabled && opts.submit) {
+    log(`「${opts.beta}」 공개 링크를 켭니다`);
+    const u = await c.call('PATCH', `/v1/betaGroups/${g.id}`, {
+      data: { type: 'betaGroups', id: g.id,
+        attributes: { publicLinkEnabled: true, publicLinkLimitEnabled: false } },
+    });
+    a = (u && u.data && u.data.attributes) || a;
+    /* 응답에 주소가 없으면 한 번 더 읽습니다 — 켠 직후에 만들어지는 칸입니다. */
+    if (!a.publicLink) a = ((await c.call('GET', `/v1/betaGroups/${g.id}`)).data || {}).attributes || a;
+  }
+  log(a.publicLinkEnabled
+    ? `공개 링크: ${a.publicLink || '(주소 아직 없음 — 잠시 뒤 다시 읽기)'}`
+    : '공개 링크: 꺼짐' + (opts.submit ? '' : ' (--submit 으로 켭니다)'));
+  return { enabled: !!a.publicLinkEnabled, link: a.publicLink || null };
+}
+
 async function run(argv, env, deps = {}) {
   const log = deps.log || (s => console.log(s));
   const opts = {
@@ -255,12 +289,17 @@ async function run(argv, env, deps = {}) {
     appStore: !has(argv, '--beta-only'),
     log, noWait: deps.noWait, waitMs: deps.waitMs, tries: deps.tries,
   };
-  if (!/^\d+\.\d+\.\d+$/.test(opts.version || '')) throw new Error('--version 0.2.15 같은 판 번호가 필요합니다');
-  if (!/^\d+$/.test(opts.build || '')) throw new Error('--build 298 같은 빌드 번호가 필요합니다');
-  const c = deps.client || asc.client({
+  const client = () => deps.client || asc.client({
     keyId: String(env.ASC_KEY_ID || '').trim(), issuerId: String(env.ASC_ISSUER_ID || '').trim(),
     pem: asc.loadKeyPem(env),
   });
+  if (has(argv, '--link-only')) {
+    if (!opts.beta) throw new Error('--link-only 에는 --beta 그룹이름이 필요합니다');
+    return { link: await publicLink(client(), opts) };
+  }
+  if (!/^\d+\.\d+\.\d+$/.test(opts.version || '')) throw new Error('--version 0.2.15 같은 판 번호가 필요합니다');
+  if (!/^\d+$/.test(opts.build || '')) throw new Error('--build 298 같은 빌드 번호가 필요합니다');
+  const c = client();
   const p = await plan(c, opts);
   log(describe(p, opts));
   if (!opts.submit) {
@@ -280,4 +319,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = { run, plan, stateOf, EDITABLE, OPEN_REVIEW };
+module.exports = { run, plan, publicLink, stateOf, EDITABLE, OPEN_REVIEW };

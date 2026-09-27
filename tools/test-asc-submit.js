@@ -90,6 +90,14 @@ function fake(opts = {}) {
       return { data: v };
     }
     if (method === 'GET' && path === '/v1/betaGroups') return { data: st.groups };
+    const g1 = path.match(/^\/v1\/betaGroups\/(\w+)$/);
+    if (g1 && method === 'GET') return { data: st.groups.find(g => g.id === g1[1]) };
+    if (g1 && method === 'PATCH') {
+      const g = st.groups.find(x => x.id === g1[1]);
+      Object.assign(g.attributes, body.data.attributes);
+      if (g.attributes.publicLinkEnabled) g.attributes.publicLink = 'https://testflight.apple.com/join/AbCd1234';
+      return { data: opts.patchNoLink ? { id: g.id, attributes: { publicLinkEnabled: true } } : g };
+    }
     const gb = path.match(/^\/v1\/betaGroups\/(\w+)\/builds$/);
     if (gb) return { data: st.groupBuilds[gb[1]] };
     const gr = path.match(/^\/v1\/betaGroups\/(\w+)\/relationships\/builds$/);
@@ -206,6 +214,26 @@ const quiet = { log: () => {}, noWait: true };
     try { await run(['--version', 'v0.2.15', '--build', '298'], {}, { client: fake().client, ...quiet }); }
     catch (e) { threw = e; }
     ok(threw && /판 번호/.test(threw.message), 'v 붙은 판 번호 거절');
+  }
+
+  console.log('[10] 공개 링크 — 읽기만은 안 바꾸고, --submit 이면 켜서 주소를 준다');
+  {
+    const f = fake();
+    const r = await run(['--link-only', '--beta', 'friends'], {}, { client: f.client, ...quiet });
+    ok(!f.st.calls.some(c => !c.startsWith('GET')), '읽기만은 GET 뿐');
+    ok(r.link.enabled === false && r.link.link === null, '꺼짐으로 읽음');
+    const r2 = await run(['--link-only', '--beta', 'friends', '--submit'], {}, { client: f.client, ...quiet });
+    ok(r2.link.enabled && r2.link.link === 'https://testflight.apple.com/join/AbCd1234', '켜고 주소');
+    ok(f.st.groups[0].attributes.publicLinkLimitEnabled === false, '인원 제한 없음');
+    const n = f.st.calls.filter(c => c.startsWith('PATCH')).length;
+    await run(['--link-only', '--beta', 'friends', '--submit'], {}, { client: f.client, ...quiet });
+    ok(f.st.calls.filter(c => c.startsWith('PATCH')).length === n, '이미 켜져 있으면 다시 안 바꿈');
+    const f2 = fake({ patchNoLink: true });
+    const r3 = await run(['--link-only', '--beta', 'friends', '--submit'], {}, { client: f2.client, ...quiet });
+    ok(r3.link.link === 'https://testflight.apple.com/join/AbCd1234', '응답에 주소가 없으면 다시 읽음');
+    let threw = null;
+    try { await run(['--link-only'], {}, { client: fake().client, ...quiet }); } catch (e) { threw = e; }
+    ok(threw && /--beta/.test(threw.message), '--beta 없으면 거절');
   }
 
   console.log(`\n통과 ${pass} / 실패 ${fail}`);
