@@ -25,6 +25,7 @@ import 'package:mybody/src/theme.dart';
 import 'package:mybody/src/ui/confetti.dart';
 import 'package:mybody/src/ui/fmt.dart';
 import 'package:mybody/src/ui/widgets.dart';
+import 'package:mybody/src/workout/bodyweight.dart';
 import 'package:mybody/src/workout/exercises.dart';
 import 'package:mybody/src/workout/kcal.dart';
 import 'package:mybody/src/workout/loads.dart';
@@ -390,77 +391,564 @@ void main() {
     });
   });
 
-  group('집에서 맨몸', () {
-    testWidgets('다 체크하고 전체 완료하면 bodyweight 기록이 남고 축하가 뜬다', (t) async {
+  /* 피드백 54 — "이거도 운동창이랑 똑같이 삭제/추가 넣고 시작 종료 만들고 세트수 누를 수 있게".
+     집에서 맨몸 운동은 체크박스 다섯 개 + 「전체 완료」 였습니다. 이제 헬스와 같은 화면 —
+     시계 · 휴식 · 세트 점 · 밀어서 빼기 · 종목 추가 · 꾹 눌러 순서 · 종료 시트. 다른 것은
+     종목의 출처(15분 루틴) · 고르기 목록(집에서 되는 맨몸만) · 기록의 kind 뿐입니다. */
+  group('집에서 맨몸 — 헬스와 같은 화면 (피드백 54)', () {
+    /// 화면이 짜는 것과 같은 재료로 짠 오늘의 15분 루틴.
+    Map<String, Object?> routineOf(AppState app, String day) {
+      final s = planSessionFor(app.state, day);
+      return bodyweightRoutine(
+        profile: _profile,
+        weightKg: latestWeightKg(app)!,
+        pbfPct: latestPbfPct(app),
+        todayLabel: s == null ? '' : '${s['label'] ?? ''}',
+      );
+    }
+
+    List<Map<String, Object?>> movesOf(Map<String, Object?> r) =>
+        [for (final m in (r['exercises'] as List).cast<Map>()) m.cast<String, Object?>()];
+
+    Future<void> openBw(WidgetTester t, AppState app, {String day = _todayKey}) =>
+        open(t, app, WorkoutSessionScreen(dateKey: day, type: 'bodyweight'));
+
+    testWidgets('루틴의 종목이 헬스 줄로 — 세트 점 · 계획 한 줄 · 요령 흐리게 · 무게 단추 없음, 제목 · 이유 · 초점은 위에', (t) async {
       final app = await seeded();
-      await open(t, app, WorkoutSessionScreen(dateKey: _todayKey, type: 'bodyweight'));
+      final r = routineOf(app, _todayKey);
+      final moves = movesOf(r);
+      expect(moves.length, greaterThanOrEqualTo(2));
+      await openBw(t, app);
 
-      final boxes = find.byType(CheckboxListTile);
-      expect(boxes, findsWidgets, reason: '오늘 할 맨몸 종목이 있어야 합니다');
-      FilledButton doneBtn() => t.widget<FilledButton>(find.widgetWithText(FilledButton, '전체 완료'));
-      expect(doneBtn().onPressed, isNull, reason: '하나도 안 했으면 완료할 수 없습니다');
+      /* 머리 — 루틴 제목 · 이유 · 초점 · 계획한 분 · kcal 은 체크박스 시절 그대로 위에. */
+      expect(find.text('${r['title']}'), findsOneWidget);
+      expect(find.text('${r['why']}'), findsOneWidget);
+      expect(find.widgetWithText(Pill, '${r['focusLabel']}'), findsOneWidget);
+      expect(find.text('${n0(r['minutes'])}분 · 약 ${n0(r['kcal'])} kcal'), findsOneWidget);
 
-      final n = t.widgetList(boxes).length;
-      for (var i = 0; i < n; i++) {
-        await t.tap(boxes.at(i));
-        await t.pump();
+      /* 체크박스 · 「전체 완료」 는 없고, 시계와 헬스의 줄 */
+      expect(find.byType(CheckboxListTile), findsNothing);
+      expect(find.text('전체 완료'), findsNothing);
+      expect(find.text('시작'), findsOneWidget);
+      expect(find.text('종료'), findsOneWidget);
+      final total = moves.fold<int>(0, (a, m) => a + (m['sets'] as int));
+      expect(find.text('0/$total 세트'), findsOneWidget);
+      expect(find.byType(WeightButton), findsNothing, reason: '맨몸 종목은 무게가 없습니다');
+      for (final m in moves) {
+        final name = '${m['name']}';
+        expect(exerciseRow(name), findsOneWidget, reason: name);
+        expect(setButton(name), findsOneWidget);
+        expect(kgButton(name), findsNothing);
+        final plan = t.widget<Text>(find.byKey(ValueKey('plan-${slugOf(name)}'))).data!;
+        expect(plan, GymExercise.fromMap(m).planLine);
+        expect(plan, startsWith('${m['sets']}세트 × '));
+        expect(plan, endsWith('휴식 ${restText(r['restSec'] as int)}'), reason: '세트 사이 휴식은 루틴이 맞춘 값');
+        if (m['seconds'] != null) expect(plan, contains('× ${m['seconds']}초'), reason: '버티기는 초');
+        if ('${m['note']}'.isNotEmpty) {
+          final note = find.byKey(ValueKey('note-${slugOf(name)}'));
+          expect(t.widget<Text>(note).data, m['note']);
+          expect(plan, isNot(contains('${m['note']}')), reason: '요령은 계획 줄에 붙지 않습니다(3차 30)');
+          expect(t.widget<Text>(note).style!.color!.a,
+              lessThan(t.widget<Text>(find.byKey(ValueKey('plan-${slugOf(name)}'))).style!.color!.a));
+        }
       }
-      expect(doneBtn().onPressed, isNotNull);
-      await t.tap(find.text('전체 완료'));
+      expect(t.takeException(), isNull);
+    });
+
+    /* 검토 지적 — 예전 단언(routine-load 없음)은 저장한 루틴이 없는 상태라 늘 통과했습니다. 같은
+       라벨의 헬스 루틴을 실제로 저장해 두고 봅니다. */
+    testWidgets('내 루틴은 헬스만 — 같은 라벨로 저장한 헬스 루틴이 있어도 맨몸은 15분 루틴 그대로 · 불러오기 칩 없음', (t) async {
+      final app = await seeded();
+      final day = gymDay(app);
+      final label = '${planSessionFor(app.state, day)!['label']}';
+      saveRoutine(app, name: '내 루틴', label: label, exercises: const [
+        {'name': '바벨 벤치프레스', 'sets': 3, 'reps': '8-12', 'restSec': 90},
+        {'name': '레그프레스', 'sets': 3, 'reps': '10-15', 'restSec': 75},
+      ]);
+      expect(routineForLabel(app, label), isNotNull, reason: '헬스 화면이면 자동으로 불려 올 루틴');
+      final moves = movesOf(routineOf(app, day));
+      await openBw(t, app, day: day);
+      expect(find.byKey(const ValueKey('routine-load')), findsNothing);
+      expect(find.byKey(const ValueKey('routine-current')), findsNothing);
+      expect(find.byKey(const ValueKey('routine-reset')), findsNothing);
+      expect(exerciseRow('바벨 벤치프레스'), findsNothing);
+      expect(exerciseRow('레그프레스'), findsNothing);
+      final first = '${moves.first['name']}', second = '${moves[1]['name']}';
+      expect(exerciseRow(first), findsOneWidget);
+      expect(t.getTopLeft(exerciseRow(first)).dy, lessThan(t.getTopLeft(exerciseRow(second)).dy),
+          reason: '첫 줄은 15분 루틴의 첫 종목');
+      /* 종료 시트에도 「내 루틴으로 저장」 이 없습니다 */
+      await t.tap(find.text('종료'));
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('routine-save')), findsNothing);
+    });
+
+    testWidgets('시작 · 세트 누르기 · 휴식 · 일시정지 · 계속 — 헬스와 같은 시계', (t) async {
+      final app = await seeded();
+      final r = routineOf(app, _todayKey);
+      final moves = movesOf(r);
+      final first = '${moves.first['name']}';
+      final total = moves.fold<int>(0, (a, m) => a + (m['sets'] as int));
+      final rest = r['restSec'] as int;
+      await openBw(t, app);
+      expect(t.widget<Text>(find.byKey(const ValueKey('clock-status'))).data, '시작 전');
+
+      await t.tap(find.text('시작'));
+      await t.pump();
+      expect(t.widget<Text>(find.byKey(const ValueKey('clock-status'))).data, '운동 중');
+      now = now.add(const Duration(seconds: 40));
+      await t.pump(const Duration(seconds: 1));
+      expect(find.text('00:40'), findsOneWidget);
+
+      /* 세트 단추 → 한 세트 · 휴식 카운트다운(루틴의 휴식) */
+      await t.tap(setButton(first));
+      await t.pump();
+      expect(find.text('1/$total 세트'), findsOneWidget);
+      expect(find.text('건너뛰기'), findsOneWidget);
+      expect(find.text(clockText(Duration(seconds: rest))), findsOneWidget, reason: '휴식 $rest초');
+      expect(find.descendant(of: exerciseRow(first), matching: find.byTooltip('한 세트 빼기')), findsOneWidget);
+      now = now.add(Duration(seconds: rest + 1));
+      await t.pump(const Duration(seconds: 1));
+      expect(find.text('건너뛰기'), findsNothing, reason: '쉬는 시간이 지나면 사라집니다');
+
+      /* 줄 어디를 눌러도 한 세트 · 「−」 로 하나 빼기 */
+      await t.tap(exerciseRow(first));
+      await t.pump();
+      expect(find.text('2/$total 세트'), findsOneWidget);
+      await t.tap(find.text('건너뛰기'));
+      await t.pump();
+      await t.tap(find.descendant(of: exerciseRow(first), matching: find.byTooltip('한 세트 빼기')));
+      await t.pump();
+      expect(find.text('1/$total 세트'), findsOneWidget);
+
+      /* 일시정지 → 계속 */
+      await t.tap(find.byTooltip('일시정지'));
+      await t.pump();
+      expect(t.widget<Text>(find.byKey(const ValueKey('clock-status'))).data, '일시정지');
+      final paused = clockText(Duration(seconds: 40 + rest + 1));
+      now = now.add(const Duration(minutes: 3));
+      await t.pump(const Duration(seconds: 1));
+      expect(find.text(paused), findsOneWidget, reason: '멈춘 시계는 안 갑니다');
+      await t.tap(find.text('계속'));
+      await t.pump();
+      expect(t.widget<Text>(find.byKey(const ValueKey('clock-status'))).data, '운동 중');
+    });
+
+    testWidgets('시작을 안 눌러도 세트를 누르면 시간이 간다', (t) async {
+      final app = await seeded();
+      final first = '${movesOf(routineOf(app, _todayKey)).first['name']}';
+      await openBw(t, app);
+      await t.tap(setButton(first));
+      await t.pump();
+      expect(find.byTooltip('일시정지'), findsOneWidget);
+      expect(t.widget<Text>(find.byKey(const ValueKey('clock-status'))).data, '운동 중');
+    });
+
+    testWidgets('줄을 왼쪽으로 밀면 빠지고 「되돌리기」 로 제자리에 — 꾹 눌러 끌면 순서가 바뀐다', (t) async {
+      final app = await seeded();
+      final moves = movesOf(routineOf(app, _todayKey));
+      final first = '${moves[0]['name']}', second = '${moves[1]['name']}';
+      final total = moves.fold<int>(0, (a, m) => a + (m['sets'] as int));
+      final firstSets = moves[0]['sets'] as int;
+      await openBw(t, app);
+
+      await t.drag(exerciseRow(first), const Offset(-700, 0));
+      await t.pumpAndSettle();
+      expect(exerciseRow(first), findsNothing);
+      expect(find.text('0/${total - firstSets} 세트'), findsOneWidget);
+      expect(find.text('$first 뺐습니다'), findsOneWidget);
+      await t.tap(find.text('되돌리기'));
+      await t.pumpAndSettle();
+      expect(exerciseRow(first), findsOneWidget);
+      expect(find.text('0/$total 세트'), findsOneWidget);
+      expect(t.getTopLeft(exerciseRow(first)).dy, lessThan(t.getTopLeft(exerciseRow(second)).dy), reason: '제자리');
+
+      await longPressDrag(t, exerciseRow(first), t.getCenter(exerciseRow(second)) + const Offset(0, 40));
+      expect(t.getTopLeft(exerciseRow(second)).dy, lessThan(t.getTopLeft(exerciseRow(first)).dy),
+          reason: '첫 줄이 둘째 줄 아래로');
+      expect(exerciseRow(first), findsOneWidget, reason: '끌기는 빼는 게 아닙니다');
+    });
+
+    testWidgets('「종목 추가」 — 집에서 되는 맨몸 종목만(기구 · 철봉 없음), 루틴과 같은 숫자로 붙는다', (t) async {
+      final app = await seeded();
+      final r = routineOf(app, _todayKey);
+      final moves = movesOf(r);
+      final names = {for (final m in moves) '${m['name']}'};
+      final total = moves.fold<int>(0, (a, m) => a + (m['sets'] as int));
+      final pick = exercisesFor('chest').firstWhere((e) => isHomeBodyweight(e) && !names.contains(e.name));
+      await openBw(t, app);
+
+      await t.tap(find.byKey(const ValueKey('ex-add')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('pick-group-chest')));
+      await t.pumpAndSettle();
+      /* 맨몸 섹션 하나 — 머신 · 바벨이 흐리게라도 섞이지 않고, 딥스(평행봉)도 없습니다. */
+      expect(find.byKey(const ValueKey('pick-sec-bodyweight')), findsOneWidget);
+      for (final k in ['machine', 'cable', 'barbell', 'dumbbell', 'band']) {
+        expect(find.byKey(ValueKey('pick-sec-$k')), findsNothing, reason: k);
+      }
+      expect(find.byKey(const ValueKey('pick-dips')), findsNothing, reason: '평행봉이 있어야 합니다');
+      expect(find.byKey(const ValueKey('pick-mine-only')), findsNothing, reason: '가릴 기구가 없습니다');
+      expect(find.textContaining('내 기구 아님'), findsNothing);
+      /* 검색도 그 안에서 — 「딥스」 로 찾으면 벤치 딥스만 */
+      await t.tap(find.byKey(const ValueKey('pick-back')));
+      await t.pumpAndSettle();
+      await t.enterText(find.byKey(const ValueKey('pick-search')), '딥스');
+      await t.pump();
+      expect(find.byKey(const ValueKey('pick-bench-dips')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pick-dips')), findsNothing);
+      expect(find.byKey(const ValueKey('pick-assisted-dip')), findsNothing, reason: '머신');
+      await t.enterText(find.byKey(const ValueKey('pick-search')), '');
+      await t.pump();
+      await t.tap(find.byKey(const ValueKey('pick-group-chest')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(ValueKey('pick-${pick.id}')));
       await t.pumpAndSettle();
 
-      expect(find.textContaining('kcal 소모했어요! 축하합니다'), findsOneWidget);
-      expect(find.text('오늘 계획을 지켰습니다 — 내일도 만나요'), findsOneWidget);
+      expect(exerciseRow(pick.name), findsOneWidget);
+      expect(kgButton(pick.name), findsNothing);
+      final row = bodyweightRowFor(pick, profile: _profile, restSec: r['restSec'] as int);
+      expect(t.widget<Text>(find.byKey(ValueKey('plan-${slugOf(pick.name)}'))).data,
+          GymExercise.fromMap(row).planLine);
+      expect(t.widget<Text>(find.byKey(ValueKey('plan-${slugOf(pick.name)}'))).data,
+          '3세트 × 10 · 휴식 ${restText(r['restSec'] as int)}', reason: '초보 3 × 10 · 루틴의 휴식');
+      expect(find.text('0/${total + 3} 세트'), findsOneWidget);
+      /* 목록 끝에 붙습니다 */
+      expect(t.getTopLeft(exerciseRow(pick.name)).dy,
+          greaterThan(t.getTopLeft(exerciseRow('${moves.last['name']}')).dy));
+
+      /* 도구가 있어야 하는 것(박스 · 줄넘기 · 앱 휠)은 맨몸이 아닙니다 — 점프가 괜찮은 사람에게도 */
+      expect(r['lowImpact'], isFalse);
+      await t.tap(find.byKey(const ValueKey('ex-add')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('pick-group-full')));
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pick-burpee')), findsOneWidget, reason: '점프가 괜찮으면 버피는 됩니다');
+      expect(find.byKey(const ValueKey('pick-box-jump')), findsNothing, reason: '박스');
+      expect(find.byKey(const ValueKey('pick-jump-rope')), findsNothing, reason: '줄');
+      await t.tap(find.byKey(const ValueKey('pick-back')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('pick-group-core')));
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pick-ab-rollout')), findsNothing, reason: '앱 휠');
+      expect(find.byKey(const ValueKey('pick-crunch')), findsOneWidget);
+    });
+
+    /* 검토 지적 — 체중 95kg 초과 · 체지방률 30% 초과면 루틴이 점프를 빼고 「무릎 부담을 줄이려고
+       점프 동작은 뺐습니다」 라고 말합니다. 그 말 밑의 「종목 추가」 가 점프를 내밀면 안 됩니다. */
+    testWidgets('「종목 추가」 — 점프를 뺀 루틴(체중 95kg 초과)이면 고르는 목록에도 점프 · 뛰기 동작이 없다', (t) async {
+      final app = await seeded();
+      app.store.addScan({..._scan, 'id': 's2', 'weightKg': 101.0, 'bfmKg': 26.0, 'pbfPct': 25.7, 'ffmKg': 75.0,
+          'bmi': 28.9, 'measuredAt': '2026-03-15T00:00:00.000Z'});
+      final r = routineOf(app, _todayKey);
+      expect(r['lowImpact'], isTrue);
+      expect('${r['why']}', contains('점프 동작은 뺐습니다'));
+      await openBw(t, app);
+      await t.tap(find.byKey(const ValueKey('ex-add')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('pick-group-full')));
+      await t.pumpAndSettle();
+      for (final id in ['burpee', 'jumping-jack', 'high-knees', 'jump-rope', 'box-jump']) {
+        expect(find.byKey(ValueKey('pick-$id')), findsNothing, reason: id);
+      }
+      expect(find.byKey(const ValueKey('pick-bear-crawl')), findsOneWidget, reason: '전신 칸이 비지 않습니다');
+      await t.tap(find.byKey(const ValueKey('pick-back')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('pick-group-quads')));
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pick-jump-squat')), findsNothing);
+      expect(find.byKey(const ValueKey('pick-lunge')), findsOneWidget, reason: '점프만 빠집니다');
+      await t.tap(find.byKey(const ValueKey('pick-back')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('pick-group-core')));
+      await t.pumpAndSettle();
+      expect(find.byKey(const ValueKey('pick-mountain-climber')), findsNothing);
+      /* 검색도 같은 목록에서 */
+      await t.tap(find.byKey(const ValueKey('pick-back')));
+      await t.pumpAndSettle();
+      await t.enterText(find.byKey(const ValueKey('pick-search')), '점프');
+      await t.pump();
+      expect(find.byKey(const ValueKey('pick-jump-squat')), findsNothing);
+      expect(find.byKey(const ValueKey('pick-box-jump')), findsNothing);
+    });
+
+    /* 검토 지적 — 「최근」 줄은 무게 추천(lastLoadsFrom)의 재료에서 왔는데, 그건 헬스 기록만
+       읽습니다. 집에서만 하는 사람은 늘 빈 줄이라 매번 두 번(부위 → 종목) 눌렀습니다. */
+    testWidgets('「종목 추가」 의 「최근」 — 집에서 한 맨몸 기록의 종목도 한 번에(헬스 기록에서는 맨몸 종목만)', (t) async {
+      final app = await seeded();
+      app.store.setScheduleLog('2026-09-26', 'gym',
+          {'kind': 'bodyweight', 'minutes': 15, 'kcal': 120, 'sets': 6, 'exercises': ['러시안 트위스트', '크런치']});
+      app.store.setScheduleLog('2026-09-25', 'gym', {'kind': 'gym', 'minutes': 50, 'kcal': 300, 'sets': 6, 'exercises': [
+        {'name': '바벨 벤치프레스', 'sets': 3, 'of': 3, 'reps': '8-12', 'restSec': 90, 'kg': 60},
+        {'name': '다이아몬드 푸시업', 'sets': 3, 'of': 3, 'reps': '10-15', 'restSec': 60, 'kg': null},
+      ]});
+      final names = {for (final m in movesOf(routineOf(app, _todayKey))) '${m['name']}'};
+      expect(names.intersection({'러시안 트위스트', '크런치', '다이아몬드 푸시업'}), isEmpty, reason: '시험의 전제');
+      await openBw(t, app);
+      await t.tap(find.byKey(const ValueKey('ex-add')));
+      await t.pumpAndSettle();
+      Finder quick(String id) => find.byKey(ValueKey('pick-quick-$id'));
+      expect(quick('russian-twist'), findsOneWidget);
+      expect(quick('crunch'), findsOneWidget);
+      expect(quick('diamond-push-up'), findsOneWidget, reason: '헬스 기록의 맨몸 종목');
+      expect(quick('bench-press'), findsNothing, reason: '바벨은 집에서 못 합니다');
+      await t.tap(quick('crunch'));
+      await t.pumpAndSettle();
+      expect(exerciseRow('크런치'), findsOneWidget, reason: '한 번에');
+    });
+
+    /* 검토 지적 — 밀어서 빼고 더해도 머리글이 「15분 · 약 182 kcal」 그대로였습니다. */
+    testWidgets('빼고 더하면 머리글(제목의 분 · 분 · kcal)이 지금 목록을 따라간다 — 되돌리면 루틴 그대로', (t) async {
+      final app = await seeded();
+      final r = routineOf(app, _todayKey);
+      final moves = movesOf(r);
+      final weight = latestWeightKg(app)!;
+      String lineOf(List<Map<String, Object?>> rows) {
+        final sec = bodyweightPlannedSec(rows);
+        return '${minutesOfSeconds(sec)}분 · 약 ${n0(workoutKcal(weightKg: weight, duration: Duration(seconds: sec), kind: 'bodyweight'))} kcal';
+      }
+
+      final routineLine = '${n0(r['minutes'])}분 · 약 ${n0(r['kcal'])} kcal';
+      expect(bodyweightPlannedSec(moves), r['plannedSec'], reason: '루틴과 같은 셈');
+      await openBw(t, app);
+      expect(find.text('${r['title']}'), findsOneWidget);
+      expect(find.text(routineLine), findsOneWidget);
+
+      /* 앞의 셋을 빼면 */
+      for (final m in moves.take(3)) {
+        await t.drag(exerciseRow('${m['name']}'), const Offset(-700, 0));
+        await t.pumpAndSettle();
+      }
+      final left = moves.skip(3).toList();
+      final sec = bodyweightPlannedSec(left);
+      expect(sec, lessThan(r['plannedSec'] as int));
+      expect(find.text(lineOf(left)), findsOneWidget);
+      expect(find.text(routineLine), findsNothing);
+      expect(find.text(bodyweightTitle('${r['focus']}', minutesOfSeconds(sec))), findsOneWidget);
+      expect(find.text('${r['title']}'), findsNothing);
+      expect(find.widgetWithText(Pill, '${r['focusLabel']}'), findsOneWidget, reason: '초점은 그대로');
+
+      /* 셋째를 되돌리면(마지막으로 뺀 것) — 두 개 빠진 목록 */
+      await t.tap(find.text('되돌리기'));
+      await t.pumpAndSettle();
+      final back = [moves[2], ...left];
+      expect(find.text(lineOf(back)), findsOneWidget);
+
+      /* 더하면 더한 만큼 */
+      final pick = exercisesFor('core').firstWhere(
+          (e) => isHomeBodyweight(e) && e.pattern != 'hold' && !moves.any((m) => m['id'] == e.id));
+      await t.tap(find.byKey(const ValueKey('ex-add')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('pick-group-core')));
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(ValueKey('pick-${pick.id}')));
+      await t.pumpAndSettle();
+      final added = [...back, bodyweightRowFor(pick, profile: _profile, restSec: r['restSec'] as int)];
+      expect(find.text(lineOf(added)), findsOneWidget);
+
+      /* 전부 빼면 분 · kcal 줄은 없고 제목은 초점만 */
+      for (final m in added) {
+        await t.drag(exerciseRow('${m['name']}'), const Offset(-700, 0));
+        await t.pumpAndSettle();
+      }
+      expect(find.text(bodyweightTitle('${r['focus']}', 0)), findsOneWidget);
+      expect(find.textContaining(' kcal'), findsNothing);
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('종료 → 저장: kind bodyweight · 한 종목 이름 · 잰 시간 · 맨몸 MET 의 kcal', (t) async {
+      final app = await seeded();
+      final moves = movesOf(routineOf(app, _todayKey));
+      final first = '${moves[0]['name']}', second = '${moves[1]['name']}';
+      await openBw(t, app);
+      await t.tap(find.text('시작'));
+      await t.pump();
+      await t.tap(setButton(first));
+      await t.pump();
+      await t.tap(setButton(second));
+      await t.pump();
+      now = now.add(const Duration(minutes: 12));
+      await t.pump(const Duration(seconds: 1));
+
+      await t.tap(find.text('종료'));
+      await t.pumpAndSettle();
+      final weight = latestWeightKg(app)!;
+      final expectKcal =
+          workoutKcal(weightKg: weight, duration: const Duration(minutes: 12), kind: 'bodyweight').round();
+      expect(expectKcal, greaterThan(
+          workoutKcal(weightKg: weight, duration: const Duration(minutes: 12), kind: 'gym').round()),
+          reason: '헬스(5.0)가 아니라 맨몸(8.0)의 MET');
+      expect(find.text('오늘 맨몸 운동'), findsOneWidget);
+      expect(find.descendant(of: find.byType(Stat), matching: find.text('12:00')), findsOneWidget);
+      expect(find.descendant(of: find.byType(Stat), matching: find.text('2')), findsOneWidget, reason: '완료 세트');
+      expect(find.descendant(of: find.byType(Stat), matching: find.text(n0(expectKcal))), findsOneWidget);
+      expect(find.widgetWithText(TextField, '운동 시간'), findsNothing, reason: '쟀는데 또 묻지 않습니다');
+      expect(find.byKey(const ValueKey('routine-save')), findsNothing, reason: '내 루틴은 헬스만');
+      expect(find.text('저장 안 함'), findsOneWidget);
+
+      await t.tap(find.text('저장'));
+      await t.pumpAndSettle();
       final log = logOf(app, _todayKey, 'gym');
       expect(log['kind'], 'bodyweight');
-      expect(core.jsToNumber(log['minutes']), greaterThan(0));
-      expect(core.jsToNumber(log['kcal']), greaterThan(0));
-      expect((log['exercises'] as List), hasLength(n));
-      expect(core.jsTruthy((app.store.scheduleDay(_todayKey)['done'] as Map)['gym']), isTrue);
-
+      expect(log['minutes'], 12);
+      expect(log['seconds'], 720);
+      expect(log['kcal'], expectKcal);
+      expect(log['sets'], 2);
+      expect(log['exercises'], [first, second], reason: '종목은 이름만 — 한 것만, 목록 순서대로');
+      expect(core.jsTruthy((app.store.scheduleDay(_todayKey)['done'] as Map)['gym']), isTrue, reason: '지킨 날');
+      expect(find.textContaining('kcal 소모했어요! 축하합니다'), findsOneWidget);
+      expect(find.textContaining('맨몸 운동 12:00 · 완료 세트 2'), findsOneWidget);
       await t.tap(find.text('닫기'));
       await t.pumpAndSettle();
       expect(find.byType(WorkoutSessionScreen), findsNothing, reason: '축하를 닫으면 화면도 닫힙니다');
     });
 
-    testWidgets('맨몸 줄 — 계획은 한 줄, 요령은 그 밑 흐린 줄 (헬스 줄과 같은 문법 · 3차 30)', (t) async {
+    testWidgets('시계 없이 「종료」 — 분을 직접 넣는 칸(헬스와 같은 길)', (t) async {
       final app = await seeded();
-      await open(t, app, WorkoutSessionScreen(dateKey: _todayKey, type: 'bodyweight'));
-      bool keyed(Widget w, String prefix) =>
-          w is Text && w.key is ValueKey<String> && (w.key as ValueKey<String>).value.startsWith(prefix);
-      final plans = find.byWidgetPredicate((w) => keyed(w, 'bw-plan-'));
-      final notes = find.byWidgetPredicate((w) => keyed(w, 'bw-note-'));
-      expect(plans, findsWidgets);
-      for (final el in plans.evaluate()) {
-        final txt = (el.widget as Text).data!;
-        expect(txt, matches(RegExp(r'^\d+세트( × [^·]+)?$')), reason: '계획 줄에 요령이 붙으면 안 됩니다: $txt');
-      }
-      expect(notes, findsWidgets, reason: '요령이 있는 맨몸 종목이 있습니다');
-      final plan = t.widget<Text>(plans.first).style!.color!;
-      final note = t.widget<Text>(notes.first).style!.color!;
-      expect(note.a, lessThan(plan.a), reason: '요령은 흐리게');
-      expect(find.textContaining(RegExp(r'^\d+세트 × .+ · ')), findsNothing, reason: '예전 한 줄 표기가 남으면 안 됩니다');
-    });
-
-    testWidgets('60% 넘게 했으면 확인을 받고 그만큼만 기록한다', (t) async {
-      final app = await seeded();
-      await open(t, app, WorkoutSessionScreen(dateKey: _todayKey, type: 'bodyweight'));
-      final boxes = find.byType(CheckboxListTile);
-      final n = t.widgetList(boxes).length;
-      final need = (n * 0.6).ceil();
-      for (var i = 0; i < need; i++) {
-        await t.tap(boxes.at(i));
-        await t.pump();
-      }
-      await t.tap(find.text('전체 완료'));
+      final first = '${movesOf(routineOf(app, _todayKey)).first['name']}';
+      await openBw(t, app);
+      await t.tap(find.text('종료'));
       await t.pumpAndSettle();
-      expect(find.text('기록하기'), findsOneWidget, reason: '다 안 했으면 먼저 묻습니다');
-      await t.tap(find.text('기록하기'));
+      expect(find.widgetWithText(TextField, '운동 시간'), findsOneWidget);
+      expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '저장')).onPressed, isNull);
+      await t.enterText(find.widgetWithText(TextField, '운동 시간'), '20');
+      await t.pump();
+      final kcal = workoutKcal(
+          weightKg: latestWeightKg(app)!, duration: const Duration(minutes: 20), kind: 'bodyweight').round();
+      expect(find.descendant(of: find.byType(Stat), matching: find.text(n0(kcal))), findsOneWidget);
+      /* 시트를 그냥 닫고 세트 하나 더 하고 다시 — 칸은 비어서 다시 열립니다(헬스와 같음) */
+      await t.tapAt(const Offset(10, 10));
+      await t.pumpAndSettle();
+      await t.tap(setButton(first));
+      await t.pump();
+      await t.tap(find.text('종료'));
+      await t.pumpAndSettle();
+      await t.enterText(find.widgetWithText(TextField, '운동 시간'), '20');
+      await t.pump();
+      await t.tap(find.text('저장'));
       await t.pumpAndSettle();
       final log = logOf(app, _todayKey, 'gym');
       expect(log['kind'], 'bodyweight');
-      expect((log['exercises'] as List), hasLength(need));
+      expect(log['minutes'], 20);
+      expect(log['seconds'], 1200);
+      expect(log['kcal'], kcal);
+      expect(log['exercises'], [first]);
+      expect(find.textContaining('맨몸 운동 20분'), findsOneWidget);
+      await t.tap(find.text('닫기'));
+      await t.pumpAndSettle();
     });
+
+    testWidgets('헬스 기록이 있는 날 — 안내가 뜨고 저장이 막힌다(헬스 기록을 덮지 않는다)', (t) async {
+      final app = await seeded();
+      final gymLog = {'kind': 'gym', 'minutes': 45, 'kcal': 300, 'sets': 12, 'exercises': const []};
+      app.store.setScheduleLog(_todayKey, 'gym', gymLog);
+      final first = '${movesOf(routineOf(app, _todayKey)).first['name']}';
+      await openBw(t, app);
+      const note = '오늘은 헬스 기록이 있어 맨몸 운동은 따로 기록하지 않습니다';
+      expect(find.text(note), findsOneWidget);
+      /* 운동은 됩니다 — 저장만 막힙니다 */
+      await t.tap(find.text('시작'));
+      await t.pump();
+      await t.tap(setButton(first));
+      await t.pump();
+      now = now.add(const Duration(minutes: 10));
+      await t.tap(find.text('종료'));
+      await t.pumpAndSettle();
+      expect(find.text(note), findsNWidgets(2), reason: '시트에도 한 줄');
+      expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '저장')).onPressed, isNull);
+      await t.tap(find.text('저장 안 함'));
+      await t.pumpAndSettle();
+      expect(find.byType(WorkoutSessionScreen), findsNothing);
+      expect(logOf(app, _todayKey, 'gym')['kind'], 'gym', reason: '헬스 기록 그대로');
+      expect(logOf(app, _todayKey, 'gym')['minutes'], 45);
+    });
+
+    testWidgets('튜토리얼 없는 화면이라 첫 줄 힌트는 처음 온 사람 누구에게나 한 번', (t) async {
+      final app = await seeded(fresh: true);
+      final first = '${movesOf(routineOf(app, _todayKey)).first['name']}';
+      t.view.physicalSize = const Size(1000, 4000);
+      t.view.devicePixelRatio = 1.0;
+      addTearDown(t.view.reset);
+      await t.pumpWidget(host(app, const WorkoutSessionScreen(dateKey: _todayKey, type: 'bodyweight')));
+      await t.pump();
+      expect(find.byType(WorkoutTutorial), findsNothing, reason: '튜토리얼은 헬스 화면의 것');
+      expect(find.descendant(of: find.byType(SwipeHint), matching: exerciseRow(first)), findsOneWidget);
+      await t.pumpAndSettle();
+      expect(exerciseRow(first), findsOneWidget, reason: '힌트는 실제로 빼지 않습니다');
+      expect((app.state['settings'] as Map)[kGymSwipeHintSeenKey], isTrue);
+      expect(WorkoutTutorial.seen(app.state), isFalse, reason: '헬스에 가면 튜토리얼은 그대로 뜹니다');
+      await t.pumpWidget(host(app, const WorkoutSessionScreen(dateKey: _todayKey, type: 'bodyweight')));
+      await t.pump();
+      expect(find.byType(SwipeHint), findsNothing, reason: '한 번만');
+    });
+
+    /* 360px 폰에 글자를 키운 사람 — 머리글(큰 제목 · 이유 · 초점) · 세트 초과(4/3) · 휴식 · 종료 시트까지. */
+    for (final scale in [1.3, 2.0]) {
+      testWidgets('360px · 글자 $scale배 — 머리글 · 줄 · 휴식 · 종료 시트가 넘치지 않는다', (t) async {
+        final app = await seeded();
+        final moves = movesOf(routineOf(app, _todayKey));
+        final first = '${moves.first['name']}';
+        final sets = moves.first['sets'] as int;
+        t.view.physicalSize = const Size(360, 740);
+        t.view.devicePixelRatio = 1.0;
+        addTearDown(t.view.reset);
+        t.platformDispatcher.textScaleFactorTestValue = scale;
+        addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
+        await t.pumpWidget(host(app, const _Launch(child: WorkoutSessionScreen(dateKey: _todayKey, type: 'bodyweight'))));
+        await t.tap(find.text('열기'));
+        await t.pumpAndSettle();
+        expect(t.takeException(), isNull, reason: '처음 화면');
+        for (var i = 0; i <= sets; i++) {
+          await t.ensureVisible(setButton(first));
+          await t.pump();
+          await t.tap(setButton(first));
+          await t.pump();
+          expect(t.takeException(), isNull, reason: '${i + 1}번째 세트에서 넘쳤습니다');
+        }
+        expect(find.descendant(of: exerciseRow(first), matching: find.text('${sets + 1}/$sets')), findsOneWidget);
+        /* 줄마다 한 세트씩(「−」 가 생겨 이름 칸이 가장 좁을 때) — 세트 × 횟수(「3세트 × 10 한쪽씩」)는
+           잘리지 않습니다. 검토 지적: 1.3배에서 「3세트 × 10 한…」 — 「한쪽씩」 이 잘렸습니다. */
+        expectPlanHeadVisible(t, GymExercise.fromMap(moves.first), reason: '$first · $scale배');
+        for (final m in moves.skip(1)) {
+          final name = '${m['name']}';
+          await t.ensureVisible(setButton(name));
+          await t.pump();
+          await t.tap(setButton(name));
+          await t.pump();
+          expectPlanHeadVisible(t, GymExercise.fromMap(m), reason: '$name · $scale배');
+        }
+        now = now.add(const Duration(minutes: 9));
+        await t.pump(const Duration(seconds: 1));
+        await t.tap(find.text('종료'));
+        await t.pumpAndSettle();
+        expect(t.takeException(), isNull, reason: '종료 시트');
+        /* 시트의 세 숫자(시간 · 완료 세트 · kcal)는 붙지 않습니다 — 2배에서 「09:00」 과 「6」 이
+           맞닿아 「09:006」 으로 읽혔습니다(검토 지적). */
+        final doneSets = sets + 1 + moves.length - 1;
+        final statValues = [
+          find.descendant(of: find.byType(Stat), matching: find.text('09:00')),
+          find.descendant(of: find.byType(Stat), matching: find.text('$doneSets')),
+          find.descendant(of: find.byType(Stat), matching: find.byWidgetPredicate(
+              (w) => w is Text && w.data != null && RegExp(r'^[\d,]+$').hasMatch(w.data!) && w.data != '$doneSets')),
+        ];
+        for (var i = 0; i + 1 < statValues.length; i++) {
+          expect(statValues[i], findsOneWidget);
+          expect(t.getRect(statValues[i + 1]).left - t.getRect(statValues[i]).right, greaterThanOrEqualTo(8),
+              reason: '$i 번째와 그 다음 숫자 사이 · $scale배');
+        }
+        for (final label in ['저장', '저장 안 함']) {
+          await t.ensureVisible(find.text(label));
+          await t.pumpAndSettle();
+          expect(find.text(label).hitTestable(), findsOneWidget, reason: '「$label」 이 눌려야 합니다');
+        }
+        await t.tap(find.text('저장'));
+        await t.pumpAndSettle();
+        expect(t.takeException(), isNull, reason: '축하');
+        expect(logOf(app, _todayKey, 'gym')['kind'], 'bodyweight');
+        await t.tap(find.text('닫기'));
+        await t.pumpAndSettle();
+      });
+    }
   });
 
   group('아직 오지 않은 날', () {
@@ -478,18 +966,21 @@ void main() {
       expect((app.store.scheduleDay(_tomorrowKey)['log'] as Map?) ?? const {}, isEmpty);
     });
 
-    testWidgets('맨몸 — 전체 완료가 막힌다', (t) async {
+    testWidgets('맨몸 — 안내가 뜨고 저장이 막힌다', (t) async {
       final app = await seeded();
-      await open(t, app, WorkoutSessionScreen(dateKey: _tomorrowKey, type: 'bodyweight'));
+      await open(t, app, const WorkoutSessionScreen(dateKey: _tomorrowKey, type: 'bodyweight'));
       expect(find.textContaining('아직 오지 않은 날입니다'), findsOneWidget);
-      final boxes = find.byType(CheckboxListTile);
-      final n = t.widgetList(boxes).length;
-      for (var i = 0; i < n; i++) {
-        await t.tap(boxes.at(i));
-        await t.pump();
-      }
-      final btn = t.widget<FilledButton>(find.widgetWithText(FilledButton, '전체 완료'));
-      expect(btn.onPressed, isNull);
+      await t.tap(find.text('시작'));
+      await t.pump();
+      await t.tap(anySetButton().first);
+      await t.pump();
+      now = now.add(const Duration(minutes: 10));
+      await t.tap(find.text('종료'));
+      await t.pumpAndSettle();
+      expect(find.textContaining('아직 오지 않은 날입니다'), findsNWidgets(2), reason: '시트에도 한 줄');
+      final save = t.widget<FilledButton>(find.widgetWithText(FilledButton, '저장'));
+      expect(save.onPressed, isNull);
+      expect((app.store.scheduleDay(_tomorrowKey)['log'] as Map?) ?? const {}, isEmpty);
     });
   });
 
@@ -560,63 +1051,36 @@ void main() {
       nothingLeft(app, _todayKey, before);
     });
 
-    testWidgets('맨몸 — 「n/m 했습니다」 창에도 「저장 안 함」', (t) async {
+    testWidgets('맨몸 — 종료 시트도 같다: 세트까지 하고 「저장 안 함」 한 번이면 기록 없이 닫힌다', (t) async {
       final app = await seeded();
       final before = jsonEncode(app.state);
       await open(t, app, const WorkoutSessionScreen(dateKey: _todayKey, type: 'bodyweight'));
-      final boxes = find.byType(CheckboxListTile);
-      final n = t.widgetList(boxes).length;
-      for (var i = 0; i < (n * kBodyweightEnoughRatio).ceil(); i++) {
-        await t.tap(boxes.at(i));
-        await t.pump();
-      }
-      /* 360px 폰 — 창이 가장 좁을 때(280)도 두 단추는 한 줄, 「저장 안 함」 은 그 밑. */
-      t.view.physicalSize = const Size(360, 740);
+      await t.tap(find.text('시작'));
+      await t.pump();
+      now = now.add(const Duration(minutes: 8));
+      await t.tap(anySetButton().first);   // 휴식도 돕니다
+      await t.pump();
+
+      /* 그냥 닫으면 시계가 다시 돕니다 */
+      await t.tap(find.text('종료'));
       await t.pumpAndSettle();
-      await t.tap(find.text('전체 완료'));
+      expect(find.text('오늘 맨몸 운동'), findsOneWidget);
+      await t.tapAt(const Offset(10, 10));
       await t.pumpAndSettle();
-      expect(t.takeException(), isNull);
-      final more = t.getCenter(find.text('더 하기')), save = t.getCenter(find.text('기록하기'));
-      expect(more.dy, save.dy, reason: '「더 하기」 · 「기록하기」 는 한 줄');
-      expect(t.getTopLeft(find.text('저장 안 함')).dy, greaterThan(t.getBottomLeft(find.text('기록하기')).dy));
+      expect(find.text('오늘 맨몸 운동'), findsNothing);
+      expect(find.text('운동 중'), findsOneWidget);
+
+      await t.tap(find.text('종료'));
+      await t.pumpAndSettle();
+      final save = t.getRect(find.widgetWithText(FilledButton, '저장'));
+      final discard = t.getRect(find.byKey(const ValueKey('discard')));
+      expect(discard.center.dx, closeTo(save.center.dx, 1));
+      expect(discard.top - save.bottom, greaterThanOrEqualTo(8));
       await t.tap(find.text('저장 안 함'));
       await t.pumpAndSettle();
       expect(find.text('기록하지 않았어요'), findsOneWidget);
       nothingLeft(app, _todayKey, before);
     });
-
-    /* 글자 크기를 키운 폰 — 두 단추가 한 줄에 안 들어가면 창의 기본 단추처럼 위아래로
-       섭니다. 고정 Row 였을 때는 2배에서 41px 넘쳐 「기록하기」 가 창 밖으로 잘렸습니다. */
-    for (final scale in [1.5, 2.0]) {
-      testWidgets('맨몸 — 360px · 글자 $scale배에도 세 단추가 창 안에', (t) async {
-        final app = await seeded();
-        await open(t, app, const WorkoutSessionScreen(dateKey: _todayKey, type: 'bodyweight'));
-        final boxes = find.byType(CheckboxListTile);
-        final n = t.widgetList(boxes).length;
-        for (var i = 0; i < (n * kBodyweightEnoughRatio).ceil(); i++) {
-          await t.tap(boxes.at(i));
-          await t.pump();
-        }
-        t.view.physicalSize = const Size(360, 740);
-        t.platformDispatcher.textScaleFactorTestValue = scale;
-        addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
-        await t.pumpAndSettle();
-        await t.tap(find.text('전체 완료'));
-        await t.pumpAndSettle();
-        expect(t.takeException(), isNull, reason: '넘침 없음');
-        final dialog = t.getRect(find.byType(Dialog));
-        for (final label in ['더 하기', '기록하기', '저장 안 함']) {
-          final r = t.getRect(find.ancestor(
-              of: find.text(label), matching: find.byWidgetPredicate((w) => w is ButtonStyleButton)));
-          expect(dialog.contains(r.topLeft) && dialog.contains(r.bottomRight - const Offset(0.01, 0.01)), isTrue,
-              reason: '「$label」 이 창 밖으로 나감: $r / $dialog');
-          expect(find.text(label).hitTestable(), findsOneWidget, reason: '「$label」 이 눌려야 합니다');
-        }
-        await t.tap(find.text('저장 안 함'));
-        await t.pumpAndSettle();
-        expect(find.byType(WorkoutSessionScreen), findsNothing);
-      });
-    }
 
     testWidgets('앞날이라 「저장」 이 막혀도 「저장 안 함」 으로 나간다', (t) async {
       final app = await seeded();
@@ -1173,8 +1637,15 @@ void main() {
       ex.done = 4;
       await pumpRow(t, ex, width: 360);
       expect(t.takeException(), isNull);
+      /* 계획은 한 줄이고 넘치면 뒤(휴식)부터 줄임표 — 그런데 세트 × 횟수까지 잘리면 안 됩니다.
+         예전 단언(한 줄 높이)은 시험 글꼴(글자마다 한 칸)에서 「4세트 × 10-12 한쪽…」 처럼 앞이
+         잘린 채로 통과했습니다(피드백 54 검토). 앞이 한 줄에 안 들어가면 휴식을 떼고 앞만 두 줄로. */
+      expectPlanHeadVisible(t, ex);
       final plan = t.renderObject<RenderParagraph>(planLine(ex.name));
-      expect(plan.size.height, lessThan(24), reason: '계획은 한 줄 — 넘치면 줄임표');
+      expect(plan.size.height, lessThan(40), reason: '앞(세트 × 횟수)만 두 줄까지');
+      if (plan.size.height >= 24) {
+        expect(t.widget<Text>(planLine(ex.name)).data, ex.planHead, reason: '두 줄이면 휴식은 뗍니다');
+      }
       final note = t.renderObject<RenderParagraph>(noteLine(ex.name));
       expect(note.size.height, lessThan(40), reason: '요령은 두 줄까지');
     });
@@ -1550,6 +2021,25 @@ Future<void> longPressDrag(WidgetTester t, Finder from, Offset to) async {
   }
   await g.up();
   await t.pumpAndSettle();
+}
+
+/// 계획 줄의 앞(세트 × 횟수 — 「3세트 × 10 한쪽씩」)이 화면에 다 보이는가. 뒤의 휴식은 좁으면
+/// 줄임표로 잘려도 됩니다(3차 30) — 앞은 안 됩니다. 한 줄에 다 들어가거나, 앞만 남긴 두 줄이거나.
+void expectPlanHeadVisible(WidgetTester t, GymExercise ex, {String? reason}) {
+  final key = find.byKey(ValueKey('plan-${slugOf(ex.name)}'));
+  final text = t.widget<Text>(key).data!;
+  final p = t.renderObject<RenderParagraph>(key);
+  expect(text, startsWith(ex.planHead), reason: reason);
+  if (!p.didExceedMaxLines) return;   // 전부 보입니다
+  /* 잘렸으면 잘린 곳은 앞 뒤여야 합니다 — 앞만 한 줄에 재어 봅니다. */
+  final tp = TextPainter(
+    text: TextSpan(text: ex.planHead, style: p.text.style),
+    textDirection: TextDirection.ltr,
+    textScaler: p.textScaler,
+    maxLines: 1,
+  )..layout(maxWidth: p.constraints.maxWidth);
+  expect(tp.didExceedMaxLines, isFalse, reason: '「${ex.planHead}」 가 잘렸습니다 · $reason');
+  tp.dispose();
 }
 
 /// 아무 종목의 「세트」 단추 — 어떤 종목이 나왔는지는 상관없을 때.

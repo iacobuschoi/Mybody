@@ -93,9 +93,71 @@ const Map<String, String> _finisher = {
   'lower': 'lying-leg-raise', 'upper': 'plank', 'pull': 'dead-bug', 'full': 'plank',
 };
 
+/// 루틴의 한 줄 — 경력의 세트 · 반복(버티기는 초)에 루틴이 맞춘 휴식.
+Map<String, Object?> _row(Exercise e, _Level level, int restSec) => {
+      'id': e.id,
+      'name': e.name,
+      'sets': level.sets,
+      if (e.pattern == 'hold') 'seconds': level.holdSec else 'reps': level.reps,
+      'restSec': restSec,
+      'note': e.note ?? '',
+    };
+
+/// 점프 · 뛰기 — 발이 떴다 떨어지며 착지 때 무릎에 체중의 몇 배가 실리는 동작. 체중 95kg 초과 ·
+/// 체지방률 30% 초과(lowImpact)인 사람의 루틴('low' 판)에 없고, 그 사람의 「종목 추가」 목록에도
+/// 안 나옵니다 — 루틴이 「점프 동작은 뺐습니다」 라고 말한 바로 밑에서 버피를 내밀면 안 됩니다.
+const Set<String> _jumpMoves = {
+  'jump-squat', 'burpee', 'jumping-jack', 'high-knees', 'mountain-climber', 'jump-rope', 'box-jump',
+};
+
+/// 맨몸이지만 도구가 있어야 하는 것 — 박스 · 줄넘기 줄 · 앱 휠. 의자 · 탁자 · 벽(스텝업 · 벤치
+/// 딥스 · 인버티드 로우)은 어느 방에나 있어서 여기 넣지 않습니다.
+const Set<String> _needsProp = {'box-jump', 'jump-rope', 'ab-rollout'};
+
+/// 집에서 맨몸 화면이 받는 종목 — 맨몸이면서 철봉 · 평행봉 같은 고정 기구도, 따로 사야 하는
+/// 도구도 필요 없는 것. [lowImpact] 면 점프 · 뛰기(_jumpMoves)도 뺍니다. 루틴(_moves)이
+/// 고르는 종목은 모든 판에서 이 안에 있고(시험이 지킵니다), 「종목 추가」 의 고르기 목록이
+/// 이것만 보여 줍니다.
+bool isHomeBodyweight(Exercise e, {bool lowImpact = false}) =>
+    e.equip == 'bodyweight' &&
+    !e.needsBar &&
+    !_needsProp.contains(e.id) &&
+    !(lowImpact && _jumpMoves.contains(e.id));
+
+/// 맨몸 화면의 「종목 추가」 가 붙이는 줄 — 루틴의 다른 줄과 같은 숫자(초보 3 × 10 ·
+/// 버티기 30초)에 루틴의 휴식([restSec]). 헬스의 스킴(schemeRowFor)을 쓰면 한 루틴 안에서
+/// 푸시업만 「8-12 · 휴식 1분」 이 되어 15분 예산과 줄의 글자가 어긋납니다.
+Map<String, Object?> bodyweightRowFor(Exercise e,
+        {required Map<String, Object?> profile, required int restSec}) =>
+    _row(e, _levelOf(profile), restSec);
+
+/// 한 세트의 동작 시간(초) — 버티기는 그 초, 반복은 반복당 3초.
+int _workSec({int? seconds, int reps = 0}) => seconds != null && seconds > 0 ? seconds : reps * _secPerRep;
+
+/// 줄들의 예상 시간(초) — 세트 × (동작 + 휴식). 루틴이 분을 맞출 때 쓰는 바로 그 셈이라,
+/// 맨몸 화면이 빼고 더한 목록으로 머리글의 분 · kcal 을 다시 낼 때도 이걸 씁니다.
+/// [rows] 는 루틴 줄 모양({sets, reps 또는 seconds, restSec}) — 화면의 반복은 '10' 같은
+/// 글자라 앞의 숫자를 읽습니다.
+int bodyweightPlannedSec(Iterable<Map<String, Object?>> rows) {
+  int? intOf(Object? v) =>
+      v is num ? v.round() : int.tryParse(RegExp(r'\d+').firstMatch('${v ?? ''}')?.group(0) ?? '');
+  var sec = 0;
+  for (final r in rows) {
+    final work = _workSec(seconds: intOf(r['seconds']), reps: intOf(r['reps']) ?? 0);
+    sec += (intOf(r['sets']) ?? 0) * (work + (intOf(r['restSec']) ?? 0));
+  }
+  return sec;
+}
+
+/// 루틴 제목 — 「하체 15분 맨몸」. 줄이 하나도 없으면(0분) 분 없이 「하체 맨몸」.
+String bodyweightTitle(String focus, int minutes) {
+  final label = _focusLabel[focus] ?? _focusLabel['full']!;
+  return minutes > 0 ? '$label $minutes분 맨몸' : '$label 맨몸';
+}
+
 /// 자기 전 15분 맨몸 운동 — 몸 상태(체중·체지방률·경력)와 오늘 분할에 맞춤.
 ///
-/// → {title, focus ('lower'|'upper'|'pull'|'full'), minutes, plannedSec, kcal,
+/// → {title, focus ('lower'|'upper'|'pull'|'full'), minutes, plannedSec, kcal, restSec,
 ///    exercises: [{id, name, sets, reps 또는 seconds, restSec, note}], why}
 Map<String, Object?> bodyweightRoutine({
   required Map<String, Object?> profile,
@@ -121,7 +183,7 @@ Map<String, Object?> bodyweightRoutine({
 
   /* 몇 종목을 넣을지 — 전체 시간이 요청한 분에 가장 가까워지는 개수.
      휴식은 15~60초 사이에서 남는 시간에 맞춥니다. */
-  int workOf(Exercise e) => e.pattern == 'hold' ? level.holdSec : level.reps * _secPerRep;
+  int workOf(Exercise e) => _workSec(seconds: e.pattern == 'hold' ? level.holdSec : null, reps: level.reps);
   final coreWork = workOf(core);
   var bestN = 1;
   var bestRest = level.restSec;
@@ -144,21 +206,8 @@ Map<String, Object?> bodyweightRoutine({
   }
 
   final chosen = [...pool.take(bestN), core];
-  var plannedSec = 0;
-  final exercises = <Map<String, Object?>>[];
-  for (final e in chosen) {
-    final hold = e.pattern == 'hold';
-    final work = workOf(e);
-    plannedSec += level.sets * (work + bestRest);
-    exercises.add({
-      'id': e.id,
-      'name': e.name,
-      'sets': level.sets,
-      if (hold) 'seconds': level.holdSec else 'reps': level.reps,
-      'restSec': bestRest,
-      'note': e.note ?? '',
-    });
-  }
+  final exercises = [for (final e in chosen) _row(e, level, bestRest)];
+  final plannedSec = bodyweightPlannedSec(exercises);
 
   final why = <String>[];
   if (todayLabel.trim().isEmpty) {
@@ -181,13 +230,14 @@ Map<String, Object?> bodyweightRoutine({
       '${variant == 'hard' ? ' · 어려운 변형' : ''}');
 
   return {
-    'title': '${_focusLabel[focus]} $budgetMin분 맨몸',
+    'title': bodyweightTitle(focus, budgetMin),
     'focus': focus,
     'focusLabel': _focusLabel[focus],
     'level': level.key,
     'lowImpact': lowImpact,
     'minutes': budgetMin,
     'plannedSec': plannedSec,
+    'restSec': bestRest,
     'kcal': workoutKcal(
         weightKg: weightKg, duration: Duration(seconds: plannedSec), kind: 'bodyweight'),
     'exercises': exercises,

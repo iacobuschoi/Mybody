@@ -124,6 +124,42 @@ void main() {
       expect(row('db-fly'), findsOneWidget);
     });
 
+    /* 집에서 맨몸 화면(피드백 54)의 「종목 추가」 — 흐린 섹션이 아니라 목록 자체가 좁아집니다. */
+    testWidgets('only — 부위 숫자 · 섹션 · 검색 · 최근 · 익숙한 종목까지 그 안에서만', (t) async {
+      phone(t);
+      bool only(Exercise e) => e.equip == 'bodyweight' && !e.needsBar;
+      Exercise? got;
+      await launch<Exercise?>(
+          t,
+          (ctx) => pickExercise(ctx, only: only, recent: ['bench-press', 'push-up'], familiar: ['pec-deck', 'plank']),
+          (e) => got = e);
+      expect(find.byKey(const ValueKey('pick-quick-bench-press')), findsNothing);
+      expect(find.byKey(const ValueKey('pick-quick-push-up')), findsOneWidget);
+      expect(find.byKey(const ValueKey('pick-quick-pec-deck')), findsNothing);
+      expect(find.byKey(const ValueKey('pick-quick-plank')), findsOneWidget);
+      /* 부위 칩의 숫자도 좁힌 만큼 — 누르기 전에 몇 개인지 맞게 */
+      final chest = exercisesFor('chest').where(only).length;
+      expect(find.descendant(of: tile('chest'), matching: find.text('$chest')), findsOneWidget);
+      await t.tap(tile('chest'));
+      await t.pumpAndSettle();
+      expect(sec('bodyweight'), findsOneWidget);
+      expect(sec('machine'), findsNothing);
+      expect(row('dips'), findsNothing, reason: '맨몸이어도 평행봉이 있어야 하는 것은 빠집니다');
+      expect(find.byType(Opacity), findsNothing);
+      await t.tap(find.byKey(const ValueKey('pick-back')));
+      await t.pumpAndSettle();
+      await t.enterText(find.byKey(const ValueKey('pick-search')), '풀업');
+      await t.pumpAndSettle();
+      expect(row('pull-up'), findsNothing);
+      expect(row('pullup-latpulldown'), findsNothing);
+      await t.enterText(find.byKey(const ValueKey('pick-search')), '푸시업');
+      await t.pumpAndSettle();
+      expect(row('push-up'), findsOneWidget);
+      await t.tap(row('push-up'));
+      await t.pumpAndSettle();
+      expect(got?.id, 'push-up');
+    });
+
     testWidgets('기본은 모든 기구 — 덤벨·맨몸뿐이어도 머신 섹션이 바로 보이고, 「내 기구만」 을 켜면 사라진다', (t) async {
       phone(t);
       await launch<Exercise?>(t, (ctx) => pickExercise(ctx, equip: {'dumbbell', 'bodyweight'}), (_) {});

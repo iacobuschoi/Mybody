@@ -760,6 +760,83 @@ void main() {
       expect('${r['why']}', isNotEmpty);
     }
 
+    /* 맨몸 화면의 「종목 추가」(피드백 54) — 루틴의 다른 줄과 같은 숫자 · 같은 휴식. */
+    test('restSec 는 줄의 휴식과 같고, 「종목 추가」 줄(bodyweightRowFor)도 경력 · 휴식이 같다', () {
+      for (final (p, sets, reps, hold) in [(novice, 3, 10, 30), (inter, 3, 14, 40), (adv, 4, 15, 50)]) {
+        final r = bodyweightRoutine(profile: p, weightKg: 75, todayLabel: '하체 A');
+        final rest = r['restSec'] as int;
+        expect(rest, inInclusiveRange(15, 60));
+        for (final x in (r['exercises'] as List).cast<Map>()) {
+          expect(x['restSec'], rest);
+        }
+        final push = bodyweightRowFor(exerciseById('push-up')!, profile: p, restSec: rest);
+        expect(push, {'id': 'push-up', 'name': '푸시업', 'sets': sets, 'reps': reps, 'restSec': rest,
+            'note': exerciseById('push-up')!.note});
+        final plank = bodyweightRowFor(exerciseById('plank')!, profile: p, restSec: rest);
+        expect(plank['seconds'], hold, reason: '버티기는 초');
+        expect(plank.containsKey('reps'), isFalse);
+      }
+    });
+
+    test('isHomeBodyweight — 맨몸이면서 철봉 · 평행봉이 필요 없는 것만, 부위마다 하나 넘게', () {
+      expect(isHomeBodyweight(exerciseById('push-up')!), isTrue);
+      expect(isHomeBodyweight(exerciseById('bench-dips')!), isTrue);
+      expect(isHomeBodyweight(exerciseById('dips')!), isFalse, reason: '평행봉');
+      expect(isHomeBodyweight(exerciseById('pull-up')!), isFalse, reason: '철봉');
+      expect(isHomeBodyweight(exerciseById('bench-press')!), isFalse, reason: '바벨');
+      for (final g in kGroupLabel.keys) {
+        expect(exercisesFor(g).where(isHomeBodyweight), isNotEmpty, reason: '$g — 맨몸 「종목 추가」 의 부위 칩이 비면 안 됩니다');
+        expect(exercisesFor(g).where((e) => isHomeBodyweight(e, lowImpact: true)), isNotEmpty,
+            reason: '$g — 점프를 뺀 사람에게도');
+      }
+    });
+
+    /* 검토 지적 — 박스 · 줄넘기는 도구, 점프를 뺀 루틴의 「종목 추가」 가 점프를 내밀었습니다. */
+    test('isHomeBodyweight — 도구가 있어야 하는 것(박스 · 줄 · 앱 휠)은 아니고, lowImpact 면 점프 · 뛰기도 아니다', () {
+      for (final id in ['box-jump', 'jump-rope', 'ab-rollout']) {
+        expect(isHomeBodyweight(exerciseById(id)!), isFalse, reason: id);
+      }
+      for (final id in ['jump-squat', 'burpee', 'jumping-jack', 'high-knees', 'mountain-climber']) {
+        expect(isHomeBodyweight(exerciseById(id)!), isTrue, reason: '$id — 점프가 괜찮은 사람');
+        expect(isHomeBodyweight(exerciseById(id)!, lowImpact: true), isFalse, reason: '$id — 무릎');
+      }
+      for (final id in ['bodyweight-squat', 'lunge', 'step-up', 'plank', 'bear-crawl']) {
+        expect(isHomeBodyweight(exerciseById(id)!, lowImpact: true), isTrue, reason: id);
+      }
+    });
+
+    test('루틴이 고르는 종목은 전부 「종목 추가」 의 목록 안 — 초점 · 경력 · lowImpact 모든 판에서', () {
+      for (final p in [novice, inter, adv]) {
+        for (final label in ['하체 A', '상체 A', '등·이두', '']) {
+          for (final (w, pbf) in [(75.0, 20.0), (100.0, 20.0), (70.0, 33.0)]) {
+            final r = bodyweightRoutine(profile: p, weightKg: w, pbfPct: pbf, todayLabel: label);
+            for (final x in (r['exercises'] as List).cast<Map>()) {
+              expect(isHomeBodyweight(exerciseById('${x['id']}')!, lowImpact: r['lowImpact'] == true), isTrue,
+                  reason: '${x['id']} · ${p['trainingAge']} · $label · $w kg');
+            }
+          }
+        }
+      }
+    });
+
+    /* 검토 지적 — 목록을 고쳐도 머리글이 루틴의 분 · kcal 그대로였습니다. 화면이 같은 셈으로 다시 냅니다. */
+    test('bodyweightPlannedSec — 루틴의 plannedSec 와 같은 셈 · 글자 반복(「10」)도 읽는다 · bodyweightTitle', () {
+      for (final p in [novice, inter, adv]) {
+        final r = bodyweightRoutine(profile: p, weightKg: 75, todayLabel: '하체 A');
+        final rows = (r['exercises'] as List).cast<Map<String, Object?>>();
+        expect(bodyweightPlannedSec(rows), r['plannedSec']);
+        expect(bodyweightTitle('${r['focus']}', r['minutes'] as int), r['title']);
+      }
+      expect(bodyweightPlannedSec([
+        {'sets': 3, 'reps': '10', 'restSec': 30},              // 3 × (30 + 30)
+        {'sets': 3, 'reps': '30초', 'seconds': 30, 'restSec': 30}, // 3 × (30 + 30)
+        {'sets': 2, 'reps': 12, 'restSec': 20},                // 2 × (36 + 20)
+      ]), 180 + 180 + 112);
+      expect(bodyweightPlannedSec(const []), 0);
+      expect(bodyweightTitle('upper', 9), '상체 9분 맨몸');
+      expect(bodyweightTitle('full', 0), '전신 맨몸', reason: '줄이 없으면 분 없이');
+    });
+
     test('초보 · 하체 날 — 3세트 × 10회, 하체 위주, 마지막은 코어', () {
       final r = bodyweightRoutine(profile: novice, weightKg: 75, pbfPct: 20, todayLabel: '하체 A');
       expect(r['focus'], 'lower');

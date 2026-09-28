@@ -204,13 +204,11 @@ Load recommendLoad({
   );
 }
 
-/// 최근 [days]일의 헬스 기록에서 종목 이름 → 마지막 기록 `{kg, sets, of, reps, date}`.
-/// [dateKey] 그 날은 빼고 전날부터 거슬러 봅니다. [schedule] 은 state['schedule'].
-Map<String, Map<String, Object?>> lastLoadsFrom(Map<String, Object?> schedule, String dateKey,
-    {int days = 30}) {
-  final out = <String, Map<String, Object?>>{};
+/// [dateKey] 전날부터 [days]일을 거슬러 가며 그 날의 운동 기록(log['gym'] — 헬스든 맨몸이든)을
+/// 최근 것부터. [schedule] 은 state['schedule'].
+Iterable<(String, Map)> _pastGymLogs(Map<String, Object?> schedule, String dateKey, int days) sync* {
   final start = DateTime.tryParse('${dateKey}T00:00:00');
-  if (start == null) return out;
+  if (start == null) return;
   for (var i = 1; i <= days; i++) {
     /* 달력 산수로 — Duration 으로 빼면 서머타임 날(23시간) 다음에 하루가 건너뜁니다. */
     final d = DateTime(start.year, start.month, start.day - i);
@@ -218,7 +216,18 @@ Map<String, Map<String, Object?>> lastLoadsFrom(Map<String, Object?> schedule, S
     final day = schedule[k];
     final log = day is Map ? day['log'] : null;
     final gym = log is Map ? log['gym'] : null;
-    if (gym is! Map || gym['kind'] != 'gym') continue;
+    if (gym is Map) yield (k, gym);
+  }
+}
+
+/// 최근 [days]일의 헬스 기록에서 종목 이름 → 마지막 기록 `{kg, sets, of, reps, date}`.
+/// [dateKey] 그 날은 빼고 전날부터 거슬러 봅니다. [schedule] 은 state['schedule'].
+/// 맨몸 기록(kind 'bodyweight')은 무게가 없어서 안 봅니다.
+Map<String, Map<String, Object?>> lastLoadsFrom(Map<String, Object?> schedule, String dateKey,
+    {int days = 30}) {
+  final out = <String, Map<String, Object?>>{};
+  for (final (k, gym) in _pastGymLogs(schedule, dateKey, days)) {
+    if (gym['kind'] != 'gym') continue;
     final xs = gym['exercises'];
     if (xs is! List) continue;
     for (final x in xs) {
@@ -232,6 +241,27 @@ Map<String, Map<String, Object?>> lastLoadsFrom(Map<String, Object?> schedule, S
         'reps': x['reps'],
         'date': k,
       };
+    }
+  }
+  return out;
+}
+
+/// 최근 [days]일에 한 종목의 고유번호(최근 것부터, [limit] 개까지) — 종목 고르기의 「최근」 줄.
+/// 무게 추천([lastLoadsFrom])과 달리 맨몸 기록도 읽습니다: 헬스 기록의 종목은 `{name, …}`,
+/// 맨몸 기록은 이름만(`exercises:[이름…]`). [only] 로 거른 뒤에 셉니다 — 집에서 맨몸 화면은
+/// 맨몸 종목만 받는데, 헬스 기록의 바벨 여덟 개가 자리를 다 채우면 줄이 빕니다.
+List<String> recentExerciseIdsFrom(Map<String, Object?> schedule, String dateKey,
+    {int days = 30, int limit = 8, bool Function(Exercise)? only}) {
+  final out = <String>[];
+  for (final (_, gym) in _pastGymLogs(schedule, dateKey, days)) {
+    final xs = gym['exercises'];
+    if (xs is! List) continue;
+    for (final x in xs) {
+      final name = x is Map ? '${x['name'] ?? ''}' : (x is String ? x : '');
+      final e = name.isEmpty ? null : exerciseByName(name);
+      if (e == null || out.contains(e.id) || !(only?.call(e) ?? true)) continue;
+      out.add(e.id);
+      if (out.length >= limit) return out;
     }
   }
   return out;

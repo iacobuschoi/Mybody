@@ -17,6 +17,10 @@
  *
  * 두 가지로 씁니다: pickExercise(하나 → 탭하면 닫힘), pickExercises(여러 개 →
  * 체크하고 「완료」). 위젯(ExercisePicker) 자체는 시트 밖에서도 쓸 수 있습니다.
+ *
+ * [ExercisePicker.only] 는 목록 자체를 좁힙니다 — 집에서 맨몸 운동 화면(피드백 54)은
+ * 맨몸 · 고정 기구 없는 종목만 받습니다. 흐린 섹션 · 「내 기구만」 과 달리 첫 화면의
+ * 부위 숫자 · 최근 줄 · 검색까지 전부 그 안에서만(여덟 부위 모두 맨몸 종목이 있습니다).
  * ========================================================================== */
 import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -44,6 +48,7 @@ Future<Exercise?> pickExercise(
   BuildContext context, {
   Set<String>? equip,
   Set<String> exclude = const {},
+  bool Function(Exercise)? only,
   List<String> familiar = const [],
   List<String> recent = const [],
   String? title,
@@ -53,6 +58,7 @@ Future<Exercise?> pickExercise(
       (ctx) => ExercisePicker(
         equip: equip,
         exclude: exclude,
+        only: only,
         familiar: familiar,
         recent: recent,
         title: title,
@@ -101,6 +107,7 @@ class ExercisePicker extends StatefulWidget {
     super.key,
     this.equip,
     this.exclude = const {},
+    this.only,
     this.familiar = const [],
     this.recent = const [],
     this.title,
@@ -113,6 +120,8 @@ class ExercisePicker extends StatefulWidget {
   final Set<String>? equip;
   /// 목록에서 뺄 종목(이미 세션에 있는 것).
   final Set<String> exclude;
+  /// 이것만 보입니다(null 이면 전부). 맞지 않는 종목은 흐리게도 안 나옵니다.
+  final bool Function(Exercise)? only;
   final List<String> familiar;
   final List<String> recent;
   final String? title;
@@ -141,7 +150,7 @@ class _ExercisePickerState extends State<ExercisePicker> {
     super.dispose();
   }
 
-  bool _visible(Exercise e) => !widget.exclude.contains(e.id);
+  bool _visible(Exercise e) => !widget.exclude.contains(e.id) && (widget.only?.call(e) ?? true);
 
   /// 이 기구가 내 것인가. equip 을 안 주면 전부, 맨몸은 언제나.
   bool _mineEquip(String k) => widget.equip == null || k == 'bodyweight' || widget.equip!.contains(k);

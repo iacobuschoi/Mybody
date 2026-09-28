@@ -217,6 +217,22 @@ void main() {
       final m = lastLoadsFrom(schedule, '2026-09-27');
       expect(rec('바벨 스쿼트', '5-8', last: m['바벨 스쿼트']).kg, 62.5);
     });
+
+    /* 집에서 맨몸 화면의 「종목 추가」 — 무게 추천과 달리 맨몸 기록(이름만)도 읽습니다(검토 지적). */
+    test('recentExerciseIdsFrom — 헬스 · 맨몸 기록 둘 다, 최근 것부터, only 로 거른 뒤 개수', () {
+      expect(recentExerciseIdsFrom(schedule, '2026-09-27'),
+          ['barbell-squat', 'push-up', 'leg-press', 'bodyweight-squat'],
+          reason: '오늘(9/27) · 30일 밖(8/10)은 빼고 · 맨몸 기록(9/10)의 이름도');
+      expect(recentExerciseIdsFrom(schedule, '2026-09-27', only: (e) => e.equip == 'bodyweight'),
+          ['push-up', 'bodyweight-squat']);
+      expect(recentExerciseIdsFrom(schedule, '2026-09-27', limit: 2), ['barbell-squat', 'push-up']);
+      expect(recentExerciseIdsFrom(schedule, '2026-09-27', days: 5), isEmpty);
+      expect(recentExerciseIdsFrom(schedule, 'nope'), isEmpty);
+      expect(recentExerciseIdsFrom({'2026-09-26': {'log': {'gym': {'kind': 'bodyweight', 'exercises': ['없는 종목', 7, '플랭크']}}}},
+          '2026-09-27'), ['plank'], reason: '사전에 없는 이름 · 이상한 값은 건너뜁니다');
+      /* 무게 추천은 그대로 헬스 기록만 */
+      expect(lastLoadsFrom(schedule, '2026-09-27').containsKey('맨몸 스쿼트'), isFalse);
+    });
   });
 
   group('조각', () {
