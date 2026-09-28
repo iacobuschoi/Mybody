@@ -40,6 +40,8 @@ def clean_transcript(text: str, segments: list[dict] | None = None,
         return ""
     if re.search(r"(.{1,4})\1{4,}", n):          # "아아아아아" · "감사감사감사감사감사"
         return ""
+    if re.search(r"(.{5,12})\1{3,}", n):         # "아프지 않게, 아프지 않게, …" (첫날 밤 잡음에서 25번)
+        return ""
     return text
 
 

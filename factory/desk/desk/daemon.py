@@ -67,6 +67,7 @@ class Desk:
                                          "thinking" if self.brain.busy() else "listening"))
 
     def wake(self, why: str = "clap") -> str:
+        why = why or "deskctl"                         # /api/wake 는 빈 글을 넘김
         if self.mode != "sleep":
             self.say_brief()
             return "이미 깨어 있음"
@@ -97,6 +98,7 @@ class Desk:
         return text
 
     def sleep(self, why: str = "voice") -> str:
+        why = why or "deskctl"
         log.info("잠듦 (%s)", why)
         self.brain.cancel()
         self.voice.say("화면 끌게요. 박수 두 번이면 다시 켜요.", block=True)

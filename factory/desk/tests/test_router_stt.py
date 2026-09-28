@@ -45,7 +45,7 @@ class RouterTest(unittest.TestCase):
 class SttFilterTest(unittest.TestCase):
     def test_hallucinations_dropped(self):
         for s in ["시청해 주셔서 감사합니다.", "구독과 좋아요 부탁드립니다", "MBC 뉴스 이덕영입니다.",
-                  "감사합니다.", "Thank you.", "아아아아아아아", "네"]:
+                  "감사합니다.", "Thank you.", "아아아아아아아", "네", "아프지 않게, " * 25]:
             self.assertEqual(clean_transcript(s), "", s)
 
     def test_real_commands_kept(self):
