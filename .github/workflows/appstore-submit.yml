@@ -7,6 +7,7 @@
 #   submit   끄면 읽기만 합니다 — 지금 걸린 심사 · 판 · 빌드 상태와 할 일을 찍습니다.
 #            켜면 걸린 심사를 취소하고 그 판을 새 번호 · 새 빌드로 바꿔 다시 제출합니다.
 #   link_only  판 · 빌드는 두고 beta 그룹의 TestFlight 공개 링크만 봅니다(submit 이면 켭니다).
+#   link_off   link_only 와 함께 켜면 반대로 공개 링크를 닫습니다(submit 이면).
 #
 # Secrets 는 아이폰 TestFlight 와 같습니다: ASC_KEY_ID · ASC_ISSUER_ID · ASC_KEY_P8(또는 _BASE64).
 # 하는 일의 자세한 순서와 멈추는 자리: tools/asc-submit.js 머리말.
@@ -44,6 +45,10 @@ on:
         description: 'TestFlight 공개 링크만 (읽기 · submit 이면 켜기)'
         type: boolean
         default: false
+      link_off:
+        description: 'link_only 와 함께: 공개 링크를 닫기 (submit 이면)'
+        type: boolean
+        default: false
       submit:
         description: '실제로 제출 (끄면 읽기만)'
         type: boolean
@@ -78,10 +83,12 @@ jobs:
           IN_WHATS_NEW: ${{ inputs.whats_new }}
           IN_SUBMIT: ${{ inputs.submit }}
           IN_LINK_ONLY: ${{ inputs.link_only }}
+          IN_LINK_OFF: ${{ inputs.link_off }}
         run: |
           set +x
           if [ "$IN_LINK_ONLY" = "true" ]; then
             args=(--link-only --beta "$IN_BETA")
+            [ "$IN_LINK_OFF" = "true" ] && args+=(--link-off)
             [ "$IN_SUBMIT" = "true" ] && args+=(--submit)
             node tools/asc-submit.js "${args[@]}"
             exit $?

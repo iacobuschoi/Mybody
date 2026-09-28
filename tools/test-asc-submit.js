@@ -258,6 +258,18 @@ const quiet = { log: () => {}, noWait: true };
     const f2 = fake({ patchNoLink: true });
     const r3 = await run(['--link-only', '--beta', 'friends', '--submit'], {}, { client: f2.client, ...quiet });
     ok(r3.link.link === 'https://testflight.apple.com/join/AbCd1234', '응답에 주소가 없으면 다시 읽음');
+    /* --link-off: 읽기만은 안 바꾸고, --submit 이면 닫음(주소는 돌려주지 않음) · 이미 닫혔으면 안 바꿈 */
+    const off0 = await run(['--link-only', '--link-off', '--beta', 'friends'], {}, { client: f.client, ...quiet });
+    ok(off0.link.enabled === true && f.st.groups[0].attributes.publicLinkEnabled === true, '닫기 읽기만은 그대로');
+    const m = f.st.calls.filter(c => c.startsWith('PATCH')).length;
+    const off = await run(['--link-only', '--link-off', '--beta', 'friends', '--submit'], {}, { client: f.client, ...quiet });
+    ok(off.link.enabled === false && off.link.link === null, '닫음');
+    ok(f.st.groups[0].attributes.publicLinkEnabled === false, '그룹이 닫힘');
+    ok(f.st.calls.filter(c => c.startsWith('PATCH')).length === m + 1, 'PATCH 한 번');
+    await run(['--link-only', '--link-off', '--beta', 'friends', '--submit'], {}, { client: f.client, ...quiet });
+    ok(f.st.calls.filter(c => c.startsWith('PATCH')).length === m + 1, '이미 닫혔으면 다시 안 바꿈');
+    const reopen = await run(['--link-only', '--beta', 'friends', '--submit'], {}, { client: f.client, ...quiet });
+    ok(reopen.link.enabled === true, '다시 열기');
     let threw = null;
     try { await run(['--link-only'], {}, { client: fake().client, ...quiet }); } catch (e) { threw = e; }
     ok(threw && /--beta/.test(threw.message), '--beta 없으면 거절');

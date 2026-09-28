@@ -5,7 +5,7 @@
  *   node tools/asc-submit.js --version 0.2.15 --build 298 [--beta friends] [--drop-old-beta]
  *                            [--submit] [--whats-new "…"]
  *
- *   node tools/asc-submit.js --link-only --beta friends [--submit]
+ *   node tools/asc-submit.js --link-only --beta friends [--submit] [--link-off]
  *
  *   --submit 이 없으면 **읽기만** 합니다(지금 상태와 할 일을 찍음). 있을 때만 바꿉니다.
  *   환경변수: ASC_KEY_ID · ASC_ISSUER_ID · ASC_KEY_P8 또는 ASC_KEY_P8_BASE64 (tools/asc.js 와 같음)
@@ -33,6 +33,7 @@
  *   켭니다(인원 제한 없음). 친구에게 보내는 초대 문구의 「아이폰: …」 이 이 링크입니다 — 주소를 받으면
  *   노트북이 tools/app-version.js --join-ios=<링크> 로 서버에 넣습니다. 누구나 받을 수 있지만, 그룹에
  *   승인된 빌드가 있어야 실제로 깔립니다(베타 심사 통과 뒤).
+ *   --link-off 를 더하면 반대로 닫습니다(--submit 일 때만 바꿈).
  *
  * 멈추는 자리
  *   빌드가 없거나 처리 중이면(processingState ≠ VALID) 아무것도 바꾸지 않고 멈춥니다. 취소한 뒤 판이
@@ -282,6 +283,19 @@ async function publicLink(c, opts) {
   if (!g) throw new Error(`TestFlight 그룹 「${opts.beta}」 이 없습니다`);
   if (g.attributes.isInternalGroup) throw new Error(`「${opts.beta}」 는 내부 그룹입니다 — 공개 링크가 없습니다`);
   let a = g.attributes;
+  /* --link-off: 공개 링크를 닫습니다(주인 결정 9/28 — 계정 섞임 버그가 있는 옛 판을 새 사람이 받지 않게,
+     고친 판이 승인될 때까지). 이미 들어온 테스터는 그대로입니다. 다시 열 때는 --link-only --submit. */
+  if (opts.linkOff) {
+    if (a.publicLinkEnabled && opts.submit) {
+      log(`「${opts.beta}」 공개 링크를 닫습니다`);
+      const u = await c.call('PATCH', `/v1/betaGroups/${g.id}`, {
+        data: { type: 'betaGroups', id: g.id, attributes: { publicLinkEnabled: false } },
+      });
+      a = (u && u.data && u.data.attributes) || Object.assign({}, a, { publicLinkEnabled: false });
+    }
+    log(a.publicLinkEnabled ? '공개 링크: 열림 (--submit 으로 닫습니다)' : '공개 링크: 닫힘');
+    return { enabled: !!a.publicLinkEnabled, link: a.publicLinkEnabled ? a.publicLink || null : null };
+  }
   if (!a.publicLinkEnabled && opts.submit) {
     log(`「${opts.beta}」 공개 링크를 켭니다`);
     const u = await c.call('PATCH', `/v1/betaGroups/${g.id}`, {
@@ -308,6 +322,7 @@ async function run(argv, env, deps = {}) {
     whatsNew: arg(argv, '--whats-new', ''),
     dropOldBeta: has(argv, '--drop-old-beta'),
     submit: has(argv, '--submit'),
+    linkOff: has(argv, '--link-off'),
     appStore: !has(argv, '--beta-only'),
     log, noWait: deps.noWait, waitMs: deps.waitMs, tries: deps.tries,
   };
