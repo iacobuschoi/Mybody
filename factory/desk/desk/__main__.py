@@ -126,7 +126,7 @@ def selftest() -> None:
         r = subprocess.run([exe, "-p", "한 단어로: 준비됐어?", "--output-format", "text"], capture_output=True,
                            text=True, timeout=90, cwd=__import__("os").path.expanduser(cfg["brain"]["workdir"]))
         if r.returncode:
-            raise RuntimeError(r.stderr.strip()[-200:])
+            raise RuntimeError((r.stderr.strip() or r.stdout.strip())[-200:])   # "Not logged in" 은 stdout 으로 나옴
         return r.stdout.strip()[:40]
 
     def brief():

@@ -4,7 +4,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from desk.briefing import compose, _line  # noqa: E402
+from desk.briefing import compose, _line, sky_ko, weather_ko  # noqa: E402
 from desk.mac import speakable  # noqa: E402
 
 BODY = """단계: S4 구현 (3/7 기능)          마지막 갱신: 2026-10-02 21:10
@@ -36,6 +36,18 @@ class BriefingTest(unittest.TestCase):
         self.assertIn("좋은 아침이에요", s)
         self.assertIn("공장 상황은 지금 못 읽었어요", s)
         self.assertIn("실험실 확인이 필요해요 — 시험 러너 꺼짐, 아이폰 연결 안 됨.", s)
+
+    def test_weather_names_in_korean(self):
+        # wttr.in 은 lang=ko 여도 "Overcast  +22°C" 처럼 영어로 줌 (2026-09 맥 미니에서 확인)
+        for en, ko in {"Overcast ": "흐림", "Partly cloudy": "구름 조금", "Sunny": "맑음", "Light rain": "약한 비",
+                       "Patchy rain nearby": "곳에 따라 비", "Moderate or heavy rain shower": "강한 소나기",
+                       "Thundery outbreaks in nearby": "천둥 번개", "Mist": "옅은 안개", "맑음": "맑음"}.items():
+            self.assertEqual(sky_ko(en), ko, en)
+        self.assertEqual(weather_ko("Overcast  +22°C"), "흐림 +22°C")
+        self.assertEqual(weather_ko(""), "")
+        s = compose({"weather": weather_ko("Overcast  +22°C"), "factory": {"ok": False}, "lab": {}},
+                    dt.datetime(2026, 9, 28, 21, 58))
+        self.assertIn("바깥은 흐림 22도.", s)
 
     def test_speakable_strips_markdown(self):
         s = speakable("## 결과\n- **습관** 앱: `flutter test` 통과했어요. 자세한 건 [링크](https://x.y) 보세요. 세 번째. 네 번째.")

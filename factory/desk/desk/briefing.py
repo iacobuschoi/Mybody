@@ -28,7 +28,32 @@ def sh(cmd: list[str], timeout: float = 8) -> str:
 
 # ── 모으기 (하나가 실패해도 나머지는 나감) ─────────────────────────────────────
 def weather(city: str) -> str:
-    return sh(["curl", "-s", "-m", "4", f"https://wttr.in/{city}?format=%C+%t&lang=ko"])
+    return weather_ko(sh(["curl", "-s", "-m", "4", f"https://wttr.in/{city}?format=%C+%t&lang=ko"]))
+
+
+# wttr.in 은 lang=ko 여도 날씨 이름을 영어로 줍니다("Overcast") — 소리 내어 읽게 우리말로. 앞에 있는 낱말이 먼저.
+_SKY = [("thunder", "천둥 번개"), ("blizzard", "눈보라"), ("sleet", "진눈깨비"), ("snow", "눈"),
+        ("drizzle", "이슬비"), ("shower", "소나기"), ("rain", "비"), ("fog", "안개"), ("mist", "옅은 안개"),
+        ("haze", "실안개"), ("overcast", "흐림"), ("partly", "구름 조금"), ("cloud", "구름 많음"),
+        ("sunny", "맑음"), ("clear", "맑음")]
+
+
+def sky_ko(cond: str) -> str:
+    low = cond.strip().lower()
+    ko = next((k for w, k in _SKY if w in low), "")
+    if not ko:
+        return cond.strip()                      # 이미 우리말이거나 모르는 말
+    if ko in ("비", "눈", "소나기", "이슬비"):
+        ko = ("곳에 따라 " if any(w in low for w in ("patchy", "possible", "nearby")) else
+              "강한 " if any(w in low for w in ("heavy", "torrential")) else
+              "약한 " if "light" in low else "") + ko
+    return ko
+
+
+def weather_ko(raw: str) -> str:
+    """"Overcast  +22°C" → "흐림 +22°C" """
+    m = re.match(r"(.*?)\s*([+-]?\d+\s*°C)\s*$", raw or "")
+    return f"{sky_ko(m.group(1))} {m.group(2)}".strip() if m else (raw or "")
 
 
 def factory(repo: str, ship_repo: str) -> dict:
