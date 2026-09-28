@@ -45,11 +45,12 @@ class RouterTest(unittest.TestCase):
 class SttFilterTest(unittest.TestCase):
     def test_hallucinations_dropped(self):
         for s in ["시청해 주셔서 감사합니다.", "구독과 좋아요 부탁드립니다", "MBC 뉴스 이덕영입니다.",
-                  "감사합니다.", "Thank you.", "아아아아아아아", "네", "아프지 않게, " * 25]:
+                  "감사합니다.", "Thank you.", "아아아아아아아", "네", "아프지 않게, " * 25,
+                  "앱 공장, 브리핑, 클로드, 워크플로, 출시, " * 9]:
             self.assertEqual(clean_transcript(s), "", s)
 
     def test_real_commands_kept(self):
-        for s in ["브리핑해 줘", "가계부 앱 실기기 시험 돌려 줘", "화면 꺼"]:
+        for s in ["브리핑해 줘", "가계부 앱 실기기 시험 돌려 줘", "화면 꺼", "브리핑 해줘, 브리핑 해줘, 브리핑 해줘"]:
             self.assertEqual(clean_transcript(s), s)
 
     def test_segment_scores(self):
