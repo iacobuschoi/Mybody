@@ -119,6 +119,11 @@ class Api extends ChangeNotifier {
   /// 이 로그인의 계정 id(/me 의 user.id). null 이면 아직 모름 — [me] 가 채웁니다.
   String? _userId;
 
+  /// [_userId] 를 **이 주소의 서버가** 말해 줬나(로그인 응답 · /me). 기기에 적어 둔 것([loadToken])은
+  /// 거짓 — 토큰을 준 서버의 것이라, 앱에 박힌 주소가 바뀌었거나 주소를 옮긴 뒤에는 이 서버의 답이
+  /// 아닙니다([serverUserId]).
+  bool _uidConfirmed = false;
+
   /// 운영자인지 묻는 중인 /me([askOperator]) — 설정의 운영자 줄 둘이 같이 물어도 한 번만 갑니다.
   Future<bool?>? _operatorAsk;
 
@@ -136,11 +141,31 @@ class Api extends ChangeNotifier {
   static const _tokenKey = 'mybody.token.v1';
 
   /// 이 토큰의 계정 id — 토큰과 같이 적고 같이 지웁니다. 0.2.19 까지는 없던 칸이라, 그때
-  /// 로그인한 채 올라온 기기는 /me 를 한 번 받을 때 채웁니다.
+  /// 로그인한 채 올라온 기기는 /me 를 한 번 받을 때 채웁니다. 값은 '(토큰의 표시)|(id)' — [uidRecordOf].
   static const _uidKey = 'mybody.token.uid.v1';
+
+  /// 계정 id 열쇠에 적는 꼴 — 어느 토큰의 id 인지([sessionTagOf])를 같이 적습니다(4차 검토). 토큰과 id 는
+  /// 두 번에 나눠 적혀서, 로그아웃이 둘을 지우는 사이 · 다음 로그인이 둘을 적는 사이 앱이 죽으면 **다른
+  /// 계정의 토큰 곁에 앞 계정의 id** 가 남을 수 있습니다. 그 낡은 id 를 믿으면 칸의 주인 · 큐 작업의 주인을
+  /// 잘못 가려 앞 계정의 칸이 이 토큰 아래 열리고 그 계정의 일이 이 토큰으로 나갔습니다. 표시가 이 토큰과
+  /// 맞을 때만 읽습니다([loadToken]) — 표시 없는 옛 꼴(0.2.20 작업 중의 빌드)도 믿지 않고 /me 로 다시 묻습니다.
+  @visibleForTesting
+  static String uidRecordOf(String token, String uid) => '${sessionTagOf(token)}|$uid';
+
+  static String? _uidFromRecord(String token, String? raw) {
+    if (raw == null) return null;
+    final i = raw.indexOf('|');
+    if (i <= 0 || raw.substring(0, i) != sessionTagOf(token)) return null;
+    final id = raw.substring(i + 1);
+    return id.isEmpty ? null : id;
+  }
 
   String? get token => _token;
   bool get signedIn => _token != null && _token!.isNotEmpty;
+
+  /// 이 Api 가 보는 서버 주소 — 끝의 / 를 뗀 꼴. 칸 이름(local_owner.dart serverOf) · 큐 작업에 적는
+  /// 서버(sync_queue.dart)가 같은 꼴을 씁니다.
+  String get origin => baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
 
   /// 이 로그인(토큰)의 표시 — 토큰 자체가 아니라 거기서 만든 짧은 글자라 기기에 적어도 됩니다.
   /// 계정 id 를 아직 모를 때(0.2.19 에서 올라온 첫 실행) 기록 칸 · 큐 작업의 주인을 이것으로 묶습니다.
@@ -160,7 +185,9 @@ class Api extends ChangeNotifier {
     try {
       final sp = await SharedPreferences.getInstance();
       _token = sp.getString(_tokenKey);
-      _userId = _token == null ? null : sp.getString(_uidKey);
+      final t = _token;
+      _userId = t == null ? null : _uidFromRecord(t, sp.getString(_uidKey));
+      _uidConfirmed = false;
     } catch (_) {
       /* 저장소를 못 읽어도 앱은 떠야 합니다 — 로그인만 다시 하면 됩니다. */
       _token = null;
@@ -174,12 +201,16 @@ class Api extends ChangeNotifier {
   Future<void> setToken(String? t, {String? uid}) => _saveToken(t, uid: uid);
 
   /// [before] 는 토큰을 메모리에서 바꾼 뒤, 알리기 전에 기다립니다(로그아웃의 칸 치우기).
+  /// [uid] 는 이 서버가 로그인 응답(· 그 토큰의 /me)으로 말해 준 계정 id 입니다.
   Future<void> _saveToken(String? t, {String? uid, Future<void> Function()? before}) async {
     /* 로그인이 바뀌면 운영자인지도, 운영자로 받아 둔 캡처도 앞 사람 것입니다 — 같은 기기에서
        다른 계정으로 들어온 사람에게 앞 운영자의 의견 사진이 캐시에서 나오면 안 됩니다. */
     if (t != _token) _forgetAccountMemory();
     _token = t;
-    if (t != null && uid != null) _userId = uid;
+    if (t != null && uid != null) {
+      _userId = uid;
+      _uidConfirmed = true;
+    }
     /* 로그아웃은 **토큰부터 기기에서** 지웁니다 — 칸을 치우다(before) 앱이 죽어도 다음에 켜면
        로그아웃된 채라, 반쯤 치운 칸이 이 로그인으로 나가지 않고 켤 때 마저 치웁니다(local_owner.dart). */
     if (t == null) {
@@ -202,7 +233,7 @@ class Api extends ChangeNotifier {
       } else {
         await sp.setString(_tokenKey, t);
         if (uid != null) {
-          await sp.setString(_uidKey, uid);
+          await sp.setString(_uidKey, uidRecordOf(t, uid));
         } else {
           await sp.remove(_uidKey);
         }
@@ -213,6 +244,7 @@ class Api extends ChangeNotifier {
   void _forgetAccountMemory() {
     _operator = null;
     _userId = null;
+    _uidConfirmed = false;
     _operatorAsk = null;
     _operatorUsersSeen = null;
     _inboxImages.clear();
@@ -483,6 +515,7 @@ class Api extends ChangeNotifier {
          (0.2.19 에서 로그인한 채 올라온 기기). */
       if (id != null && id != _userId && asked != null) unawaited(_rememberUid(asked, id));
       _userId = id;
+      _uidConfirmed = id != null;
     }
     return r;
   }
@@ -490,13 +523,20 @@ class Api extends ChangeNotifier {
   Future<void> _rememberUid(String forToken, String id) async {
     try {
       final sp = await SharedPreferences.getInstance();
-      if (_token == forToken && sp.getString(_tokenKey) == forToken) await sp.setString(_uidKey, id);
+      if (_token == forToken && sp.getString(_tokenKey) == forToken) {
+        await sp.setString(_uidKey, uidRecordOf(forToken, id));
+      }
     } catch (_) {}
   }
 
   /// 이 로그인의 계정 id — [me] 를 한 번 받은 뒤에 압니다(모르면 null). 계정마다 한 번만
   /// 하는 일(native_push.dart 의 크롬 알림 지우기)이 열쇠로 씁니다. 로그인이 바뀌면 비웁니다.
   String? get userId => signedIn ? _userId : null;
+
+  /// [userId] 를 **이 주소의 서버가** 이 토큰으로 말해 줬을 때만 그 id(로그인 응답 · /me), 아니면 null.
+  /// 기기에 적어 둔 id 는 토큰을 준 서버의 것이라, 앱에 박힌 주소가 바뀐 판에서 이 서버도 같은
+  /// 계정인지는 이 값으로만 압니다(local_owner.dart LocalOwner.isSession — 3차 검토 N4b).
+  String? get serverUserId => signedIn && _uidConfirmed ? _userId : null;
 
   /// 이 로그인이 운영자인가 — 서버 설정(feedbackNotify)에 적힌 아이디의 계정만 참.
   /// null 이면 이 로그인으로 아직 /me 를 못 받았습니다. 화면을 가르는 데만 씁니다 —

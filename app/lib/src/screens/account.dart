@@ -219,7 +219,11 @@ class _ConsentGateState extends State<ConsentGate> {
 
 /// 「로그아웃할까요?」 — 설정 맨 아래와 계정 관리 앱바가 같은 창을 씁니다. [unsent] 는 아직 못 보낸
 /// 큐 작업 수 — 로그아웃하기 전에 보내 보고, 못 보낸 것은 이 계정의 칸에 남았다가 돌아오면 갑니다.
-Future<bool> confirmSignOut(BuildContext context, {int unsent = 0}) async {
+/// [idUnknown] 은 이 로그인의 계정 id 를 아직 모름(0.2.19 에서 올라와 서버에 한 번도 못 닿음) — 로그아웃이
+/// 먼저 물어 보지만, 그때도 못 닿으면 못 보낸 것은 누구의 일인지 다시는 알 수 없어 버립니다(local_owner.dart
+/// afterSignOut). 그 사실을 말합니다(4차 검토 — 예전엔 「다시 로그인할 때 보내요」 라고만 해서 공유 끄기가
+/// 사라져도 껐다고 믿었습니다).
+Future<bool> confirmSignOut(BuildContext context, {int unsent = 0, bool idUnknown = false}) async {
   final t = Theme.of(context);
   final yes = await showDialog<bool>(
     context: context,
@@ -227,11 +231,18 @@ Future<bool> confirmSignOut(BuildContext context, {int unsent = 0}) async {
       title: const Text('로그아웃할까요?'),
       content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
         const Text('이 계정의 기록은 이 기기에 따로 보관돼, 다시 로그인하면 돌아와요.'),
-        if (unsent > 0) ...[
+        if (unsent > 0 && !idUnknown) ...[
           const SizedBox(height: 8),
           Text('못 보낸 것 $unsent건은 지금 보내 보고, 안 되면 다시 로그인할 때 보내요.',
               key: const Key('settings-logout-unsent'),
               style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
+        ],
+        if (unsent > 0 && idUnknown) ...[
+          const SizedBox(height: 8),
+          Text('못 보낸 것 $unsent건(공유 끄기 등)은 지금 보내 봐요. 서버에 닿지 않으면 사라져요 — '
+              '연결된 뒤에 로그아웃해 주세요.',
+              key: const Key('settings-logout-unsent-lost'),
+              style: t.textTheme.bodySmall?.copyWith(color: mb(context).bad, height: 1.5)),
         ],
       ]),
       actions: [
@@ -816,7 +827,11 @@ class _AccountScreenState extends State<AccountScreen> {
             tooltip: '로그아웃',
             onPressed: () async {
               final unsent = context.getInheritedWidgetOfExactType<Scope>()?.queue?.pending ?? 0;
-              if (!await confirmSignOut(context, unsent: unsent) || !context.mounted) return;
+              if (!await confirmSignOut(context,
+                      unsent: unsent, idUnknown: widget.api.signedIn && widget.api.userId == null) ||
+                  !context.mounted) {
+                return;
+              }
               await widget.api.signOut();
               if (!context.mounted) return;
               Navigator.of(context).popUntil((r) => r.isFirst);

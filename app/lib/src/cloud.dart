@@ -239,9 +239,11 @@ class CloudSync extends ChangeNotifier {
   }
 
   /* 기기 칸에 적는 것들은 저장소를 받아 온 사이 칸이 바뀌었으면 적지 않습니다 — 앞 칸의 시각 ·
-     기준본이 새 칸에 적히면 새 칸의 합치기가 틀어집니다. */
-  Future<void> _stamp(String at) async {
-    final e = _epoch;
+     기준본이 새 칸에 적히면 새 칸의 합치기가 틀어집니다. 칸 번호([e])는 **부른 쪽이 그 일을 시작할 때
+     잡은 것**을 받습니다(3차 검토 N5) — 여기서 새로 읽으면, 맞추던 중에 칸이 바뀐 뒤 불린 경우 새 칸의
+     번호를 잡아 앞 칸의 것을 새 칸에 적었습니다. */
+  Future<void> _stamp(String at, {required int e}) async {
+    if (e != _epoch) return;
     _localChangedAt = at;
     try {
       final sp = await SharedPreferences.getInstance();
@@ -250,11 +252,14 @@ class CloudSync extends ChangeNotifier {
     } catch (_) {}
   }
 
-  Future<void> _setBase(String updatedAt, Map<String, Object?> payload) async {
-    final e = _epoch;
+  /// [who] 는 이 기준본이 누구의 것인지 — 맞추기를 시작할 때 잡은 칸의 주인 id(3차 검토 N5: 끝날 때
+  /// 다시 읽으면 그 사이 들어온 다른 계정의 id 가 적혔습니다).
+  Future<void> _setBase(String updatedAt, Map<String, Object?> payload,
+      {required int e, required String? who}) async {
+    if (e != _epoch) return;
     _base = _Base(updatedAt, payload);
     final raw = jsonEncode(
-        {'server': _server, 'uid': _whose(), 'updatedAt': updatedAt, 'payload': payload});
+        {'server': _server, 'uid': who, 'updatedAt': updatedAt, 'payload': payload});
     if (raw == _baseWritten) return;
     _baseWritten = raw;
     try {
@@ -265,8 +270,10 @@ class CloudSync extends ChangeNotifier {
   }
 
   Future<void> _dropBase() async {
-    await _load();
+    /* 칸 번호는 기다리기 **전에** — 읽는 사이 칸이 바뀌었으면 새 칸의 기준본을 버리면 안 됩니다. */
     final e = _epoch;
+    await _load();
+    if (e != _epoch) return;
     if (_base == null && _baseWritten == null) return;
     _base = null;
     _baseWritten = null;
@@ -332,7 +339,7 @@ class CloudSync extends ChangeNotifier {
          계정의 기록을 지웁니다. 다음 맞춤은 합집합으로 갑니다. */
       unawaited(_dropBase());
     }
-    unawaited(_stamp(_nowIso()));
+    unawaited(_stamp(_nowIso(), e: _epoch));
     _timer?.cancel();
     _timer = Timer(debounce, () {
       _timer = null;
@@ -367,8 +374,9 @@ class CloudSync extends ChangeNotifier {
       _changed();
       return;
     }
-    await _dropBase();
     final e = _epoch;
+    await _dropBase();
+    if (e != _epoch) return;
     _lastSyncedAt = null;
     _lastResult = null;
     _lastError = null;
@@ -467,11 +475,15 @@ class CloudSync extends ChangeNotifier {
     final m = (jsonDecode(app.store.exportJSON()) as Map).cast<String, Object?>();
     m.remove(syncMetaKey);   // 옛 백업에 실려 들어온 것이 있어도 저장소 것은 안 씁니다
     m.remove('guest');       // 「로그인 없이 쓰기」 는 이 기기의 일 — 계정에 실리면 다른 기기가 로그인 화면을 건너뜁니다
+    m.remove(kStateOwnerField);   // 기기 칸의 주인 서명(app_state.dart) — 기록에 섞여 들어왔어도 계정에는 안 실음
     return m;
   }
 
   /* 맞추는 사이 칸이 바뀌었거나(로그아웃 · 다른 계정) 로그인이 바뀌었으면 이 맞춤은 앞 칸의
-     것입니다 — 결과를 들이지도, 기준본을 적지도 않고 그만둡니다. */
+     것입니다 — 결과를 들이지도, 기준본을 적지도, 올리지도 않고 그만둡니다. [e] · [tok] 는 맞추기를
+     시작할 때 잡은 것을 끝까지 넘겨 씁니다 — **모든 기다림 뒤에** 이것을 봅니다(3차 검토 N5: 이
+     기기 시각을 적는 기다림 뒤 올리는 쪽이 칸 번호 · 토큰을 새로 읽어, 그 사이 로그아웃 → 다른 계정
+     가입이 끼면 앞 계정의 합친 사본이 새 토큰 · 새 주인 이름으로 올라갔습니다 — 서버의 409 도 통과). */
   bool _gone(int e, String? tok) => _disposed || e != _epoch || tok != api.token;
 
   Future<String> _sync() async {
@@ -480,6 +492,16 @@ class CloudSync extends ChangeNotifier {
     final tok = api.token;
     await _load();
     if (_gone(e, tok)) return 'none';
+    /* 칸의 주인이 다른 서버 주소로 적혀 있으면(앱에 박힌 주소가 바뀐 판 — 3차 검토 N4b) 이 주소의
+       서버에게 누구인지 한 번 묻습니다 — 같은 계정이라 하면 주인의 주소를 옮기고 계속합니다(mayLeave).
+       동기화를 끈 사람도 묻습니다(4차 검토): 주간 요약이 같은 확인(LocalOwner.isSession)을 기다리는데,
+       예전엔 끈 사람은 여기 오기 전에 'off' 로 돌아가 요약이 조용히 멈춰 있었습니다. */
+    final checking = awaitsServerCheck(app, api);
+    if (checking) {
+      final m = await api.me();
+      if (_gone(e, tok)) return 'none';
+      if (enabled && !m.ok && m.status == 0) return _finish('offline', error: m.reason);
+    }
     if (!enabled) {
       /* 끈 사람의 못 보낸 기록 사본이 망이 돌아왔다고 올라가면 안 됩니다. */
       queue?.dropOp('syncState');
@@ -487,13 +509,15 @@ class CloudSync extends ChangeNotifier {
     }
     /* 이 기기의 기록이 이 계정의 것인가 — 아니면 아무것도 안 보냅니다(머리 주석). 계정 id 를
        아직 모르면(0.2.19 에서 올라온 첫 실행) 한 번 물어 알아 둡니다 — 로그아웃할 때 칸 이름입니다. */
-    if (api.userId == null) {
+    if (api.userId == null && !checking) {
       await api.me();
       if (_gone(e, tok)) return 'none';
     }
     if (!mayLeave(app, api)) {
       return _finish('owner', error: '이 기기의 기록이 이 계정 것인지 몰라 멈췄어요');
     }
+    /* 이 기록 칸의 주인 — 지금 잡아 끝까지 씁니다(올리는 사본 · 기준본에 적는 id). */
+    final who = app.owner.current?.uid ?? api.userId;
     _lastAttemptAt = _now();
     _changed();
 
@@ -528,7 +552,7 @@ class CloudSync extends ChangeNotifier {
       final pushAt = _laterOf(_nowIso(), localAt);
       final payload = stampLocalChanges(localBody, base?.payload,
           at: localAt.isEmpty ? pushAt : localAt, from: '');
-      return _pushOut(payload, pushAt, changedLocal: false);
+      return _pushOut(payload, pushAt, e: e, tok: tok, who: who, changedLocal: false);
     }
 
     final serverAt = '${server['updatedAt'] ?? ''}';
@@ -550,7 +574,7 @@ class CloudSync extends ChangeNotifier {
       final pushAt = _laterOf(_nowIso(), serverAt);
       final payload = stampLocalChanges(localBody, base.payload,
           at: localAt.isEmpty ? pushAt : localAt, from: syncFromOf(base.payload) ?? '');
-      return _pushOut(payload, pushAt, changedLocal: false, result: 'stale');
+      return _pushOut(payload, pushAt, e: e, tok: tok, who: who, changedLocal: false, result: 'stale');
     }
 
     /* 기준본이 없는 빈 기기는 "언제 바꿨는지" 를 내세우지 않습니다 — 켜면서 찍힌
@@ -570,13 +594,18 @@ class CloudSync extends ChangeNotifier {
       return _finish('none', error: '이 기기에 저장하지 못했습니다 — 자리가 없을 수 있습니다');
     }
     if (!changedRemote) {
-      if (changedLocal) await _stamp(_laterOf(_nowIso(), serverAt));
-      await _setBase(serverAt, merged);
+      if (changedLocal) {
+        await _stamp(_laterOf(_nowIso(), serverAt), e: e);
+        if (_gone(e, tok)) return 'none';
+      }
+      await _setBase(serverAt, merged, e: e, who: who);
+      if (_gone(e, tok)) return 'none';
       return _finish(changedLocal ? 'imported' : 'same');
     }
     final pushAt = _laterOf(_nowIso(), serverAt);
-    await _stamp(pushAt);
-    return _pushOut(merged, pushAt, changedLocal: changedLocal);
+    await _stamp(pushAt, e: e);
+    if (_gone(e, tok)) return 'none';
+    return _pushOut(merged, pushAt, e: e, tok: tok, who: who, changedLocal: changedLocal);
   }
 
   bool _import(Map<String, Object?> body) {
@@ -594,35 +623,42 @@ class CloudSync extends ChangeNotifier {
 
   /* 올리고, 올린 것을 기준본으로 삼습니다 — 닿았든 못 닿았든. 못 닿았으면
      큐가 나중에 보내고, 그 사이 서버가 이보다 옛것이면 위의 'stale' 길이
-     합치지 않고 기다립니다. */
+     합치지 않고 기다립니다. [e] · [tok] · [who] 는 맞추기를 시작할 때 잡은 것 — 여기서 새로 읽지
+     않습니다(_gone 주석). 큐에 싣는 것(_deliver 의 add)은 바로 앞의 확인과 기다림 없이 이어집니다. */
   Future<String> _pushOut(Map<String, Object?> payload, String pushAt,
-      {required bool changedLocal, String? result}) async {
-    final e = _epoch;
-    final tok = api.token;
-    final delivered = await _deliver(_owned(payload), pushAt);
+      {required int e, required String? tok, required String? who,
+      required bool changedLocal, String? result}) async {
+    if (_gone(e, tok)) return 'none';
+    final delivered = await _deliver(_owned(payload, who), pushAt);
     if (_gone(e, tok)) return 'none';
     if (!delivered) {
       final err = queue?.lastError;
       /* 서버가 거절한 것(4xx)은 기준본을 올리지 않습니다 — 올리면 다음 맞춤이
          "서버가 내 것보다 옛것" 으로 읽고 합치지 않은 채 같은 것을 또 보내 영영
          돕니다. 망 문제(offline)는 큐가 다시 보내니 기준본을 올려 둡니다. */
-      if (err == null) await _setBase(pushAt, payload);
+      if (err == null) {
+        await _setBase(pushAt, payload, e: e, who: who);
+        if (_gone(e, tok)) return 'none';
+      }
       return _finish(err == null ? 'offline' : 'rejected',
           error: err ?? '서버에 닿지 못했습니다 — 큐에 남겨 두고 다시 보냅니다');
     }
-    await _setBase(pushAt, payload);
+    await _setBase(pushAt, payload, e: e, who: who);
+    if (_gone(e, tok)) return 'none';
     return _finish(result ?? (changedLocal ? 'merged' : 'pushed'));
   }
 
   /* 올리는 사본에 **이 기록 칸의 주인** id 를 싣습니다(syncMeta.owner) — 토큰의 계정과 다르면 서버가
      409 로 거절합니다(server/db.js push). 토큰의 id 를 먼저 실으면 늘 토큰과 같아서 서버 잠금이
      아무것도 못 막습니다(2차 검토). 정상일 때는 [mayLeave] 를 지났으니 둘이 같습니다. 칸의 주인
-     id 를 아직 모를 때만(이관) 토큰의 것. 합치기는 syncMeta 의 changedAt · from 만 봅니다. */
+     id 를 아직 모를 때만(이관) 토큰의 것. 그 id 는 맞추기를 시작할 때(mayLeave 바로 뒤) 잡은 것을
+     받습니다([uid] — 3차 검토 N5: 싣는 순간 다시 읽으면 그 사이 들어온 다른 계정이 주인으로 적혀
+     서버 잠금까지 통과했습니다). 합치기는 syncMeta 의 changedAt · from 만 봅니다. */
   @visibleForTesting
-  Map<String, Object?> stampOwner(Map<String, Object?> payload) => _owned(payload);
+  Map<String, Object?> stampOwner(Map<String, Object?> payload) =>
+      _owned(payload, app.owner.current?.uid ?? api.userId);
 
-  Map<String, Object?> _owned(Map<String, Object?> payload) {
-    final uid = app.owner.current?.uid ?? api.userId;
+  Map<String, Object?> _owned(Map<String, Object?> payload, String? uid) {
     if (uid == null) return payload;
     final meta = payload[syncMetaKey];
     return {

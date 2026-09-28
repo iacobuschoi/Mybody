@@ -13,6 +13,7 @@
  * 백업 호환이 깨집니다 — 그건 사용자의 유일본을 다루는 문제입니다.
  * ========================================================================== */
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:mybody_core/mybody_core.dart';
@@ -27,6 +28,17 @@ import 'news_store.dart';
 import 'photos.dart';
 import 'pokes.dart';
 
+/// 기록 칸의 JSON 맨 끝에 같이 적는 주인 서명의 자리(3차 검토 N9 — [PrefsStorage]).
+const String kStateOwnerField = '_owner';
+const String _ownerTail = ',"$kStateOwnerField":';
+
+/// 코어가 적은 기록 JSON([json]) 끝에 주인 서명([owner] — null 이면 주인 없음 {})을 붙인 글자.
+/// JSON 객체 모양이 아니면(깨진 원본을 옆으로 치우는 쓰기 등) 그대로.
+String withOwnerStamp(String json, LocalOwner? owner) {
+  if (json.length < 3 || !json.startsWith('{') || !json.endsWith('}')) return json;
+  return '${json.substring(0, json.length - 1)}$_ownerTail${jsonEncode(owner?.toJson() ?? const {})}}';
+}
+
 /// SharedPreferences 한 칸을 코어의 저장소로 씁니다.
 ///
 /// 코어의 write 는 **동기**입니다(원본 localStorage 가 그랬고, 저장 실패를
@@ -34,15 +46,49 @@ import 'pokes.dart';
 /// 마지막 값을 들고 있다가 뒤에서 씁니다. 쓰기가 실패하면 그 사실을
 /// 남겨서 다음 저장이 false 를 돌려주게 합니다 — 못 쓴 것을 썼다고
 /// 말하지 않습니다.
+///
+/// **적을 때마다 그때의 주인 서명을 기록 끝에 같이 붙입니다**(3차 검토 N9). 웹에서는 같은
+/// localStorage 를 보는 탭이 여럿일 수 있고, 한 탭이 계정을 바꿔도(A → B — 주인 칸 'mybody.owner.v1'
+/// 은 B) 다른 탭은 A 의 기록을 메모리에 든 채 이 칸에 적습니다. 주인 칸과 기록 칸은 따로 적히니
+/// 어긋나고, 다시 켜면 A 의 기록이 B 의 것으로 읽혔습니다. 서명은 기록과 **한 번의 쓰기**로 적혀
+/// 어긋날 수 없습니다 — 켤 때 주인 칸과 견줍니다(local_owner.dart AccountSlots._reconcile). 서명은 읽을
+/// 때 떼어 내 코어의 기록에는 들어가지 않습니다(내보내기 · 동기화에 안 실림). 붙이는 자리는 JSON 의
+/// 맨 끝 한 칸이라 붙이고 떼는 데 기록 전체를 다시 풀지 않습니다. 모바일 앱에는 두 탭이 없지만 같은
+/// 길을 탑니다(몇십 글자 더 적을 뿐). 옛 판(0.2.19)이 이 칸을 읽으면 모르는 칸 하나가 더 있을 뿐입니다.
 class PrefsStorage implements StateStorage {
   PrefsStorage(this._prefs, {this.key = storeKey}) {
-    _cache = _prefs.getString(key);
+    _cache = _unstamp(_prefs.getString(key));
   }
 
   final SharedPreferences _prefs;
   final String key;
   String? _cache;
   bool _lastWriteFailed = false;
+
+  /// 켤 때 기록 칸에 붙어 있던 주인 서명(JSON) — 없으면 null. [OwnerBook] 이 받습니다.
+  Object? stampedOwner;
+
+  /// 지금 활성 칸의 주인 — 적을 때마다 이것을 붙입니다. 꽂기 전(null)에는 안 붙입니다.
+  LocalOwner? Function()? ownerOf;
+
+  String? _unstamp(String? raw) {
+    if (raw == null || !raw.endsWith('}')) return raw;
+    final i = raw.lastIndexOf(_ownerTail);
+    if (i <= 0) return raw;
+    try {
+      /* 우리가 붙인 것은 맨 끝의 한 칸뿐이라, 그 뒤가 JSON 하나로 읽히지 않으면(안쪽 칸의 같은 이름 등)
+         서명이 아닙니다 — 그대로 둡니다. */
+      stampedOwner = jsonDecode(raw.substring(i + _ownerTail.length, raw.length - 1));
+      return '${raw.substring(0, i)}}';
+    } catch (_) {
+      return raw;
+    }
+  }
+
+  String _stamped(String value) {
+    final of = ownerOf;
+    return of == null ? value : withOwnerStamp(value, of());
+  }
 
   @override
   String? read() => _cache;
@@ -51,14 +97,29 @@ class PrefsStorage implements StateStorage {
   bool write(String value) {
     if (_lastWriteFailed) return false;
     _cache = value;
+    _put(_stamped(value));
+    return true;
+  }
+
+  /// 주인이 바뀌었을 때 — 기록은 그대로 두고 서명만 새 주인으로 다시 적습니다(OwnerBook.onChanged).
+  /// 이 쓰기가 실패해도 '마지막 쓰기 실패' 로 적지 않습니다(4차 검토): 기록은 이미 적혀 있고 서명만 옛
+  /// 것으로 남습니다 — 서명은 켤 때 다른 **계정 id** 를 말할 때만 쓰이는데, 계정이 바뀌는 칸 바꾸기는
+  /// 서명을 기록과 같이 적고 기다리며(local_owner.dart _activate) 못 적으면 멈춥니다. 여기서 실패를
+  /// 적으면 다음 저장부터 모두 거짓이 되고, 코어는 자리를 만든다며 결과지 사진을 하나씩 지웁니다.
+  void restamp() {
+    final v = _cache;
+    if (v == null || _lastWriteFailed) return;
+    _put(_stamped(v), mark: false);
+  }
+
+  void _put(String raw, {bool mark = true}) {
     () async {
       try {
-        if (!await _prefs.setString(key, value)) _lastWriteFailed = true;
+        if (!await _prefs.setString(key, raw) && mark) _lastWriteFailed = true;
       } catch (_) {
-        _lastWriteFailed = true;
+        if (mark) _lastWriteFailed = true;
       }
     }();
-    return true;
   }
 
   /// 마지막 쓰기가 실제로 기기에 닿았는지 확인합니다 (화면이 물어볼 때).
@@ -131,7 +192,14 @@ class AppState extends ChangeNotifier {
       store.photoKeptElsewhere = (id) => parkedPhotoIds(prefs).contains(id);
     }
     final pokes = sp == null ? null : PokeBox(sp);
-    final app = AppState._(store, news, pokes, OwnerBook(sp));
+    /* 기록 칸에 같이 적힌 주인 서명(웹의 두 탭 — PrefsStorage 머리 주석)을 주인 장부에 넘기고, 주인이
+       바뀌면 서명을 다시 적게 잇습니다. */
+    final book = OwnerBook(sp, stamped: storage is PrefsStorage ? storage.stampedOwner : null);
+    if (storage is PrefsStorage) {
+      storage.ownerOf = () => book.current;
+      book.onChanged = storage.restamp;
+    }
+    final app = AppState._(store, news, pokes, book);
     /* 섞인 상태(실측 + 추정)로 저장된 채 앱이 꺼졌으면 켜자마자 한 번 정리합니다. */
     app._upgradeSoon();
 

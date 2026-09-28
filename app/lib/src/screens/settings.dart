@@ -595,7 +595,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
    * 예전 버튼도 그것에 기댔습니다. 여기서 또 부르면 DELETE 가 두 번 갑니다. */
   Future<void> _signOut(BuildContext context) async {
     final api = Scope.apiOf(context);
-    final yes = await confirmSignOut(context, unsent: Scope.queueOf(context)?.pending ?? 0);
+    final yes = await confirmSignOut(context,
+        unsent: Scope.queueOf(context)?.pending ?? 0, idUnknown: api.signedIn && api.userId == null);
     if (yes != true || !context.mounted) return;
     setState(() => _signingOut = true);
     /* signOut 은 던지지 않습니다 — 요청 실패 · 저장 실패 · 알림 빼기 실패를

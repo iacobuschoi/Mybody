@@ -92,6 +92,8 @@ class _SocialScreenState extends State<SocialScreen> {
   }
 
   Future<void> _load() async {
+    /* 요청 줄의 [수락] · [거절] 이 끝난 뒤 부릅니다 — 그 사이 로그아웃으로 이 탭이 내려갔을 수 있습니다. */
+    if (!mounted) return;
     final api = Scope.apiOf(context);
     if (!api.signedIn) return;
     setState(() => _busy = true);
@@ -950,15 +952,20 @@ class _RequestRow extends StatelessWidget {
               avatarUrl: person['avatar'] as String?, size: 36),
           const SizedBox(width: 10),
           Expanded(child: Text('${person['displayName']}')),
+          /* 못 닿으면 큐에 맡기되 **누른 순간의 로그인**으로(4차 검토) — 서버를 기다리는 사이(최대 20초)
+             로그아웃 → 다른 계정 가입이 끼면, 맡기는 순간의 로그인으로 적힌 A 의 수락이 B 명의로
+             나갔습니다(u_f 가 B 에게도 요청해 두었으면 B 가 모르는 사이 친구가 맺어짐). 누른 계정의 일로
+             남아 그 계정으로 돌아올 때 나갑니다(sync_queue.dart). */
           TextButton(
             onPressed: () async {
               final id = '${person['id']}';
               final q = Scope.queueOf(context);
+              final by = q?.signer;
               final r = await api.declineFriend(id);
-              if (!r.ok && q != null && _worthRetrying(r)) {
-                q.add('decline', {'userId': id});
+              if (!r.ok && q != null && by != null && _worthRetrying(r)) {
+                q.add('decline', {'userId': id}, by: by);
               }
-              await onDone();
+              if (context.mounted) await onDone();
             },
             child: const Text('거절'),
           ),
@@ -966,12 +973,13 @@ class _RequestRow extends StatelessWidget {
             onPressed: () async {
               final id2 = '${person['id']}';
               final q2 = Scope.queueOf(context);
+              final by = q2?.signer;
               final r = await api.acceptFriend(id2);
-              if (!r.ok && q2 != null && _worthRetrying(r)) {
-                q2.add('accept', {'userId': id2});
+              if (!r.ok && q2 != null && by != null && _worthRetrying(r)) {
+                q2.add('accept', {'userId': id2}, by: by);
               }
               if (context.mounted && !r.ok) toast(context, r.reason);
-              await onDone();
+              if (context.mounted) await onDone();
             },
             child: const Text('수락'),
           ),
@@ -1285,7 +1293,16 @@ class _FriendDetailScreenState extends State<FriendDetailScreen> {
                            껐던 체중이 다시 켜집니다. 웹 앱(backend.js)도 patch 만 보냅니다. */
                         final patch = <String, Object?>{f.$1: on};
                         final seq = ++_shareSeq;
+                        /* 누른 순간의 로그인 — 못 닿아 큐에 맡길 때 이 계정의 일로(4차 검토 · 요청 줄의
+                           [수락] 과 같은 까닭). 화면이 내려갔어도 맡깁니다: 예전엔 그때 아무것도 안 맡겨
+                           끈 스위치가 서버에 영영 안 갔습니다. */
+                        final by = queue?.signer;
                         final r = await Scope.apiOf(context).setShare(id, patch);
+                        if (!r.ok && queue != null && by != null && _worthRetrying(r)) {
+                          queue.add('setShare', {'userId': id, 'patch': patch}, by: by);
+                          if (context.mounted) toast(context, '지금 서버에 못 닿아서 나중에 보냅니다.');
+                          return;
+                        }
                         if (!context.mounted) return;
                         if (r.ok) {
                           /* 서버가 합친 결과가 답입니다 — 캐시에서 본 나머지를 바로잡습니다. */
@@ -1300,12 +1317,7 @@ class _FriendDetailScreenState extends State<FriendDetailScreen> {
                         /* **껐는데 계속 나가는 것**이 이 앱에서 제일 나쁜
                            고장입니다. 껐다고 믿는 사람은 다시 확인하지
                            않습니다. 그래서 지금 못 닿았으면 되돌리지 않고
-                           큐에 맡깁니다 — 망이 돌아오면 알아서 갑니다. */
-                        if (queue != null && _worthRetrying(r)) {
-                          queue.add('setShare', {'userId': id, 'patch': patch});
-                          toast(context, '지금 서버에 못 닿아서 나중에 보냅니다.');
-                          return;
-                        }
+                           큐에 맡깁니다(위) — 망이 돌아오면 알아서 갑니다. */
                         toast(context, r.reason);
                         _load();
                       },

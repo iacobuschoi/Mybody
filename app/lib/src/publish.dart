@@ -37,7 +37,10 @@ void wirePublishing(AppState app, Api api, SyncQueue? queue) {
     final clean = withoutEstimatedBody(snap,
         scans: app.store.sortedScans(), plan: app.state['plan']);
     if (!core.Store.hasAnything(clean)) return {'ok': false, 'reason': '추정치뿐'};
-    /* 요약을 만든 기록 칸의 주인 — 토큰이 아니라 칸의 것을 먼저 싣습니다(cloud.dart _owned 와 같은 까닭). */
+    /* 요약을 만든 기록 칸의 주인 — 토큰이 아니라 칸의 것을 먼저 싣습니다(cloud.dart _owned 와 같은 까닭).
+       주인 확인(currentUser 의 mayLeave) · 요약 만들기 · 큐에 싣기는 Store.publishWeekly 안에서 기다림
+       없이 한 번에 돕니다 — 그 사이 계정이 바뀔 틈이 없습니다(3차 검토: cloud.dart 의 틈(N5)과 같은
+       것이 여기에는 없음을 확인). 큐에 실린 일은 보낼 때 지금 로그인의 일인지 다시 봅니다(sync_queue.dart). */
     final owner = app.owner.current?.uid ?? api.userId;
     queue.add('snapshot', {
       'weekStart': weekStart,

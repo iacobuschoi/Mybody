@@ -7,10 +7,10 @@
  * 옛 시각으로 올린 것은 안 받고, 사본에 실린 주인(syncMeta.owner · payload.owner)이 토큰의
  * 계정과 다르면 409 로 거절합니다. 누가 무엇을 어느 토큰으로 보냈는지 다 적습니다.
  * ========================================================================== */
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:mybody/src/api.dart';
@@ -33,6 +33,8 @@ class FakeUser {
   String at = '';
   final snapshots = <Map<String, Object?>>[];
   final pokes = <Map<String, Object?>>[];
+  /// 이 계정에 온 친구 요청 — GET /friends 의 incoming.
+  final incoming = <Map<String, Object?>>[];
   /// 옛 판 동의로 가입한 계정 — /me 가 옛 판을 말해 동의 다시 묻기가 뜹니다.
   bool oldConsent = false;
   List<Object?> get scanIds => [for (final s in (state?['scans'] as List?) ?? const []) (s as Map)['id']];
@@ -50,6 +52,10 @@ class FakeAccounts {
   bool failWrites = false;
   /// 기록 사본 올리기를 모두 409(다른 계정의 기록)로 — 앱이 409 를 받았을 때를 봅니다.
   bool conflictAll = false;
+  /// 요청 하나를 붙잡습니다 — '메서드 경로'(예: 'POST /friends/accept') → 풀어 줄 때의 답. 받은 값이
+  /// 상태 번호면 그 번호로 끝내고(503 등), null 이면 여느 때처럼 처리합니다. 한 번 쓰면 빠집니다.
+  /// 느린 망에 걸린 요청이 끝나기 전에 계정을 바꾸는 시험이 씁니다.
+  final holds = <String, Completer<int?>>{};
   int _n = 0;
 
   FakeUser add(String handle) => users['u_$handle'] = FakeUser('u_$handle', handle);
@@ -97,6 +103,11 @@ class FakeAccounts {
         final me = uid == null ? null : users[uid];
         calls.add('${req.method} $p @${uid ?? '-'}');
         appHeaders.add(req.headers['X-Mybody-App'] ?? req.headers['x-mybody-app']);
+        final hold = holds.remove('${req.method} $p');
+        if (hold != null) {
+          final status = await hold.future;
+          if (status != null) return http.Response('', status);
+        }
         Map<String, dynamic> body() {
           try {
             return (jsonDecode(req.body) as Map).cast<String, dynamic>();
@@ -170,7 +181,7 @@ class FakeAccounts {
             me.pokes.clear();
             return _json({'ok': true, 'pokes': out});
           case ('GET', '/friends'):
-            return _json({'ok': true, 'friends': {'accepted': [], 'incoming': [], 'outgoing': [], 'blocked': []}});
+            return _json({'ok': true, 'friends': {'accepted': [], 'incoming': me.incoming, 'outgoing': [], 'blocked': []}});
           case ('GET', '/share-defaults'):
             return _json({'ok': true, 'defaults': {}});
         }
@@ -190,19 +201,21 @@ class Rig {
   final CloudSync cloud;
 
   /// [prefs] 로 기기에 적힌 것부터 시작합니다(0.2.19 모양 등). [signedInAs] 면 그 계정 토큰으로.
+  /// [base] 는 이 기기가 쓰는 서버 주소 — 앱에 박힌 주소가 바뀐 판 · 주소를 바꾼 기기를 흉내 냅니다.
   static Future<Rig> boot(FakeAccounts server,
       {Map<String, Object> prefs = const {},
       String? signedInAs,
       bool withUid = true,
-      Duration debounce = Duration.zero}) async {
+      Duration debounce = Duration.zero,
+      String base = 'https://x.test'}) async {
     final init = <String, Object>{...prefs};
     if (signedInAs != null) {
-      init['mybody.token.v1'] = server.login(signedInAs);
-      if (withUid) init['mybody.token.uid.v1'] = server.user(signedInAs).id;
+      final tok = init['mybody.token.v1'] = server.login(signedInAs);
+      if (withUid) init['mybody.token.uid.v1'] = Api.uidRecordOf(tok, server.user(signedInAs).id);
     }
     SharedPreferences.setMockInitialValues(init);
     final sp = await SharedPreferences.getInstance();
-    final api = Api(baseUrl: 'https://x.test', client: server.client);
+    final api = Api(baseUrl: base, client: server.client);
     await api.loadToken();
     final queue = SyncQueue(api: api, storage: PrefsQueue(sp));
     final app = await AppState.boot();

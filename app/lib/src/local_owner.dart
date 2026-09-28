@@ -9,12 +9,15 @@
  *
  * 그래서:
  *   · 지금 화면이 쓰는 칸(활성 칸)에 주인을 적습니다 — 'mybody.owner.v1' = {server, uid, …}.
- *     Store 밖이라 내보내기 · 동기화에 안 실립니다.
+ *     Store 밖이라 내보내기 · 동기화에 안 실립니다. 기록 칸에도 적을 때마다 주인 서명을 같은 쓰기로
+ *     붙여(app_state.dart PrefsStorage) 켤 때 둘을 견줍니다 — 웹의 두 탭이 칸을 어긋나게 적어도
+ *     다른 계정의 기록으로 읽지 않게([AccountSlots.migrate] 의 _reconcile).
  *   · 로그아웃하면 그 계정의 칸을 통째로 치워 둡니다 — 'mybody.slot.<서버>|<uid>.*' 에 기록 ·
  *     동기화 기준본 · 마지막으로 바꾼 시각 · 못 보낸 큐 작업 · 독촉 · 소식 · 초대 표시. 활성 칸은
  *     빈 기록(또는 로그인 없이 쓰던 기록)이 되고, 같은 계정으로 다시 로그인하면 돌아옵니다. 사진
  *     파일은 안 지웁니다 — 치워 둔 칸의 측정이 photoId 로 가리킵니다. 동기화를 꺼 둔 계정의
- *     칸도 똑같이 치워 두기만 합니다 — 그때는 이 기기가 유일본입니다.
+ *     칸도 똑같이 치워 두기만 합니다 — 그때는 이 기기가 유일본입니다. 치워 둔 칸은 이름의 서버
+ *     주소가 아니라 **계정 id 로** 찾습니다([parkedSlotOf]) — 서버 주소를 바꿨다 되돌려도 찾게.
  *   · 로그인 · 가입 · 복구는 **토큰을 알리기 전에** 칸을 바꿉니다(api.dart [AccountSwitch]) —
  *     알림을 듣는 쪽(주간 요약 · 동기화 · 독촉 · 셸)이 앞 계정의 칸을 한 번도 못 보게. 다른
  *     계정의 칸은 절대 합치지 않습니다. 주인 없는 기록(로그인 없이 쓴 것)만 합칠지 묻고, 고르기
@@ -34,8 +37,9 @@
  * 사진은 다른 칸에서 측정을 지워도 남깁니다([parkedPhotoIds]).
  *
  * 0.2.19 에서 올라온 첫 실행([AccountSlots.migrate]): 로그인돼 있으면 주인 = 지금 로그인한 계정
- * (id 를 아직 모르면 그 로그인의 표시로 묶어 두고 /me 로 채웁니다). 로그인 없이 기록만 있으면
- * 주인 '모름' — 다음 로그인에서 「다른 계정의 기록일 수 있어요」 와 함께 묻고, 기본은
+ * (id 를 아직 모르면 그 로그인의 표시로 묶어 두고 /me 로 채웁니다 — 끝내 모른 채 로그아웃하면 기록은
+ * '모름' 으로 남고 그 로그인의 못 보낸 일은 버립니다: 누구의 일인지 다시는 알 길이 없습니다).
+ * 로그인 없이 기록만 있으면 주인 '모름' — 다음 로그인에서 「다른 계정의 기록일 수 있어요」 와 함께 묻고, 기본은
  * [합치지 않기]입니다. 기록이 비었으면 주인 없음. 이 기기에서 여러 계정이 로그인했었는지
  * 짐작(크롬 알림 표시 등)은 하지 않습니다 — 틀린 경고가 더 나쁩니다(주인이 정함).
  * ========================================================================== */
@@ -79,8 +83,8 @@ const Map<String, String> kSlotParts = {
   'invite.handled': 'mybody.invite.handled.v1',
 };
 
-/// 서버 주소를 칸 이름에 쓰는 꼴로 — 끝의 / 를 뗍니다(cloud.dart 의 기준본과 같은 꼴).
-String serverOf(Api api) => api.baseUrl.trim().replaceAll(RegExp(r'/+$'), '');
+/// 서버 주소를 칸 이름에 쓰는 꼴로 — 끝의 / 를 뗍니다(cloud.dart 의 기준본 · 큐 작업과 같은 꼴).
+String serverOf(Api api) => api.origin;
 
 /// 기록이 비었나 — 온보딩 전이고 측정 · 식단이 없음. 동기화의 "막 깐 기기" 와 같은 뜻입니다.
 bool isBlankState(Map<String, Object?> st) =>
@@ -111,20 +115,40 @@ class LocalOwner {
   /// 누구 것인지 모르는 기록(0.2.19 에서 올라온 기기 · 로그아웃 때 id 를 끝내 모름).
   final bool unknown;
 
-  /// 치워 둘 칸의 이름. 계정 id 를 모르면 null.
+  /// 치워 둘 칸의 이름. 계정 id 를 모르면 null. 치워 둔 칸은 이름의 서버 주소가 아니라 계정 id 로
+  /// 찾습니다([parkedSlotOf]).
   String? get slot => (unknown || server == null || uid == null) ? null : '$server|$uid';
 
   /// 지금 로그인([api])이 이 칸의 주인인가.
   bool isSession(Api api) {
     if (unknown || !api.signedIn) return false;
-    if (server != null && server != serverOf(api)) return false;
+    if (server != null && server != serverOf(api)) {
+      /* 서버 주소가 다릅니다(3차 검토 N4b) — 앱에 박힌 주소(SERVER_URL)가 바뀐 판이거나 주인이 서버를
+         새 주소로 옮겼으면 같은 서버 · 같은 계정입니다. 예전엔 여기서 늘 거짓이라, 로그인한 모든 사람의
+         동기화 · 주간 요약이 조용히 'owner' 로 멈췄습니다. 그 주소의 서버가 이 토큰으로 **직접** 같은
+         계정 id 를 말해 줬을 때만 같다고 봅니다(Api.serverUserId — 기기에 적어 둔 id 는 옛 주소의
+         서버가 준 것). 다른 서버면 이 토큰을 모르니(401) 멈춘 채입니다. 맞으면 [mayLeave] 가 주인의
+         주소를 새 주소로 옮깁니다. 계정 id 는 서버가 무작위 72비트로 만들어(db.js id('user')) 다른
+         서버의 계정과 겹치지 않습니다 — 같은 id 면 같은 기록 묶음(DB)을 옮긴 같은 계정입니다. */
+      return uid != null && api.serverUserId == uid;
+    }
+    /* 이 칸을 이 토큰으로 적었으면(로그인 문 · 이 로그인의 빈 칸) 이 로그인입니다 — 토큰은 한 계정의
+       것이라 계정 id 보다 먼저 봅니다. 기기에 적힌 id 가 어긋나도(4차 검토: 토큰과 id 를 나눠 적다 멈춘
+       기기) 이 로그인의 기록을 멈추지 않습니다. */
+    if (sess != null && sess == api.sessionTag) return true;
     final u = api.userId;
     if (uid != null && u != null) return uid == u;
-    return sess != null && sess == api.sessionTag;
+    return false;
   }
 
-  LocalOwner copyWith({String? uid, String? sess, String? handle}) => LocalOwner(
-      server: server,
+  /// [o] 와 같은 계정(또는 같은 로그인)의 칸인가 — 계정 id 가 같거나(서버 주소는 안 봄) 로그인의
+  /// 표시가 같음. 둘 중 하나라도 '모름' 이면 거짓.
+  bool sameAs(LocalOwner? o) =>
+      o != null && !unknown && !o.unknown &&
+      ((uid != null && uid == o.uid) || (sess != null && sess == o.sess));
+
+  LocalOwner copyWith({String? server, String? uid, String? sess, String? handle}) => LocalOwner(
+      server: server ?? this.server,
       uid: uid ?? this.uid,
       sess: sess ?? this.sess,
       handle: handle ?? this.handle,
@@ -156,8 +180,12 @@ class LocalOwner {
 
 /// 활성 칸의 주인을 들고 있습니다 — 메모리가 먼저이고 기기에는 뒤에서 적습니다(보내는 쪽이 같은
 /// 틈에 묻습니다). AppState 가 하나 가집니다. 칸을 바꿀 때는 [commit] 으로 적고 기다립니다.
+///
+/// 기록 칸('mybody.state.v1')에도 적을 때마다 그때의 주인 서명이 같이 적힙니다(app_state.dart
+/// PrefsStorage — 3차 검토 N9). [stamped] 는 켤 때 그 칸에서 읽은 서명이고, 주인이 바뀌면
+/// [onChanged] 로 기록 칸의 서명도 곧 다시 적게 합니다(기록은 그대로).
 class OwnerBook {
-  OwnerBook(this._sp) {
+  OwnerBook(this._sp, {Object? stamped}) : stamped = LocalOwner.fromJson(stamped) {
     try {
       final raw = _sp?.getString(kOwnerKey);
       _recorded = raw != null;
@@ -173,6 +201,12 @@ class OwnerBook {
   LocalOwner? _o;
   bool _recorded = false;
 
+  /// 켤 때 기록 칸에 같이 적혀 있던 주인 서명(없으면 null) — [AccountSlots.migrate] 가 주인 칸과 견줍니다.
+  final LocalOwner? stamped;
+
+  /// 주인이 바뀌면 부릅니다 — 기록 칸의 서명을 다시 적습니다(app_state.dart 가 꽂음).
+  void Function()? onChanged;
+
   /// 활성 칸의 주인. null 이면 주인 없음.
   LocalOwner? get current => _o;
 
@@ -187,6 +221,7 @@ class OwnerBook {
     try {
       unawaited(_sp?.setString(kOwnerKey, _raw(o)));
     } catch (_) {}
+    _changed();
   }
 
   /// 적고 **기다립니다** — 못 적었으면 던집니다(칸 바꾸기를 멈추게). 메모리는 먼저 바뀝니다.
@@ -196,10 +231,20 @@ class OwnerBook {
     final sp = _sp;
     if (sp == null) return;
     if (!await sp.setString(kOwnerKey, _raw(o))) throw StateError('이 기기에 저장하지 못했습니다: $kOwnerKey');
+    _changed();
   }
 
-  /// 그 칸이 이 기기에 치워져 있나.
-  bool hasParked(String slot) => _sp?.containsKey('$kSlotPrefix$slot.state') ?? false;
+  void _changed() {
+    try {
+      onChanged?.call();
+    } catch (_) {}
+  }
+
+  /// 그 계정([uid])의 칸이 이 기기에 치워져 있나 — 어느 서버 주소 이름으로든([parkedSlotOf]).
+  bool hasParkedFor(String uid) {
+    final sp = _sp;
+    return sp != null && parkedSlotOf(sp, uid) != null;
+  }
 }
 
 /// 이 기기의 기록(활성 칸)이 지금 로그인([api])으로 나가도 되는가 — 동기화 · 주간 요약이 보내기
@@ -219,13 +264,63 @@ bool mayLeave(AppState app, Api api) {
   }
   if (!o.isSession(api)) return false;
   final u = api.userId;
-  if (o.uid == null && u != null) book.set(o.copyWith(uid: u));
+  /* 주소가 바뀐 같은 서버(isSession 이 서버의 답으로 확인함)면 주인의 주소를 새 주소로 옮깁니다 —
+     다음부터는 묻지 않고, 로그아웃하면 새 주소 이름으로 치웁니다(찾는 것은 id 로 — [parkedSlotOf]). */
+  final here = serverOf(api);
+  if ((o.uid == null && u != null) || o.server != here) {
+    book.set(o.copyWith(uid: o.uid ?? u, server: here));
+  }
   return true;
 }
 
 bool _parkedFor(OwnerBook book, Api api) {
   final u = api.userId;
-  return u != null && book.hasParked('${serverOf(api)}|$u');
+  return u != null && book.hasParkedFor(u);
+}
+
+/// 칸의 주인이 다른 서버 주소로 적혀 있는데 이 주소의 서버에게서 계정 id 를 아직 못 들었나 — 동기화가
+/// 보내기 전에 /me 로 한 번 묻습니다([LocalOwner.isSession] — 3차 검토 N4b).
+bool awaitsServerCheck(AppState app, Api api) {
+  final o = app.owner.current;
+  return api.signedIn && o != null && !o.unknown && o.uid != null && o.server != null &&
+      o.server != serverOf(api) && api.serverUserId == null;
+}
+
+/// 그 계정([uid])의 치워 둔 칸 이름 — 칸 이름의 서버 주소가 아니라 **계정 id 로** 찾습니다(3차 검토 N4).
+/// 없으면 null, 여럿이면 [prefer] 가 있으면 그것, 없으면 이름 차례로 첫째.
+///
+/// 칸 이름은 '(서버 주소)|(id)' 인데, 예전엔 **지금** Api 의 주소로 찾아서, 로그인한 채 서버 주소를
+/// 바꿨다 되돌리면(또는 주소를 바꾼 채 로그아웃하면) 치워 둔 칸을 못 찾았습니다 — 동기화를 끈 계정이면
+/// 그 칸이 유일본입니다. 칸 이름들을 새 주소로 옮기는(이관) 대신 id 로 찾습니다: 옮기기는 칸마다 열쇠
+/// 여러 개를 나눠 써야 해 도중에 멈춘 자리가 또 생기고, 주소를 몇 번 바꿔도 찾는 쪽이 맞아야 합니다.
+/// 계정 id 는 서버가 무작위 72비트로 만들어('user_' + 16진수 18자리 — db.js id('user')) 서로 다른
+/// 서버의 계정끼리 겹치지 않습니다. 같은 id 가 두 주소에 있으면 기록 묶음(DB)을 옮긴 같은 계정입니다.
+/// 손님 칸('guest')은 '|' 가 없어 걸리지 않습니다.
+String? parkedSlotOf(SharedPreferences sp, String uid, {String? prefer}) {
+  final all = parkedSlotNames(sp, uid);
+  if (all.isEmpty) return null;
+  return prefer != null && all.contains(prefer) ? prefer : all.first;
+}
+
+/// 그 계정([uid])의 치워 둔 칸 이름 전부(어느 서버 주소 이름이든) — 이름 차례.
+List<String> parkedSlotNames(SharedPreferences sp, String uid) {
+  final tail = '|$uid';
+  final out = <String>{};
+  for (final k in sp.getKeys()) {
+    if (!k.startsWith(kSlotPrefix)) continue;
+    for (final part in const ['.state', '.owner']) {
+      if (!k.endsWith(part)) continue;
+      final name = k.substring(kSlotPrefix.length, k.length - part.length);
+      if (name.endsWith(tail)) out.add(name);
+    }
+  }
+  return out.toList()..sort();
+}
+
+/* 칸 이름 '(서버)|(id)' 의 id. 손님 칸이면 null. */
+String? _uidOfSlot(String slot) {
+  final i = slot.lastIndexOf('|');
+  return i < 0 ? null : slot.substring(i + 1);
 }
 
 /// 로그인한 채 칸이 비어 있고 주인이 없으면 이 로그인의 칸으로 적습니다(동기화가 켤 때 · 로그인할 때).
@@ -350,6 +445,7 @@ class AccountSlots implements AccountSwitch {
   Future<void> migrate(Api api) => _serial(() async {
         final book = app.owner;
         if (book.recorded) {
+          _reconcile(api);
           try {
             await _recover(api);
           } catch (_) {/* 못 하면 다음에 켤 때 — 보내는 쪽이 주인을 다시 봅니다 */}
@@ -392,9 +488,50 @@ class AccountSlots implements AccountSwitch {
         app.pokes?.reload();
       });
 
+  /* 웹의 두 탭(3차 검토 N9) — 한 탭이 계정을 바꿔도(A → B) 다른 탭은 A 의 기록과 주인을 메모리에 든 채
+     같은 저장소(localStorage)에 기록을 적습니다. 그러면 주인 칸은 B, 기록 칸은 A 의 것이 되어, 다시 켜면
+     A 의 기록이 B 의 칸으로 읽혀 B 로 올라갔습니다. 그래서 기록 칸에는 적을 때마다 그때의 주인 서명을
+     **같은 쓰기로** 붙입니다(app_state.dart PrefsStorage — 한 번에 적혀 기록과 어긋날 수 없음). 켤 때
+     서명이 주인 칸과 다른 계정을 말하면 서명 쪽이 이 기록의 주인입니다:
+       · 로그인돼 있으면 그 계정의 칸으로 적습니다 — 지금 로그인이 다른 계정이면 _recover 가 그 칸을
+         치우고 지금 로그인의 칸을 엽니다(보내는 쪽은 그 전에도 주인이 달라 아무것도 안 보냄).
+       · 로그아웃돼 있으면 '모름' 으로 둡니다 — 다음 로그인이 경고와 함께 묻습니다. 그 계정의 칸으로
+         치우지 않는 까닭: 「계정 지우기」 가 주인을 '모름' 으로 적고 기록을 고쳐 적기 전에 앱이 죽은
+         기기도 이렇게 보이는데, 없는 계정의 칸으로 치우면 아무도 못 엽니다.
+     한 탭 안에서는 주인이 바뀌면 서명도 곧 다시 적으므로(OwnerBook.onChanged) 어긋나는 것은 그 사이
+     앱이 죽은 때뿐이고 — 그때 서명은 주인이 바뀌기 전, 아직 그 계정의 기록일 때의 것이라 — 위 처리가
+     그대로 맞습니다. 서명에 계정 id 가 없으면(이관 뒤 /me 전) 가를 힘이 없어 주인 칸을 믿습니다.
+     서명이 아예 없는 기록도 주인 칸을 믿습니다 — 이 판은 모든 쓰기에 서명을 붙이므로(0.2.19 에서
+     올라온 첫 실행도 이관이 주인을 적는 순간 붙임) 서명 없는 기록은 서명을 모르는 옛 판이 적은
+     것뿐입니다. 옛 판 탭이 열린 채 새 판 탭에서 계정을 바꾸는 좁은 틈(웹 배포 직후)은 이것으로 못
+     막습니다 — 서명 없는 기록을 '모름' 으로 보면 이 판으로 올라온 첫 실행마다 동기화가 멈춥니다. */
+  void _reconcile(Api api) {
+    final book = app.owner;
+    final e = book.stamped;
+    if (e == null || e.unknown || e.uid == null || e.sameAs(book.current)) return;
+    if (api.signedIn) {
+      book.set(e);
+    } else if (book.current?.unknown != true) {
+      book.set(_switching);
+    }
+  }
+
   /* 칸 바꾸기가 도중에 멈춘 흔적(클래스 주석의 차례):
      · 로그아웃돼 있는데 주인이 어느 계정 — 로그아웃이 칸을 치우기 전에(또는 로그인이 토큰을 적기
        전에) 멈췄습니다. 그 계정의 칸으로 마저 치웁니다(로그인 화면 · 「로그인 없이 쓰기」 에 안 보이게).
+     · 로그인한 채 칸의 주인이 다른 계정 — 웹의 다른 탭이 앞 계정의 기록을 적은 흔적입니다(_reconcile).
+       한 탭에서는 생기지 않습니다(로그인은 칸을 다 바꾼 뒤에 토큰을 적음). 그 주인의 칸으로 치우고
+       지금 로그인의 칸을 엽니다 — 로그인 문의 「다른 계정의 칸」 과 비슷하지만 **기록과 그 주인의 못 보낸
+       일만** 옮깁니다(4차 검토). 곁의 기기 칸(기준본 · 시각 · 독촉 · 소식 · 초대 표시)은 서명이 없어
+       누구 것인지 모르지만, 지금 세션이 살아 있는 탭 — 지금 로그인 — 이 받아 적은 것입니다. 예전엔
+       그것까지 주인의 칸에 실어, B 의 독촉 · 초대 코드가 A 로 가고(A 로 돌아오면 A 의 초대 링크로 B 의
+       코드가 나감) A 칸의 기준본이 B 의 것으로 덮여 A 의 다른 기기가 서버에서 고친 값이 되돌아갔습니다.
+       그래서 주인의 칸은 제 곁의 칸을 그대로 두고(치워 둔 것이 없으면 곁의 칸 없이 — 기준본 없는 합집합은
+       아무것도 안 지움), 지금 로그인은 독촉 · 소식 · 초대 표시를 지키되 기준본 · 시각은 버립니다: 기록이
+       빈 칸에 B 의 기준본이 남으면 다음 맞춤이 B 의 서버 사본을 "다 지웠다" 로 읽습니다.
+       주인이 이 토큰으로 적힌 칸이면(주인의 sess 가 이 토큰의 표시) 이 로그인의 칸입니다 — 기기에 적힌
+       계정 id 가 어긋나도(토큰과 id 를 나눠 적다 멈춘 기기) 치우지 않습니다(4차 검토: 예전엔 그 낡은 id
+       로 이 칸을 치우고 남의 칸을 이 토큰 아래 열어, 그 계정의 일이 이 토큰으로 나갔습니다).
      · 로그인한 채 빈 칸 · 주인 없음인데 그 계정의 칸이 치워져 있음 — 되돌립니다. */
   Future<void> _recover(Api api) async {
     final sp = await _prefs();
@@ -410,10 +547,30 @@ class AccountSlots implements AccountSwitch {
       return;
     }
     final u = api.userId;
-    if (api.signedIn && o == null && u != null && isBlankState(app.state) && _hasSlot(sp, '$server|$u')) {
+    if (api.signedIn && o != null && !o.unknown && o.slot != null && u != null && o.uid != u &&
+        (o.sess == null || o.sess != api.sessionTag)) {
+      _cloud?.slotChanged(reload: false);
+      await _leave(sp, o.slot!, <String, Object?>{...app.state}..remove('guest'), o,
+          queue?.jobsFor(uid: o.uid, sess: o.sess) ?? const [], carry: false);
+      await app.owner.commit(_switching);
+      final t = parkedSlotOf(sp, u, prefer: '$server|$u');
+      if (t != null) {
+        await _enter(sp, t, LocalOwner.of(api));
+      } else {
+        await _activate(sp, const {}, {
+          for (final e in kSlotParts.entries)
+            if (!e.key.startsWith('cloud.')) e.key: sp.getString(e.value),
+        }, LocalOwner.of(api));
+        _settled();
+      }
+      return;
+    }
+    if (api.signedIn && o == null && u != null && isBlankState(app.state)) {
+      final t = parkedSlotOf(sp, u, prefer: '$server|$u');
+      if (t == null) return;
       _cloud?.slotChanged(reload: false);
       await app.owner.commit(_switching);
-      await _enter(sp, '$server|$u', LocalOwner.of(api));
+      await _enter(sp, t, LocalOwner.of(api));
     }
   }
 
@@ -443,7 +600,6 @@ class AccountSlots implements AccountSwitch {
     final server = serverOf(api);
     final book = app.owner;
     final o = book.current;
-    final target = uid == null ? null : '$server|$uid';
     final me = LocalOwner(
         server: server, uid: uid, sess: sess, handle: handle,
         since: DateTime.now().toUtc().toIso8601String());
@@ -451,9 +607,11 @@ class AccountSlots implements AccountSwitch {
        화면 없이 탭이 뜹니다. */
     final st = <String, Object?>{...app.state}..remove('guest');
 
-    /* 1. 같은 계정 — 칸은 그대로, 토큰만 새것. 옛 토큰으로 적힌 큐 작업도 id 로 알아보게. */
-    if (o != null && !o.unknown && uid != null && o.uid == uid && o.server == server) {
-      await book.commit(o.copyWith(sess: sess, handle: handle));
+    /* 1. 같은 계정 — 칸은 그대로, 토큰만 새것. 옛 토큰으로 적힌 큐 작업도 id 로 알아보게. 이 서버가
+       로그인 응답으로 말해 준 id 라, 주인의 서버 주소가 옛 주소여도(주소만 바뀐 같은 서버) 같은 계정 —
+       주인의 주소를 지금 주소로 옮깁니다(LocalOwner.isSession). */
+    if (o != null && !o.unknown && uid != null && o.uid == uid) {
+      await book.commit(o.copyWith(sess: sess, handle: handle, server: server));
       final q = queue;
       if (q != null && o.sess != null) q.putBack(q.takeFor(uid: uid, sess: o.sess));
       if (app.state['guest'] == true) app.store.swap(st);
@@ -468,6 +626,9 @@ class AccountSlots implements AccountSwitch {
       return;
     }
 
+    /* 들어온 계정의 칸 — 치워 둔 것이 있으면 어느 서버 주소 이름이든 그것(parkedSlotOf), 없으면 지금 주소 이름. */
+    final target = uid == null ? null : (parkedSlotOf(sp, uid, prefer: '$server|$uid') ?? '$server|$uid');
+
     _cloud?.slotChanged(reload: false);
 
     /* 2. 다른 계정의 칸 — 치워 두고, 들어온 계정의 칸(없으면 빈 기록)으로. 절대 합치지 않습니다. */
@@ -479,8 +640,10 @@ class AccountSlots implements AccountSwitch {
     }
 
     /* 3. 주인 없는 칸(로그인 없이 쓴 기록) · 모르는 칸. id 를 끝내 몰랐던 옛 로그인의 칸도
-       누구 것인지 모르니 같이 봅니다 — 그 로그인의 못 보낸 일은 큐에 남겨 두었다가(주인 모름)
-       이 기록을 어느 계정에 합치면 그 계정으로 보냅니다(_adopt). */
+       누구 것인지 모르니 같이 봅니다. 그 로그인의 못 보낸 일은 로그아웃할 때 버렸습니다 — 그 사이
+       앱이 죽어 큐에 남았으면 여기서 버립니다(SyncQueue.dropOrphans — 이 기록을 어느 계정에
+       합치든 그 계정의 일이 아닙니다). */
+    queue?.dropOrphans();
     final unknown = o != null;
     if (isBlankState(st) || (target != null && _isParkedCopy(sp, target, st))) {
       /* 빈 기록이거나, 그 계정 칸을 되돌리다 멈춰 남은 사본 — 묻지 않고 그 계정의 칸으로. */
@@ -498,7 +661,7 @@ class AccountSlots implements AccountSwitch {
         await _put(sp, kGuestDeclinedKey, jsonEncode(declined));
       }
       await book.commit(_switching);
-      await _adopt(sp, st, target, me, uid: uid, sess: sess, unknown: unknown);
+      await _adopt(sp, st, target, me, unknown: unknown);
       return;
     }
     /* [합치지 않기] 를 **직접 고른 때만** 적어 둡니다 — 창이 닫히지 못하게 막았어도(뒤로 가기) 고르지
@@ -521,10 +684,10 @@ class AccountSlots implements AccountSwitch {
   /* 주인 없는 기록을 이 계정의 것으로. 그 계정의 칸이 치워져 있으면 되돌리고 이 기기 안에서
      합칩니다(기준본 없이 합집합 — 목록은 다 남고, 하나짜리 값은 나중에 바꾼 쪽). 없으면 이 칸이
      곧 그 계정의 칸이고, 동기화가 계정 사본과 합칩니다(예전의 「로그인 없이 쓰다 로그인」 과 같음).
-     누구 것인지 모르던 기록이면 그 기록의 못 보낸 일(id 를 몰랐던 로그인)도 이 계정으로 보냅니다 —
-     기록을 이 계정의 것으로 고른 것과 같은 결정입니다. */
+     누구 것인지 모르던 기록의 못 보낸 일(id 를 몰랐던 로그인)은 붙이지 않습니다 — 로그아웃할 때
+     버렸습니다(3차 검토 N1: 기록을 고른 것이 친구 일의 주인을 고른 것은 아닙니다). */
   Future<void> _adopt(SharedPreferences sp, Map<String, Object?> guest, String? target, LocalOwner me,
-      {required String? uid, required String sess, required bool unknown}) async {
+      {required bool unknown}) async {
     final guestAt = sp.getString(CloudSync.keyAt) ?? '';
     if (target != null && _hasSlot(sp, target)) {
       final parked = _readState(sp, target);
@@ -535,7 +698,6 @@ class AccountSlots implements AccountSwitch {
       final parts = {..._slotParts(sp, target), 'cloud.at': CloudSync.isoMs(DateTime.now())};
       await _activate(sp, merged, parts, me);
       queue?.putBack(_slotJobs(sp, target));
-      if (unknown) queue?.adoptOrphans(uid: uid, sess: sess);
       await _dropSlot(sp, target);
       _settled();
       return;
@@ -549,7 +711,6 @@ class AccountSlots implements AccountSwitch {
       if (unknown) 'cloud.at': null,
     };
     await _activate(sp, guest, parts, me);
-    if (unknown) queue?.adoptOrphans(uid: uid, sess: sess);
     _settled();
   }
 
@@ -580,18 +741,27 @@ class AccountSlots implements AccountSwitch {
         /* 「로그인 없이 쓰기」 표시는 칸에 남기지 않습니다 — 다음 칸은 로그인 화면부터(전에 그 표시가
            있었어도). 「동의하지 않고 로그인 없이 쓰기」 만 곧바로 탭 화면으로([thenGuest]). */
         final st = <String, Object?>{...app.state}..remove('guest');
-        final id = uid ?? o?.uid;
         _cloud?.slotChanged(reload: false);
 
         if (gone) {
-          await _accountGone(sp, server, id, sess, st, thenGuest);
+          await _accountGone(sp, uid ?? o?.uid, sess, st, thenGuest);
           return;
         }
+        /* 칸의 주인이 이 로그인(같은 토큰의 표시)으로 적혀 있으면 그 계정 id 가 먼저입니다 — 칸을 적을 때
+           그 주인의 서버가 말해 준 id. 지금 Api 의 id 는 서버 주소를 바꾼 뒤 **다른 서버**가 말한 것일 수
+           있습니다(4차 검토 공격: 그 서버가 이 토큰을 다른 계정이라 말하면, 이 기록이 그 계정의 치워 둔
+           칸에 합쳐져 그 계정이 로그인할 때 보였습니다). */
+        final byOwner = o != null && !o.unknown && o.uid != null && sess != null && o.sess == sess;
+        final id = byOwner ? o.uid : (uid ?? o?.uid);
         final mine = o != null && !o.unknown &&
             ((id != null && o.uid == id) || (sess != null && o.sess == sess));
         /* 치울 칸 — 이 계정의 것이면 이 계정 이름으로. 칸의 주인이 다른 계정이면(로그인 문을 안
-           거친 토큰 — 앱에는 없는 길) 그 주인의 이름으로 치웁니다. 어느 쪽이든 화면에는 안 남깁니다. */
-        final slot = mine ? (id == null ? null : '$server|$id') : (o != null && !o.unknown ? o.slot : null);
+           거친 토큰 — 앱에는 없는 길) 그 주인의 이름으로 치웁니다. 어느 쪽이든 화면에는 안 남깁니다.
+           이름의 서버 주소는 주인의 것 — 로그인한 채 주소를 바꿨어도(3차 검토 N4) 그 계정의 서버입니다.
+           같은 id 의 칸이 다른 주소 이름으로 이미 있으면 그 칸에 합칩니다(_leave). */
+        final slot = mine
+            ? (id == null ? null : '${o.server ?? server}|$id')
+            : (o != null && !o.unknown ? o.slot : null);
         if (sp != null && o != null && slot != null) {
           final jobs = queue?.jobsFor(uid: mine ? id : o.uid, sess: mine ? sess : o.sess) ?? const <SyncJob>[];
           await _leave(sp, slot, st, mine ? o.copyWith(uid: id) : o, jobs);
@@ -603,8 +773,11 @@ class AccountSlots implements AccountSwitch {
         }
         /* 주인 없는 기록 · 모르는 기록이거나, 이 계정의 id 를 끝내 몰랐으면(이관 뒤 한 번도 서버에
            못 닿음) 치워 둘 칸 이름이 없습니다. 그대로 두되 다음 로그인이 묻게 '모름' 으로 적습니다.
-           그 로그인의 못 보낸 일은 **버리지 않고** 큐에 둡니다 — 이 로그인이 끝났으니 아무에게도 안
-           나가고, 이 기록을 어느 계정에 [합치기] 하면 그 계정으로 갑니다(_adopt). */
+           id 를 끝내 모른 이 로그인의 못 보낸 일은 **버립니다**(3차 검토 N1) — 이 로그인이 끝나면 누구의
+           일인지 다시는 알 길이 없습니다. 예전엔 큐에 두었다가 이 기록을 [합치기] 한 계정의 일로 붙여,
+           A 의 차단 · 친구 요청이 B 명의로 나갔습니다. 기록 사본 · 주간 요약은 이 기록을 합친 계정에서
+           동기화 · 요약이 다시 만듭니다(SyncQueue.dropOrphans). */
+        if (id == null && sess != null) queue?.takeFor(sess: sess);
         if (mine) {
           try {
             await book.commit(_switching);
@@ -625,7 +798,7 @@ class AccountSlots implements AccountSwitch {
      로그인 없이 쓰던 기록이 손님 칸에 따로 있으면 그대로 둡니다. 다음 로그인에서 이 기록도
      [합치지 않기] 하면 손님 칸과 이 기기 안에서 합쳐 보관합니다(「로그인 없이 쓰기」 는 한 칸이라
      따로 두면 한쪽을 다시 열 길이 없습니다 — 합친 칸은 계속 '모름' 이라 어느 계정에 합칠 때도 경고). */
-  Future<void> _accountGone(SharedPreferences? sp, String server, String? id, String? sess,
+  Future<void> _accountGone(SharedPreferences? sp, String? id, String? sess,
       Map<String, Object?> st, bool thenGuest) async {
     queue?.takeFor(uid: id, sess: sess);
     if (sp != null) {
@@ -633,7 +806,12 @@ class AccountSlots implements AccountSwitch {
       for (final part in ['cloud.base', 'cloud.last', 'pokes', 'news', 'invite.mine', 'invite.handled']) {
         await _put(sp, kSlotParts[part]!, null);
       }
-      if (id != null) await _dropSlot(sp, '$server|$id');
+      /* 그 계정의 치워 둔 칸 — 어느 서버 주소 이름이든(parkedSlotNames). */
+      if (id != null) {
+        for (final name in parkedSlotNames(sp, id)) {
+          await _dropSlot(sp, name);
+        }
+      }
     } else {
       app.owner.set(_switching);
     }
@@ -682,23 +860,33 @@ class AccountSlots implements AccountSwitch {
     }
   }
 
-  /* 떠나는 칸을 [slot] 으로 치웁니다(차례 1) — 기록 · 기기 칸들 · 큐 작업 · 주인. 같은 이름의 칸이
-     이미 있으면(되돌리다 멈춘 사본 등) 덮지 않고 합칩니다 — 목록은 합집합, 곁의 칸은 지금 것이 먼저,
-     큐는 둘 다. 칸에 다 적은 뒤에야 큐에서 뺍니다. 활성 칸은 다음 칸이 덮습니다(차례 3). */
-  Future<void> _leave(SharedPreferences sp, String slot, Map<String, Object?> st, LocalOwner owner,
-      List<SyncJob> jobs) async {
+  /* 떠나는 칸을 [name] 으로 치웁니다(차례 1) — 기록 · 기기 칸들 · 큐 작업 · 주인. 같은 계정의 칸이
+     이미 있으면(되돌리다 멈춘 사본 · 다른 서버 주소 이름으로 치운 것) 그 칸에 덮지 않고 합칩니다 —
+     목록은 합집합, 곁의 칸은 지금 것이 먼저, 큐는 둘 다. 한 계정의 칸이 두 이름으로 갈라지지 않게
+     합니다(찾는 것은 id 로 — parkedSlotOf). 칸에 다 적은 뒤에야 큐에서 뺍니다. 활성 칸은 다음 칸이
+     덮습니다(차례 3). [carry] 가 거짓이면 활성 칸의 곁의 칸을 싣지 않습니다 — 그 칸이 이 주인의 것인지
+     모를 때(_recover 의 웹 두 탭). 치워 둔 칸의 곁의 칸이 그대로 남습니다. 그때 [st] 는 이 주인의 기록을
+     메모리에 오래 든 다른 탭이 적은 것이라, 이 탭이 로그아웃하며 서버와 맞춰 치워 둔 칸보다 **옛 값**일
+     수 있습니다(그 탭은 그 뒤 서버에 못 닿음 — 로그아웃이 세션을 끝냄). 그래서 하나짜리 값(프로필 ·
+     목표 · 계획 · 설정)은 치워 둔 칸이 이기고, 그 탭이 더한 측정 · 식단과 지운 표시는 합집합으로 남습니다.
+     활성 칸의 시각은 쓰지 않습니다 — 지금 로그인(다른 계정)의 것일 수 있습니다. */
+  Future<void> _leave(SharedPreferences sp, String name, Map<String, Object?> st, LocalOwner owner,
+      List<SyncJob> jobs, {bool carry = true}) async {
+    final uid = _uidOfSlot(name);
+    final slot = uid == null ? name : (parkedSlotOf(sp, uid, prefer: name) ?? name);
     var state = st;
-    final parts = <String, String?>{for (final e in kSlotParts.entries) e.key: sp.getString(e.value)};
+    final active = <String, String?>{for (final e in kSlotParts.entries) e.key: sp.getString(e.value)};
+    final parts = carry ? active : <String, String?>{for (final part in kSlotParts.keys) part: null};
     var all = jobs;
     if (_hasSlot(sp, slot)) {
       final old = _readState(sp, slot);
       final oldParts = _slotParts(sp, slot);
-      final at = parts['cloud.at'] ?? '', oldAt = oldParts['cloud.at'] ?? '';
+      final at = carry ? (active['cloud.at'] ?? '') : '', oldAt = oldParts['cloud.at'] ?? '';
       state = withoutSyncMeta(mergeStates(st, old, localAt: at, remoteAt: oldAt));
       for (final part in kSlotParts.keys) {
         parts[part] ??= oldParts[part];
       }
-      if (oldAt.compareTo(at) > 0) parts['cloud.at'] = oldAt;
+      if (carry && oldAt.compareTo(at) > 0) parts['cloud.at'] = oldAt;
       all = SyncQueue.dedupe([..._slotJobs(sp, slot), ...jobs]);
     }
     await _put(sp, _k(slot, 'state'), jsonEncode(state));
@@ -715,7 +903,9 @@ class AccountSlots implements AccountSwitch {
   Future<void> _activate(SharedPreferences sp, Map<String, Object?> next, Map<String, String?> parts,
       LocalOwner? owner) async {
     app.store.swap(next);
-    await _put(sp, core.storeKey, jsonEncode(app.store.get()));
+    /* 기록 칸에는 들어올 주인의 서명을 같이 적습니다(app_state.dart PrefsStorage) — 이 뒤 어디서
+       멈춰도 서명 없는 기록이 남지 않게(서명이 없으면 켤 때 대조할 것이 없어 주인 칸을 믿습니다). */
+    await _put(sp, core.storeKey, withOwnerStamp(jsonEncode(app.store.get()), owner));
     for (final e in kSlotParts.entries) {
       await _put(sp, e.value, parts[e.key]);
     }
@@ -823,6 +1013,8 @@ Future<void> wipeDevice({
   CloudSync? cloud,
   InviteInbox? invites,
 }) async {
+  /* 주인부터 비웁니다 — 빈 기록이 앞 주인의 서명과 함께 적히지 않게(app_state.dart PrefsStorage). */
+  app.owner.set(null);
   /* 사진 · 소식 · 기록(Store.reset). 사진은 치워 둔 칸의 것까지 한 폴더라 같이 지워집니다. */
   app.store.reset();
   queue?.clear();
