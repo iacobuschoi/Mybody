@@ -12,8 +12,8 @@
  *     않으므로 계정 삭제로는 사라지지 않습니다 — 두 개는 다른 일입니다.
  *
  * 차례(위 → 아래): 내 몸 정보 · 화면 · 운동 환경 · 계정 · 기본 공유(로그인
- * 했을 때) · 동기화 · **도움말(의견함 — 운영자만 · 의견 버튼 보이기 · 앱 안내 다시
- * 보기)** · 지우기 ·
+ * 했을 때) · 동기화 · **도움말(의견함 · 가입자 목록 — 운영자만 · 의견 버튼 보이기 · 앱 안내
+ * 다시 보기)** · 지우기 ·
  * **로그아웃(로그인했을 때)** · 작은 글씨(내보내기 · 가져오기 ·
  * 개인정보처리방침) · 앱 버전.
  *
@@ -34,7 +34,9 @@
  *
  * **보낸 의견을 읽는 곳(「의견함」)은 도움말 맨 위** — 운영자(서버 설정 feedbackNotify 의
  * 계정)에게만 섭니다. 주인의 물음 "의견 어디서 봐" 의 답이 노트북 도구뿐이었습니다. 다른
- * 사람에게는 줄도 자리표시도 없습니다(feedback_inbox.dart FeedbackInboxRow).
+ * 사람에게는 줄도 자리표시도 없습니다(feedback_inbox.dart FeedbackInboxRow). 바로 아래
+ * 「가입자 목록」 도 같은 규칙입니다 — 노트북의 reset-password.js 로만 보던 아이디 · 가입일을
+ * 폰에서, 누르면 아이디 복사(user_list.dart OperatorUsersRow).
  *
  * **로그아웃은 맨 아래 한 곳입니다.** 예전엔 긴 페이지 한가운데 「계정」
  * 카드 안, 「계정 관리」 옆의 작은 버튼이었고 주인이 못 찾았습니다 —
@@ -67,6 +69,7 @@ import 'gym_settings.dart';
 import 'share_defaults.dart';
 import 'sync_settings.dart';
 import 'tester_welcome.dart' show showTesterWelcome;
+import 'user_list.dart' show OperatorUsersRow;
 import 'workout_tutorial.dart';
 import '../ui/edge.dart';
 import '../ui/widgets.dart';
@@ -242,12 +245,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
            봐서, 켜면 뒤로 가기 전에도 이 화면 옆에 말풍선이 바로 돌아옵니다.
            시험 기간이면 켜진 채 잠급니다 — 새 판 확인기가 시험이 끝났다는 답을 받으면
            이 화면을 연 채로도 곧바로 풀립니다(확인기도 같이 듣습니다).
-           맨 위 「의견함」 은 운영자에게만 — 아니면 줄이 아무것도 안 그립니다. 서버를 옮기면
-           Api 가 새것이라 줄도 새로 묻습니다(열쇠). */
+           맨 위 「의견함」 과 그 아래 「가입자 목록」 은 운영자에게만 — 아니면 줄이 아무것도 안
+           그립니다. 서버를 옮기면 Api 가 새것이라 줄도 새로 묻습니다(열쇠 — 둘이 겹치지 않게 따로). */
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             const SectionTitle('도움말'),
             if (api.signedIn) FeedbackInboxRow(key: ValueKey(api)),
+            if (api.signedIn) OperatorUsersRow(key: ValueKey((api, 'users'))),
             ListenableBuilder(
               listenable: Listenable.merge([feedbackBubbleOn, if (update != null) update]),
               builder: (context, _) {

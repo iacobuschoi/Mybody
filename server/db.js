@@ -16,6 +16,10 @@ const path = require('node:path');
 const fs = require('node:fs');
 const FEEDBACK = require('./feedback.js');
 
+/* 운영자의 「가입자 목록」 한 번에 싣는 최대 사람 수(operatorListUsers). 넘으면 새 가입부터 이만큼만 —
+   total 은 그래도 전체 수라 앱이 "더 있다" 를 압니다. 응답 하나가 끝없이 커지지 않게. */
+const USERS_LIST_MAX = 1000;
+
 const SHARE_FIELDS = ['weightTrend', 'smmTrend', 'bfmTrend', 'planProgress', 'streak', 'schedule', 'absolute', 'diet'];
 
 function open(file) {
@@ -471,6 +475,10 @@ function makeApi(db) {
   const q = {
     userByHandle: db.prepare('SELECT * FROM users WHERE handle = ?'),
     allUsers: db.prepare('SELECT handle, display_name, created_at FROM users ORDER BY created_at'),
+    /* 운영자의 「가입자 목록」 — 새 가입부터. 같은 시각이면 나중에 들어간 행이 위(rowid). */
+    usersNewest: db.prepare(
+      'SELECT id, handle, display_name, created_at FROM users ORDER BY created_at DESC, rowid DESC LIMIT ?'),
+    countUsers: db.prepare('SELECT COUNT(*) AS c FROM users'),
     userById: db.prepare('SELECT * FROM users WHERE id = ?'),
     userByCode: db.prepare('SELECT * FROM users WHERE invite_code = ?'),
     insertUser: db.prepare(
@@ -832,6 +840,30 @@ function makeApi(db) {
       return q.allUsers.all().map(u => ({
         handle: u.handle, displayName: u.display_name, createdAt: u.created_at
       }));
+    },
+
+    /**
+     * 운영자 폰의 「가입자 목록」(server.js handleOperator) — adminListUsers 와 같은 세 칸만.
+     * 새 가입부터 limit(1~USERS_LIST_MAX)명, total 은 자르기 전 전체 수. meId 의 줄에만 me:true
+     * (운영자 본인 표시 — 내부 id 는 비교에만 쓰고 싣지 않습니다).
+     * 비밀번호 · 복구 코드 해시 · 초대 코드 · 세션 · 알림 기기는 고르지도 않습니다.
+     * @returns {{total:number, users:{handle, displayName, createdAt, me?:true}[]}}
+     */
+    operatorListUsers({ limit = USERS_LIST_MAX, meId = null } = {}) {
+      const want = Math.floor(Number(limit));
+      const lim = Number.isFinite(want) ? Math.min(USERS_LIST_MAX, Math.max(1, want)) : USERS_LIST_MAX;
+      const users = q.usersNewest.all(lim).map(u => {
+        const row = {
+          handle: u.handle,
+          /* 표시 이름은 길이만 자르고 저장됩니다 — 의견함의 보낸 사람 이름(feedbackInbox)처럼
+             제어 · 방향 뒤집기 문자를 거르고 한 줄로. 아이디는 가입 때 [a-z0-9_.-] 만 받습니다. */
+          displayName: FEEDBACK.cleanText(u.display_name || '').replace(/\s+/g, ' ').trim(),
+          createdAt: u.created_at
+        };
+        if (meId && u.id === meId) row.me = true;
+        return row;
+      });
+      return { total: Number(q.countUsers.get().c) || 0, users };
     },
 
     /** 모든 기기에서 로그아웃 — 토큰이 샜을 때의 유일한 복구 수단입니다. */
@@ -1716,4 +1748,4 @@ function makeApi(db) {
 function safeParse(s) { try { return JSON.parse(s); } catch { return {}; } }
 
 module.exports = { open, makeApi, SHARE_FIELDS, blankShare, nowISO, str, HEALTH_CONSENT_VERSION,
-                   ACCEPTED_CONSENT_VERSIONS };
+                   ACCEPTED_CONSENT_VERSIONS, USERS_LIST_MAX };

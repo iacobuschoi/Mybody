@@ -16,7 +16,8 @@
  * 왔어요" 한 줄이 10분에 한 번까지 갑니다 — 의견 내용은 알림에 안 실립니다.
  * 그 아이디의 계정(운영자)만 앱 설정의 「의견함」(/api/feedback/inbox…)에서 의견을
  * 읽습니다. 받는 길과 반대로 읽는 길은 로그인 관문 **뒤**에 있고, 운영자인지는 요청마다
- * 서버가 가립니다(handleFeedbackInbox).
+ * 서버가 가립니다(handleFeedbackInbox). 같은 운영자만 「가입자 목록」(/api/operator/users —
+ * 아이디 · 표시 이름 · 가입일)도 봅니다(handleOperator).
  *
  * /api 밖에서 로그인 없이 여는 페이지가 정적 파일 말고 하나 더 있습니다 — 친구 초대
  * 링크(GET /i/<코드>). DB 를 보지 않고 코드 모양만 봅니다(아래 serveInvite). 그 링크를
@@ -54,7 +55,7 @@ const http = require('node:http');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
-const { open, makeApi, str } = require('./db.js');
+const { open, makeApi, str, USERS_LIST_MAX } = require('./db.js');
 const { runOcr: callOcr } = require('./ocr.js');
 const PUSH = require('./push.js');
 const FCMLIB = require('./fcm.js');
@@ -858,6 +859,35 @@ async function handleFeedbackInbox(req, res, url, p, method, me) {
   return fail(404, '그런 경로가 없습니다');
 }
 
+/* --- 앱 안 「가입자 목록」 (운영자만) ---------------------------------------
+ *
+ * 왜 있나
+ *   비밀번호를 잊은 친구의 아이디를 찾으려면 노트북에서 tools/reset-password.js 를 인자 없이
+ *   돌려야 했습니다. 운영자 폰의 설정 → 「가입자 목록」 에서 보고, 줄을 눌러 복사한 아이디를
+ *   노트북의 reset-password.js <아이디> 에 붙여 넣습니다.
+ *
+ * 약속 (앱: app/lib/src/api.dart ApiOperatorUsers · screens/user_list.dart)
+ *   GET /api/operator/users?limit=<1~1000>
+ *         → {ok, total, users:[{handle, displayName, createdAt, me?:true}]}
+ *         새 가입부터 · 기본이자 최대 1000명(db.js USERS_LIST_MAX) · total 은 자르기 전 전체 수 ·
+ *         me 는 운영자 본인 줄에만
+ *
+ * 막는 것 — 의견함과 같은 규칙입니다(위 handleFeedbackInbox).
+ *   · 로그인 관문 뒤(401). 운영자가 아니면 /api/operator/ 아래 어느 길이든 경로를 보기 전에 403.
+ *   · 싣는 것은 아이디 · 표시 이름 · 가입 시각뿐 — 비밀번호 · 복구 코드 해시, 토큰, 초대 코드,
+ *     내부 id, 알림 기기는 질의에서부터 고르지 않습니다(db.js operatorListUsers).
+ *   · 캐시 금지(의견함과 같은 머리) · 로그에는 경로와 상태만.
+ * -------------------------------------------------------------------------- */
+function handleOperator(res, url, p, method, me) {
+  const fail = (status, msg) => send(res, status, { ok: false, error: msg, reason: msg }, INBOX_HEADERS);
+  if (!isOperator(me)) return fail(403, '운영자만 볼 수 있어요');
+  if (p === '/operator/users' && method === 'GET') {
+    const limit = intParam(url.searchParams.get('limit'), USERS_LIST_MAX, 1, USERS_LIST_MAX);
+    return send(res, 200, Object.assign({ ok: true }, api.operatorListUsers({ limit, meId: me })), INBOX_HEADERS);
+  }
+  return fail(404, '그런 경로가 없습니다');
+}
+
 /* 오늘 한도에 걸렸으면 그 까닭(429 로 내보낼 말), 아니면 null. 저장한 것만 셉니다:
    형식이 틀려 거절된 요청은 한도를 안 깎습니다(판독 ocrCount 와 같은 이유). */
 function feedbackOverLimit(uid, ip, day) {
@@ -1043,10 +1073,10 @@ async function handleApi(req, res, url) {
     const r = api.newRecoveryCode(me, b);
     return send(res, r.ok ? 200 : 400, r);
   }
-  /* isOperator — 앱이 설정에 「의견함」 칸을 보일지 정하는 표시. **본인에게만, 운영자일 때만**
-     붙습니다(아니면 칸 자체가 없음). 친구 목록 · 스냅샷 같은 남에게 가는 응답에는 안 실어서
-     누가 운영자인지 다른 사람은 알 수 없습니다. 보이는 칸은 편의일 뿐이고, 막는 것은
-     의견함의 모든 길이 요청마다 다시 가리는 쪽입니다(handleFeedbackInbox).
+  /* isOperator — 앱이 설정에 「의견함」 · 「가입자 목록」 칸을 보일지 정하는 표시. **본인에게만,
+     운영자일 때만** 붙습니다(아니면 칸 자체가 없음). 친구 목록 · 스냅샷 같은 남에게 가는 응답에는
+     안 실어서 누가 운영자인지 다른 사람은 알 수 없습니다. 보이는 칸은 편의일 뿐이고, 막는 것은
+     두 곳의 모든 길이 요청마다 다시 가리는 쪽입니다(handleFeedbackInbox · handleOperator).
      PATCH 도 같은 user 를 돌려줍니다 — 앱이 그 답으로 자기 정보를 갈아 끼워도 칸이 안 사라지게. */
   const meView = u => (u && isOperator(me) ? Object.assign(u, { isOperator: true }) : u);
   if (p === '/me' && method === 'GET') return send(res, 200, { ok: true, user: meView(api.me(me)), stats: api.stats(me) });
@@ -1062,6 +1092,8 @@ async function handleApi(req, res, url) {
   if (p === '/feedback/inbox' || p.startsWith('/feedback/inbox/')) {
     return handleFeedbackInbox(req, res, url, p, method, me);
   }
+  /* 운영자의 「가입자 목록」 — 의견함처럼 관문 뒤, 운영자인지는 안에서 요청마다(handleOperator). */
+  if (p === '/operator' || p.startsWith('/operator/')) return handleOperator(res, url, p, method, me);
 
   if (p === '/friends' && method === 'GET') return send(res, 200, { ok: true, friends: api.listFriends(me) });
   if (p === '/friends/request' && method === 'POST') {
@@ -2135,7 +2167,7 @@ if (require.main === module) {
         console.log(OPEN_SIGNUP
           ? '  ⚠ 의견함: 누구나 가입할 수 있는데 설정(feedbackNotify)에 적은 아이디의 계정이 아직 없습니다.'
           : '  ⚠ 의견함: 설정(feedbackNotify)에 적은 아이디의 계정이 아직 없습니다 (가입 코드를 아는 사람은 그 아이디로 가입할 수 있습니다).');
-        console.log('    그 아이디로 먼저 가입한 사람이 모든 의견을 보게 됩니다 — 지금 그 아이디로 가입하거나');
+        console.log('    그 아이디로 먼저 가입한 사람이 모든 의견과 가입자 목록을 보게 됩니다 — 지금 그 아이디로 가입하거나');
         console.log('    ~/.mybody/config.json 의 feedbackNotify 를 지우고 다시 띄우세요.');
       }
     }

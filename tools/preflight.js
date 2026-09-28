@@ -33,6 +33,8 @@ const CHECKS = [
     why: '잘못 읽은 숫자가 통과하면 몇 주짜리 계획이 통째로 어긋납니다' },
   { id: '서버 권한', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-social.js'],
     why: '안 켠 항목이 친구에게 새면 돌이킬 수 없습니다' },
+  { id: '가입자 목록', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-operator-users.js'],
+    why: '운영자 아닌 사람에게 가입자 명단이 보이거나 목록에 비밀번호 해시 · 토큰이 실리면 계정이 통째로 샙니다' },
   { id: '판독 프록시', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-ocr.js'],
     why: '모델이 내놓은 헛소리가 그대로 저장되면 안 됩니다' },
   { id: '서버 굳히기', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-hardening.js'],

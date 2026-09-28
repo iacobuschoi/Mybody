@@ -158,8 +158,12 @@ DELETE /api/feedback/inbox/<번호>                   의견과 사진을 함께
 운영자 본인에게만 `true` 로 붙고, 다른 사람의 응답에는 칸 자체가 없습니다. 응답은 전부
 `Cache-Control: private, no-store` 입니다. `feedbackNotify` 가 비어 있으면 아무도 운영자가 아닙니다.
 
+같은 운영자의 설정에는 **「가입자 목록」** 도 섭니다(`GET /api/operator/users`, 아래 API 표) — 아이디 ·
+표시 이름 · 가입일, 새 가입부터. 줄을 누르면 아이디가 복사되어 노트북의 `node tools/reset-password.js <아이디>`
+에 바로 붙여 넣습니다. 규칙(401 · 403 · 캐시 금지)은 의견함과 같습니다.
+
 > **운영자 계정을 지웠다면 `feedbackNotify` 도 지우거나 바꾸세요.** 아이디로 찾기 때문에, 같은 아이디로
-> 새로 가입한 사람이 의견함을 봅니다. 그 계정이 아직 없으면 서버가 뜰 때 `⚠ 의견함: …` 으로 알립니다 —
+> 새로 가입한 사람이 의견함(과 「가입자 목록」)을 봅니다. 그 계정이 아직 없으면 서버가 뜰 때 `⚠ 의견함: …` 으로 알립니다 —
 > 누구나 가입할 수 있는 서버(`openSignup`)면 아무나, 아니어도 가입 코드를 받은 사람이면 그 아이디를 먼저
 > 가져갑니다. 그 계정의 비밀번호는 다른 곳과 다르게 두세요 — 새면 모든 의견과 화면 캡처가 같이 샙니다.
 
@@ -330,6 +334,7 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 | `PATCH` | `/api/me` | `{displayName}` |
 | `DELETE` | `/api/me` | 계정 삭제 (친구·공유·스냅샷·기록 · 보낸 의견과 화면 연쇄 삭제) |
 | `POST` | `/api/me/consent` | `{healthConsent}` 현재 판으로 건강정보 동의를 다시 받음 → `{user}` |
+| `GET` | `/api/operator/users` | **운영자만**(아니면 403 `{ok:false, error:'운영자만 볼 수 있어요'}`) 앱 설정의 「가입자 목록」 → `{total, users:[{handle, displayName, createdAt, me?}]}`. 새 가입부터 · `?limit=` 1~1000(기본 1000) · `total` 은 전체 수 · `me:true` 는 운영자 본인 줄에만. 아이디 · 표시 이름 · 가입 시각 말고는 싣지 않음(비밀번호 · 복구 코드 · 토큰 · 초대 코드 · 내부 id 없음). `Cache-Control: private, no-store` |
 | `GET` | `/api/friends` | 친구 · 받은 요청 · 보낸 요청 · 차단 |
 | `POST` | `/api/friends/request` | `{inviteCode, via?}` → 보통은 `{status:'pending', otherId}`(코드 주인이 수락해야 친구). 상대가 먼저 나에게 요청해 둔 사이면 그 자리에서 `{status:'accepted'}`. **`via:'link'`**(앱이 초대 링크 · 설치 추천인으로 받은 코드 — 손으로 친 코드 · 클립보드는 안 붙임)이면 요청 없이 **곧바로 친구** — 코드 주인이 수락을 누른 것과 같은 길이라 각 방향 기본 공유가 복사되는 것까지 같음. 내가 이미 보낸 요청이 있어도 · 상대가 보낸 요청이 있어도 수락되고, 이미 친구면 아무것도 안 바꾸고 `{status:'accepted', already:true}`(알림 없음). 코드 주인에게는 수락 알림(웹 푸시 「○○님과 친구가 됐어요」, 앱 알림은 일반 문구 「친구 요청이 수락됐어요」). 친구가 됐을 때(`accepted`)만 상대의 표시 이름을 `friend:{name}` 으로 실음 — 요청 · 실패에는 없음(코드 → 이름 사전이 되지 않게). 내 코드 · 없는 코드 · 차단은 `via` 와 상관없이 거절. 코드 주인이 나를 **거절 · 친구 끊기 · 차단(풀었어도)** 한 적이 있으면 `via:'link'` 여도 예전처럼 요청(`pending`, 코드 주인이 다시 고름 — 코드는 바뀌지 않아서 옛 링크로 곧바로 되돌아오지 못하게. 서버가 `friend_refusals` 에 적어 두고, 다시 친구가 되면 지움). `via` 는 `'link'` 만 보고 다른 값은 없는 것으로 |
 | `POST` | `/api/friends/accept` | `{userId}` 수락. 각 방향은 **그 방향 주인의 기본값**(`/api/share-defaults`)으로 시작 — 맞요청으로 곧바로 친구가 될 때도 같음 |
@@ -424,6 +429,7 @@ node tools/test-social.js        # 친구·공유 권한 (서버를 띄워 실�
 node tools/test-ocr.js           # 판독 프록시 (가짜 모델 API 로)
 node tools/test-fcm.js           # 앱 알림 (가짜 OAuth · FCM 으로 — JWT 서명까지 검증)
 node tools/test-feedback.js      # 의견 보내기 (검사 · 한도 · 탈퇴 · 1년 · 주인 알림 · 노트북 도구)
+node tools/test-operator-users.js # 운영자의 「가입자 목록」 (운영자만 · 비밀 칸 없음 · 새 가입부터 · 1000명 상한)
 node tools/test-appversion.js    # 앱 안 업데이트 안내 · 시험판 참여 링크 · 시험 기간
 node tools/test-invite.js        # 친구 초대 링크 페이지 (기종별 앱 열기 · 설치 안내 · 새지 않음 · CSP ·
                                  #   앱 링크 파일 · 스크립트를 가짜 브라우저에서 돌려 봄)

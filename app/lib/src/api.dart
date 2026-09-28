@@ -22,9 +22,10 @@
  * 붙이므로, 로그인 안 한 사람의 「의견 보내기」 는 그냥 토큰 없이 나갑니다
  * (서버가 그때는 익명으로 받습니다).
  *
- * 그렇게 모인 의견을 운영자가 앱 안에서 읽는 길(「의견함」)은 맨 아래
+ * 그렇게 모인 의견을 운영자가 앱 안에서 읽는 길(「의견함」)은 아래
  * [ApiFeedbackInbox] 입니다. 캡처 사진만은 JSON 이 아니라 바이트로 받아서
  * [Api.send] 를 못 타고 따로 갑니다 — 토큰은 똑같이 머리에 붙입니다.
+ * 같은 운영자의 「가입자 목록」 은 맨 아래 [ApiOperatorUsers] 입니다.
  * ========================================================================== */
 import 'dart:async';
 
@@ -77,6 +78,13 @@ class Api extends ChangeNotifier {
   /// 이 로그인의 계정 id(/me 의 user.id). null 이면 아직 모름 — [me] 가 채웁니다.
   String? _userId;
 
+  /// 운영자인지 묻는 중인 /me([askOperator]) — 설정의 운영자 줄 둘이 같이 물어도 한 번만 갑니다.
+  Future<bool?>? _operatorAsk;
+
+  /// 이 로그인으로 받은 「가입자 목록」 길의 마지막 답([ApiOperatorUsers.operatorUsersSeen]).
+  /// null 이면 아직 모름.
+  ({bool open, int total})? _operatorUsersSeen;
+
   /* 의견함 캡처의 메모리 캐시([ApiFeedbackInbox.inboxImage]). 넣은 차례가 곧 오래된 차례라
      (LinkedHashMap) 꺼낼 때 뒤로 다시 넣으면 LRU 입니다. 받는 중인 것은 [_inboxImageLoads] 에
      — 목록의 작은 그림과 상세가 같은 장을 동시에 청해도 한 번만 받게. */
@@ -124,6 +132,8 @@ class Api extends ChangeNotifier {
   void _forgetAccountMemory() {
     _operator = null;
     _userId = null;
+    _operatorAsk = null;
+    _operatorUsersSeen = null;
     _inboxImages.clear();
     _inboxImageLoads.clear();
     _inboxImageBytes = 0;
@@ -314,6 +324,21 @@ class Api extends ChangeNotifier {
 
   /// /me 의 user 가 운영자인가. 옛 서버는 칸이 없어서 거짓입니다.
   static bool isOperatorUser(Object? user) => user is Map && user['isOperator'] == true;
+
+  /// [isOperator] 를 아직 모르면 /me 를 한 번 물어 채우고 그 값을 돌려줍니다(알면 묻지 않음).
+  /// 설정의 「의견함」 · 「가입자 목록」 줄이 같이 불러도 /me 는 한 번만 갑니다. 못 닿으면 null.
+  Future<bool?> askOperator() {
+    if (!signedIn) return Future.value(false);
+    if (_operator != null) return Future.value(_operator);
+    final going = _operatorAsk;
+    if (going != null) return going;
+    /* 끝나면 비웁니다 — 단 자기 것일 때만(그사이 로그인이 바뀌어 새 물음이 섰으면 그쪽 것). */
+    late final Future<bool?> ask;
+    ask = me().then((_) => isOperator).whenComplete(() {
+      if (identical(_operatorAsk, ask)) _operatorAsk = null;
+    });
+    return _operatorAsk = ask;
+  }
 
   /// 옛 판으로 동의한 계정이 새 판에 다시 동의합니다 (account.dart ConsentGate).
   Future<ApiResult> consent(String version) =>
@@ -702,4 +727,108 @@ extension ApiFeedbackInbox on Api {
     }
     return r;
   }
+}
+
+/* --- 가입자 목록(운영자) ------------------------------------------------------
+ *
+ * 노트북의 tools/reset-password.js(인자 없이)가 보여 주던 것 — 아이디 · 표시 이름 · 가입일 — 을
+ * 운영자 폰에서 봅니다(screens/user_list.dart). 규칙은 의견함과 같습니다: 운영자가 아니면 403,
+ * 로그인 안 했으면 401, 까닭은 [inboxReason] 으로. 새 가입부터 1000명까지 오고, 그보다 많으면
+ * [OperatorUsersPage.total] 이 전체 수를 말합니다. 비밀(비밀번호 · 토큰 · 초대 코드 · 내부 id)은
+ * 서버가 싣지 않습니다.
+ * -------------------------------------------------------------------------- */
+
+/// 서버가 한 번에 싣는 최대 사람 수(server/db.js USERS_LIST_MAX).
+const kOperatorUsersMax = 1000;
+
+/// 가입자 한 명.
+class OperatorUser {
+  const OperatorUser({required this.handle, this.displayName = '', this.createdAt, this.me = false});
+
+  /// 로그인 아이디 — 줄을 누르면 복사되는 값(reset-password.js <아이디>).
+  final String handle;
+
+  /// 표시 이름. 비었으면 ''.
+  final String displayName;
+
+  /// 가입한 때(이 폰의 시각대로). 서버가 이상한 값을 주면 null.
+  final DateTime? createdAt;
+
+  /// 운영자 본인의 줄인가.
+  final bool me;
+
+  /// 서버의 한 칸을 읽습니다. 아이디가 없으면 null — 그 칸은 버립니다(복사할 것이 없음).
+  static OperatorUser? fromJson(Object? j) {
+    if (j is! Map) return null;
+    final h = j['handle'];
+    if (h is! String || h.trim().isEmpty) return null;
+    final name = j['displayName'];
+    final at = j['createdAt'];
+    return OperatorUser(
+      handle: h.trim(),
+      displayName: name is String ? name.trim() : '',
+      createdAt: at is String ? DateTime.tryParse(at)?.toLocal() : null,
+      me: j['me'] == true,
+    );
+  }
+}
+
+/// GET /operator/users 한 번.
+class OperatorUsersPage {
+  const OperatorUsersPage(this.result, {this.users = const [], this.total = 0});
+  final ApiResult result;
+
+  /// 새 가입부터.
+  final List<OperatorUser> users;
+
+  /// 서버 전체의 가입자 수 — [users] 가 1000명에서 잘렸어도 전부.
+  final int total;
+
+  bool get ok => result.ok;
+
+  /// 운영자가 아니다(403) · 로그인이 없다(401) — 다시 해 봐도 같은 답입니다.
+  bool get denied => result.status == 403 || result.status == 401;
+
+  /// 이 길이 없는 옛 서버(404) — 설정의 줄을 거둡니다.
+  bool get missing => result.status == 404;
+
+  /// 화면에 쓸 까닭 — 의견함과 같은 말.
+  String get reason => inboxReason(result);
+
+  factory OperatorUsersPage.from(ApiResult r) {
+    if (!r.ok) return OperatorUsersPage(r);
+    final b = r.body;
+    final users = [
+      if (b['users'] is List)
+        for (final j in b['users'] as List)
+          if (OperatorUser.fromJson(j) case final u?) u,
+    ];
+    final total = InboxItem._int(b['total']) ?? users.length;
+    return OperatorUsersPage(r, users: users, total: total < users.length ? users.length : total);
+  }
+}
+
+extension ApiOperatorUsers on Api {
+  /// 가입자 목록 — 새 가입부터 [limit](1~1000, 없으면 서버 기본 1000)명. 설정의 줄은 수만 알면 돼서 1.
+  /// 받은 답(열림 + 전체 수 · 403/401/404 면 닫힘)은 [operatorUsersSeen] 에 적어 둡니다.
+  Future<OperatorUsersPage> fetchOperatorUsers({int? limit}) async {
+    final asked = _token;
+    final q = limit == null ? '' : '?limit=${limit.clamp(1, kOperatorUsersMax)}';
+    final p = OperatorUsersPage.from(await _send('GET', '/operator/users$q'));
+    /* 기다리는 사이 로그인이 바뀌었으면 앞 계정의 답 — 적지 않습니다. 못 닿음 · 5xx 는 길이 있는지
+       말해 주지 않으므로 앞 답을 그대로 둡니다. */
+    if (asked == _token) {
+      if (p.ok) {
+        _operatorUsersSeen = (open: true, total: p.total);
+      } else if (p.denied || p.missing) {
+        _operatorUsersSeen = (open: false, total: 0);
+      }
+    }
+    return p;
+  }
+
+  /// 이 로그인으로 받은 이 길의 마지막 답 — 열려 있었나(403 · 401 · 404 면 거짓)와 그때의 전체 수.
+  /// null 이면 아직 모름. 설정의 「가입자 목록」 줄이 처음 그릴 때 씁니다: 한 번 열렸던 서버면 답을
+  /// 기다리지 않고 바로 서고, 이 길이 없는 옛 서버면 다음에 열 때도 섰다 사라지지 않게.
+  ({bool open, int total})? get operatorUsersSeen => signedIn ? _operatorUsersSeen : null;
 }

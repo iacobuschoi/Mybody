@@ -291,7 +291,7 @@ class _FeedbackInboxScreenState extends State<FeedbackInboxScreen> {
       return ListView(physics: physics, padding: const EdgeInsets.all(16), children: [
         const SizedBox(height: 48),
         if (err != null && !_loading)
-          _ErrorBox(key: const Key('inbox-error'), message: err, retryKey: 'inbox-retry', onRetry: _refresh)
+          ErrorRetryBox(key: const Key('inbox-error'), message: err, retryKey: 'inbox-retry', onRetry: _refresh)
         else
           const Center(child: CircularProgressIndicator()),
       ]);
@@ -299,7 +299,7 @@ class _FeedbackInboxScreenState extends State<FeedbackInboxScreen> {
     final t = Theme.of(context);
     final head = <Widget>[
       if (_error case final err?)
-        _ErrorBox(key: const Key('inbox-error'), message: err, retryKey: 'inbox-retry', onRetry: _refresh),
+        ErrorRetryBox(key: const Key('inbox-error'), message: err, retryKey: 'inbox-retry', onRetry: _refresh),
       if (_unread > 0)
         Padding(
           padding: const EdgeInsets.fromLTRB(2, 0, 2, 10),
@@ -336,7 +336,7 @@ class _FeedbackInboxScreenState extends State<FeedbackInboxScreen> {
         /* 끝 칸 — 지어지면(끝에 가까워지면) 다음 쪽을 부릅니다(머리 주석). 짓는 중에는 화면을
            못 바꾸므로 다음 틈에. */
         if (_moreError case final err?) {
-          return _ErrorBox(
+          return ErrorRetryBox(
             key: const Key('inbox-more-error'),
             message: err,
             retryKey: 'inbox-more-retry',
@@ -357,9 +357,9 @@ class _FeedbackInboxScreenState extends State<FeedbackInboxScreen> {
   }
 }
 
-/// 실패 한 줄과 「다시 시도」.
-class _ErrorBox extends StatelessWidget {
-  const _ErrorBox({super.key, required this.message, required this.retryKey, required this.onRetry});
+/// 실패 한 줄과 「다시 시도」. 「가입자 목록」(user_list.dart)도 같이 씁니다.
+class ErrorRetryBox extends StatelessWidget {
+  const ErrorRetryBox({super.key, required this.message, required this.retryKey, required this.onRetry});
   final String message;
   final String retryKey;
   final Future<void> Function() onRetry;
@@ -887,7 +887,8 @@ class _ZoomPageState extends State<_ZoomPage> {
 
 /// 설정 → 도움말 맨 위 「의견함」 줄. **운영자에게만** 섭니다(아니면 아무것도 안 그림 —
 /// 자리표시도 없이). 운영자인지는 /me 의 isOperator — 셸 · 친구 탭이 이미 받은 값이 Api 에
-/// 있으면 그것을 쓰고, 아직 모르면 여기서 한 번 묻습니다. 안 읽은 개수는 의견함 첫 쪽(1건)의
+/// 있으면 그것을 쓰고, 아직 모르면 여기서 한 번 묻습니다(바로 아래 「가입자 목록」 줄과 같은 물음 —
+/// [Api.askOperator]). 안 읽은 개수는 의견함 첫 쪽(1건)의
 /// unread 로 받아 옆에 띄우고, 의견함에서 돌아오면 다시 받습니다.
 class FeedbackInboxRow extends StatefulWidget {
   const FeedbackInboxRow({super.key});
@@ -913,7 +914,7 @@ class _FeedbackInboxRowState extends State<FeedbackInboxRow> {
     final api = Scope.apiOf(context);
     if (!api.signedIn) return;
     if (api.isOperator == null) {
-      await api.me();
+      await api.askOperator();
       if (!mounted) return;
       setState(() {});
     }
