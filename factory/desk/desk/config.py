@@ -25,6 +25,22 @@ DEFAULTS: dict = {
     "brain": {"workdir": "~/lab/desk-assistant", "model": "", "timeout_s": 180},
     "briefing": {"city": "Seoul", "repo": "", "ship_repo": ""},   # repo = 주인/app-factory
     "dashboard": {"port": 7070, "open_cmd": ""},
+    "face": {                       # 박수로 깨울 때 얼굴 인증 (desk/face.py). 등록(deskctl enroll) 전에는 박수만으로 깨어남
+        "enabled": True,
+        "camera": "Brio",           # 카메라 이름 일부 (아이폰 연속성 카메라를 피해서). 비우면 camera_index
+        "camera_index": 0,
+        "name": "",                 # 환영 인사에 부를 이름 (비우면 owner)
+        "prompt": "얼굴 인증해 주세요.",
+        "welcome": "{name}님, 환영합니다.",
+        "fail": "얼굴을 확인하지 못했어요.",
+        "on_error": "stay",         # 카메라 · 인식이 안 될 때: stay(안 켬) · wake(얼굴 없이 켬)
+        "error_say": "카메라를 쓸 수 없어서 얼굴을 확인하지 못했어요.",
+        "threshold": 0.40,          # 닮음 문턱(코사인). 주인인데 자꾸 실패하면 0.36, 남이 통과하면 0.45
+        "need": 2,                  # 문턱을 넘은 장이 이만큼
+        "look_s": 4.0,              # 이 시간 동안 찍어 봄
+        "min_face_px": 40,          # 이보다 작은 얼굴은 안 봄
+        "timeout_s": 15,
+    },
 }
 
 PATH = os.path.expanduser(os.environ.get("DESK_CONFIG", "~/.config/desk/config.toml"))

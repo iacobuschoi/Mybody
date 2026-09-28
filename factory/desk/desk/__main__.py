@@ -4,7 +4,9 @@
   calibrate   박수 · 소음 값을 실시간으로 보기 — 방에서 박수를 쳐 보고 config 를 맞춤
   selftest    마이크 · 말하기 · 받아쓰기 · Claude · gh 를 차례로 확인
   brief       브리핑 글만 출력 (말 안 함)
+  face <명령>  얼굴 인증: models(모델 받기) · enroll(등록) · verify(확인) · forget(지우기) · status
   ctl <명령> [글]  실행 중인 데몬에 명령: wake · sleep · brief · mute · unmute · stop · say · show
+                   · enroll(얼굴 등록) · face(얼굴 확인만)
 """
 from __future__ import annotations
 
@@ -18,7 +20,7 @@ def ctl(cmd: str, text: str = "", port: int = 7070) -> None:
         text = sys.stdin.read()
     req = urllib.request.Request(f"http://127.0.0.1:{port}/api/{cmd}", data=text.encode(), method="POST")
     try:
-        print(urllib.request.urlopen(req, timeout=60).read().decode())
+        print(urllib.request.urlopen(req, timeout=150).read().decode())
     except Exception as e:  # noqa: BLE001
         print(f"deskd 에 닿지 못함: {e}", file=sys.stderr)
         sys.exit(1)
@@ -129,6 +131,17 @@ def selftest() -> None:
             raise RuntimeError((r.stderr.strip() or r.stdout.strip())[-200:])   # "Not logged in" 은 stdout 으로 나옴
         return r.stdout.strip()[:40]
 
+    def face():
+        from . import face as f
+        st = f.status(cfg["face"])
+        if not st["enabled"]:
+            return "꺼짐 (config [face] enabled = false) — 박수만으로 깨어남"
+        if not st["models"]:
+            raise RuntimeError("모델 없음 — python -m desk face models")
+        if not st["enrolled"]:
+            raise RuntimeError("얼굴 등록 전 — 박수만으로 깨어남. 등록: deskctl enroll")
+        return "등록됨" + (" · hand-mouse 와 카메라 같이 씀(640×480)" if st["hand_mouse"] else "")
+
     def brief():
         return briefing.compose(briefing.gather(cfg))[:80] + "…"
 
@@ -138,6 +151,7 @@ def selftest() -> None:
     step("Claude", claude)
     step("브리핑", brief)
     step("상주 프로그램(deskd) 마이크", daemon_mic)
+    step("얼굴 인증", face)
     print("전부 OK" if ok else "실패한 것을 고친 뒤 다시: python -m desk selftest")
     sys.exit(0 if ok else 1)
 
@@ -154,6 +168,9 @@ def main(argv: list[str]) -> None:
     elif cmd == "brief":
         from . import briefing, config
         print(briefing.compose(briefing.gather(config.load())))
+    elif cmd == "face":
+        from .face import cli
+        cli(argv[2:])
     elif cmd == "ctl":
         ctl(argv[2] if len(argv) > 2 else "brief", " ".join(argv[3:]))
     else:
