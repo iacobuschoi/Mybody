@@ -751,3 +751,15 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
   (「Android에서 참여」 링크는 스토어 주소 `https://play.google.com/store/apps/details?id=io.github.iacobuschoi.mybody`).
 - **3. 서버 링크(`--join-android*`)는 아직** — 승인 뒤 넣고 "36 끝" 으로 보고합니다. 승인 여부는 1시간마다 게시 개요 · 메일로 확인.
 - 그룹 초대 메일 안 보냄. App Store · friends 심사 안 건드림.
+
+---
+
+# 36 끝 (2026-09-28 11:32 KST) — 구글 승인 10:33 · 서버 안드로이드 참여 링크 11:32 (4 폰 참여는 주인 몫)
+
+- **승인**: 제출 활동 4번(9/28 10:20 제출) → **「출시됨」 10:33** — 제출하고 13분 만. 비공개 「Alpha」 트랙 「활성 · 최신 출시 버전 333 (0.2.19) ·
+  선택한 테스터에게 제공됩니다 · 게시일 9월 28일 오전 10:33」. 1시간 뒤 첫 확인(11:31)에서 봤습니다. 구글 알림 메일은 못 찾음(최근 1일 검색).
+- **3. 서버 링크 11:32**: `node tools/app-version.js --join-android-group=https://groups.google.com/g/mybody-testers --join-android=https://play.google.com/apps/testing/io.github.iacobuschoi.mybody`
+  → 「서버(8080 포트)가 이 값을 내보내는 것을 확인했습니다」. 바깥 `/api/version` 도 `join.android` · `join.androidGroup` 두 주소 그대로, `testing: true`,
+  최신판 play 0.2.19 · testflight 0.2.19 · apk 0.2.8 · appstore "". 서버 재시작 없음(부를 때마다 새로 읽음). 앱은 6시간에 한 번까지만 물어서 폰에는 몇 시간 걸릴 수 있음.
+- **4. 주인 폰**: 웹 참여 주소 `https://play.google.com/apps/testing/io.github.iacobuschoi.mybody` 에서 「테스터 되기」 한 번 — 노트북에서는 누르지 않음.
+- 그룹 초대 메일 안 보냄. App Store · friends 심사 안 건드림.
