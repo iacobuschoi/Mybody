@@ -95,23 +95,34 @@ def best_voice(name: str) -> str:
     return name
 
 
-def make_voice(c: dict) -> "Voice":
-    """[tts] 설정대로 목소리를 만듭니다. engine = "supertonic" 이면 신경망 목소리(desk/tts.py, 못 쓰면 알아서 say)."""
-    if c.get("engine") == "supertonic":
+def korean_voices() -> list[str]:
+    """`say` 로 쓸 수 있는 한국어 음성 이름(설정 창의 예비 음성 목록)."""
+    names = [m.group(1).strip() for m in
+             (re.match(r"^(.+?)\s+ko_KR\s+#", ln) for ln in _run(["say", "-v", "?"]).splitlines()) if m]
+    return list(dict.fromkeys(names))
+
+
+def make_voice(c: dict, neural: bool = False) -> "Voice":
+    """[tts] 설정대로 목소리를 만듭니다. engine = "supertonic" 이면 신경망 목소리(desk/tts.py, 못 쓰면 알아서 say).
+    neural=True 면 engine 이 say 여도 모델을 띄워 둠 — 설정 창에서 Supertonic 을 들어 보려는 경우."""
+    if neural or c.get("engine") == "supertonic":
         from .tts import NeuralVoice
         return NeuralVoice(c.get("style", "F1"), c.get("model", "supertonic-3"), c.get("speed", 1.05),
-                           c.get("steps", 5), voice=c["voice"], rate=c["rate"], device=c.get("device", ""))
-    return Voice(c["voice"], c["rate"], device=c.get("device", ""))
+                           c.get("steps", 5), voice=c["voice"], rate=c["rate"], device=c.get("device", ""),
+                           pitch=c.get("pitch", 0), volume=c.get("volume", 1.0), use=c.get("engine", "say"))
+    return Voice(c["voice"], c["rate"], device=c.get("device", ""), volume=c.get("volume", 1.0))
 
 
 class Voice:
     """`say` 로 말하기. 말하는 동안 busy — 데몬이 그동안 귀를 닫습니다(제 목소리를 명령으로 안 듣게)."""
 
-    def __init__(self, voice: str = "Yuna", rate: int = 190, tail_s: float = 0.5, device: str = ""):
+    def __init__(self, voice: str = "Yuna", rate: int = 190, tail_s: float = 0.5, device: str = "",
+                 volume: float = 1.0):
         # device: 소리를 낼 장치(say -a). 비우면 시스템 기본 출력.
         # TV 를 HDMI 로 꽂으면 맥이 기본 출력을 TV 로 바꾸는데, TV 가 꺼져 있으면 안내가 안 들립니다 —
         # 그래서 맥 미니 내장 스피커를 이름으로 고정해 둡니다(install.sh 가 찾아서 넣음).
-        self.voice, self.rate, self.tail_s, self.device = voice, rate, tail_s, device
+        # volume: 이 목소리만의 크기(0~1, say 는 1 이 최대) — 시스템 음량과 따로. say 에는 [[volm]] 로 넣습니다.
+        self.voice, self.rate, self.tail_s, self.device, self.volume = voice, rate, tail_s, device, volume
         self._p: subprocess.Popen | None = None
         self._until = 0.0
         self._lock = threading.Lock()
@@ -126,14 +137,26 @@ class Voice:
             running = self._p is not None and self._p.poll() is None
         return running or time.time() < self._until
 
-    def say(self, text: str, block: bool = False) -> None:
+    def configure(self, c: dict) -> None:
+        """설정 창에서 저장한 값을 다시 켜지 않고 바로 씁니다."""
+        if "voice" in c and shutil.which("say"):
+            self.voice = best_voice(c["voice"])
+        self.rate = int(c.get("rate", self.rate))
+        self.volume = float(c.get("volume", self.volume))
+
+    def say(self, text: str, block: bool = False, opts: dict | None = None) -> None:
+        """opts: 이번 말에만 쓸 voice · rate · volume(설정 창의 「들어 보기」)."""
         text = (text or "").strip()
         if not text:
             return
+        o = opts or {}
+        voice = best_voice(o["voice"]) if o.get("voice") and self.voice else self.voice
+        rate, vol = int(o.get("rate", self.rate)), min(1.0, float(o.get("volume", self.volume)))
         self.stop()
         self.last_text = text
-        cmd = (["say", "-r", str(self.rate)] + (["-v", self.voice] if self.voice else [])
-               + (["-a", self.device] if self.device else []) + [text])
+        cmd = (["say", "-r", str(rate)] + (["-v", voice] if voice else [])
+               + (["-a", self.device] if self.device else [])
+               + [(f"[[volm {vol:.2f}]] " if vol < 0.995 else "") + text])
         with self._lock:
             try:
                 self._p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

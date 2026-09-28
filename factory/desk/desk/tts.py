@@ -3,6 +3,9 @@
 `say` 의 Yuna 보다 훨씬 사람 같지만 모델이 떠 있어야 합니다(처음 한 번 380MB 안팎 내려받기, 뜨는 데 1초 미만).
 모델이 뜨기 전이나 못 쓰면(패키지 없음 · 장치 오류) 알아서 `say` 로 말합니다 — 목소리가 끊기는 일은 없게.
 문장 단위로 만들면서 앞 문장을 틀어 첫소리가 빨리 나옵니다(M1 에서 짧은 문장 0.3~0.6초).
+
+음높이(pitch, 반음)는 Supertonic 에 없어서 틀기 직전에 바꿉니다: 느리게 만든 소리를 그만큼 줄여 틀면 빠르기는 그대로,
+음만 올라갑니다(shift_pitch). 목소리 크기(volume)는 이 목소리에만 곱하는 값 — 시스템 음량과 따로입니다.
 """
 from __future__ import annotations
 
@@ -17,6 +20,16 @@ from . import mac
 def sentences(text: str) -> list[str]:
     parts = re.split(r"(?<=[.!?。…])\s+", text.strip())
     return [p.strip() for p in parts if p.strip()]
+
+
+def shift_pitch(wav, semitones: float):
+    """반음만큼 음을 올리고(+) 내림(-). 길이도 1/p 로 바뀌므로 합성할 때 speed 를 p 로 나눠 두면 빠르기는 그대로."""
+    import numpy as np
+    if not semitones:
+        return wav
+    p = 2 ** (semitones / 12)
+    n = max(1, int(len(wav) / p))
+    return np.interp(np.arange(n) * p, np.arange(len(wav)), wav).astype(np.float32)
 
 
 def output_device(name: str):
@@ -34,10 +47,13 @@ class NeuralVoice(mac.Voice):
     """mac.Voice 와 같은 모양(say · busy · stop · last_text) — 데몬은 차이를 모릅니다."""
 
     def __init__(self, style: str = "F1", model: str = "supertonic-3", speed: float = 1.05, steps: int = 5,
-                 voice: str = "Yuna", rate: int = 190, tail_s: float = 0.5, device: str = ""):
-        super().__init__(voice, rate, tail_s, device)   # 모델이 뜨기 전 · 실패했을 때 쓸 say 목소리
-        self.style_name, self.model_name, self.speed, self.steps = style, model, speed, steps
-        self._tts = self._style = None
+                 voice: str = "Yuna", rate: int = 190, tail_s: float = 0.5, device: str = "",
+                 pitch: float = 0, volume: float = 1.0, use: str = "supertonic"):
+        super().__init__(voice, rate, tail_s, device, volume)   # 모델이 뜨기 전 · 실패했을 때 쓸 say 목소리
+        self.style_name, self.model_name, self.speed, self.steps, self.pitch = style, model, speed, steps, pitch
+        self.use = use                  # "say" 면 모델은 떠 있어도 say 로(설정 창에서 예비 음성을 고른 경우)
+        self._tts = None
+        self._styles: dict = {}
         self._gen = 0                   # 말 하나마다 +1 — stop() 도 올려서 하던 말을 멈추게
         self._speaking = False
         self.ready = threading.Event()
@@ -50,31 +66,52 @@ class NeuralVoice(mac.Voice):
             tts = TTS(model=self.model_name)
             style = tts.get_voice_style(self.style_name)
             tts.synthesize("준비", voice_style=style, lang="ko", total_steps=self.steps)   # 첫 합성만 느려서 미리
-            self._tts, self._style = tts, style
+            self._styles[self.style_name] = style
+            self._tts = tts
         except Exception as e:
             self.error = f"{type(e).__name__}: {e}"
             print(f"[말하기] Supertonic 을 못 써서 say 로 말합니다 — {self.error}", flush=True)
         self.ready.set()
 
+    def _style_of(self, name: str):
+        if name not in self._styles:
+            self._styles[name] = self._tts.get_voice_style(name)
+        return self._styles[name]
+
     @property
     def engine(self) -> str:
-        return f"Supertonic {self.style_name}" if self._tts is not None else f"say {self.voice}"
+        return f"Supertonic {self.style_name}" if self._tts is not None and self.use != "say" else f"say {self.voice}"
+
+    def configure(self, c: dict) -> None:
+        super().configure(c)
+        self.use = c.get("engine", self.use)
+        self.style_name = c.get("style", self.style_name)
+        self.speed = float(c.get("speed", self.speed))
+        self.pitch = float(c.get("pitch", self.pitch))
 
     def busy(self) -> bool:
         return self._speaking or super().busy()
 
-    def say(self, text: str, block: bool = False) -> None:
+    def say(self, text: str, block: bool = False, opts: dict | None = None) -> None:
+        """opts: 이번 말에만 쓸 설정(설정 창의 「들어 보기」) — engine · style · speed · pitch · volume · voice · rate."""
         text = (text or "").strip()
         if not text:
             return
-        if self._tts is None:
-            return super().say(text, block)
+        o = opts or {}
+        if self._tts is None or o.get("engine", self.use) == "say":
+            return super().say(text, block, opts)
+        try:
+            p = {"style": self._style_of(o.get("style", self.style_name)), "speed": float(o.get("speed", self.speed)),
+                 "pitch": float(o.get("pitch", self.pitch)), "volume": float(o.get("volume", self.volume))}
+        except Exception as e:
+            print(f"[말하기] 목소리 {o.get('style')} 를 못 씀: {e}", flush=True)
+            return super().say(text, block, opts)
         self.stop()
         self.last_text = text
         with self._lock:
             self._gen += 1
             gen, self._speaking = self._gen, True
-        t = threading.Thread(target=self._speak, args=(text, gen), daemon=True)
+        t = threading.Thread(target=self._speak, args=(text, gen, p), daemon=True)
         t.start()
         if block:
             t.join()
@@ -85,24 +122,26 @@ class NeuralVoice(mac.Voice):
             self._speaking = False
         super().stop()
 
-    def _speak(self, text: str, gen: int) -> None:
+    def _speak(self, text: str, gen: int, p: dict) -> None:
         import numpy as np
         import sounddevice as sd
         alive = lambda: self._gen == gen   # noqa: E731
         sr = self._tts.sample_rate
         parts: queue.Queue = queue.Queue()
+        stretch = 2 ** (p["pitch"] / 12)            # 음을 올릴 만큼 느리게 만들어 두고 shift_pitch 가 도로 줄임
 
         def make() -> None:
             for s in sentences(text):
                 if not alive():
                     break
                 try:
-                    wav, _ = self._tts.synthesize(s, voice_style=self._style, lang="ko",
-                                                  total_steps=self.steps, speed=self.speed)
+                    wav, _ = self._tts.synthesize(s, voice_style=p["style"], lang="ko",
+                                                  total_steps=self.steps, speed=p["speed"] / stretch)
                 except Exception as e:
                     print(f"[말하기] 합성 실패: {e}", flush=True)
                     break
-                parts.put(np.asarray(wav, dtype=np.float32).reshape(-1))
+                wav = shift_pitch(np.asarray(wav, dtype=np.float32).reshape(-1), p["pitch"])
+                parts.put(np.clip(wav * p["volume"], -1, 1).astype(np.float32))
             parts.put(None)
 
         threading.Thread(target=make, daemon=True).start()

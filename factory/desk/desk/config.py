@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import copy
+import json
 import os
+import re
 import tomllib
 
 DEFAULTS: dict = {
@@ -23,7 +25,9 @@ DEFAULTS: dict = {
     "idle_minutes": 15,             # 이만큼 아무 말 없으면 화면 끄고 박수 대기로
     "tts": {"voice": "Yuna", "rate": 190, "device": "",   # device: 소리 낼 장치 이름(비우면 기본 출력)
             "engine": "say",                                # say · supertonic(신경망, desk/tts.py — 못 쓰면 say)
-            "style": "F1", "model": "supertonic-3", "speed": 1.05, "steps": 5},
+            "style": "F1", "model": "supertonic-3", "speed": 1.05, "steps": 5,
+            "pitch": 0,                                     # 반음(-6~6). Supertonic 에 없어 틀기 직전에 바꿈
+            "volume": 1.0},                                 # 이 목소리만의 크기(0~1.5, say 는 1 까지) — 시스템 음량과 별개
     "brain": {"workdir": "~/lab/desk-assistant", "model": "", "timeout_s": 180},
     "briefing": {"city": "Seoul", "repo": "", "ship_repo": ""},   # repo = 주인/app-factory
     "dashboard": {"port": 7070, "open_cmd": ""},
@@ -60,3 +64,48 @@ def load(path: str = PATH) -> dict:
         with open(path, "rb") as f:
             return _merge(DEFAULTS, tomllib.load(f))
     return copy.deepcopy(DEFAULTS)
+
+
+def _toml(v) -> str:
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return repr(round(v, 3)) if isinstance(v, float) else str(v)
+    return json.dumps(str(v), ensure_ascii=False)       # 보통 글자는 TOML 기본 문자열과 같음
+
+
+_KEY = re.compile(r'^(\s*)([A-Za-z_][\w-]*)(\s*=\s*)("(?:[^"\\]|\\.)*"|[^#]*?)(\s*#.*)?$')
+
+
+def save_table(table: str, values: dict, path: str | None = None) -> None:
+    """[table] 의 값만 고쳐 씁니다 — 다른 줄 · 주석은 그대로(설정 창 저장). 없는 키는 표 끝에, 없는 표는 파일 끝에."""
+    path = path or PATH
+    lines = []
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    start = next((i for i, ln in enumerate(lines) if re.match(rf"^\s*\[{re.escape(table)}\]\s*(#.*)?$", ln)), None)
+    if start is None:
+        lines += ([""] if lines and lines[-1].strip() else []) + [f"[{table}]"]
+        start = len(lines) - 1
+    end = next((i for i in range(start + 1, len(lines)) if re.match(r"^\s*\[", lines[i])), len(lines))
+    left = dict(values)
+    for i in range(start + 1, end):
+        m = _KEY.match(lines[i])
+        if m and m.group(2) in left:
+            new = f"{m.group(1)}{m.group(2)}{m.group(3)}{_toml(left.pop(m.group(2)))}"
+            if m.group(5):                                # 주석은 원래 자리(열)에 맞춰 남김
+                col = len(lines[i]) - len(m.group(5).lstrip())
+                new = new + " " * max(1, col - len(new)) + m.group(5).lstrip()
+            lines[i] = new
+    ins = end
+    while ins > start + 1 and not lines[ins - 1].strip():
+        ins -= 1
+    lines[ins:ins] = [f"{k} = {_toml(v)}" for k, v in left.items()]
+    out = "\n".join(lines) + "\n"
+    tomllib.loads(out)                                    # 깨진 파일은 쓰지 않음
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(out)
+    os.replace(tmp, path)

@@ -22,7 +22,7 @@ import time
 
 import numpy as np
 
-from . import briefing, config, mac
+from . import briefing, config, mac, voice_settings
 from .face import Gate
 from .brain import Brain
 from .clap import ClapConfig, ClapDetector
@@ -199,6 +199,39 @@ class Desk:
         self.board.log("stop", "Claude 작업 취소" if cancelled else "")
         return "ok"
 
+    # ── 목소리 설정 창 (상태판) ───────────────────────────────────────────
+    def tts_view(self, _: str = "") -> str:
+        return json.dumps(voice_settings.view(self.cfg["tts"], getattr(self.voice, "engine", "say")), ensure_ascii=False)
+
+    def _tts_clean(self, body: str) -> dict:
+        return voice_settings.clean(json.loads(body or "{}"), mac.korean_voices() + [self.cfg["tts"].get("voice", "")])
+
+    def _neural(self, wait_s: float = 20) -> bool:
+        """Supertonic 을 쓸 수 있게 — say 로 켜져 있었으면 그때 모델을 띄웁니다(처음이면 내려받기라 오래 걸릴 수 있음)."""
+        if not hasattr(self.voice, "ready"):
+            old, self.voice = self.voice, mac.make_voice(self.cfg["tts"], neural=True)
+            old.stop()
+        return self.voice.ready.wait(wait_s) and self.voice._tts is not None
+
+    def tts_test(self, body: str) -> str:
+        """「들어 보기」 — 저장하지 않고 이번 한 번만 그 설정으로."""
+        c = self._tts_clean(body)
+        if c["engine"] == "supertonic" and not self._neural():
+            return "Supertonic 을 아직 못 써요 — " + (getattr(self.voice, "error", "") or "모델을 불러오는 중이에요. 잠시 뒤 다시.")
+        self.voice.say(voice_settings.SAMPLE, opts=c)
+        return "ok"
+
+    def tts_save(self, body: str) -> str:
+        """[tts] 에 기록하고 바로 적용 — deskd 를 다시 켜지 않아도 다음 말부터 이 목소리."""
+        c = self._tts_clean(body)
+        config.save_table("tts", c)
+        self.cfg["tts"].update(c)
+        if c["engine"] == "supertonic" and not hasattr(self.voice, "ready"):
+            self._neural(0)                          # 모델이 뜨는 동안은 알아서 say 로 말함
+        self.voice.configure(c)
+        self.board.log("voice", " · ".join(f"{k} {v}" for k, v in c.items()))
+        return "저장했어요 — " + getattr(self.voice, "engine", "say")
+
     def show(self, text: str) -> str:
         """Claude 가 긴 내용을 화면에 (deskctl show)"""
         self.board.set(panel=text[:20000], panel_at=int(time.time() * 1000))   # 같은 글을 다시 띄워도 다시 보이게
@@ -335,7 +368,8 @@ class Desk:
         serve(self.board, {"wake": self.wake, "sleep": self.sleep, "brief": self.say_brief, "mute": self.mute,
                            "unmute": self.unmute, "stop": self.stop,
                            "say": lambda t: (self.voice.say(t), "ok")[1], "show": self.show,
-                           "enroll": self.enroll, "face": self.face_test},
+                           "enroll": self.enroll, "face": self.face_test,
+                           "tts": self.tts_view, "tts_test": self.tts_test, "tts_save": self.tts_save},
               port=self.cfg["dashboard"]["port"])
         watch_agents(self.board)
         threading.Thread(target=self._stt_worker, daemon=True).start()

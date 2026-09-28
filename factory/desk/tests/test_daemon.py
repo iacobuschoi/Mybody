@@ -24,9 +24,13 @@ class FakeVoice:
     def busy(self):
         return False
 
-    def say(self, text, block=False):
+    def say(self, text, block=False, opts=None):
         self.said.append(text)
         self.last_text = text
+        self.opts = opts
+
+    def configure(self, c):
+        self.configured = c
 
     def stop(self):
         CALLS.append("voice.stop")
