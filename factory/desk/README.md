@@ -101,6 +101,8 @@ cd ~/lab/desk && .venv/bin/python -m desk calibrate   # 박수를 쳐 보고 ★
   (`desk/stt.py`). 새로 보이는 환각 문구는 거기 추가.
 - **macOS 음성 제어는 끄세요.** 둘이 같은 마이크로 동시에 들으면 한 말이 두 번 실행됩니다.
 - 비서는 공장 훅(`guard.js`)을 그대로 씁니다 — 말로 시켜도 스토어 제출 · 승인 · 열쇠 · 결제는 못 합니다.
+- 비서 권한(`~/lab/desk-assistant/.claude/settings.json`)은 다시 설치해도 **덮어쓰지 않고 합칩니다** — 고친 규칙은
+  그대로, 공장 기본값에서 새로 생기거나 빠진 것만 반영, 훅 등록이 빠졌으면 다시 넣음(`desk/settings_merge.py`).
 
 ## 구조
 
@@ -116,10 +118,13 @@ desk/dashboard.py  상태판(127.0.0.1:7070) · deskctl 이 부르는 /api
 desk/daemon.py     상태 기계 — 자는 중 · 듣는 중 · 조용히 · 마이크가 0 만 주면(권한 없음) 알리고 다시 열기
 launcher/deskd.c   마이크 권한을 받는 작은 실행 파일(Info.plist 내장) — launchd → deskd → 파이썬
 assistant/CLAUDE.md  비서의 규칙: 한두 문장 · 나한테 한 말 아니면 <IGNORE> · 긴 일은 백그라운드 세션으로
+desk/settings_merge.py  설치 때 비서 권한 파일을 덮어쓰지 않고 합치기
 ```
 
-시험: `python -m unittest discover -s tests -t .` — 박수 · 명령 · 받아쓰기 거르기 · 브리핑 · 전체 흐름(가짜 마이크/화면/Claude) · 마이크 막힘 32개.
-실제 마이크 · 스피커 · 모니터로는 **아직 돌려 보지 않았습니다** — calibrate 와 selftest 가 첫 확인입니다.
+시험: `python -m unittest discover -s tests -t .` — 박수 · 명령 · 받아쓰기 거르기 · 브리핑 · 전체 흐름(가짜 마이크/화면/Claude) · 마이크 막힘 ·
+설정 합치기 40개.
+첫날(2026-09-28) 실제로 돌려 봄 — 맥 미니 M1 · Brio 100(침대 2.5m) · TV: 박수 깨우기 3/3, 침대 명령 5가지 모두,
+말 끝 → 받아쓰기 2.1초. 이때 찾은 것(Brio 의 직류 · 58Hz 험 → 대역으로 재기 등)은 `desk/vad.py` · `desk/clap.py` 머리말.
 
 ## 다음 단계
 

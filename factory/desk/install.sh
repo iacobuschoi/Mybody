@@ -67,8 +67,9 @@ mkdir -p "$ASSIST/.claude/hooks"
 GUARD="$HERE/../seed/.claude/hooks/guard.js"
 if [ -f "$GUARD" ]; then
   cp "$GUARD" "$ASSIST/.claude/hooks/guard.js"
-  cp "$HERE/../seed/.claude/settings.json" "$ASSIST/.claude/settings.json"
-  echo "  공장 훅(guard.js) · 권한 규칙 적용"
+  # 권한 규칙은 덮어쓰지 않고 합침 — 사람이(말로) 고친 settings.json 을 다시 설치해도 지우지 않게
+  SET=$(cd "$DESK" && "$VENV/bin/python" -m desk.settings_merge "$HERE/../seed/.claude/settings.json" "$ASSIST/.claude/settings.json")
+  echo "  공장 훅(guard.js) 적용 · 권한 규칙: $SET"
 fi
 [ -d "$ASSIST/.git" ] || git -C "$ASSIST" init -q
 
