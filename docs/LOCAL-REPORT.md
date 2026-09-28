@@ -763,3 +763,13 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
   최신판 play 0.2.19 · testflight 0.2.19 · apk 0.2.8 · appstore "". 서버 재시작 없음(부를 때마다 새로 읽음). 앱은 6시간에 한 번까지만 물어서 폰에는 몇 시간 걸릴 수 있음.
 - **4. 주인 폰**: 웹 참여 주소 `https://play.google.com/apps/testing/io.github.iacobuschoi.mybody` 에서 「테스터 되기」 한 번 — 노트북에서는 누르지 않음.
 - 그룹 초대 메일 안 보냄. App Store · friends 심사 안 건드림.
+
+---
+
+# 37 끝 (2026-09-28 12:01 KST) — TestFlight 칸 0.2.17 로 되돌림 · 플레이 0.2.19 그대로
+
+- **1. 12:01** `node tools/app-version.js --testflight=0.2.17` → 「TestFlight 최신판 0.2.17 ← 바꿈」 · 「서버(8080 포트)가 이 값을 내보내는 것을 확인했습니다」.
+  바깥 `/api/version` 의 latest 네 칸: **appstore "" · testflight 0.2.17 · play 0.2.19 · apk 0.2.8**. min "" · testing true · 참여 링크 셋(ios · android · androidGroup) 그대로.
+- **2. 앞으로**: `--testflight=X` 는 friends 베타 심사 승인 뒤에만(내부 「available to test」 로는 안 올림), `--play=X` 는 비공개(나중엔 프로덕션) 트랙 게시 뒤에만
+  (내부 테스트 게시로는 안 올림). 0.2.19 의 TestFlight 칸은 클라우드가 friends 승인을 알려 줄 때 올립니다.
+- **3.** 이미 안내가 뜬 폰은 앱이 다시 물을 때까지 남을 수 있음 — 할 일 없음.
