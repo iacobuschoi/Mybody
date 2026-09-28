@@ -381,7 +381,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
       if (s['photoId'] == null) {
         if (oldPhoto != null) s['photoId'] = oldPhoto;
       } else if (oldPhoto != null && oldPhoto != s['photoId'] &&
-          !before.any((x) => x['id'] != same['id'] && x['photoId'] == oldPhoto)) {
+          !before.any((x) => x['id'] != same['id'] && x['photoId'] == oldPhoto) &&
+          /* 치워 둔 다른 기록 칸(계정 · 로그인 없이 쓴 것)이 가리키는 사진도 남깁니다 — 사진 파일은
+             모든 칸이 같이 씁니다(local_owner.dart). */
+          !app.store.photoInUse(oldPhoto, exceptScanId: same['id'])) {
         try {
           app.photos?.remove('$oldPhoto');
         } catch (_) {}

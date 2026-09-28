@@ -23,6 +23,8 @@ import 'package:mybody/src/sync_queue.dart';
 import 'package:mybody/src/theme.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'fake_accounts.dart' show FakeAccounts, Rig, recordsOfA;
+
 const _profile = {
   'sex': 'male', 'age': 22, 'heightCm': 187, 'activityLevel': 'moderate',
   'trainingAge': 'novice', 'daysPerWeek': 4, 'mealsPerDay': 3,
@@ -190,12 +192,11 @@ void main() {
     await settle();
     expect(server.scanIds, ['s1']);
 
-    /* 두 번째 기기 — 자기 측정(s2)이 있고, 로그인합니다. 예전에는 이 기기가
-       더 새로워서 s1 이 서버에서 사라졌습니다. */
-    final (b, _, apiB) = await device(signedIn: false, fresh: true);
+    /* 두 번째 기기 — 같은 계정으로 로그인해 자기 측정(s2)을 넣습니다(아직 한 번도 못
+       맞춘 채). 예전에는 이 기기가 더 새로워서 s1 이 서버에서 사라졌습니다. */
+    final (b, _, _) = await device(fresh: true);
     b.store.set({'profile': _profile, 'onboarded': true});
     b.store.addScan({..._scan2});
-    await apiB.setToken('tok');
     await settle();
     expect(ids(b), ['s1', 's2'], reason: '서버 것을 받아 합칩니다');
     expect(server.scanIds, containsAll(['s1', 's2']), reason: '합친 것을 올립니다');
@@ -207,34 +208,55 @@ void main() {
     expect(await ca.pull(), 'same');
   });
 
-  test('로그인 없이 쓰던 기기가 로그인하면 — 기기 것과 계정 것이 합쳐진다, 둘 다 안 잃는다', () async {
-    /* 계정에는 다른 기기의 측정과 목표가 있습니다. */
-    final (a, ca, _) = await device();
-    a.store.set({'profile': _profile, 'onboarded': true, 'goal': _goal});
-    a.store.addScan({..._scan});
+  /* 로그인 없이 쓰던 기록은 로그인하는 문에서 「이 계정에 합칠까요?」 를 고른 때만 합칩니다
+     (피드백 52 · local_owner.dart). 합치면 예전처럼 둘 다 안 잃고, 안 합치면 아무것도 안 갑니다. */
+  test('로그인 없이 쓰던 기기가 로그인하며 [합치기] — 기기 것과 계정 것이 합쳐진다, 둘 다 안 잃는다', () async {
+    final accounts = FakeAccounts();
+    final a = accounts.add('a')
+      ..state = {'version': 1, 'profile': _profile, 'onboarded': true, 'goal': _goal, 'scans': [{..._scan}]}
+      ..at = '2026-09-01T00:00:00.000Z';
+    final g = await Rig.boot(accounts, prefs: {'mybody.owner.v1': '{}'});
+    addTearDown(g.dispose);
+    g.app.store.set({'profile': {..._profile, 'heightCm': 170}, 'onboarded': true, 'guest': true});
+    g.app.store.addScan({..._scan2});
+    await settle();
+    expect(accounts.calls.where((c) => c.contains('/sync/')), isEmpty, reason: '로그인 전에는 서버에 가지 않습니다');
+
+    await g.api.signIn(handle: 'a', password: 'pw', askMerge: (_) async => true);
+    await settle();
+    expect(g.scanIds, ['s1', 's2']);
+    expect(g.app.state['goal'], isNotNull, reason: '계정의 목표를 잃으면 안 됩니다');
+    expect(g.app.profile?['heightCm'], 170, reason: '더 나중에 넣은 프로필');
+    expect(a.scanIds, containsAll(['s1', 's2']));
+    expect(a.state!['goal'], isNotNull);
+  });
+
+  test('로그인 없이 쓰던 기기가 로그인하며 [합치지 않기] — 계정 것만 받고, 기기 것은 안 올라간다', () async {
+    final accounts = FakeAccounts();
+    final a = accounts.add('a')
+      ..state = {'version': 1, 'profile': _profile, 'onboarded': true, 'goal': _goal, 'scans': [{..._scan}]}
+      ..at = '2026-09-01T00:00:00.000Z';
+    final g = await Rig.boot(accounts, prefs: {'mybody.owner.v1': '{}'});
+    addTearDown(g.dispose);
+    g.app.store.set({'profile': {..._profile, 'heightCm': 170}, 'onboarded': true, 'guest': true});
+    g.app.store.addScan({..._scan2});
     await settle();
 
-    /* 로그인 없이 쓰던 기기 — 온보딩을 마쳤고(키가 다름) 측정이 하나 있습니다.
-       예전에는 이 기기의 시각이 더 새로워서 계정 것을 통째로 덮었습니다. */
-    final (g, _, apiG) = await device(signedIn: false, fresh: true);
-    final before = server.requests;
-    g.store.set({'profile': {..._profile, 'heightCm': 170}, 'onboarded': true, 'guest': true});
+    await g.api.signIn(handle: 'a', password: 'pw', askMerge: (_) async => false);
+    await settle();
+    expect(g.scanIds, ['s1']);
+    expect(g.app.profile?['heightCm'], 187);
+    expect(a.scanIds, ['s1'], reason: '고르지 않은 기록은 계정으로 안 갑니다');
+  });
+
+  test('로그인 문을 거치지 않고 토큰만 생겨도 — 주인 없는 기록은 안 올라간다(owner)', () async {
+    final (g, cloud, api) = await device(signedIn: false, fresh: true);
+    g.store.set({'profile': _profile, 'onboarded': true});
     g.store.addScan({..._scan2});
+    await api.setToken('tok');
     await settle();
-    expect(server.requests, before, reason: '로그인 전에는 서버에 가지 않습니다');
-
-    await apiG.setToken('tok');
-    await settle();
-    expect(ids(g), ['s1', 's2']);
-    expect(g.state['goal'], isNotNull, reason: '계정의 목표를 잃으면 안 됩니다');
-    expect(g.profile?['heightCm'], 170, reason: '더 나중에 넣은 프로필');
-    expect(server.scanIds, containsAll(['s1', 's2']));
-    expect(server.state!['goal'], isNotNull);
-
-    /* 계정 쪽 기기도 받아 보면 같아집니다. */
-    await ca.pull();
-    expect(ids(a), ['s1', 's2']);
-    expect(a.profile?['heightCm'], 170);
+    expect(server.pushed, isEmpty);
+    expect(cloud.lastResult, 'owner');
   });
 
   test('동기화를 끄면 올리지도 받지도 않는다 — 켜면 바로 맞춘다', () async {
@@ -385,27 +407,49 @@ void main() {
     expect(await cloud.pull(), 'same');
   });
 
-  test('로그아웃하면 기준본을 버린다 — 다른 계정으로 들어와도 이 기기 기록이 지워지지 않는다', () async {
-    final (a, cloud, api) = await device();
-    a.store.set({'profile': _profile, 'onboarded': true});
-    a.store.addScan({..._scan});
-    await settle();
+  /* 예전 이 자리의 시험은 "로그아웃 → 다른 계정(tok2)으로 들어오면 이 기기 것(s1)과 그 계정 것(s2)이
+     합쳐지고 서버에도 둘 다 올라간다" 를 기대값으로 굳혀 두었습니다 — 그게 피드백 52 의 새는 길이었습니다.
+     이제는 뒤집어서: 다른 계정에는 그 계정 것만, A 로 돌아오면 A 의 것(로그아웃 전에 못 보낸 것까지). */
+  test('로그아웃하면 이 계정의 칸을 치운다 — 다른 계정에는 그 계정 것만, A 로 돌아오면 A 의 것 그대로', () async {
+    final accounts = FakeAccounts();
+    final a = accounts.add('a');
+    final b = accounts.add('b')
+      ..state = {'version': 1, 'profile': _profile, 'onboarded': true, 'scans': [{..._scan2}]}
+      ..at = '2026-09-01T00:00:00.000Z';
+    final r = await Rig.boot(accounts, prefs: {
+      'mybody.state.v1': jsonEncode({'version': 1, ...recordsOfA(scanId: 's1')}),
+      'mybody.owner.v1': jsonEncode({'server': 'https://x.test', 'uid': 'u_a'}),
+    }, signedInAs: 'a');
+    addTearDown(r.dispose);
+    expect(await r.cloud.syncNow(), 'pushed');
     final sp = await SharedPreferences.getInstance();
     expect(sp.getString('mybody.cloud.base.v1'), isNotNull);
 
-    await api.signOut();
+    /* 로그아웃 직전, 아직 못 보낸 변경 — 오프라인이라 큐에 남습니다. */
+    accounts.failWrites = true;
+    r.app.store.addScan({'id': 's3', 'weightKg': 86.0, 'smmKg': 38.1, 'bfmKg': 19.6,
+        'measuredAt': '2026-09-27T00:00:00.000Z'});
     await settle();
-    expect(sp.getString('mybody.cloud.base.v1'), isNull);
-    expect(cloud.lastSyncedAt, isNull);
+    accounts.down = true;
+    await r.api.signOut();
+    accounts
+      ..down = false
+      ..failWrites = false;
+    expect(sp.getString('mybody.cloud.base.v1'), isNull, reason: 'A 의 기준본은 A 칸으로');
+    expect(sp.getString('mybody.cloud.localChangedAt.v1'), isNull, reason: 'A 의 시각이 다음 계정의 값을 이기지 않게');
+    expect(r.cloud.lastSyncedAt, isNull);
 
-    /* 다른 계정(서버에 다른 기록) — 이 기기 것(s1)과 그 계정 것(s2)이 합쳐집니다.
-       기준본이 남아 있었다면 s2 는 "이 기기가 지운 것" 으로 읽혔을 것입니다. */
-    server.state = {...server.state!, 'scans': [{..._scan2}]};
-    server.at = CloudSync.isoMs(DateTime.now().add(const Duration(minutes: 1)));
-    await api.setToken('tok2');
+    await r.api.signIn(handle: 'b', password: 'pw');
     await settle();
-    expect(ids(a), ['s1', 's2']);
-    expect(server.scanIds, containsAll(['s1', 's2']));
+    expect(r.scanIds, ['s2'], reason: '이 기기에 s1 이 보이면 안 됩니다');
+    expect(b.scanIds, ['s2'], reason: 'B 서버에 A 의 측정이 올라가면 안 됩니다');
+
+    await r.api.signOut();
+    await r.api.signIn(handle: 'a', password: 'pw');
+    await settle();
+    expect(r.scanIds, ['s1', 's3'], reason: 'A 칸이 로그아웃 전에 못 보낸 변경까지 돌아옵니다');
+    expect(a.scanIds, containsAll(['s1', 's3']));
+    expect(a.scanIds, isNot(contains('s2')));
   });
 
   /* --- 화면 ---------------------------------------------------------------- */
@@ -421,9 +465,10 @@ void main() {
     final api = Api(baseUrl: 'https://x.test', client: server.client());
     await api.setToken('tok');
     final app = await AppState.boot();
+    /* 로그인한 채 빈 칸에서 쓰기 시작한 기록 — 이 계정의 칸입니다(동기화가 켤 때 적습니다). */
+    final cloud = CloudSync(app: app, api: api, queue: null, debounce: const Duration(days: 1))..wire();
     app.store.set({'profile': _profile, 'onboarded': true});
     app.store.addScan({..._scan});
-    final cloud = CloudSync(app: app, api: api, queue: null, debounce: const Duration(days: 1))..wire();
     final clock = DateTime(2026, 9, 24, 9);
     await t.pumpWidget(host(app, api,
         Scaffold(body: SyncSettingsCard(cloud: cloud, api: api, now: () => clock))));

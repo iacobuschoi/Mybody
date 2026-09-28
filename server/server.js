@@ -444,7 +444,9 @@ const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; cha
 function send(res, status, body, headers = {}) {
   const h = Object.assign({
     'Access-Control-Allow-Origin': ORIGIN,
-    'Access-Control-Allow-Headers': 'content-type, authorization',
+    /* x-mybody-app — 앱이 모든 요청에 싣는 판 표시(주인 표시를 아는 판인가). 웹 빌드가 다른
+       주소에서 부를 때 미리 묻기(OPTIONS)에 걸리지 않게. 지금은 적어 두기만 합니다. */
+    'Access-Control-Allow-Headers': 'content-type, authorization, x-mybody-app',
     'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
     'Cache-Control': 'no-store',
     'X-Content-Type-Options': 'nosniff'
@@ -1240,7 +1242,7 @@ async function handleApi(req, res, url) {
       const name = (who && who.displayName) || '친구';
       const pokeId = r.id;
       pushToUser(String(b.userId), {
-        t: name + '님이 운동하라고 콕 찔렀어요', b: '오늘 운동 어때요? 💪', u: '/#P15',
+        t: name + '님이 운동하라고 콕 찔렀어요', b: '오늘 운동 어때요?', u: '/#P15',
         route: 'pokes', kind: 'poke', appTag: 'poke-' + pokeId, data: { pokeId: String(pokeId) },
         onDelivered: () => api.markPokePushed(pokeId)
       }).catch(() => {});
@@ -1260,7 +1262,9 @@ async function handleApi(req, res, url) {
        실패는 fanout 안에서 처리하고 여기서는 응답을 막지 않습니다. */
     if (snap.ok && snap.grew) fanoutPush(me, snap).catch(() => {});
     // 거절을 200 으로 보내면 클라이언트가 성공으로 읽고 큐에서 지웁니다.
-    return send(res, snap.ok ? 200 : 400, snap);
+    // 다른 계정의 요약(payload.owner ≠ 나)은 409 — db.js publishSnapshot.
+    if (snap.conflict) ownerConflict(req, 'snapshots');
+    return send(res, snap.ok ? 200 : (snap.conflict ? 409 : 400), snap);
   }
 
   /* --- 폰 알림 ---------------------------------------------------------
@@ -1324,8 +1328,9 @@ async function handleApi(req, res, url) {
     const b = await readBody(req);
     const r = api.push(me, b.records);
     // 거절이면 200 으로 보내면 안 됩니다 — 클라이언트가 성공으로 읽고
-    // 큐에서 지워 버립니다.
-    return send(res, r.ok ? 200 : 400, r);
+    // 큐에서 지워 버립니다. 다른 계정의 기록 사본(syncMeta.owner ≠ 나)은 409 — db.js push.
+    if (r.conflict) ownerConflict(req, 'sync/push');
+    return send(res, r.ok ? 200 : (r.conflict ? 409 : 400), r);
   }
   if (p === '/sync/pull' && method === 'GET') {
     return send(res, 200, api.pull(me, url.searchParams.get('since') || '',
@@ -2013,6 +2018,14 @@ const LOG = process.env.LOG !== '0';
  * 누구인지는 로그만으로 알 수 없습니다. */
 function maskPath(p2) {
   return p2.replace(/\/(user|snap|sess)_([0-9a-f]{4})[0-9a-f]*/g, '/$1_$2…');
+}
+
+/* 다른 계정의 기록을 거절한 것(409)은 한 줄 남깁니다 — 계정이 섞이려던 흔적이라 운영자가 봐야 합니다.
+   계정 id 는 안 적고, 앱 판(X-Mybody-App)만 적습니다. */
+function ownerConflict(req, where) {
+  if (!LOG) return;
+  console.log('  ⚠ 다른 계정의 기록을 거절했습니다 (' + where + ', 앱 ' +
+              String(req.headers['x-mybody-app'] || '판 표시 없음').slice(0, 20) + ')');
 }
 
 function logLine(req, status, ms) {

@@ -31,15 +31,28 @@ bool needsNudge(Map<String, dynamic>? snap) {
 
 class PokeBox extends ChangeNotifier {
   PokeBox(this._sp) {
-    try {
-      final s = _sp.getString(_key);
-      if (s != null) {
-        _items = (jsonDecode(s) as List).map((x) => (x as Map).cast<String, dynamic>()).toList();
-      }
-    } catch (_) {}
+    _read();
   }
   final SharedPreferences _sp;
   static const _key = 'mybody.pokes.v1';
+
+  void _read() {
+    try {
+      final s = _sp.getString(_key);
+      _items = s == null
+          ? []
+          : (jsonDecode(s) as List).map((x) => (x as Map).cast<String, dynamic>()).toList();
+    } catch (_) {
+      _items = [];
+    }
+  }
+
+  /// 계정 칸이 바뀐 뒤(local_owner.dart) — 독촉은 그 계정의 친구가 보낸 것이라 칸마다 따로입니다.
+  /// 앞 계정의 띠가 다음 계정의 친구 탭에 남지 않게 새 칸의 것을 다시 읽습니다.
+  void reload() {
+    _read();
+    notifyListeners();
+  }
   static const _max = 30;
 
   List<Map<String, dynamic>> _items = [];
@@ -57,8 +70,10 @@ class PokeBox extends ChangeNotifier {
   /// 서버에서 새 독촉을 가져옵니다. 돌려주는 것은 **이번에 새로 온 것**.
   Future<List<Map<String, dynamic>>> fetch(Api api) async {
     if (!api.signedIn) return const [];
+    final asked = api.token;
     final r = await api.pullPokes();
-    if (!r.ok) return const [];
+    /* 기다리는 사이 로그아웃 · 다른 계정 로그인이 있었으면 앞 계정의 독촉 — 새 칸에 넣지 않습니다. */
+    if (!r.ok || asked != api.token) return const [];
     final fresh = <Map<String, dynamic>>[];
     for (final p in ((r.body['pokes'] as List?) ?? const [])) {
       if (p is! Map) continue;
@@ -93,7 +108,9 @@ class PokeBox extends ChangeNotifier {
   }
 
   static String title(Map<String, dynamic> p) => '${p['name']}님이 운동하라고 콕 찔렀어요';
-  static String body(Map<String, dynamic> p) => '오늘 운동 어때요? 💪';
+  /* 이모지는 안 씁니다 — 친구 탭 띠에도 찍히는데 앱에 넣은 글꼴에 없어서 웹 빌드는 구글에서
+     받아 옵니다(ui/symbols.dart). 서버의 앱 알림(FCM) 본문과도 같아야 같은 칸을 덮어써도 그대로입니다. */
+  static String body(Map<String, dynamic> p) => '오늘 운동 어때요?';
 }
 
 /// 앱으로 돌아올 때(resume) 독촉을 다시 가져옵니다.

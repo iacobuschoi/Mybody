@@ -14,6 +14,7 @@ import 'package:mybody/src/sync_queue.dart';
 
 class MemQueue implements QueueStorage {
   String? _v;
+  String? get v => _v;
   @override String? read() => _v;
   @override void write(String raw) => _v = raw;
 }
@@ -139,5 +140,91 @@ void main() {
     SyncQueue(api: api, storage: store).add('accept', {'userId': 'f1'});
     // 앱이 다시 켜진 셈
     expect(SyncQueue(api: api, storage: store).pending, 1);
+  });
+
+  /* --- 누구의 일인가(피드백 52) ------------------------------------------------ */
+  group('작업마다 주인', () {
+    MockClient recorder(List<String> seen) => MockClient((req) async {
+          final path = req.url.path.replaceFirst('/api', '');
+          seen.add('${req.method} $path ${req.headers['Authorization'] ?? '-'}');
+          return http.Response.bytes(utf8.encode(jsonEncode({'ok': true})), 200,
+              headers: {'content-type': 'application/json; charset=utf-8'});
+        });
+
+    test('다른 로그인이 남긴 일은 보내지 않는다 — 그 계정으로 돌아오면 보낸다', () async {
+      SharedPreferences.setMockInitialValues({});
+      final seen = <String>[];
+      final store = MemQueue();
+      final api = Api(baseUrl: 'https://x.test', client: MockClient((_) async => throw Exception('망 끊김')));
+      await api.setToken('tokA', uid: 'u_a');
+      final q = SyncQueue(api: api, storage: store);
+      q.add('block', {'userId': 'f2'});
+      q.add('snapshot', {'weekStart': '2026-09-21', 'payload': {'n': 1}});
+      q.dispose();
+      expect((jsonDecode(store.v!) as List).map((j) => (j as Map)['owner']).toSet(), {'u_a'});
+
+      /* 오프라인 로그아웃 → 다른 계정 B — 같은 저장소를 읽는 큐(앱을 다시 켠 것과 같음). */
+      final apiB = Api(baseUrl: 'https://x.test', client: recorder(seen));
+      await apiB.setToken('tokB', uid: 'u_b');
+      final qb = SyncQueue(api: apiB, storage: store);
+      expect(qb.pending, 0, reason: 'B 에게는 보낼 일이 없습니다');
+      qb.add('accept', {'userId': 'f9'});   // B 자신의 일 — 이것이 부르는 flush 로도 A 것은 안 나감
+      await qb.flush();
+      expect(seen, ['POST /friends/accept Bearer tokB']);
+      expect(store.v, contains('f2'), reason: 'A 의 일은 버리지 않고 남깁니다');
+
+      /* A 로 돌아옴(새 토큰) — id 로 알아보고 보냅니다. */
+      seen.clear();
+      await apiB.setToken('tokA2', uid: 'u_a');
+      await qb.flush();
+      expect(seen, containsAll(['POST /friends/block Bearer tokA2', 'POST /snapshots Bearer tokA2']));
+      expect(qb.pending, 0);
+      qb.dispose();
+    });
+
+    test('칸으로 치우고 되돌리기 — takeFor 는 그 로그인의 일만, id 를 적어서', () async {
+      SharedPreferences.setMockInitialValues({});
+      final api = Api(baseUrl: 'https://x.test', client: MockClient((_) async => throw Exception('x')));
+      await api.setToken('tokA');   // id 를 아직 모름(0.2.19 에서 올라온 첫 실행)
+      final q = SyncQueue(api: api, storage: MemQueue());
+      q.add('block', {'userId': 'f2'});
+      final taken = q.takeFor(uid: 'u_a', sess: api.sessionTag);
+      expect(taken, hasLength(1));
+      expect(taken.single.owner, 'u_a', reason: '다시 로그인하면 토큰이 바뀌어 id 로만 알아봅니다');
+      expect(q.pending, 0);
+      q.putBack(taken);
+      await api.setToken('tokA2', uid: 'u_a');
+      expect(q.pending, 1);
+      q.clear();
+      q.dispose();
+    });
+
+    test('동기화를 끄면 치우는 dropOp · 0.2.19 의 주인 없는 옛 작업(adoptLegacy)', () async {
+      SharedPreferences.setMockInitialValues({});
+      final legacy = MemQueue()
+        ..write(jsonEncode([
+          {'op': 'syncState', 'args': {'updatedAt': 'x', 'payload': {}}, 'at': 1},
+          {'op': 'accept', 'args': {'userId': 'f1'}, 'at': 2},
+        ]));
+      final api = Api(baseUrl: 'https://x.test', client: MockClient((_) async => throw Exception('x')));
+      await api.setToken('tok', uid: 'u_a');
+      final q = SyncQueue(api: api, storage: legacy);
+      expect(q.pending, 0, reason: '주인 없는 옛 작업은 이관 전에는 안 보냅니다');
+      q.adoptLegacy(uid: 'u_a', sess: api.sessionTag);
+      expect(q.pending, 2);
+      q.dropOp('syncState');
+      expect(q.pendingOf('syncState'), 0);
+      expect(q.pendingOf('accept'), 1);
+      q.clear();
+
+      final q2 = SyncQueue(api: api, storage: MemQueue()..write(jsonEncode([
+        {'op': 'snapshot', 'args': {'weekStart': '2026-09-21', 'payload': {}}, 'at': 1},
+      ])));
+      q2.adoptLegacy();   // 주인을 모름(토큰 없이 기록만) — 버립니다
+      expect(q2.pending, 0);
+      expect(q2.storage.read(), '[]');
+      q.dispose();
+      q2.dispose();
+    });
   });
 }

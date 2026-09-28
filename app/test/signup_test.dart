@@ -12,9 +12,14 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:flutter/services.dart';
 import 'package:mybody/src/api.dart';
 import 'package:mybody/src/screens/account.dart';
+import 'package:mybody/src/screens/onboarding.dart';
+import 'package:mybody/src/shell.dart';
 import 'package:mybody/src/theme.dart';
+
+import 'fake_accounts.dart' show FakeAccounts, Rig;
 
 MockClient fake(Map<String, Object> routes, {List<String>? seen, Map<String, Object?>? sentTo}) {
   http.Response json(Object body, int status) => http.Response.bytes(
@@ -153,6 +158,22 @@ void main() {
     expect(done, isTrue);
   });
 
+  testWidgets('비밀번호를 되찾으면 새 복구 코드를 한 번 보여 준다', (t) async {
+    /* 서버는 복구에 쓴 코드를 버리고 새 코드를 줍니다(db.js recover) — 이것도 다시 못 꺼냅니다. */
+    await open(t, Api(baseUrl: 'https://x.test', client: fake({
+      '/health': {'ok': true},
+      '/auth/recover': {'ok': true, 'token': 'tok', 'recoveryCode': 'NEWC-5678'},
+    })));
+    await t.tap(find.text('비밀번호 잊음'));
+    await t.pumpAndSettle();
+    await t.enterText(find.widgetWithText(TextField, '아이디'), 'chulsoo');
+    await t.enterText(find.widgetWithText(TextField, '복구 코드'), 'ABCD-1234');
+    await t.enterText(find.widgetWithText(TextField, '새 비밀번호'), 'newpw12345');
+    await t.tap(find.widgetWithText(FilledButton, '비밀번호 바꾸기'));
+    await t.pumpAndSettle();
+    expect(find.text('NEWC-5678'), findsOneWidget);
+  });
+
   testWidgets('로그인은 그대로 된다', (t) async {
     var done = false;
     await open(t, Api(baseUrl: 'https://x.test', client: fake({
@@ -276,5 +297,35 @@ void main() {
     expect(find.textContaining('결과지 사진은 올라가지 않습니다'), findsOneWidget);
     expect(find.textContaining('가장 최근 측정'), findsNothing);
     expect(find.text('자세히 — 개인정보처리방침'), findsOneWidget);
+  });
+
+  /* 셸 첫 화면에서 가입하면 — 예전엔 토큰을 알리는 순간 셸이 이 화면을 내려서, 알린 뒤에 띄우던
+     한 번뿐인 복구 코드 창이 경쟁에 따라 안 떴습니다(위의 시험은 SignInScreen 만 세워서 못 봤음).
+     이제 창은 토큰을 알리기 전에 뜹니다(api.dart beforeToken). */
+  testWidgets('셸 첫 화면에서 가입해도 복구 코드 창이 실제로 뜬다 — 닫으면 온보딩', (t) async {
+    final m = t.binding.defaultBinaryMessenger;
+    m.setMockMethodCallHandler(SystemChannels.platform, (call) async => null);
+    addTearDown(() => m.setMockMethodCallHandler(SystemChannels.platform, null));
+    final server = FakeAccounts();
+    final r = await Rig.boot(server);
+    await t.pumpWidget(r.host(const Shell()));
+    await t.pumpAndSettle();
+    expect(find.byType(SignInScreen), findsOneWidget);
+    await t.tap(find.text('처음이에요'));
+    await t.pumpAndSettle();
+    await t.enterText(find.widgetWithText(TextField, '아이디'), 'chulsoo');
+    await t.enterText(find.widgetWithText(TextField, '비밀번호'), 'pw12345678');
+    await t.tap(find.text('동의합니다'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('계정 만들기'));
+    await t.pumpAndSettle();
+    expect(find.text('RC-chulsoo'), findsOneWidget);
+    expect(find.textContaining('다시 보여 드릴 수 없습니다'), findsOneWidget);
+    expect(r.api.signedIn, isFalse, reason: '창을 닫기 전에는 토큰을 알리지 않습니다');
+    await t.tap(find.text('복사하고 닫기'));
+    await t.pumpAndSettle();
+    expect(r.api.signedIn, isTrue);
+    expect(find.byType(OnboardingScreen), findsOneWidget);
+    r.dispose();
   });
 }

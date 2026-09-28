@@ -22,6 +22,7 @@ import 'package:mybody_core/news.dart';
 
 import 'estimate.dart';
 import 'estimate_upgrade.dart';
+import 'local_owner.dart';
 import 'news_store.dart';
 import 'photos.dart';
 import 'pokes.dart';
@@ -66,7 +67,11 @@ class PrefsStorage implements StateStorage {
 
 /// 앱 한 벌의 상태. 화면들은 이걸 듣습니다.
 class AppState extends ChangeNotifier {
-  AppState._(this.store, this.news, this.pokes) : schedule = Schedule(store) {
+  AppState._(this.store, this.news, this.pokes, this.owner) : schedule = Schedule(store) {
+    _blankSeen = isBlankState(store.get());
+    /* 듣는 쪽 가운데 맨 먼저 적습니다 — 같은 알림의 다른 쪽(동기화 등)은 이번 저장까지 넣은 답을
+       봅니다. 알리기 전(저장 안에서 주간 요약을 올릴 때)에는 그 전 저장의 답입니다([wasBlank]). */
+    store.onChange((st) => _blankSeen = isBlankState(st));
     store.onChange((_) => notifyListeners());
     /* 엔진이 modes 를 느슨하게 부르는 고리를 여기서 꽂습니다 —
        원본이 `global.MB_MODES` 가 있으면 쓰던 자리입니다. */
@@ -119,8 +124,14 @@ class AppState extends ChangeNotifier {
     store.newsReset = () => news?.reset();
 
     store.load();
+    /* 사진 파일은 계정마다의 기록 칸이 한 폴더를 같이 씁니다 — 치워 둔 칸이 가리키는 사진은 이 칸에서
+       측정을 지워도 남깁니다(local_owner.dart). */
+    if (sp != null) {
+      final prefs = sp;
+      store.photoKeptElsewhere = (id) => parkedPhotoIds(prefs).contains(id);
+    }
     final pokes = sp == null ? null : PokeBox(sp);
-    final app = AppState._(store, news, pokes);
+    final app = AppState._(store, news, pokes, OwnerBook(sp));
     /* 섞인 상태(실측 + 추정)로 저장된 채 앱이 꺼졌으면 켜자마자 한 번 정리합니다. */
     app._upgradeSoon();
 
@@ -156,6 +167,16 @@ class AppState extends ChangeNotifier {
 
   /// 친구가 보낸 운동 독촉. 저장소가 없으면 null 입니다.
   final PokeBox? pokes;
+
+  /// 이 기기의 기록(활성 칸)이 누구 것인지 — local_owner.dart.
+  final OwnerBook owner;
+
+  bool _blankSeen = true;
+
+  /// 마지막으로 알린 때(이번 저장 전) 기록 칸이 비어 있었나. 로그인한 채 빈 칸에 새로 쓰기 시작한
+  /// 것은 그 로그인의 기록입니다(local_owner.dart mayLeave) — 저장은 친구에게 올리는 것
+  /// (publishWeekly)을 알리기 전에 하므로, 여기는 그 저장 전의 답입니다.
+  bool get wasBlank => _blankSeen;
 
   final Store store;
   final Schedule schedule;

@@ -838,19 +838,19 @@ void main() {
     tall(t);
     assumeFar(core.modeById('fatLoss'));
     final app = await seeded();
+    /* 기간 길로 24주를 정해 둔 목표 — 돌아온 기간 판이 이 주수에서 열려야 합니다. */
+    app.store.setGoal({..._farGoal, 'deadlineWeeks': 24});
     await stacked(t, app, const GoalScreen());
 
     await t.enterText(find.widgetWithText(TextField, '목표 체중'), '78');
     await t.enterText(find.widgetWithText(TextField, '목표 골격근량'), '40');
     await t.pump();
     expect(find.text('세 숫자가 서로 안 맞습니다.'), findsNothing);
-    /* 마감 칩을 골라 둡니다 — 돌아온 기간 판이 이 주수에서 열려야 합니다. */
-    await t.tap(find.widgetWithText(ChoiceChip, '24주'));
-    await t.pump();
     await t.tap(find.text('기간 계산하기'));
     await t.pumpAndSettle();
     expect(find.byType(IntensityScreen), findsOneWidget);
-    expect(t.widget<IntensityScreen>(find.byType(IntensityScreen)).goal['deadlineWeeks'], 24);
+    expect(t.widget<IntensityScreen>(find.byType(IntensityScreen)).goal.containsKey('deadlineWeeks'),
+        isFalse, reason: '체성분 길에는 마감 칸이 없으니 저장된 주수를 강도 계산에 넘기지 않습니다');
 
     await t.tap(find.text('이 계획으로 시작하기'));
     await t.pumpAndSettle();
@@ -864,7 +864,7 @@ void main() {
     expect(find.byType(DurationPanel), findsOneWidget, reason: '기간 모드로 바뀌어 있어야 합니다');
     expect(t.widget<DurationPanel>(find.byType(DurationPanel)).initialWeeks, 24);
     expect(t.widget<Text>(find.byKey(const Key('duration-weeks'))).data, '24주',
-        reason: '고른 마감 칩에서 엽니다');
+        reason: '저장된 목표의 주수에서 엽니다');
     expect(find.widgetWithText(TextField, '목표 체중'), findsNothing);
     expect(app.state['plan'], isNull);
     expect(find.byType(ErrorWidget), findsNothing);
@@ -886,7 +886,30 @@ void main() {
     expect(t.takeException(), isNull);
   });
 
-  testWidgets('목표 — 마감 칩 없이 기간으로 바꾸면 12주에서 연다', (t) async {
+  /* 기간 길로 40주를 정해 뒀던 사람이 체성분 길 → 여섯 달 물음 → 「기간으로 정하기」 로
+     오면, 방금 "장기 목표는 동기를 잃기 쉬워요" 를 본 참이라 40주가 아니라 여섯 달에서. */
+  testWidgets('목표 → 강도 → 「기간으로 정하기」 — 저장된 주수가 여섯 달을 넘으면 여섯 달에서 연다', (t) async {
+    tall(t);
+    assumeFar(core.modeById('fatLoss'));
+    final app = await seeded();
+    app.store.setGoal({..._farGoal, 'deadlineWeeks': 40});
+    await stacked(t, app, const GoalScreen());
+    await t.enterText(find.widgetWithText(TextField, '목표 체중'), '78');
+    await t.enterText(find.widgetWithText(TextField, '목표 골격근량'), '40');
+    await t.pump();
+    await t.tap(find.text('기간 계산하기'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('이 계획으로 시작하기'));
+    await t.pumpAndSettle();
+    await t.tap(find.descendant(
+        of: find.byType(AlertDialog), matching: find.text('기간으로 정하기')));
+    await t.pumpAndSettle();
+    expect(t.widget<DurationPanel>(find.byType(DurationPanel)).initialWeeks, kLongGoalWeeks);
+    expect(t.widget<Text>(find.byKey(const Key('duration-weeks'))).data, '$kLongGoalWeeks주');
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('목표 — 저장된 목표가 없으면 기간 판은 12주에서 연다', (t) async {
     tall(t);
     final app = await seeded();
     await t.pumpWidget(host(app, const GoalScreen()));
@@ -895,6 +918,38 @@ void main() {
     await t.pumpAndSettle();
     expect(t.widget<DurationPanel>(find.byType(DurationPanel)).initialWeeks, kDurationDefault);
     expect(t.widget<Text>(find.byKey(const Key('duration-weeks'))).data, '12주');
+  });
+
+  /* 「마감 (선택)」 카드는 없습니다 — 주는 다음 강도 화면에서 고릅니다. 기간 길로 정한
+     목표의 주수는 기간 판 기본값으로만 이어 가고, 모드는 그 주수 없이 고릅니다.
+     이 목표(지방 −5 · 근육 +1.5)는 마감이 없으면 리컴프, 8주 마감이면 감량이라서
+     주수가 새면 모드가 몰래 바뀝니다 — 그 전제를 먼저 확인합니다. */
+  testWidgets('목표 — 마감 카드가 없고, 저장된 주수는 기간 판 기본값으로만 간다', (t) async {
+    tall(t);
+    const recompGoal = {'weightKg': 84.3, 'smmKg': 39.5, 'bfmKg': 15.0};
+    final app = await seeded();
+    final cur = core.derive({..._scan}, _profile);
+    Object? modeAt(Object? dl) =>
+        selectGoalMode(scans: app.store.sortedScans(), cur: cur, goal: recompGoal,
+            profile: _profile, deadlineWeeks: dl)['modeId'];
+    expect(modeAt(null), 'recomp', reason: '이 시험의 전제');
+    expect(modeAt(8), 'fatLoss', reason: '이 시험의 전제 — 8주 마감이면 모드가 바뀝니다');
+
+    app.store.setGoal({...recompGoal, 'deadlineWeeks': 8});
+    await t.pumpWidget(host(app, const GoalScreen()));
+    await t.pump(const Duration(milliseconds: 200));
+
+    expect(find.text('목표 변경'), findsOneWidget);
+    expect(find.text('마감 (선택)'), findsNothing);
+    expect(find.byType(ChoiceChip), findsNothing);
+    expect(find.textContaining('모드 — ${core.modeById('recomp')!['nameKo']}'), findsOneWidget,
+        reason: '화면에 없는 주수가 모드를 바꾸면 안 됩니다');
+
+    await t.tap(find.text('기간으로 정하기'));
+    await t.pumpAndSettle();
+    expect(t.widget<DurationPanel>(find.byType(DurationPanel)).initialWeeks, 8);
+    expect(t.widget<Text>(find.byKey(const Key('duration-weeks'))).data, '8주');
+    expect(t.takeException(), isNull);
   });
 
   /* ---------------------------------------------------------------- 처음 골라 두는 카드 */

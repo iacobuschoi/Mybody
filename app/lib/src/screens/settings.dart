@@ -8,8 +8,10 @@
  *     넘긴 사람에게는 그게 전부입니다.
  *
  *  2. **계정을 지워도 이 기기의 측정 기록은 안 지워집니다.** 그걸 숨기지
- *     않고 말하고, 지우는 길도 같이 놓습니다. 몸 숫자는 서버에 올라가지
- *     않으므로 계정 삭제로는 사라지지 않습니다 — 두 개는 다른 일입니다.
+ *     않고 말하고, 지우는 길도 같이 놓습니다. 계정 삭제는 서버의 사본을 지우고,
+ *     이 기기의 기록은 누구 것인지 모르는 기록으로 남습니다 — 다른 계정으로 로그인하면
+ *     「다른 계정의 기록일 수 있어요」 와 함께 합칠지 먼저 묻고, 기본은 합치지 않기입니다
+ *     (local_owner.dart). 두 개는 다른 일입니다.
  *
  * 차례(위 → 아래): 내 몸 정보 · 화면 · 운동 환경 · 계정 · 기본 공유(로그인
  * 했을 때) · 동기화 · **도움말(의견함 · 가입자 목록 — 운영자만 · 의견 버튼 보이기 · 앱 안내
@@ -43,10 +45,12 @@
  * "설정 하단에 로그아웃 버튼 만들어". 사람은 로그아웃을 설정의 맨 끝에서
  * 찾습니다. 그래서 거기에 한 줄 폭으로, 아이콘과 함께 두고, 계정 카드에서는
  * 뺐습니다(두 곳이면 어느 게 진짜인지 또 찾게 됩니다). 색은 빨강이 아니라
- * 보통 글자색입니다 — 로그아웃은 아무것도 지우지 않습니다. 이 기기의 기록
- * (Store)도, 계정에 저장된 사본도 그대로이고, 다시 로그인하면 동기화
- * (cloud.dart, 켜져 있으면)가 둘을 합쳐 이어 갑니다. 빨강은 바로 위 「지우기」 카드의
- * 몫입니다. 그래도 한 번은 묻습니다 — 잘못 누르면 비밀번호를 다시 쳐야
+ * 보통 글자색입니다 — 로그아웃은 아무것도 지우지 않습니다. 이 계정의 기록은
+ * **이 기기에 따로 보관**됩니다(local_owner.dart — 계정 칸). 다음 사람의
+ * 「로그인 없이 쓰기」 나 다른 계정에는 안 보이고, 같은 계정으로 다시 로그인하면
+ * 그대로 돌아옵니다. 계정에 저장된 사본도 그대로입니다(피드백 52 — 예전엔 기록이
+ * 화면에 남아 다음에 가입한 계정으로 올라갔습니다). 빨강은 바로 위 「지우기」
+ * 카드의 몫입니다. 그래도 한 번은 묻습니다 — 잘못 누르면 비밀번호를 다시 쳐야
  * 하고, 그동안 친구 알림도 이 폰으로 안 옵니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
@@ -58,6 +62,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../api.dart';
+import '../local_owner.dart';
 import '../native_push.dart';
 import '../scope.dart';
 import '../update.dart';
@@ -569,18 +574,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  /* 로그아웃 — 한 번 묻고, 예전 버튼과 똑같이 합니다(api.signOut → 설정 닫기;
-   * 닫기만 셸까지 걷는 쪽으로 — 맨 아래 주석).
+  /* 로그아웃 — 한 번 묻고, api.signOut → 설정 닫기(셸까지 걷는 쪽으로 — 맨 아래 주석).
    *
-   * 다이얼로그의 한 줄은 코드가 실제로 하는 일입니다:
-   *   · 이 기기의 기록 — 로그아웃은 Store 를 건드리지 않습니다(지우는 건
-   *     아래 _wipe 의 app.store.reset 뿐). 셸이 로그인 화면으로 가도 기록은
-   *     그대로라 「로그인 없이 쓰기」 로 들어가도 보입니다.
-   *   · 내 계정의 기록 — Api.signOut 은 POST /auth/signout(세션 끝내기)과
-   *     토큰 · 친구/공유 캐시 지우기뿐, 서버 사본은 안 건드립니다.
-   *   · 다시 로그인하면 — cloud.dart 가 로그아웃 때 기준본만 버리고, 로그인
-   *     하면 받아서 이 기기 것과 합칩니다(어느 쪽도 통째로 덮지 않음).
-   *     동기화를 꺼 뒀어도 이 기기 기록이 그대로이니 "이어집니다" 는 참입니다.
+   * 다이얼로그의 한 줄은 코드가 실제로 하는 일입니다(api.dart · local_owner.dart):
+   *   · 먼저 못 보낸 것을 이 계정으로 보내 봅니다 — 3초 모으던 변경 · 오프라인 큐. 짧게만
+   *     기다리고, 못 보낸 것은 계정 칸에 남았다가 다시 로그인하면 갑니다. 큐에 남은 건수는
+   *     다이얼로그가 미리 말합니다.
+   *   · 이 기기의 기록 — 이 계정의 칸으로 치워 둡니다(사진 파일은 그대로). 셸은 로그인 화면으로
+   *     가고, 「로그인 없이 쓰기」 는 빈 기록(또는 전에 로그인 없이 쓰던 기록)입니다.
+   *   · 내 계정의 기록 — POST /auth/signout(세션 끝내기)과 토큰 · 친구/공유 캐시 지우기뿐,
+   *     서버 사본은 안 건드립니다.
+   *   · 다시 로그인하면 — 같은 계정이면 치워 둔 칸이 그대로 돌아옵니다. 동기화를 꺼 뒀어도
+   *     기록은 칸에 있으니 "돌아와요" 는 참입니다.
    * 그래서 「지우기」 처럼 "되돌릴 수 없습니다" 가 아니라 안심시키는 한 줄입니다
    * — 로그아웃을 망설이게 하는 건 "내 기록 날아가나?" 한 가지입니다.
    *
@@ -590,25 +595,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
    * 예전 버튼도 그것에 기댔습니다. 여기서 또 부르면 DELETE 가 두 번 갑니다. */
   Future<void> _signOut(BuildContext context) async {
     final api = Scope.apiOf(context);
-    final yes = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('로그아웃할까요?'),
-        content: const Text('이 기기와 내 계정의 기록은 그대로 남습니다 — 다시 로그인하면 이어집니다.'),
-        actions: [
-          TextButton(
-            key: const Key('settings-logout-cancel'),
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('취소'),
-          ),
-          FilledButton(
-            key: const Key('settings-logout-confirm'),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('로그아웃'),
-          ),
-        ],
-      ),
-    );
+    final yes = await confirmSignOut(context, unsent: Scope.queueOf(context)?.pending ?? 0);
     if (yes != true || !context.mounted) return;
     setState(() => _signingOut = true);
     /* signOut 은 던지지 않습니다 — 요청 실패 · 저장 실패 · 알림 빼기 실패를
@@ -624,7 +611,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (context.mounted) Navigator.of(context).popUntil((r) => r.isFirst);
   }
 
-  /* **지우면 로그아웃까지 합니다.**
+  /* **지우면 로그아웃까지 합니다.** 이 기기에 치워 둔 다른 계정 · 로그인 없이 쓴 기록의
+   * 칸까지 전부입니다(local_owner.dart wipeDevice) — "전부 지웠다" 고 믿고 폰을 넘긴 사람에게
+   * 누군가의 기록이 남아 있으면 안 됩니다.
    *
    * 예전엔 기기 저장만 비웠습니다. 로그인은 그대로라 두 가지가 났습니다 —
    * 다음에 켜면 동기화가 "막 깐 기기" 로 보고 계정 사본을 통째로 받아 와
@@ -636,24 +625,42 @@ class _SettingsScreenState extends State<SettingsScreen> {
    * 기록까지 지우는 건 아래 「계정 지우기」 입니다.
    *
    * 순서: 못 보낸 것부터 보내 봅니다(계정 사본이 이 기기와 같아야 "다시
-   * 로그인하면 돌아옵니다" 가 참입니다) → 로그아웃 → 지우기 → 큐 비우기.
+   * 로그인하면 돌아옵니다" 가 참입니다) → 로그아웃 → 지우기(모든 칸 · 사진 ·
+   * 독촉 · 소식 · 초대 표시) → 큐 비우기.
    * 큐를 비우는 건 이 기기를 넘겨받은 다른 사람이 로그인했을 때 지운
    * 사람의 기록 사본이 그 계정으로 올라가지 않게 하려는 것입니다. */
   Future<void> _wipe(BuildContext context, app) async {
     final api = Scope.apiOf(context);
     final queue = Scope.queueOf(context);
     final signedIn = api.signedIn;
+    /* 화면에 안 보이는 보관된 칸도 같이 지워집니다 — 동기화를 끈 계정이면 서버에 사본이 없어
+       되찾을 수 없습니다. 있을 때만 한 줄 더합니다(2차 검토). */
+    final p = await parkedSlots();
+    final parked = p.accounts > 0 && p.guest
+        ? '이 기기에 따로 보관된 다른 계정 ${p.accounts}개와 로그인 없이 쓴 기록도 지워져요.'
+        : p.accounts > 0
+            ? '이 기기에 따로 보관된 다른 계정 ${p.accounts}개의 기록도 지워져요.'
+            : p.guest
+                ? '이 기기에 따로 보관된 로그인 없이 쓴 기록도 지워져요.'
+                : null;
+    if (!context.mounted) return;
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('이 기기에서 전부 지울까요?'),
-        content: Text(signedIn
-            ? '측정·목표·계획·식단·일정과 결과지 사진을 이 기기에서 지우고 로그아웃합니다. '
-                '되돌릴 수 없습니다.\n\n'
-                '내 계정에 저장된 기록은 남습니다 — 다시 로그인하면 돌아옵니다. '
-                '계정의 기록까지 지우려면 아래 「계정 지우기」를 쓰세요.'
-            : '측정·목표·계획·식단·일정과 결과지 사진을 지웁니다. 되돌릴 수 없습니다.\n\n'
-                '백업을 먼저 내보내는 것을 권합니다.'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(signedIn
+              ? '측정·목표·계획·식단·일정과 결과지 사진을 이 기기에서 지우고 로그아웃합니다. '
+                  '되돌릴 수 없습니다.\n\n'
+                  '내 계정에 저장된 기록은 남습니다 — 다시 로그인하면 돌아옵니다. '
+                  '계정의 기록까지 지우려면 아래 「계정 지우기」를 쓰세요.'
+              : '측정·목표·계획·식단·일정과 결과지 사진을 지웁니다. 되돌릴 수 없습니다.\n\n'
+                  '백업을 먼저 내보내는 것을 권합니다.'),
+          if (parked != null) ...[
+            const SizedBox(height: 12),
+            Text(parked, key: const Key('wipe-parked'), style: const TextStyle(fontWeight: FontWeight.w700)),
+          ],
+        ]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('그대로 두기')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('전부 지우기')),
@@ -668,11 +675,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
       } catch (_) {/* 못 보냈으면 못 보낸 것 — 지우기를 막지는 않습니다 */}
       await api.signOut();
     }
-    app.store.reset();
-    queue?.clear();
     /* 친구 목록 · 공유 설정 캐시도 — 로그아웃이 지우지만, 로그인 안 한 채로
-       눌렀을 때 예전 판이 남긴 것까지. */
-    await Api.clearAccountCaches();
+       눌렀을 때 예전 판이 남긴 것까지(wipeDevice 안). */
+    if (!context.mounted) return;
+    await wipeDevice(app: app, queue: queue, cloud: Scope.cloudOf(context),
+        invites: Scope.slotsOf(context)?.invites);
     if (!context.mounted) return;
     toast(context, '지웠습니다');
     Navigator.of(context).popUntil((r) => r.isFirst);
@@ -687,7 +694,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
         content: const Text(
             '친구 관계와 서버에 저장된 내 기록(동기화 사본·주간 요약)이 사라집니다. '
             '되돌릴 수 없습니다.\n\n'
-            '이 기기의 기록은 그대로 남습니다 — 그건 「이 기기에서 전부 지우기」로 지웁니다.'),
+            '이 기기의 기록은 그대로 남고, 다른 계정으로 로그인하면 합칠지 먼저 물어요. '
+            '지우려면 「이 기기에서 전부 지우기」를 쓰세요.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('그대로 두기')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('계정 지우기')),
@@ -695,14 +703,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
       ),
     );
     if (yes != true || !context.mounted) return;
-    final r = await api.deleteMe();
+    /* 지우고 로그아웃까지(api.dart deleteAccount). 이 기기의 기록은 누구 것인지 모르는 기록으로
+       남습니다 — local_owner.dart 의 「계정 지우기」 주석. */
+    final r = await api.deleteAccount();
     if (!context.mounted) return;
     if (!r.ok) {
       toast(context, r.reason);
       return;
     }
-    await api.signOut();
-    if (!context.mounted) return;
     toast(context, '계정을 지웠습니다');
     /* 로그아웃됐으니 밑의 셸은 이미 로그인 화면입니다. 설정을 닫아
        그걸 보여 줍니다 — 안 닫으면 없는 계정의 설정이 계속 떠 있습니다. */

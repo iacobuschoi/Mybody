@@ -140,7 +140,7 @@ class _IntensityScreenState extends State<IntensityScreen> {
         appBar: AppBar(title: const Text('기간 고르기')),
         body: ListView(padding: const EdgeInsets.all(16), children: [
           for (final w in (cmp['warnings'] as List)) Note(tone: Tone.bad, text: '$w'),
-          const Note(text: '목표를 조금 낮추거나 마감을 늘려 보세요'),
+          const Note(text: '목표를 조금 낮춰 보세요'),
         ]),
       );
     }

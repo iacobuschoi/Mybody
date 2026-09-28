@@ -317,11 +317,13 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 `Authorization: Bearer <token>` 이 필요합니다. `/api` 밖에는 친구 초대 링크 페이지(`GET /i/<코드>`)와
 그 링크를 폰이 앱으로 바로 열게 하는 앱 링크 파일 둘(`GET /.well-known/assetlinks.json` ·
 `GET /.well-known/apple-app-site-association`)이 있습니다 — 아래 "친구 초대 링크" · "앱 링크 파일".
+0.2.20 부터 앱은 모든 요청에 `X-Mybody-App: <판>` 머리를 붙입니다(기록 칸의 주인을 아는 판). 서버는
+지금은 막지 않고 거절 로그에만 적습니다 — 고친 판이 퍼지면 owner 없는 기록 사본을 거절하도록 켤 수 있게.
 
 | 메서드 | 경로 | 설명 |
 |---|---|---|
 | `GET` | `/api/health` | 살아 있는지 (로그인 불필요) |
-| `GET` | `/api/version` | `{latest:{appstore,testflight,play,apk}, min, urls:{…}, join:{ios?, android?, androidGroup?}, testing}` 앱 안 업데이트 안내용. 빈 값이면 안내 없음. `join` 은 시험판 참여 링크(TestFlight 공개 링크 · 플레이 비공개 테스트 · 그 테스트의 구글 그룹) — **적힌 https 만** 나가고 비었으면 `{}`. `testing` 은 비공개 시험 기간인가(참/거짓) — **안 적었으면 `true`**, 분명히 끈 것(`--testing=off`)만 `false`. `tools/app-version.js`(`--join-ios` · `--join-android` · `--join-android-group` · `--testing=on\|off`)로 고치고, 부를 때마다 설정을 새로 읽습니다. 설정 파일이 망가졌으면 빈 값 대신 503 (로그인 불필요) |
+| `GET` | `/api/version` | `{latest:{appstore,testflight,play,apk}, min, urls:{…}, join:{ios?, android?, androidGroup?}, testing}` 앱 안 업데이트 안내용. 빈 값이면 안내 없음. `latest` 는 그 길로 깐 사람이 지금 받을 수 있는 판 — `testflight` 는 friends(공개 링크) 베타 심사 승인판, `play` 는 비공개(나중엔 프로덕션) 트랙 게시판(내부 테스트 판은 안 적음). `join` 은 시험판 참여 링크(TestFlight 공개 링크 · 플레이 비공개 테스트 · 그 테스트의 구글 그룹) — **적힌 https 만** 나가고 비었으면 `{}`. `testing` 은 비공개 시험 기간인가(참/거짓) — **안 적었으면 `true`**, 분명히 끈 것(`--testing=off`)만 `false`. `tools/app-version.js`(`--join-ios` · `--join-android` · `--join-android-group` · `--testing=on\|off`)로 고치고, 부를 때마다 설정을 새로 읽습니다. 설정 파일이 망가졌으면 빈 값 대신 503 (로그인 불필요) |
 | `POST` | `/api/feedback` | `{text?, images?:[{type:'image/png'\|'image/jpeg', data:<base64>}], appVersion?, platform?:'android'\|'ios', screen?}` 앱 안 의견 보내기 → `{ok, id}`. 글(≤2000자)이나 사진(≤3장, 한 장 ≤1.5MB) 중 하나는 있어야 함. 로그인 선택 — 유효한 토큰이면 그 계정에 묶고, 없거나 틀리면 익명(401 없음). 틀리면 400 `{ok:false, error}`, 본문 6.2MB 초과 413, 하루 20개(사람 · 주소마다)를 넘으면 429, 동시에 받는 것이 넘치면 503 |
 | `POST` | `/api/auth/signup` | `{handle, password, displayName, pairSecret, healthConsent}` → `{token, user, recoveryCode}` (로그인 불필요) |
 | `POST` | `/api/auth/signin` | `{handle, password}` → `{token, user}` (로그인 불필요) |
@@ -346,9 +348,9 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 | `GET` | `/api/share-defaults` | 새 친구에게 기본으로 보여 줄 것 → `{defaults}`. 정한 적이 없으면 처음 값(몸 쪽 넷 · `absolute` 꺼짐, `streak` · `schedule` · `diet` 켜짐) |
 | `PUT` | `/api/share-defaults` | 바꾼 스위치만 `{weightTrend:true}` → `{defaults}`. 참/거짓이 아니면 400(하나라도 틀리면 아무것도 안 바뀜), 모르는 이름은 무시, 몸 항목이 하나도 없으면 `absolute` 는 꺼짐. 이미 맺은 친구는 안 바뀜 |
 | `POST` | `/api/share-defaults/apply` | `{expect}`(화면에서 본 값, 옛 앱은 생략) → `{applied}`. **수락된 친구에게 내가 보여 주는 쪽**만 기본값으로 덮음 — 대기 · 차단 · 끊은 관계는 빼고, 친구별로 따로 정한 것도 덮음. `expect` 가 저장된 기본값과 다르면 409 `{conflict, defaults}` 로 아무것도 안 바꿈 |
-| `POST` | `/api/snapshots` | `{weekStart, payload}` 내 주간 요약 올리기 |
+| `POST` | `/api/snapshots` | `{weekStart, payload}` 내 주간 요약 올리기. `payload.owner`(새 앱이 싣는 그 기록의 계정 id)가 있고 토큰의 계정과 다르면 **409** `{ok:false, conflict:'owner', reason:'다른 계정의 기록입니다'}` · 행 안 바뀜(owner 는 떼고 저장, 없는 옛 앱은 받음) |
 | `GET` | `/api/snapshots/:ownerId` | 친구가 **나에게 허용한 항목만** |
-| `POST` | `/api/sync/push` | `{records:[{kind,id,updatedAt,deleted,payload}]}` |
+| `POST` | `/api/sync/push` | `{records:[{kind,id,updatedAt,deleted,payload}]}`. 어느 레코드든 `payload.syncMeta.owner` 가 토큰의 계정과 다르면 통째로 **409** `{ok:false, conflict:'owner', reason:'다른 계정의 기록입니다'}` · 아무 행도 안 씀(owner 없는 옛 앱은 받음). 거절은 로그에 한 줄(앱 판만, 계정 id 없이) |
 | `GET` | `/api/sync/pull?since=` | 그 시각 이후 변경분 |
 | `POST` | `/api/ocr` | `{mediaType, data}` (base64 사진) → `{fields}` 결과지 판독 초안 |
 | `POST` | `/api/push/device` | `{token, platform: 'android'\|'ios', appVersion?, permission?, secret?}` 앱 알림 기기 등록 → `{ok, fcm}`. 토큰은 20~4096자 `[A-Za-z0-9_-:.]`, 한 사람당 10대(오래 안 켠 것부터 버림). `secret` 은 앱이 서버마다 만든 난수(16~128자, 서버는 sha256 만 둠). 같은 토큰이 **다른 계정의 살아 있는 로그인**에 묶여 있으면 비밀이 맞을 때만 옮기고 아니면 409. FCM 이 꺼진 서버도 받아 둠. 형식이 틀리면 400 |
@@ -430,6 +432,8 @@ node tools/test-ocr.js           # 판독 프록시 (가짜 모델 API 로)
 node tools/test-fcm.js           # 앱 알림 (가짜 OAuth · FCM 으로 — JWT 서명까지 검증)
 node tools/test-feedback.js      # 의견 보내기 (검사 · 한도 · 탈퇴 · 1년 · 주인 알림 · 노트북 도구)
 node tools/test-operator-users.js # 운영자의 「가입자 목록」 (운영자만 · 비밀 칸 없음 · 새 가입부터 · 1000명 상한)
+node tools/test-sync-owner.js    # 다른 계정의 기록 사본 · 주간 요약은 409 (행 안 바뀜 · owner 없는 옛 앱은 받음)
+node tools/test-find-mixed.js    # 섞인 계정 찾기 도구 (믿을 수 있는 id 만 · 씨앗 · scan-h 제외 · DB 에 안 씀)
 node tools/test-appversion.js    # 앱 안 업데이트 안내 · 시험판 참여 링크 · 시험 기간
 node tools/test-invite.js        # 친구 초대 링크 페이지 (기종별 앱 열기 · 설치 안내 · 새지 않음 · CSP ·
                                  #   앱 링크 파일 · 스크립트를 가짜 브라우저에서 돌려 봄)

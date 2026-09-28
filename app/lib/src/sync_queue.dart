@@ -18,6 +18,11 @@
  *        → **429·408 은 큐에 남깁니다.** 껐다고 믿는 사람은 다시 확인하지
  *          않습니다. 프라이버시 스위치가 조용히 안 먹는 것이 이 앱에서
  *          제일 나쁜 고장입니다.
+ *
+ * 그리고 셋째(피드백 52): **작업마다 누구의 일인지 적습니다.** 예전엔 "로그인돼 있나" 만 봐서,
+ * 계정 A 가 오프라인에서 로그아웃하고 B 가 가입하는 순간 A 가 남긴 기록 사본 · 주간 요약 ·
+ * 친구 작업이 B 의 토큰으로 나갔습니다. 이제는 지금 로그인의 일만 보내고, 로그아웃하면 그 계정의
+ * 일은 계정 칸에 치워 두었다가(local_owner.dart) 그 계정으로 돌아오면 다시 싣습니다.
  * ========================================================================== */
 import 'dart:async';
 import 'dart:convert';
@@ -30,18 +35,36 @@ const Duration _retryMax = Duration(minutes: 5);
 
 /// 큐에 담기는 한 건.
 class SyncJob {
-  SyncJob(this.op, this.args, this.at);
+  SyncJob(this.op, this.args, this.at, {this.owner, this.sess});
   final String op;
   final Map<String, Object?> args;
   final int at;
 
-  Map<String, Object?> toJson() => {'op': op, 'args': args, 'at': at};
+  /// 이 일을 맡긴 계정 id(모르면 null)와 그 로그인의 표시([Api.sessionTag]). 보낼 때 지금 로그인과
+  /// 견줍니다 — 다른 계정의 토큰으로 나가지 않게(피드백 52). 둘 다 없으면 0.2.19 가 남긴 옛 작업이고,
+  /// 첫 실행의 이관(local_owner.dart)이 주인에 붙이거나 버립니다. 그때까지는 안 보냅니다.
+  String? owner;
+  String? sess;
+
+  /// 이 로그인([uid] · [sess])의 일인가.
+  bool isFor({String? uid, String? sess}) =>
+      (this.sess != null && this.sess == sess) || (owner != null && owner == uid);
+
+  bool get legacy => owner == null && sess == null;
+
+  Map<String, Object?> toJson() => {
+        'op': op, 'args': args, 'at': at,
+        if (owner != null) 'owner': owner,
+        if (sess != null) 'sess': sess,
+      };
   static SyncJob? fromJson(Object? o) {
     if (o is! Map) return null;
     final op = o['op'];
     if (op is! String) return null;
     return SyncJob(op, (o['args'] as Map?)?.cast<String, Object?>() ?? {},
-        (o['at'] as num?)?.toInt() ?? 0);
+        (o['at'] as num?)?.toInt() ?? 0,
+        owner: o['owner'] is String ? o['owner'] as String : null,
+        sess: o['sess'] is String ? o['sess'] as String : null);
   }
 }
 
@@ -54,6 +77,10 @@ abstract class QueueStorage {
 class SyncQueue {
   SyncQueue({required this.api, required this.storage}) {
     _load();
+    _authSeen = api.token;
+    /* 로그인하면 그 계정 몫을 밀어 봅니다 — 로그아웃할 때 치워 두었던 일이 계정 칸과 함께
+       돌아왔을 수 있습니다(local_owner.dart). 다른 계정 몫은 [_mine] 이 거릅니다. */
+    api.addListener(_onAuth);
   }
 
   final Api api;
@@ -64,13 +91,31 @@ class SyncQueue {
   Duration _retryIn = _retryStart;
   String? lastError;
 
-  /// 아직 못 보낸 개수. 화면이 이걸 보여 줍니다.
-  int get pending => _queue.length;
+  /// 지금 로그인의 일인가. 로그아웃했으면 아무것도 아닙니다.
+  bool _mine(SyncJob j) => api.signedIn && j.isFor(uid: api.userId, sess: api.sessionTag);
+
+  SyncJob? _firstMine() {
+    for (final j in _queue) {
+      if (_mine(j)) return j;
+    }
+    return null;
+  }
+
+  /// 지금 로그인이 아직 못 보낸 개수. 화면이 이걸 보여 줍니다.
+  int get pending => _queue.where(_mine).length;
 
   /// 그 종류([op])의 일 중 아직 못 보낸 개수. 「모두에게 적용」 은 친구별
   /// 공유 변경(setShare)이 남아 있으면 적용하지 않습니다 — 나중에 도착한
   /// 옛 변경이 방금 적용한 값을 조용히 되돌립니다(share_defaults.dart).
-  int pendingOf(String op) => _queue.where((j) => j.op == op).length;
+  int pendingOf(String op) => _queue.where((j) => j.op == op && _mine(j)).length;
+
+  String? _authSeen;
+  void _onAuth() {
+    final t = api.token;
+    if (t == _authSeen) return;
+    _authSeen = t;
+    if (api.signedIn) unawaited(flush());
+  }
 
   final _changed = StreamController<void>.broadcast();
   Stream<void> get changes => _changed.stream;
@@ -114,12 +159,14 @@ class SyncQueue {
      * 중요한 걸 버리고 쓸모없는 걸 지킨 셈입니다. */
     if (op == 'snapshot') {
       _queue.removeWhere(
-          (j) => j.op == 'snapshot' && j.args['weekStart'] == args['weekStart']);
+          (j) => j.op == 'snapshot' && j.args['weekStart'] == args['weekStart'] && _mine(j));
     }
     /* 기록 전체도 마지막 것 하나만 — 서버는 같은 레코드를 덮어씁니다. */
-    if (op == 'syncState') _queue.removeWhere((j) => j.op == 'syncState');
+    if (op == 'syncState') _queue.removeWhere((j) => j.op == 'syncState' && _mine(j));
 
-    _queue.add(SyncJob(op, args, DateTime.now().millisecondsSinceEpoch));
+    /* 누구의 일인지 적어 둡니다 — 보낼 때 그 로그인일 때만 나갑니다. */
+    _queue.add(SyncJob(op, args, DateTime.now().millisecondsSinceEpoch,
+        owner: api.userId, sess: api.sessionTag));
 
     /* 그래도 넘치면 버리는 순서를 정합니다. 스냅샷은 다음 저장 때 다시
        만들어지지만 친구 수락은 안 그렇습니다. */
@@ -150,6 +197,99 @@ class SyncQueue {
     _emit();
   }
 
+  /* --- 계정 칸(local_owner.dart) ------------------------------------------------ */
+
+  /// 그 로그인([uid] · [sess])의 일 — 빼지 않고 보여만 줍니다. 로그아웃할 때 그 계정 칸에 **먼저 적고**
+  /// 나서 [removeJobs] 로 뺍니다(적다가 멈춰도 잃지 않게). 계정 id 를 알면 적어서 줍니다: 다시
+  /// 로그인하면 토큰(sess)이 바뀌어 id 로만 알아봅니다.
+  List<SyncJob> jobsFor({String? uid, String? sess}) {
+    final out = [for (final j in _queue) if (j.isFor(uid: uid, sess: sess)) j];
+    for (final j in out) {
+      j.owner ??= uid;
+    }
+    return out;
+  }
+
+  /// [jobsFor] 로 받아 칸에 적은 일을 큐에서 뺍니다.
+  void removeJobs(List<SyncJob> jobs) {
+    if (jobs.isEmpty) return;
+    _queue.removeWhere(jobs.contains);
+    _save();
+    _emit();
+  }
+
+  /// 그 로그인의 일을 꺼내 줍니다(버리거나 곧바로 다시 실을 때).
+  List<SyncJob> takeFor({String? uid, String? sess}) {
+    final out = jobsFor(uid: uid, sess: sess);
+    removeJobs(out);
+    return out;
+  }
+
+  /// 같은 일은 하나만 — 칸에 적다 멈춘 뒤 다시 적으면 칸과 큐에 같은 일이 둘 있을 수 있습니다.
+  static List<SyncJob> dedupe(Iterable<SyncJob> jobs) {
+    final seen = <String>{};
+    return [
+      for (final j in jobs)
+        if (seen.add('${j.op}|${j.at}|${jsonEncode(j.args)}')) j,
+    ];
+  }
+
+  /// 칸에서 돌아온 일을 다시 싣습니다. 보내는 것은 그 계정으로 로그인한 뒤입니다. 이미 실린 것은
+  /// 또 싣지 않습니다([dedupe]).
+  void putBack(List<SyncJob> jobs) {
+    if (jobs.isEmpty) return;
+    final all = dedupe([..._queue, ...jobs])..sort((a, b) => a.at.compareTo(b.at));
+    _queue
+      ..clear()
+      ..addAll(all);
+    _save();
+    _emit();
+  }
+
+  /// 계정 id 를 끝내 모른 채 끝난 로그인의 일(주인 id 없음) — 그 로그인의 기록(주인 모름)을 어느
+  /// 계정에 [합치기] 하면 그 계정의 일로 붙입니다(local_owner.dart). 그 전에는 아무에게도 안 나갑니다.
+  void adoptOrphans({String? uid, required String sess}) {
+    var n = 0;
+    for (final j in _queue) {
+      if (j.owner == null && j.sess != null && j.sess != sess) {
+        j
+          ..owner = uid
+          ..sess = sess;
+        n++;
+      }
+    }
+    if (n == 0) return;
+    _save();
+    _emit();
+  }
+
+  /// 그 종류의 일을 다 버립니다 — 동기화를 끄면 못 보낸 기록 사본(syncState)도 치웁니다.
+  /// 끈 사람의 기록이 나중에 망이 돌아왔다고 올라가면 안 됩니다.
+  void dropOp(String op) {
+    final before = _queue.length;
+    _queue.removeWhere((j) => j.op == op);
+    if (_queue.length == before) return;
+    _save();
+    _emit();
+  }
+
+  /// 0.2.19 가 남긴 주인 없는 옛 작업 — 주인을 알면 붙이고([uid] · [sess]), 모르면 버립니다.
+  /// 버리는 것은 기록 사본 · 주간 요약(다시 만들어짐)과 친구 작업(누구의 수락인지 모름)입니다.
+  void adoptLegacy({String? uid, String? sess}) {
+    if (!_queue.any((j) => j.legacy)) return;
+    if (uid == null && sess == null) {
+      _queue.removeWhere((j) => j.legacy);
+    } else {
+      for (final j in _queue.where((j) => j.legacy)) {
+        j
+          ..owner = uid
+          ..sess = sess;
+      }
+    }
+    _save();
+    _emit();
+  }
+
   /// 다시 보내면 될 수도 있는 거절. **큐에서 버리면 안 됩니다.**
   static bool _retryable(int status) => status == 429 || status == 408;
 
@@ -162,7 +302,7 @@ class SyncQueue {
 
   Future<void> flush() {
     if (_inFlight != null) return _inFlight!;
-    if (!api.signedIn || _queue.isEmpty) return Future.value();
+    if (!api.signedIn || _firstMine() == null) return Future.value();
     return _inFlight = _flush().whenComplete(() => _inFlight = null);
   }
 
@@ -170,8 +310,11 @@ class SyncQueue {
     final refused = <String>[];
 
     try {
-      while (_queue.isNotEmpty) {
-        final job = _queue.first;
+      /* 지금 로그인의 일만 앞에서부터. 다른 계정의 일(이관 전 옛 작업 등)은 건너뜁니다 —
+         보내는 사이 로그아웃하면 다음 차례가 없어 멈춥니다. */
+      while (true) {
+        final job = _firstMine();
+        if (job == null) break;
         final r = await _ops[job.op]!(api, job.args);
 
         if (r.ok) {
@@ -211,7 +354,7 @@ class SyncQueue {
      개수를 이미 보여 주므로 여기서는 조용히 다시 시도만 합니다. */
   void _scheduleRetry() {
     if (_retry != null) return;
-    if (!api.signedIn || _queue.isEmpty) { _retryIn = _retryStart; return; }
+    if (!api.signedIn || _firstMine() == null) { _retryIn = _retryStart; return; }
     _retry = Timer(_retryIn, () {
       _retry = null;
       final next = _retryIn * 2;
@@ -222,6 +365,7 @@ class SyncQueue {
 
   void dispose() {
     _retry?.cancel();
+    api.removeListener(_onAuth);
     _changed.close();
   }
 

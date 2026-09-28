@@ -27,8 +27,8 @@
  * 추정은 지워지지만, 그 사이(동기화가 늦은 기기)에 둘이 같이 있으면
  * 추정 35.7 → 실측 38.0 의 선이 "4주에 근육 +2.3kg" 으로 읽힙니다. 몸의
  * 변화가 아니라 공식의 오차입니다. 그래서 실측이 하나라도 있으면 실측만
- * 그립니다(chartScans). 추정뿐일 때는 그 한 점을 그리고, 「측정이 한 번
- * 뿐입니다」 대신 「추정치로 시작했어요」 를, 골격근 · 체지방률 카드에
+ * 그립니다(chartScans). 추정뿐일 때는 그 한 점을 그리고, 「첫 측정이에요」
+ * 대신 「추정치로 시작했어요」 를, 골격근 · 체지방률 카드에
  * 「추정」 알약을 답니다. 체중은 저울로 잰 값이라 알약이 없습니다.
  * ========================================================================== */
 import 'package:flutter/material.dart';
@@ -41,6 +41,7 @@ import '../scope.dart';
 import '../ui/charts.dart';
 import '../ui/fmt.dart';
 import '../ui/widgets.dart';
+import 'estimate_sheet.dart';
 
 class ProgressScreen extends StatelessWidget {
   const ProgressScreen({super.key, required this.go});
@@ -51,10 +52,30 @@ class ProgressScreen extends StatelessWidget {
     final app = Scope.of(context);
     final all = app.store.sortedScans();
     if (all.isEmpty) {
-      return EmptyState(
-        title: '아직 측정이 없습니다',
-        detail: '인바디를 두 번 이상 넣으면 추이를 그립니다.',
-        action: FilledButton(onPressed: () => go('upload'), child: const Text('인바디 올리기')),
+      /* 빈 화면도 홈처럼 두 길 — 결과지가 없으면 키·체중으로 시작합니다. 시트와
+         저장 뒤 목표 화면은 홈 브리핑(BriefingCard)과 같습니다. 예전 「두 번 이상
+         넣으면」 은 한 번도 안 넣은 사람에게 짐이었습니다(피드백 51).
+         자리가 모자라면(좁은 폭에 두 버튼이 두 줄 · 분할 화면) 넘치지 않고 스크롤됩니다 —
+         넉넉하면 예전처럼 가운데입니다. */
+      return LayoutBuilder(
+        builder: (context, box) => SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: box.hasBoundedHeight ? box.maxHeight : 0),
+            child: EmptyState(
+              title: '아직 측정이 없습니다',
+              detail: '인바디를 올리고 확인해보세요!',
+              action: Wrap(alignment: WrapAlignment.center, spacing: 8, runSpacing: 8, children: [
+                FilledButton(onPressed: () => go('upload'), child: const Text('인바디 올리기')),
+                FilledButton.tonal(
+                  onPressed: () async {
+                    if (await showEstimateSheet(context)) go('goal');
+                  },
+                  child: const Text('인바디 없이 시작'),
+                ),
+              ]),
+            ),
+          ),
+        ),
       );
     }
 
@@ -105,7 +126,7 @@ class ProgressScreen extends StatelessWidget {
       if (estimated)
         const Note(tone: Tone.warn, title: '추정치로 시작했어요.', text: ' $kEstimateHint')
       else if (scans.length < 2)
-        const Note(text: '측정이 한 번뿐입니다 — 4주 뒤에 한 번 더 재세요')
+        const Note(text: '첫 측정이에요 — 4주 뒤 다시 재면 변화가 보여요')
       else
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

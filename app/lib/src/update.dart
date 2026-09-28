@@ -233,7 +233,10 @@ class VersionInfo {
       this.join = const JoinLinks(),
       this.testing = true});
 
-  /// 채널별 최신 판('appstore' · 'play' · 'apk'). '' 는 "안 알림".
+  /// 채널별 최신 판('appstore' · 'testflight' · 'play' · 'apk'). '' 는 "안 알림".
+  /// 그 길로 깐 사람이 **지금 받을 수 있는** 판입니다 — testflight 는 friends(공개 링크)
+  /// 그룹 베타 심사를 지난 판, play 는 비공개(나중엔 프로덕션) 트랙에 게시된 판.
+  /// 내부 테스트에만 있는 판은 적지 않습니다(tools/app-version.js).
   final Map<String, String> latest;
 
   /// 서버가 받아 주는 가장 낮은 판. '' 는 "제한 없음".

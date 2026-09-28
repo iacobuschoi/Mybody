@@ -238,7 +238,8 @@ DB 파일 하나에 전부 들어 있습니다. 사진은 서버가 아니라 �
    승인 뒤 프로덕션 트랙에 승격.
 
 다음 판부터는 릴리스 워크플로가 만든 `-playstore.aab` 를 같은 트랙에 새 버전으로
-올리면 됩니다.
+올리면 됩니다. 앱 안 업데이트 안내(`--play`, 9절)는 **비공개 트랙에 게시된 뒤**에
+올립니다 — 내부 테스트 트랙 게시로는 안 올립니다.
 
 ---
 
@@ -267,8 +268,12 @@ DB 파일 하나에 전부 들어 있습니다. 사진은 서버가 아니라 �
    10분쯤 뒤 App Store Connect → TestFlight 에 빌드가 나타나고(처리 10~30분)
    내부 테스터에게 바로 갑니다.
 5. **테스터** — App Store Connect → TestFlight → 내부 테스팅 「+」 그룹에 본인 Apple
-   계정 추가 → 아이폰에 TestFlight 앱 설치 → 초대 수락. 외부 테스터(친구들)는 첫
-   빌드만 베타 심사(하루 안팎).
+   계정 추가 → 아이폰에 TestFlight 앱 설치 → 초대 수락. 4번은 내부 그룹까지만
+   갑니다. **외부 테스터(친구들, friends 그룹)에게는 빌드마다** Actions → 「앱스토어
+   심사 다시 올리기」(`appstore-submit.yml`)를 판 · 빌드 번호, `beta=friends`,
+   `beta_only`, `submit` 을 켜고 돌려서 그룹에 넣고 베타 심사를 냅니다(하루 안팎).
+   앱 안 업데이트 안내(`--testflight`, 9절)는 **그 베타 심사가 승인된 뒤**에
+   올립니다 — 내부 그룹 「처리 완료」 로는 안 올립니다.
 
 실행할 때마다 지난 실행이 만든 인증서를 폐기하고 새로 만듭니다(열쇠가 러너와
 함께 사라지므로). 이미 올라간 빌드에는 영향이 없습니다. 배포 인증서 한도(팀당
@@ -301,10 +306,20 @@ Profiles 에서 App Store 프로파일 내려받기. `base64 -i 파일 | pbcopy`
 | 언제 | 명령 |
 |---|---|
 | GitHub Release 에 APK 가 올라간 직후 | `node tools/app-version.js --apk=0.2.8` |
-| 플레이 출시가 끝나 받을 수 있게 된 뒤 | `node tools/app-version.js --play=0.2.8` |
+| 플레이 **비공개 테스트**(나중엔 프로덕션) 트랙에 게시된 뒤 | `node tools/app-version.js --play=0.2.8` |
 | 앱스토어 심사를 지나 배포가 시작된 뒤 | `node tools/app-version.js --appstore=0.2.8` |
-| TestFlight 빌드가 「처리 완료」 된 뒤 | `node tools/app-version.js --testflight=0.2.10` |
+| TestFlight **friends(공개 링크) 그룹 베타 심사가 승인**된 뒤 | `node tools/app-version.js --testflight=0.2.10` |
 | 지금 값 보기 | `node tools/app-version.js` |
+
+**내부 테스트는 기준이 아닙니다.** 안내를 보는 사람은 공개 링크 · 비공개 테스트로 들어온
+친구들입니다. TestFlight 내부 그룹의 「처리 완료(available to test)」 나 플레이 내부 테스트
+트랙 게시로 올리면, 그 친구들은 받을 수 없는 판을 계속 안내받습니다 — 0.2.19 가 그렇게
+공개 링크 테스터에게 떴습니다. friends 승인은 App Store Connect → TestFlight → friends 에 그
+빌드가 테스트 가능으로 있는지, 또는 Actions → 「앱스토어 심사 다시 올리기」 를 판 · 빌드 번호,
+`beta=friends`, `beta_only` 는 켜고 **`submit` 은 끄고**(읽기만) 돌려 로그의 「베타 심사: APPROVED
+· 외부 테스트 빌드 상태: IN_BETA_TESTING」 로 봅니다. 두 값은 빌드의 상태라 그룹은 따로
+안 봅니다 — 외부 그룹은 friends 하나만 쓰니 같은 뜻입니다. API 열쇠는 깃허브 Secrets 에만 있어서
+이 컴퓨터에서 `tools/asc-submit.js` 를 바로 돌리면 `ASC_*` 가 없다고 멈춥니다.
 
 **가게에 실제로 올라가기 전에는 올리지 마세요.** [업데이트] 단추는 그 가게의 앱
 페이지를 엽니다. 아직 그 판이 없으면 눌러도 옛 판 그대로이고, 안내는 계속 뜹니다.

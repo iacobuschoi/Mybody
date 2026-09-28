@@ -8,7 +8,10 @@
  *     **위**에 한 줄 폭으로 하나. 계정 카드에는 없습니다(두 곳이면 또 찾습니다).
  *   · 묻기 — 누르면 「로그아웃할까요?」. 「취소」 는 아무것도 안 하고, 「로그아웃」
  *     은 api.signOut(알림 등록 빼기가 그 안 — PushAwareApi) → 설정 닫기.
- *     다이얼로그가 "기록은 그대로 남습니다" 라고 하니 기기 기록이 남는지도 봅니다.
+ *     다이얼로그가 "이 계정의 기록은 이 기기에 따로 보관돼, 다시 로그인하면 돌아와요" 라고
+ *     하니, 기록이 화면에서 치워지고(다음 사람 · 다음 계정에 안 보임 — 피드백 52) 같은
+ *     계정으로 돌아오면 그대로 돌아오는지 봅니다. 못 보낸 것은 먼저 보내 보고, 큐에 남은
+ *     건수는 다이얼로그가 미리 말합니다.
  *   · 느린 서버 — 끝날 때까지 버튼을 막고 「로그아웃하는 중…」. 그동안 다른 창을
  *     열었거나 뒤로 가기를 눌렀어도, 끝나면 셸(첫 화면)만 남습니다 — pop() 하나로
  *     닫던 때는 그 창만 닫히고 설정이 남거나, 셸까지 닫혀 빈 화면이 됐습니다.
@@ -25,7 +28,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:mybody/src/api.dart';
 import 'package:mybody/src/app_state.dart';
+import 'package:mybody/src/cloud.dart';
+import 'package:mybody/src/local_owner.dart';
+import 'package:mybody/src/news_store.dart';
 import 'package:mybody/src/scope.dart';
+import 'package:mybody/src/sync_queue.dart';
 import 'package:mybody/src/screens/settings.dart';
 import 'package:mybody/src/theme.dart';
 import 'package:mybody/src/ui/widgets.dart';
@@ -36,9 +43,9 @@ class _SpyApi extends Api {
   _SpyApi({required super.baseUrl, super.client});
   int signOuts = 0;
   @override
-  Future<void> signOut() async {
+  Future<void> signOut({bool flush = true, bool thenGuest = false}) async {
     signOuts++;
-    await super.signOut();
+    await super.signOut(flush: flush, thenGuest: thenGuest);
   }
 }
 
@@ -47,34 +54,50 @@ final _confirm = find.byKey(const Key('settings-logout-confirm'));
 final _cancel = find.byKey(const Key('settings-logout-cancel'));
 
 void main() {
-  /// 서버 가짜 — 부른 길을 적고, 전부 ok. [signOutGate] 가 있으면 로그아웃
-  /// 요청은 그게 풀릴 때까지 답하지 않습니다(느린 서버).
-  MockClient server(List<String> seen, {Completer<void>? signOutGate}) =>
+  /// 서버 가짜 — 부른 길을 적고, 전부 ok(로그인 · /me 는 계정 u1). [signOutGate] 가 있으면 로그아웃
+  /// 요청은 그게 풀릴 때까지 답하지 않습니다(느린 서버). [failing] 의 길은 망 오류(503) — 큐에 남습니다.
+  MockClient server(List<String> seen, {Completer<void>? signOutGate, Set<String> failing = const {}}) =>
       MockClient((req) async {
         final path = req.url.path.replaceFirst('/api', '');
         seen.add('${req.method} $path');
         if (path == '/auth/signout' && signOutGate != null) await signOutGate.future;
-        return http.Response.bytes(utf8.encode(jsonEncode({'ok': true})), 200,
+        if (failing.contains(path)) return http.Response('', 503);
+        final body = <String, Object?>{
+          'ok': true,
+          if (path == '/auth/signin') 'token': 'tok2',
+          if (path == '/auth/signin' || path == '/me') 'user': {'id': 'u1', 'handle': 'me'},
+        };
+        return http.Response.bytes(utf8.encode(jsonEncode(body)), 200,
             headers: {'content-type': 'application/json; charset=utf-8'});
       });
 
   /// 셸 자리(첫 화면) 위에 설정을 밀어 올린 상태 — 앱에서 실제로 그렇게 엽니다.
   /// 그래야 「로그아웃하면 설정을 닫는다」 를 볼 수 있습니다.
-  Future<({AppState app, _SpyApi api, List<String> seen})> open(
+  /// 앱처럼 엮습니다 — 큐 · 계정 칸(local_owner.dart) · 동기화. [debounce] 는 저장을 모으는 시간.
+  Future<({AppState app, _SpyApi api, List<String> seen, SyncQueue queue, CloudSync cloud})> open(
     WidgetTester t, {
     bool signedIn = true,
     Size size = const Size(1000, 4000),
     ThemeData? theme,
     Completer<void>? signOutGate,
+    Set<String> failing = const {},
+    Duration debounce = Duration.zero,
   }) async {
     t.view.physicalSize = size;
     t.view.devicePixelRatio = 1.0;
     addTearDown(t.view.reset);
     SharedPreferences.setMockInitialValues({});
+    final sp = await SharedPreferences.getInstance();
     final seen = <String>[];
-    final api = _SpyApi(baseUrl: 'https://x.test', client: server(seen, signOutGate: signOutGate));
-    if (signedIn) await api.setToken('tok');
+    final api = _SpyApi(baseUrl: 'https://x.test',
+        client: server(seen, signOutGate: signOutGate, failing: failing));
+    if (signedIn) await api.setToken('tok', uid: 'u1');
+    final queue = SyncQueue(api: api, storage: PrefsQueue(sp));
     final app = await AppState.boot();
+    final slots = AccountSlots(app: app, queue: queue, flushLimit: const Duration(seconds: 2));
+    api.accounts = slots;
+    final cloud = CloudSync(app: app, api: api, queue: queue, debounce: debounce)..wire();
+    slots.cloud = cloud;
     app.store.set({'onboarded': true, 'profile': {'sex': 'male', 'age': 30, 'heightCm': 175}});
     app.store.addScan({'id': 's1', 'weightKg': 80.0, 'smmKg': 35.0, 'bfmKg': 18.0,
         'pbfPct': 22.5, 'measuredAt': '2026-09-01T00:00:00.000Z'});
@@ -82,6 +105,9 @@ void main() {
     await t.pumpWidget(Scope(
       state: app,
       api: api,
+      queue: queue,
+      cloud: cloud,
+      slots: slots,
       onServerChange: (_) async {},
       child: MaterialApp(
         theme: theme ?? mbLight(),
@@ -98,7 +124,11 @@ void main() {
     await t.pumpAndSettle();
     expect(find.byType(SettingsScreen), findsOneWidget);
     seen.clear();   // 화면이 서면서 부른 것(알림 상태 등)은 빼고 봅니다
-    return (app: app, api: api, seen: seen);
+    addTearDown(() {
+      queue.clear();
+      cloud.dispose();
+    });
+    return (app: app, api: api, seen: seen, queue: queue, cloud: cloud);
   }
 
   Finder cardOf(Finder inside) =>
@@ -155,14 +185,14 @@ void main() {
   });
 
   group('누르면', () {
-    testWidgets('한 번 묻는다 — 기록이 남는다고 말한다', (t) async {
+    testWidgets('한 번 묻는다 — 이 계정의 기록은 기기에 따로 보관돼 다시 로그인하면 돌아온다고 말한다', (t) async {
       await open(t);
       await t.tap(_logout);
       await t.pumpAndSettle();
       expect(find.byType(AlertDialog), findsOneWidget);
       expect(find.text('로그아웃할까요?'), findsOneWidget);
-      expect(find.text('이 기기와 내 계정의 기록은 그대로 남습니다 — 다시 로그인하면 이어집니다.'),
-          findsOneWidget);
+      expect(find.text('이 계정의 기록은 이 기기에 따로 보관돼, 다시 로그인하면 돌아와요.'), findsOneWidget);
+      expect(find.byKey(const Key('settings-logout-unsent')), findsNothing, reason: '못 보낸 것이 없으면 그 줄도 없음');
       expect(find.descendant(of: _cancel, matching: find.text('취소')), findsOneWidget);
       expect(find.descendant(of: _confirm, matching: find.text('로그아웃')), findsOneWidget);
     });
@@ -181,7 +211,10 @@ void main() {
       expect(_logout, findsOneWidget);
     });
 
-    testWidgets('「로그아웃」 — api.signOut 로 로그아웃하고 설정을 닫는다, 기기 기록은 남는다', (t) async {
+    /* 예전 이 시험은 "로그아웃해도 이 기기의 기록이 화면에 남는다" 를 기대값으로 굳혀 두었습니다 —
+       그 기록이 다음에 가입한 계정으로 올라갔습니다(피드백 52). 이제는 이 계정의 칸으로 치워지고,
+       같은 계정으로 돌아오면 그대로 돌아옵니다. */
+    testWidgets('「로그아웃」 — api.signOut 로 로그아웃하고 설정을 닫는다, 기록은 이 계정의 칸으로', (t) async {
       final s = await open(t);
       await t.tap(_logout);
       await t.pumpAndSettle();
@@ -198,9 +231,45 @@ void main() {
       expect(find.byType(SettingsScreen), findsNothing, reason: '셸이 로그인 화면으로 바뀌니 설정은 닫습니다');
       expect(find.text('첫 화면'), findsOneWidget);
 
-      /* 다이얼로그가 "이 기기의 기록은 그대로 남습니다" 라고 했습니다. */
-      expect((s.app.state['scans'] as List?) ?? const [], hasLength(1));
+      expect((s.app.state['scans'] as List?) ?? const [], isEmpty,
+          reason: '다음 사람의 「로그인 없이 쓰기」 · 다음 계정에 보이면 안 됩니다');
+      expect(s.app.state['onboarded'], isNot(true));
+      expect(sp.getString('${kSlotPrefix}https://x.test|u1.state'), contains('s1'), reason: '이 기기에 따로 보관');
+
+      /* 같은 계정으로 다시 로그인하면 돌아옵니다. */
+      await s.api.signIn(handle: 'me', password: 'pw');
+      await t.pumpAndSettle();
+      expect((s.app.state['scans'] as List).map((x) => (x as Map)['id']), ['s1']);
       expect(s.app.state['onboarded'], isTrue);
+    });
+
+    testWidgets('로그아웃 전에 못 보낸 것부터 — 3초 모으던 변경도 먼저 이 계정으로 보낸다', (t) async {
+      final s = await open(t, debounce: const Duration(minutes: 1));
+      s.app.store.addScan({'id': 's2', 'weightKg': 79.5, 'smmKg': 35.1, 'bfmKg': 17.6,
+          'measuredAt': '2026-09-20T00:00:00.000Z'});
+      await t.pump();
+      expect(s.seen, isNot(contains('POST /sync/push')), reason: '아직 모으는 중');
+      await t.tap(_logout);
+      await t.pumpAndSettle();
+      await t.tap(_confirm);
+      await t.pumpAndSettle();
+      expect(s.seen, contains('POST /sync/push'));
+      expect(s.seen.indexOf('POST /sync/push'), lessThan(s.seen.indexOf('POST /auth/signout')),
+          reason: '토큰이 살아 있을 때 보내야 이 계정으로 갑니다');
+    });
+
+    testWidgets('못 보낸 것이 있으면 확인창이 건수를 말한다', (t) async {
+      final s = await open(t, failing: {'/friends/block'});
+      s.queue.add('block', {'userId': 'f2'});
+      await t.pump();
+      expect(s.queue.pending, 1);
+      await t.tap(_logout);
+      await t.pumpAndSettle();
+      expect(find.byKey(const Key('settings-logout-unsent')), findsOneWidget);
+      expect(find.textContaining('못 보낸 것 1건'), findsOneWidget);
+      await t.tap(_cancel);
+      await t.pumpAndSettle();
+      s.queue.clear();   // 다시 보내기 타이머를 남기지 않습니다
     });
 
     testWidgets('서버가 느리면 끝날 때까지 버튼을 막고 「로그아웃하는 중…」', (t) async {

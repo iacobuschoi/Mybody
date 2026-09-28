@@ -3,7 +3,8 @@
  *
  * 스위치 하나, 마지막으로 맞춘 때 한 줄, 「지금 동기화」 단추. 스위치는
  * settings.cloudSync 에 남고 cloud.dart 가 그걸 봅니다 — 끄면 올리지도
- * 받지도 않습니다. 설치할 때 온보딩이 같은 스위치를 먼저 묻습니다.
+ * 받지도 않고, 큐에 남은 못 보낸 기록 사본(syncState)도 치웁니다. 설치할 때
+ * 온보딩이 같은 스위치를 먼저 묻습니다.
  *
  * 로그인이 안 돼 있으면 스위치는 그대로 두고(다음에 로그인하면 그대로
  * 먹습니다) 로그인이 필요하다고만 말합니다.
@@ -23,6 +24,7 @@ String syncResultLabel(String? r) => switch (r) {
       'rejected' => '서버가 거절함',
       'stale' => '보내는 중',
       'off' => '꺼짐',
+      'owner' => '멈춤',
       _ => '',
     };
 
@@ -36,6 +38,7 @@ String syncNowMessage(String r, {String? error}) => switch (r) {
       'rejected' => error ?? '서버가 거절했습니다',
       'stale' => '보내는 중입니다 — 잠시 뒤 다시 확인합니다',
       'off' => '동기화가 꺼져 있습니다',
+      'owner' => error ?? '이 기기의 기록이 이 계정 것인지 몰라 멈췄어요',
       _ => error ?? '지금은 할 것이 없습니다',
     };
 
@@ -79,7 +82,11 @@ class SyncSettingsCard extends StatelessWidget {
           subtitle: Text('기기를 바꿔도 기록이 따라옵니다 — 사진은 안 올라갑니다',
               style: t.textTheme.labelSmall),
           value: on,
-          onChanged: (v) => app.store.set({'settings': {...settings, 'cloudSync': v}}),
+          onChanged: (v) {
+            app.store.set({'settings': {...settings, 'cloudSync': v}});
+            /* 끄면 못 보낸 기록 사본도 치웁니다 — 끈 뒤에 망이 돌아왔다고 올라가면 안 됩니다. */
+            if (!v) context.getInheritedWidgetOfExactType<Scope>()?.queue?.dropOp('syncState');
+          },
         ),
         if (!api.signedIn)
           Text('로그인하면 동기화됩니다 — 지금은 이 기기에만 저장됩니다.',

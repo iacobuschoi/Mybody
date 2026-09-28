@@ -60,7 +60,11 @@ class _GoalScreenState extends State<GoalScreen> {
   /* 키보드의 「다음」 이 체중 → 골격근 → 체지방 순으로 옮겨 가게. */
   final _sFocus = FocusNode();
   final _pFocus = FocusNode();
-  int? _deadlineWeeks;
+  /// 저장된 목표의 주수(기간 길에서 정한 것). 기간 판을 그 주수에서 여는 데만 씁니다.
+  /// 체성분 길에는 마감 칸이 없어서(주는 다음 강도 화면에서 고릅니다) 모드 · 강도
+  /// 계산에는 넘기지 않습니다 — 모드 규칙은 마감을 보고 리컴프를 감량으로 바꾸거나
+  /// 거절까지 해서, 화면에 없는 값이 모드를 몰래 바꾸게 됩니다.
+  int? _savedWeeks;
   String? _manualModeId;
   bool _seeded = false;
   bool _showWhy = false;
@@ -121,7 +125,7 @@ class _GoalScreenState extends State<GoalScreen> {
     _s.text = core.toFixed(core.jsToNumber(g['smmKg']), 1);
     _p.text = core.toFixed(
         core.jsToNumber(g['bfmKg']) / core.jsToNumber(g['weightKg']) * 100, 1);
-    _deadlineWeeks = goal?['deadlineWeeks'] == null ? null : core.jsToNumber(goal!['deadlineWeeks']).toInt();
+    _savedWeeks = goal?['deadlineWeeks'] == null ? null : core.jsToNumber(goal!['deadlineWeeks']).toInt();
     _manualModeId = goal?['manualModeId'] as String?;
   }
 
@@ -134,15 +138,6 @@ class _GoalScreenState extends State<GoalScreen> {
     return {'weightKg': weight, 'smmKg': smm, 'bfmKg': core.r1(weight - ffm)};
   }
 
-  /// 마감 칩. 기간 화면에서 온 목표의 주수(예: 20주)는 칩에 없을 수 있어서
-  /// 그 값도 한 칸 넣습니다 — 안 넣으면 골라져 있는데 안 보입니다.
-  List<int?> get _deadlineChoices {
-    const base = [8, 12, 16, 24, 40];
-    final d = _deadlineWeeks;
-    final all = [...base, if (d != null && !base.contains(d)) d]..sort();
-    return [null, ...all];
-  }
-
   Map<String, Object?> get _goal {
     final w = double.tryParse(_w.text.trim());
     final pct = double.tryParse(_p.text.trim());
@@ -150,7 +145,6 @@ class _GoalScreenState extends State<GoalScreen> {
         'weightKg': w,
         'smmKg': double.tryParse(_s.text.trim()),
         'bfmKg': (w == null || pct == null) ? null : core.r1(w * pct / 100),
-        if (_deadlineWeeks != null) 'deadlineWeeks': _deadlineWeeks,
         if (_manualModeId != null) 'manualModeId': _manualModeId,
       };
   }
@@ -179,7 +173,7 @@ class _GoalScreenState extends State<GoalScreen> {
       body: ListView(
           padding: const EdgeInsets.all(16),
           /* 끌어 내리면 키보드도 내려갑니다 — 아이폰 숫자 패드에는 완료 키가 없고,
-             세 칸을 채운 뒤 아래 모드 · 마감 카드를 봐야 합니다. */
+             세 칸을 채운 뒤 아래 모드 카드를 봐야 합니다. */
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           children: [
         _chooser(),
@@ -197,11 +191,11 @@ class _GoalScreenState extends State<GoalScreen> {
           ]),
         ),
         if (_how == GoalHow.duration)
-          /* 마감 칩을 골라 뒀으면 기간 판도 그 주수에서 엽니다 — 강도 화면이 「기간으로
-             정하기」를 권해서 돌아온 사람은 방금 그 마감으로 계산해 보고 온 것입니다. */
+          /* 기간 길로 정한 목표가 있으면 그 주수에서, 없으면 12주에서 엽니다(여섯 달
+             물음에서 왔으면 여섯 달까지 — _next). */
           DurationPanel(
               key: const Key('duration-panel'),
-              initialWeeks: _deadlineWeeks ?? kDurationDefault)
+              initialWeeks: _savedWeeks ?? kDurationDefault)
         else
           ..._bodyForm(context, app, cur, profile),
       ]),
@@ -295,20 +289,8 @@ class _GoalScreenState extends State<GoalScreen> {
           title: '목표 체지방률 ${n1(targetPbf)}% 는 하한 $floorPct% 보다 낮습니다.',
           text: ' 필수 체지방 $essentialPct% 근처라 계획을 만들지 않습니다.',
         ),
-      MbCard(
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          /* "정해 두면 그 안에 되는지 따져 봅니다" 설명은 뺐습니다 — 제목과 칩이면 됩니다. */
-          const SectionTitle('마감 (선택)'),
-          Wrap(spacing: 8, children: [
-            for (final w in _deadlineChoices)
-              ChoiceChip(
-                label: Text(w == null ? '없음' : '$w주'),
-                selected: _deadlineWeeks == w,
-                onSelected: (_) => setState(() => _deadlineWeeks = w),
-              ),
-          ]),
-        ]),
-      ),
+      /* 「마감 (선택)」 카드는 뺐습니다 — 바로 다음 강도 화면에서 주를 고르니 두 번
+         고르는 셈이었습니다. */
       if (sel != null) ...[
         if (refused)
           Note(tone: Tone.bad, title: '이 목표로는 계획을 만들지 않습니다.', text: ' ${sel['message']}')
@@ -391,7 +373,6 @@ class _GoalScreenState extends State<GoalScreen> {
         cur: cur,
         goal: g,
         profile: profile,
-        deadlineWeeks: _deadlineWeeks,
         manualModeId: _manualModeId,
       );
 
@@ -462,7 +443,13 @@ class _GoalScreenState extends State<GoalScreen> {
     /* 강도 화면이 「기간으로 정하기」를 들고 돌아오면 기간 모드로. 계획을
        세우고 돌아온 길(두 번 pop)에서는 이 화면도 같이 내려가서 여기 안 옵니다. */
     if (!mounted || answer != IntensityScreen.pickDuration) return;
-    setState(() => _how = GoalHow.duration);
+    setState(() {
+      _how = GoalHow.duration;
+      /* 방금 「장기 목표는 동기를 잃기 쉬워요」 를 보고 온 사람 — 저장된 주수가 여섯 달을
+         넘으면(기간 길은 52주까지) 판을 여섯 달에서 엽니다. */
+      final w = _savedWeeks;
+      if (w != null && w > kLongGoalWeeks) _savedWeeks = kLongGoalWeeks;
+    });
   }
 }
 

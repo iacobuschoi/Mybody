@@ -21,6 +21,8 @@ import 'package:mybody/src/publish.dart';
 import 'package:mybody/src/sync_queue.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'fake_accounts.dart' show FakeAccounts, Rig, recordsOfA;
+
 const _profile = {
   'sex': 'male', 'age': 22, 'heightCm': 187, 'activityLevel': 'moderate',
   'trainingAge': 'novice', 'daysPerWeek': 4, 'mealsPerDay': 3,
@@ -67,21 +69,36 @@ void main() {
     expect(payload['streaks'], isA<Map>(), reason: '스트릭');
   });
 
-  test('로그인하는 순간에도 한 번 올라간다', () async {
-    final api = Api(baseUrl: 'https://x.test', client: client());
-    final sp = await SharedPreferences.getInstance();
-    final q = SyncQueue(api: api, storage: PrefsQueue(sp));
-    final app = await AppState.boot();
-    app.store.set({'profile': _profile, 'onboarded': true});
-    app.store.addScan({'id': 's1', 'weightKg': 86.7, 'smmKg': 38.0, 'bfmKg': 20.0,
-        'measuredAt': '2026-03-01T00:00:00.000Z'});
-    wirePublishing(app, api, q);
-    await Future<void>.delayed(const Duration(milliseconds: 50));
-    expect(posts, isEmpty, reason: '로그인 전엔 보낼 곳이 없습니다');
-
-    await api.setToken('tok');   // 로그인 성공이 하는 일
+  /* 로그인하는 순간에도 한 번 — 다만 **이 기기의 기록이 그 계정의 것일 때만**(피드백 52).
+     예전 이 시험은 로그인 없이 쓴 기록이 로그인 알림에서 곧장 올라가는 것을 기대했습니다 —
+     그 길로 계정 A 의 요약이 새 계정 B 이름으로 나갔습니다. */
+  test('로그인하는 순간에도 한 번 올라간다 — 그 계정의 칸이 돌아왔을 때', () async {
+    final server = FakeAccounts()..add('a');
+    final r = await Rig.boot(server, prefs: {
+      'mybody.state.v1': jsonEncode({'version': 1, ...recordsOfA()}),
+      'mybody.owner.v1': jsonEncode({'server': 'https://x.test', 'uid': 'u_a'}),
+    }, signedInAs: 'a');
+    addTearDown(r.dispose);
+    await r.api.signOut();
+    final before = server.user('a').snapshots.length;
+    await r.api.signIn(handle: 'a', password: 'pw');
     await Future<void>.delayed(const Duration(milliseconds: 100));
-    expect(posts, hasLength(1));
+    expect(server.user('a').snapshots.length, before + 1);
+    expect(server.user('a').snapshots.last['owner'], 'u_a', reason: '누구의 요약인지 실어 서버가 봅니다');
+  });
+
+  test('로그인 없이 쓴 기록은 [합치기] 를 고른 때만 — 안 고르면 로그인해도 안 올라간다', () async {
+    for (final merge in [false, true]) {
+      final server = FakeAccounts()..add('b');
+      final r = await Rig.boot(server, prefs: {
+        'mybody.state.v1': jsonEncode({'version': 1, ...recordsOfA()}),
+        'mybody.owner.v1': '{}',
+      });
+      await r.api.signIn(handle: 'b', password: 'pw', askMerge: (_) async => merge);
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(server.user('b').snapshots, merge ? hasLength(1) : isEmpty, reason: '합치기: $merge');
+      r.dispose();
+    }
   });
 
   /* --- 키 · 체중 추정 --------------------------------------------------------- */

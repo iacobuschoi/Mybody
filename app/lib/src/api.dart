@@ -26,6 +26,13 @@
  * [ApiFeedbackInbox] 입니다. 캡처 사진만은 JSON 이 아니라 바이트로 받아서
  * [Api.send] 를 못 타고 따로 갑니다 — 토큰은 똑같이 머리에 붙입니다.
  * 같은 운영자의 「가입자 목록」 은 맨 아래 [ApiOperatorUsers] 입니다.
+ *
+ * **계정이 바뀌는 경계**(로그인 · 가입 · 복구 · 로그아웃 · 계정 지우기)는 여기서 한 길로 지납니다.
+ * 이 기기의 기록 칸을 갈아 끼우는 쪽([AccountSwitch] — local_owner.dart)을 **토큰을 알리기 전에**
+ * 기다립니다. 알림을 듣는 쪽(주간 요약 · 동기화 · 독촉 · 셸)은 알림 안에서 곧바로 기록을 읽고
+ * 보내므로, 칸을 알림 뒤에 바꾸면 앞 계정의 기록이 새 계정 토큰으로 먼저 나갑니다(피드백 52).
+ * 그래서 가입 · 로그인 응답의 user.id 도 버리지 않고 토큰과 같이 쥡니다 — 누구로 들어왔는지
+ * 알아야 칸의 주인과 견줄 수 있습니다.
  * ========================================================================== */
 import 'dart:async';
 
@@ -62,6 +69,32 @@ class ApiResult {
   }
 }
 
+/// 로그인할 때 이 기기에 있던 **주인 없는 기록**(로그인 없이 쓴 것 · 어느 계정 것인지 모르는 것)의
+/// 요약 — 이 계정에 합칠지 묻는 창(account.dart)이 씁니다. [latest] 는 「9/19 86.7kg」 꼴,
+/// [unknown] 이면 다른 계정의 기록일 수 있습니다(0.2.19 에서 올라온 기기).
+typedef LocalRecords = ({int scans, int foodLogs, String? latest, bool unknown});
+
+/// 주인 없는 기록을 이 계정에 합칠지 묻습니다. 참이면 합치고, 거짓이면 사람이 [합치지 않기] 를 고른
+/// 것입니다. null 은 고르지 않고 끝난 것(화면이 내려감) — 합치지 않되 다음 로그인에 다시 묻습니다.
+typedef MergeAsk = Future<bool?> Function(LocalRecords records);
+
+/// 계정이 바뀌는 경계에서 이 기기의 기록 칸을 바꾸는 쪽(local_owner.dart 의 AccountSlots).
+/// [Api] 가 **토큰을 알리기 전에** 부르고 기다립니다(머리 주석).
+abstract class AccountSwitch {
+  /// 서버가 로그인 · 가입 · 복구를 받아 준 뒤, 새 토큰을 알리기 전. [uid] 는 들어온 계정(모르면
+  /// null), [sess] 는 새 토큰의 표시([Api.sessionTagOf]). 던지면(이 기기에 못 적음) 로그인을 멈춥니다.
+  Future<void> beforeSignIn(Api api,
+      {required String? uid, required String sess, String? handle, MergeAsk? ask});
+
+  /// 로그아웃하기 전, 아직 로그인이 살아 있을 때 — 못 보낸 것을 그 계정으로 보내 봅니다.
+  Future<void> beforeSignOut(Api api);
+
+  /// 토큰을 (기기에서도) 지운 뒤, 알리기 전 — 그 계정의 칸을 치웁니다. [gone] 이면 계정을 지운 것,
+  /// [thenGuest] 면 다음 칸을 곧바로 「로그인 없이 쓰기」 로(동의 거절).
+  Future<void> afterSignOut(Api api,
+      {required String? uid, required String? sess, required bool gone, bool thenGuest = false});
+}
+
 /// 로그인 상태가 바뀌면(토큰이 생기거나 지워지면) 듣는 쪽에 알립니다 —
 /// 셸이 그걸 듣고 로그인 화면과 앱 사이를 오갑니다.
 class Api extends ChangeNotifier {
@@ -71,6 +104,14 @@ class Api extends ChangeNotifier {
   final String baseUrl;
   final http.Client _client;
   String? _token;
+
+  /// 계정이 바뀔 때 이 기기의 기록 칸을 바꾸는 쪽. main.dart 가 꽂습니다 — 없으면(시험 등)
+  /// 칸은 그대로입니다.
+  AccountSwitch? accounts;
+
+  /// 이 앱의 판 — 모든 요청의 'X-Mybody-App' 머리. main.dart 가 켤 때 채웁니다. 서버는 아직
+  /// 적어 두기만 하고 막지 않습니다 — 주인 표시를 모르는 옛 앱(0.2.19)과 가르는 표시입니다.
+  static String clientVersion = '';
 
   /// 이 로그인이 운영자인가(/me 의 user.isOperator). null 이면 아직 모름 — [me] 가 채웁니다.
   bool? _operator;
@@ -94,13 +135,32 @@ class Api extends ChangeNotifier {
 
   static const _tokenKey = 'mybody.token.v1';
 
+  /// 이 토큰의 계정 id — 토큰과 같이 적고 같이 지웁니다. 0.2.19 까지는 없던 칸이라, 그때
+  /// 로그인한 채 올라온 기기는 /me 를 한 번 받을 때 채웁니다.
+  static const _uidKey = 'mybody.token.uid.v1';
+
   String? get token => _token;
   bool get signedIn => _token != null && _token!.isNotEmpty;
+
+  /// 이 로그인(토큰)의 표시 — 토큰 자체가 아니라 거기서 만든 짧은 글자라 기기에 적어도 됩니다.
+  /// 계정 id 를 아직 모를 때(0.2.19 에서 올라온 첫 실행) 기록 칸 · 큐 작업의 주인을 이것으로 묶습니다.
+  String? get sessionTag => signedIn ? sessionTagOf(_token!) : null;
+
+  /// [sessionTag] 를 만드는 셈. 웹(자바스크립트 수)에서도 같은 값이 나오게 2^53 안에서만 곱합니다.
+  static String sessionTagOf(String token) {
+    var a = 5381, b = 7;
+    for (final c in token.codeUnits) {
+      a = (a * 33 + c) % 2147483647;
+      b = (b * 131 + c) % 2147483629;
+    }
+    return 's${a.toRadixString(36)}${b.toRadixString(36)}';
+  }
 
   Future<void> loadToken() async {
     try {
       final sp = await SharedPreferences.getInstance();
       _token = sp.getString(_tokenKey);
+      _userId = _token == null ? null : sp.getString(_uidKey);
     } catch (_) {
       /* 저장소를 못 읽어도 앱은 떠야 합니다 — 로그인만 다시 하면 됩니다. */
       _token = null;
@@ -108,23 +168,44 @@ class Api extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// 시험에서 로그인된 상태를 만들 때 씁니다. 앱 코드는 부르지 않습니다.
+  /// 시험에서 로그인된 상태를 만들 때 씁니다. 앱 코드는 부르지 않습니다. 기록 칸은 안 바꿉니다
+  /// ([accounts] 를 거치지 않음) — 그 경계를 보는 시험은 [signIn] 을 부릅니다.
   @visibleForTesting
-  Future<void> setToken(String? t) => _saveToken(t);
+  Future<void> setToken(String? t, {String? uid}) => _saveToken(t, uid: uid);
 
-  Future<void> _saveToken(String? t) async {
+  /// [before] 는 토큰을 메모리에서 바꾼 뒤, 알리기 전에 기다립니다(로그아웃의 칸 치우기).
+  Future<void> _saveToken(String? t, {String? uid, Future<void> Function()? before}) async {
     /* 로그인이 바뀌면 운영자인지도, 운영자로 받아 둔 캡처도 앞 사람 것입니다 — 같은 기기에서
        다른 계정으로 들어온 사람에게 앞 운영자의 의견 사진이 캐시에서 나오면 안 됩니다. */
     if (t != _token) _forgetAccountMemory();
     _token = t;
+    if (t != null && uid != null) _userId = uid;
+    /* 로그아웃은 **토큰부터 기기에서** 지웁니다 — 칸을 치우다(before) 앱이 죽어도 다음에 켜면
+       로그아웃된 채라, 반쯤 치운 칸이 이 로그인으로 나가지 않고 켤 때 마저 치웁니다(local_owner.dart). */
+    if (t == null) {
+      try {
+        final sp = await SharedPreferences.getInstance();
+        await sp.remove(_tokenKey);
+        await sp.remove(_uidKey);
+      } catch (_) {}
+    }
+    if (before != null) {
+      try {
+        await before();
+      } catch (_) {/* 칸을 못 치웠어도 로그아웃은 됩니다 — 보내는 쪽이 주인을 다시 봅니다 */}
+    }
     notifyListeners();   // 저장보다 먼저 — 화면은 지금 바뀌어야 합니다
     try {
       final sp = await SharedPreferences.getInstance();
       if (t == null) {
-        await sp.remove(_tokenKey);
         await clearAccountCaches();
       } else {
         await sp.setString(_tokenKey, t);
+        if (uid != null) {
+          await sp.setString(_uidKey, uid);
+        } else {
+          await sp.remove(_uidKey);
+        }
       }
     } catch (_) {/* 못 적어도 이번 실행 동안은 씁니다 */}
   }
@@ -154,11 +235,14 @@ class Api extends ChangeNotifier {
   Future<ApiResult> send(String method, String path, [Map<String, dynamic>? body]) =>
       _send(method, path, body);
 
-  Future<ApiResult> _send(String method, String path, [Map<String, dynamic>? body]) async {
+  /// [bearer] 는 아직 알리지 않은 새 토큰으로 물을 때(로그인 응답에 user 가 없던 옛 서버의 /me).
+  Future<ApiResult> _send(String method, String path, [Map<String, dynamic>? body, String? bearer]) async {
     final uri = Uri.parse('$baseUrl/api$path');
+    final auth = bearer ?? (signedIn ? _token : null);
     final headers = <String, String>{
       'Content-Type': 'application/json',
-      if (signedIn) 'Authorization': 'Bearer $_token',
+      'X-Mybody-App': clientVersion.isEmpty ? '?' : clientVersion,
+      if (auth != null) 'Authorization': 'Bearer $auth',
     };
     try {
       final req = http.Request(method, uri)
@@ -253,12 +337,17 @@ class Api extends ChangeNotifier {
     });
   }
 
+  /// [askMerge] — 이 기기에 주인 없는 기록이 있으면 이 계정에 합칠지 묻는 창(없으면 안 합칩니다).
+  /// [beforeToken] — 서버가 받아 준 뒤, 새 토큰을 알리기 **전에** 기다립니다. 가입의 복구 코드 창이
+  /// 씁니다: 알린 뒤에 띄우면 셸이 로그인 화면을 내리면서 창을 띄울 자리가 사라질 수 있습니다.
   Future<ApiResult> signUp({
     required String handle,
     required String password,
     required String displayName,
     String? pairSecret,
     required String healthConsent,
+    MergeAsk? askMerge,
+    Future<void> Function(ApiResult r)? beforeToken,
   }) async {
     final r = await _send('POST', '/auth/signup', {
       'handle': handle,
@@ -267,7 +356,9 @@ class Api extends ChangeNotifier {
       if (pairSecret != null && pairSecret.isNotEmpty) 'pairSecret': pairSecret,
       'healthConsent': healthConsent,
     });
-    if (r.ok && r.body['token'] is String) await _saveToken(r.body['token'] as String);
+    if (r.ok && r.body['token'] is String) {
+      return await _signedIn(r, handle: handle, ask: askMerge, beforeToken: beforeToken, created: true) ?? r;
+    }
     return r;
   }
 
@@ -279,23 +370,103 @@ class Api extends ChangeNotifier {
     required String handle,
     required String code,
     required String password,
+    MergeAsk? askMerge,
+    Future<void> Function(ApiResult r)? beforeToken,
   }) async {
     final r = await _send('POST', '/auth/recover',
         {'handle': handle, 'code': code, 'password': password});
-    if (r.ok && r.body['token'] is String) await _saveToken(r.body['token'] as String);
+    if (r.ok && r.body['token'] is String) {
+      return await _signedIn(r, handle: handle, ask: askMerge, beforeToken: beforeToken) ?? r;
+    }
     return r;
   }
 
-  Future<ApiResult> signIn({required String handle, required String password}) async {
+  Future<ApiResult> signIn({
+    required String handle,
+    required String password,
+    MergeAsk? askMerge,
+    Future<void> Function(ApiResult r)? beforeToken,
+  }) async {
     final r = await _send('POST', '/auth/signin', {'handle': handle, 'password': password});
-    if (r.ok && r.body['token'] is String) await _saveToken(r.body['token'] as String);
+    if (r.ok && r.body['token'] is String) {
+      return await _signedIn(r, handle: handle, ask: askMerge, beforeToken: beforeToken) ?? r;
+    }
     return r;
   }
 
-  Future<void> signOut() async {
+  /* 서버가 받아 준 로그인 — 계정 id 를 쥐고, 칸을 바꾸고([accounts]), 그다음에 토큰을 알립니다
+     (머리 주석). 칸을 다 못 바꿨으면(이 기기에 못 적음 — 저장 공간) **로그인을 멈춥니다**: 반쯤 바뀐
+     칸으로 로그인하면 빈 칸이 이 계정의 것이 되어 동기화가 계정 사본을 "다 지웠다" 로 읽을 수
+     있습니다(2차 검토). 받은 토큰은 서버에서도 끝냅니다. 돌려주는 것은 멈춘 까닭(되면 null). */
+  Future<ApiResult?> _signedIn(ApiResult r,
+      {String? handle, MergeAsk? ask, Future<void> Function(ApiResult r)? beforeToken,
+      bool created = false}) async {
+    final t = r.body['token'] as String;
+    var uid = _idOf(r.body['user']);
+    final hook = accounts;
+    /* 옛 서버가 user 를 안 실었으면 그 토큰으로 /me 를 한 번 — 칸의 주인으로 씁니다. */
+    if (uid == null && hook != null) {
+      final me = await _send('GET', '/me', null, t);
+      if (me.ok) uid = _idOf(me.body['user']);
+    }
+    if (beforeToken != null) {
+      try {
+        await beforeToken(r);
+      } catch (_) {}
+    }
+    if (hook != null) {
+      try {
+        await hook.beforeSignIn(this, uid: uid, sess: sessionTagOf(t), handle: handle, ask: ask);
+      } catch (_) {
+        unawaited(_send('POST', '/auth/signout', null, t));
+        return ApiResult(0, {
+          'ok': false,
+          'reason': created
+              ? '계정은 만들었어요 — 이 기기에 저장하지 못해 멈췄어요. 공간을 비우고 로그인해 주세요'
+              : '이 기기에 저장하지 못해 멈췄어요 — 공간을 비우고 다시 해 주세요',
+        });
+      }
+    }
+    await _saveToken(t, uid: uid);
+    return null;
+  }
+
+  static String? _idOf(Object? user) {
+    final id = user is Map ? user['id'] : null;
+    return id is String && id.isNotEmpty ? id : null;
+  }
+
+  /// 로그아웃. 설정 · 계정 관리 · 동의 거절 · 전부 지우기가 모두 이 길입니다 — 로그아웃하기 전에
+  /// 못 보낸 것을 그 계정으로 보내 보고([AccountSwitch.beforeSignOut]), 토큰을 지운 뒤 알리기 전에
+  /// 그 계정의 칸을 치웁니다. [flush] 가 거짓이면 보내 보지 않습니다(동의 거절 — 새 문구에 동의하지
+  /// 않은 사람의 기록을 그 자리에서 올리지 않게. 못 보낸 것은 치운 칸에 남았다가 돌아오면 갑니다).
+  /// [thenGuest] 면 다음 칸이 곧바로 「로그인 없이 쓰기」 입니다(동의 거절) — 다른 로그아웃은 로그인
+  /// 화면으로 갑니다.
+  Future<void> signOut({bool flush = true, bool thenGuest = false}) =>
+      _endSession(flush: flush, thenGuest: thenGuest);
+
+  /// 「계정 지우기」 — 서버에서 지우고, 됐으면 로그아웃합니다. 계정이 없으니 보내 볼 것도,
+  /// 치워 둘 칸도 없습니다([AccountSwitch.afterSignOut] 의 gone).
+  Future<ApiResult> deleteAccount() async {
+    final r = await deleteMe();
+    if (r.ok) await _endSession(flush: false, gone: true);
+    return r;
+  }
+
+  Future<void> _endSession({bool flush = true, bool gone = false, bool thenGuest = false}) async {
+    final hook = accounts;
+    if (flush && signedIn && hook != null) {
+      try {
+        await hook.beforeSignOut(this);
+      } catch (_) {}
+    }
+    final uid = userId, sess = sessionTag;
     /* 서버에 먼저 말하고 지웁니다. 순서가 반대면 토큰이 없어서 말을 못 합니다. */
-    if (signedIn) await _send('POST', '/auth/signout');
-    await _saveToken(null);
+    if (signedIn && !gone) await _send('POST', '/auth/signout');
+    await _saveToken(null,
+        before: hook == null
+            ? null
+            : () => hook.afterSignOut(this, uid: uid, sess: sess, gone: gone, thenGuest: thenGuest));
   }
 
   /// 내 계정. 받을 때마다 운영자인지([isOperator])를 적어 둡니다 — 셸 · 친구 탭 · 계정 화면이
@@ -307,10 +478,20 @@ class Api extends ChangeNotifier {
     if (r.ok && asked == _token) {
       final u = r.body['user'];
       _operator = isOperatorUser(u);
-      final id = u is Map ? u['id'] : null;
-      _userId = id is String && id.isNotEmpty ? id : null;
+      final id = _idOf(u);
+      /* 처음 알게 된 id 는 토큰 곁에 적어 둡니다 — 다음 실행부터는 묻지 않아도 압니다
+         (0.2.19 에서 로그인한 채 올라온 기기). */
+      if (id != null && id != _userId && asked != null) unawaited(_rememberUid(asked, id));
+      _userId = id;
     }
     return r;
+  }
+
+  Future<void> _rememberUid(String forToken, String id) async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      if (_token == forToken && sp.getString(_tokenKey) == forToken) await sp.setString(_uidKey, id);
+    } catch (_) {}
   }
 
   /// 이 로그인의 계정 id — [me] 를 한 번 받은 뒤에 압니다(모르면 null). 계정마다 한 번만
@@ -352,7 +533,7 @@ class Api extends ChangeNotifier {
   Future<bool> sessionAlive() async {
     final r = await me();
     if (r.status == 401) {
-      await _saveToken(null);
+      await _endSession(flush: false);
       return false;
     }
     return r.ok;
@@ -670,7 +851,8 @@ extension ApiFeedbackInbox on Api {
     if (!signedIn) return null;
     try {
       final req = http.Request('GET', Uri.parse('$baseUrl/api/feedback/inbox/$id/image/$n'))
-        ..headers['Authorization'] = 'Bearer $asked';
+        ..headers['Authorization'] = 'Bearer $asked'
+        ..headers['X-Mybody-App'] = Api.clientVersion.isEmpty ? '?' : Api.clientVersion;
       /* 몸통까지 다 받는 데 30초 — 캡처 한 장이 1.5MB 까지라 [_send] 의 20초(머리만)보다 넉넉히.
          머리만 제한하면 느린 데이터에서 몸통을 받다가 영영 멈춘 채 자리표시로 남습니다. */
       final res = await () async {

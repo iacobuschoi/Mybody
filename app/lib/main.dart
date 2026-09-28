@@ -31,11 +31,13 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/api.dart';
 import 'src/cloud.dart';
 import 'src/invite_link.dart';
+import 'src/local_owner.dart';
 import 'src/native_push.dart';
 import 'src/news_store.dart';
 import 'src/nudge.dart';
@@ -166,12 +168,27 @@ class _MyBodyAppState extends State<MyBodyApp> {
     /* 로그아웃 직전에 이 기기의 앱 알림 등록을 지우는 Api — 로그아웃 버튼이 여러 화면에 있어
        한 곳에서 잡습니다(native_push.dart). */
     final api = PushAwareApi(baseUrl: base);
+    /* 모든 요청에 이 앱의 판을 싣습니다(X-Mybody-App) — 모르면 '?' 로 갑니다. */
+    unawaited(() async {
+      try {
+        Api.clientVersion = (await PackageInfo.fromPlatform()).version;
+      } catch (_) {}
+    }());
     await api.loadToken();
     _queue = await _makeQueue(api);
     final app = await AppState.boot();
+    /* 이 기기의 기록이 누구 것인지(local_owner.dart) — 0.2.19 에서 올라왔으면 먼저 주인을 적고,
+       계정이 바뀔 때 칸을 갈아 끼우는 쪽을 Api 에 꽂습니다. 주간 요약 · 동기화보다 먼저입니다 —
+       그 둘은 칸의 주인이 지금 로그인일 때만 보냅니다. */
+    final slots = _slots = AccountSlots(app: app, queue: _queue, invites: widget.invites);
+    await slots.migrate(api);
+    api.accounts = slots;
     wirePublishing(app, api, _queue);
     /* 기록을 내 계정에 — 켤 때 받아 보고, 저장하면 올립니다. */
     _cloud = CloudSync(app: app, api: api, queue: _queue)..wire();
+    slots.cloud = _cloud;
+    /* 이관이 주인을 붙인 옛 작업이 있으면 지금 밀어 봅니다. */
+    unawaited(_queue?.flush());
     unawaited(_cloud!.pull());
     /* 새 판 안내 — 켤 때와 돌아올 때 묻습니다. 로그인과 상관없습니다:
        APK 로 깐 친구는 로그인 없이 쓰더라도 새 판을 알아야 합니다. */
@@ -215,6 +232,7 @@ class _MyBodyAppState extends State<MyBodyApp> {
   }
 
   SyncQueue? _queue;
+  AccountSlots? _slots;
   Timer? _nudgeTimer;
   CloudSync? _cloud;
   UpdateCheck? _update;
@@ -290,6 +308,7 @@ class _MyBodyAppState extends State<MyBodyApp> {
     } catch (_) {}
     final api = PushAwareApi(baseUrl: clean);
     await api.loadToken();
+    api.accounts = _slots;
     /* 앱 알림 등록도 새 서버로. 옛 서버의 세션은 살아 있으므로 그냥 두면 옛 계정의 알림이
        이 폰으로 계속 옵니다 — attach 가 옛 서버에 이 기기를 빼 달라고 말하고, 토큰도 새로 받아
        새 서버에만 등록합니다(native_push.dart). */
@@ -298,10 +317,12 @@ class _MyBodyAppState extends State<MyBodyApp> {
        담겨 있던 일은 저장소에 남아 있어서 그대로 이어집니다. */
     final q = await _makeQueue(api);
     final app = _app;
+    _slots?.queue = q;
     if (app != null) {
       wirePublishing(app, api, q);
       _cloud?.dispose();
       _cloud = CloudSync(app: app, api: api, queue: q)..wire();
+      _slots?.cloud = _cloud;
       unawaited(_cloud!.pull());
     }
     /* 새 서버에 다시 묻습니다 — 지난 답은 옛 서버의 것입니다. */
@@ -351,6 +372,7 @@ class _MyBodyAppState extends State<MyBodyApp> {
       queue: _queue,
       update: _update,
       cloud: _cloud,
+      slots: _slots,
       onServerChange: _setServer,
       child: app,
     );

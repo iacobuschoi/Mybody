@@ -144,7 +144,10 @@ class _SocialScreenState extends State<SocialScreen> {
     final friends = ((f.body['friends'] as Map?)?['accepted'] as List?) ?? const [];
     /* 친구마다 한 번씩 — 차례로 기다리면 친구 수만큼 느려집니다. 한꺼번에. */
     final people = [for (final p in friends) if ((p as Map)['id'] is String) p];
+    final asked = api.token;
     final results = await Future.wait([for (final p in people) api.friendSnapshots('${p['id']}')]);
+    /* 기다리는 사이 계정이 바뀌었으면 앞 계정 친구들의 소식 — 새 칸에 적지 않습니다(local_owner.dart). */
+    if (asked != api.token) return;
     final snaps = <Object?>[];
     for (var i = 0; i < people.length; i++) {
       final p = people[i];
@@ -1100,7 +1103,7 @@ class _PokeButtonState extends State<_PokeButton> {
     if (!mounted) return;
     setState(() { _busy = false; _sent = r.ok || r.body['already'] == true; });
     if (r.ok) {
-      toast(context, '$name님에게 운동 독촉을 보냈습니다 💪');
+      toast(context, '$name님에게 운동 독촉을 보냈습니다');
     } else {
       toast(context, r.reason);
     }

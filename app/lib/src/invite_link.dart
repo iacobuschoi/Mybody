@@ -513,6 +513,27 @@ class InviteInbox extends ChangeNotifier {
     } catch (_) {/* 못 읽으면 쥔 것이 없는 것 */}
   }
 
+  /// 계정 칸이 바뀐 뒤(local_owner.dart) — 꺼내 간 코드 목록은 계정마다라 새 칸의 것을 다시 읽습니다.
+  /// 쥐고 있는 코드([pending])는 기기의 것이라 그대로 둡니다(로그인 없이 받은 초대를 들어온 계정이 보냄).
+  Future<void> reloadHandled() async {
+    try {
+      final sp = await SharedPreferences.getInstance();
+      final h = jsonDecode(sp.getString(_handledKey) ?? '[]');
+      _handled
+        ..clear()
+        ..addAll(h is List ? h.whereType<String>().where(isInviteCode) : const <String>[]);
+    } catch (_) {
+      _handled.clear();
+    }
+  }
+
+  /// 「이 기기에서 전부 지우기」 — 쥔 코드도, 꺼내 간 목록도 잊습니다(저장된 칸은 부른 쪽이 지웁니다).
+  void forgetAll() {
+    _pending = null;
+    _handled.clear();
+    if (!_disposed) notifyListeners();
+  }
+
   Future<void> _save() async {
     try {
       final sp = await SharedPreferences.getInstance();

@@ -63,8 +63,9 @@ const DEFAULTS = {
   db: '',
   /* 앱 안 업데이트 안내(GET /api/version) — tools/app-version.js 로 고칩니다.
      가게마다 따로 둡니다. 같은 판이라도 올라가는 날이 다릅니다 — APK 는
-     릴리스 바로 뒤, 플레이는 출시 뒤, 앱스토어는 심사가 끝난 뒤입니다.
-     빈 값이면 그 가게로 깐 사람에게는 새 판 안내를 안 합니다. */
+     릴리스 바로 뒤, 앱스토어는 심사가 끝난 뒤, 플레이는 비공개(나중엔
+     프로덕션) 트랙 게시 뒤, TestFlight 는 friends 베타 심사 승인 뒤 —
+     내부 테스트로는 안 올립니다(server/appversion.js). 빈 값이면 그 가게로 깐 사람에게는 새 판 안내를 안 합니다. */
   appLatestAppStore: '',
   appLatestTestFlight: '',
   appLatestPlay: '',

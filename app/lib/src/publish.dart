@@ -16,22 +16,33 @@
  * 한 줄로 찍습니다). 스냅샷을 만드는 코어(weeklySnapshot)는 원본 자바스크립트와
  * 짝이라 건드리지 않고, 나가기 직전 이 고리에서 거릅니다. 거르고 나니 남는 게
  * 없으면 안 올립니다 — "빈 스냅샷은 안 올립니다" 규칙 그대로입니다.
+ *
+ * **이 기기의 기록이 지금 로그인한 계정의 것일 때만** 올립니다(피드백 52 — local_owner.dart).
+ * 예전엔 로그인하는 순간의 알림에서 앞 계정의 기록으로 만든 요약이 새 계정 이름으로 나갔습니다.
+ * 요약에는 누구의 것인지(owner)를 실어, 서버가 다른 계정의 것이면 409 로 거절합니다.
  * ========================================================================== */
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import 'api.dart';
 import 'app_state.dart';
 import 'estimate.dart';
+import 'local_owner.dart';
 import 'sync_queue.dart';
 
 void wirePublishing(AppState app, Api api, SyncQueue? queue) {
-  app.store.currentUser = () => api.signedIn ? api.token : null;
+  /* 칸의 주인이 지금 로그인이 아니면 "로그인 안 함" 과 같이 아무것도 안 올립니다. */
+  app.store.currentUser = () => mayLeave(app, api) ? api.token : null;
   app.store.publishSnapshot = (weekStart, snap) {
     if (queue == null) return {'ok': false, 'reason': '큐가 없습니다'};
     final clean = withoutEstimatedBody(snap,
         scans: app.store.sortedScans(), plan: app.state['plan']);
     if (!core.Store.hasAnything(clean)) return {'ok': false, 'reason': '추정치뿐'};
-    queue.add('snapshot', {'weekStart': weekStart, 'payload': clean});
+    /* 요약을 만든 기록 칸의 주인 — 토큰이 아니라 칸의 것을 먼저 싣습니다(cloud.dart _owned 와 같은 까닭). */
+    final owner = app.owner.current?.uid ?? api.userId;
+    queue.add('snapshot', {
+      'weekStart': weekStart,
+      'payload': {...clean, if (owner != null) 'owner': owner},
+    });
     return {'ok': true, 'queued': true};
   };
   /* 로그인하는 순간에도 한 번. 저장이 있어야만 올라가면, 방금 로그인한

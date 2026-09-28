@@ -6,6 +6,8 @@
  * 시계는 [WorkoutSessionScreen.clock] 과 store.now 로 세워 둡니다 — 시험이
  * 진짜 40분을 기다릴 수는 없습니다.
  * ========================================================================== */
+import 'dart:convert';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -488,6 +490,162 @@ void main() {
       }
       final btn = t.widget<FilledButton>(find.widgetWithText(FilledButton, '전체 완료'));
       expect(btn.onPressed, isNull);
+    });
+  });
+
+  /* 피드백 49 — "저장안함도 있었으면..". 종료 시트를 그냥 닫으면 시계가 다시 돕니다(실수
+     「종료」 보호). 버리는 길은 「저장」 밑 「저장 안 함」 한 번 — 기록 · 체크 없이 화면이
+     닫힙니다. 뒤로가기의 「나가기」 와 같은 길(_leave).
+     이어 할 상태는 원래 어디에도 저장하지 않아서(다시 열면 늘 새 화면) 다시 열어 보는
+     시험은 두지 않습니다 — 이어 하기가 생기면 그 상태를 심어 두고 지워지는지 보세요. */
+  group('저장 안 함 (피드백 49)', () {
+    /// 버린 뒤 — 화면 닫힘 · 기록 없음 · 체크 없음 · 저장소 그대로(열기 전 [before] 와 같음).
+    void nothingLeft(AppState app, String day, String before) {
+      expect(find.byType(WorkoutSessionScreen), findsNothing, reason: '한 번이면 화면이 닫힙니다');
+      final d = app.store.scheduleDay(day);
+      expect(d['log'], isNull, reason: '기록이 남으면 안 됩니다: $d');
+      expect((d['done'] as Map).values.where(core.jsTruthy), isEmpty, reason: '체크도 없습니다: $d');
+      expect(jsonEncode(app.state), before, reason: '저장소에 아무것도 적지 않습니다');
+    }
+
+    testWidgets('헬스 — 세트까지 하고 「저장 안 함」 한 번이면 기록 없이 닫힌다', (t) async {
+      final app = await seeded();
+      final day = gymDay(app);
+      final before = jsonEncode(app.state);
+      await open(t, app, WorkoutSessionScreen(dateKey: day, type: 'gym'));
+      await t.tap(find.text('시작'));
+      await t.pump();
+      now = now.add(const Duration(minutes: 30));
+      await t.tap(anySetButton().first);   // 휴식도 돕니다
+      await t.pump();
+
+      /* 시트를 그냥 닫으면 시계가 다시 돕니다 — 실수로 누른 「종료」 보호는 그대로. */
+      await t.tap(find.text('종료'));
+      await t.pumpAndSettle();
+      expect(find.text('저장 안 함'), findsOneWidget);
+      await t.tapAt(const Offset(10, 10));
+      await t.pumpAndSettle();
+      expect(find.text('오늘 헬스'), findsNothing);
+      expect(find.text('운동 중'), findsOneWidget);
+
+      await t.tap(find.text('종료'));
+      await t.pumpAndSettle();
+      await t.tap(find.text('저장 안 함'));
+      await t.pumpAndSettle();
+      expect(find.text('기록하지 않았어요'), findsOneWidget, reason: '확인창이 없었으니 한 줄로 알려 줍니다');
+      nothingLeft(app, day, before);
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('유산소 — 시계로 잰 뒤 「저장 안 함」 도 같다', (t) async {
+      final app = await seeded();
+      final before = jsonEncode(app.state);
+      await open(t, app, const WorkoutSessionScreen(dateKey: _todayKey, type: 'cardio'));
+      await t.tap(find.text('시작'));
+      await t.pump();
+      now = now.add(const Duration(minutes: 25));
+      await t.pump(const Duration(seconds: 1));
+      await t.tap(find.text('종료'));
+      await t.pumpAndSettle();
+      expect(find.text('오늘 유산소 · 스포츠'), findsOneWidget);
+      /* 「저장」 을 살짝 아래로 누른 손가락이 버리지 않게 — 글자 폭만큼 · 가운데 · 8 넘게 띄움. */
+      final save = t.getRect(find.widgetWithText(FilledButton, '저장'));
+      final discard = t.getRect(find.byKey(const ValueKey('discard')));
+      expect(discard.width, lessThan(save.width / 2), reason: '폭 가득 늘어나면 안 됩니다');
+      expect(discard.center.dx, closeTo(save.center.dx, 1));
+      expect(discard.top - save.bottom, greaterThanOrEqualTo(8));
+      await t.tap(find.text('저장 안 함'));
+      await t.pumpAndSettle();
+      expect(find.text('기록하지 않았어요'), findsOneWidget);
+      nothingLeft(app, _todayKey, before);
+    });
+
+    testWidgets('맨몸 — 「n/m 했습니다」 창에도 「저장 안 함」', (t) async {
+      final app = await seeded();
+      final before = jsonEncode(app.state);
+      await open(t, app, const WorkoutSessionScreen(dateKey: _todayKey, type: 'bodyweight'));
+      final boxes = find.byType(CheckboxListTile);
+      final n = t.widgetList(boxes).length;
+      for (var i = 0; i < (n * kBodyweightEnoughRatio).ceil(); i++) {
+        await t.tap(boxes.at(i));
+        await t.pump();
+      }
+      /* 360px 폰 — 창이 가장 좁을 때(280)도 두 단추는 한 줄, 「저장 안 함」 은 그 밑. */
+      t.view.physicalSize = const Size(360, 740);
+      await t.pumpAndSettle();
+      await t.tap(find.text('전체 완료'));
+      await t.pumpAndSettle();
+      expect(t.takeException(), isNull);
+      final more = t.getCenter(find.text('더 하기')), save = t.getCenter(find.text('기록하기'));
+      expect(more.dy, save.dy, reason: '「더 하기」 · 「기록하기」 는 한 줄');
+      expect(t.getTopLeft(find.text('저장 안 함')).dy, greaterThan(t.getBottomLeft(find.text('기록하기')).dy));
+      await t.tap(find.text('저장 안 함'));
+      await t.pumpAndSettle();
+      expect(find.text('기록하지 않았어요'), findsOneWidget);
+      nothingLeft(app, _todayKey, before);
+    });
+
+    /* 글자 크기를 키운 폰 — 두 단추가 한 줄에 안 들어가면 창의 기본 단추처럼 위아래로
+       섭니다. 고정 Row 였을 때는 2배에서 41px 넘쳐 「기록하기」 가 창 밖으로 잘렸습니다. */
+    for (final scale in [1.5, 2.0]) {
+      testWidgets('맨몸 — 360px · 글자 $scale배에도 세 단추가 창 안에', (t) async {
+        final app = await seeded();
+        await open(t, app, const WorkoutSessionScreen(dateKey: _todayKey, type: 'bodyweight'));
+        final boxes = find.byType(CheckboxListTile);
+        final n = t.widgetList(boxes).length;
+        for (var i = 0; i < (n * kBodyweightEnoughRatio).ceil(); i++) {
+          await t.tap(boxes.at(i));
+          await t.pump();
+        }
+        t.view.physicalSize = const Size(360, 740);
+        t.platformDispatcher.textScaleFactorTestValue = scale;
+        addTearDown(t.platformDispatcher.clearTextScaleFactorTestValue);
+        await t.pumpAndSettle();
+        await t.tap(find.text('전체 완료'));
+        await t.pumpAndSettle();
+        expect(t.takeException(), isNull, reason: '넘침 없음');
+        final dialog = t.getRect(find.byType(Dialog));
+        for (final label in ['더 하기', '기록하기', '저장 안 함']) {
+          final r = t.getRect(find.ancestor(
+              of: find.text(label), matching: find.byWidgetPredicate((w) => w is ButtonStyleButton)));
+          expect(dialog.contains(r.topLeft) && dialog.contains(r.bottomRight - const Offset(0.01, 0.01)), isTrue,
+              reason: '「$label」 이 창 밖으로 나감: $r / $dialog');
+          expect(find.text(label).hitTestable(), findsOneWidget, reason: '「$label」 이 눌려야 합니다');
+        }
+        await t.tap(find.text('저장 안 함'));
+        await t.pumpAndSettle();
+        expect(find.byType(WorkoutSessionScreen), findsNothing);
+      });
+    }
+
+    testWidgets('앞날이라 「저장」 이 막혀도 「저장 안 함」 으로 나간다', (t) async {
+      final app = await seeded();
+      final before = jsonEncode(app.state);
+      await open(t, app, const WorkoutSessionScreen(dateKey: _tomorrowKey, type: 'gym'));
+      await t.tap(anySetButton().first);
+      await t.pump();
+      await t.tap(find.text('종료'));
+      await t.pumpAndSettle();
+      expect(t.widget<FilledButton>(find.widgetWithText(FilledButton, '저장')).onPressed, isNull);
+      await t.tap(find.text('저장 안 함'));
+      await t.pumpAndSettle();
+      nothingLeft(app, _tomorrowKey, before);
+    });
+
+    testWidgets('뒤로가기의 「나가기」 도 같은 길 — 묻고 닫힌다(물었으니 안내 줄은 없다)', (t) async {
+      final app = await seeded();
+      final before = jsonEncode(app.state);
+      await open(t, app, const WorkoutSessionScreen(dateKey: _todayKey, type: 'cardio'));
+      await t.tap(find.text('시작'));
+      await t.pump();
+      now = now.add(const Duration(minutes: 5));
+      await t.pageBack();
+      await t.pumpAndSettle();
+      expect(find.text('기록하지 않고 나갈까요?'), findsOneWidget);
+      await t.tap(find.text('나가기'));
+      await t.pumpAndSettle();
+      expect(find.text('기록하지 않았어요'), findsNothing);
+      nothingLeft(app, _todayKey, before);
     });
   });
 

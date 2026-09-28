@@ -1355,6 +1355,14 @@ function makeApi(db) {
 
     publishSnapshot(me, weekStart, payload) {
       if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다' };
+      /* 누구의 요약인가(피드백 52). 새 앱은 요약을 만든 기록 칸의 주인(계정 id)을 payload.owner 로
+         싣습니다 — 토큰의 계정과 다르면 다른 계정의 기록으로 만든 요약이라 받지 않습니다(409, 행은
+         그대로). owner 가 없는 옛 앱(0.2.19)은 받습니다. 저장할 때는 뗍니다 — 친구에게 갈 칸이 아닙니다. */
+      if (payload && typeof payload === 'object' && payload.owner != null) {
+        if (payload.owner !== me) return { ok: false, conflict: 'owner', reason: '다른 계정의 기록입니다' };
+        payload = Object.assign({}, payload);
+        delete payload.owner;
+      }
       if (!weekStart) return { ok: false, reason: 'weekStart 가 필요합니다' };
       /* weekStart 를 검사하지 않고 String() 으로 감쌌습니다.
          객체를 보내면 '[object Object]' 라는 주가 생기고, 아무 문자열이나
@@ -1698,6 +1706,18 @@ function makeApi(db) {
       if (list.length > this.PUSH_MAX) {
         return { ok: false, reason: '한 번에 ' + this.PUSH_MAX + '건까지 보낼 수 있습니다',
                  accepted: 0, rejected: [], max: this.PUSH_MAX };
+      }
+      /* 다른 계정의 기록 사본이면 통째로 거절합니다(피드백 52 — 계정 A 의 기록이 새로 가입한 B 의
+         사본으로 올라왔습니다). 새 앱은 사본의 syncMeta.owner 에 그 기록 칸의 주인(계정 id)을
+         싣습니다. 토큰의 계정과 다르면 409 — 아무 행도 안 바꿉니다. owner 가 없는 옛 앱(0.2.19)은
+         받습니다(막을 방법이 없습니다 — 새 앱은 'X-Mybody-App' 머리를 붙이니, 고친 판이 퍼지면
+         owner 없는 사본을 거절하도록 켤 수 있습니다). */
+      for (const r of list) {
+        const meta = r && r.payload && typeof r.payload === 'object' ? r.payload.syncMeta : null;
+        const owner = meta && typeof meta === 'object' ? meta.owner : null;
+        if (owner != null && owner !== me) {
+          return { ok: false, conflict: 'owner', reason: '다른 계정의 기록입니다', accepted: 0, rejected: [] };
+        }
       }
       let n = 0;
       const rejected = [];

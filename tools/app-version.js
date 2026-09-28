@@ -3,9 +3,9 @@
  *
  *   node tools/app-version.js                    지금 값 보기
  *   node tools/app-version.js --apk=0.2.8        직접 설치한 APK 의 최신판
- *   node tools/app-version.js --play=0.2.8       플레이 스토어의 최신판
+ *   node tools/app-version.js --play=0.2.8       플레이 비공개 테스트(나중엔 프로덕션) 트랙에 게시된 판
  *   node tools/app-version.js --appstore=0.2.8   앱스토어의 최신판
- *   node tools/app-version.js --testflight=0.2.10 TestFlight(아이폰 시험판)의 최신판
+ *   node tools/app-version.js --testflight=0.2.10 TestFlight friends(공개 링크) 그룹 베타 심사를 지난 판
  *   node tools/app-version.js --min=0.2.9        이보다 낮은 앱은 "서버와 안 맞음"
  *   node tools/app-version.js --apk=none         지웁니다 (빈 값 "" 도 됩니다)
  *   node tools/app-version.js --join-ios=https://testflight.apple.com/join/XXXX
@@ -34,8 +34,15 @@
  *   · 심사 중인 앱스토어 판을 먼저 적으면, 심사가 며칠 걸리는 동안 아이폰
  *     쓰는 사람 모두가 그 상태가 됩니다. 심사에서 떨어지면 계속 그렇습니다.
  *   · 플레이도 검토 중이거나 단계적 출시 중이면 아직 못 받는 사람이 있습니다.
+ *   · **내부 테스트는 기준이 아닙니다.** 안내를 보는 사람은 공개 링크 ·
+ *     비공개 테스트로 들어온 친구들입니다. TestFlight 내부 그룹에 「처리 완료
+ *     (available to test)」 된 판도, 플레이 내부 테스트 트랙에 게시된 판도 그
+ *     친구들은 아직 못 받습니다 — 0.2.19 가 그렇게 공개 링크 테스터에게 떴습니다.
+ *     --testflight 는 friends(공개 링크) 그룹 베타 심사 승인 뒤, --play 는
+ *     비공개(나중엔 프로덕션) 트랙 게시 뒤에만 올립니다.
  *   · 그래서 가게마다 따로 적습니다. 같은 0.2.8 이라도 APK 는 릴리스 직후,
- *     플레이는 출시가 끝난 뒤, 앱스토어는 심사를 지나 배포가 시작된 뒤입니다.
+ *     플레이는 비공개 트랙 게시 뒤, TestFlight 는 friends 승인 뒤, 앱스토어는
+ *     심사를 지나 배포가 시작된 뒤입니다.
  *
  * 최소판(--min)은 더 조심합니다
  *   그보다 낮은 앱은 닫을 수 없는 안내를 봅니다. 서버가 옛 앱을 정말로
@@ -89,9 +96,10 @@ function usage() {
   console.log('');
   console.log('  node tools/app-version.js                    지금 값 보기');
   console.log('  node tools/app-version.js --apk=0.2.8        APK 최신판');
-  console.log('  node tools/app-version.js --play=0.2.8       플레이 최신판');
+  console.log('  node tools/app-version.js --play=0.2.8       플레이 최신판 — 비공개(나중엔 프로덕션) 트랙 게시 뒤');
   console.log('  node tools/app-version.js --appstore=0.2.8   앱스토어 최신판');
-  console.log('  node tools/app-version.js --testflight=0.2.10 TestFlight 최신판');
+  console.log('  node tools/app-version.js --testflight=0.2.10 TestFlight 최신판 — friends(공개 링크) 베타 심사 승인 뒤');
+  console.log('      (내부 테스트에만 올라간 판은 적지 않습니다 — 친구들은 아직 못 받습니다)');
   console.log('  node tools/app-version.js --min=0.2.9        최소판');
   console.log('  node tools/app-version.js --apk=none         지우기');
   console.log('  node tools/app-version.js --join-ios=https://testflight.apple.com/join/…   시험판 참여 링크');

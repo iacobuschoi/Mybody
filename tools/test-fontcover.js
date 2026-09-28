@@ -8,7 +8,9 @@
  * 망이 막힌 곳에서는 그 자리가 네모가 되고, 안 막힌 곳에서는 몸 관리 앱을
  * 켤 때마다 구글에 신호가 갑니다. 둘 다 안 됩니다.
  *
- * 빠진 글자가 있으면 `node tools/fix-fonts.js` 가 채워 넣습니다.
+ * 빠진 글자가 있으면 `node tools/fix-fonts.js` 가 채워 넣습니다 — 이모지만은
+ * 빼고(글꼴에 넣으면 폰의 컬러 이모지를 덮습니다). 이모지는 문구에서 빼거나
+ * 아이콘으로 그립니다.
  * 시험과 그 도구는 **같은 눈**(tools/font-coverage.js)으로 봅니다.
  * ========================================================================== */
 'use strict';
@@ -37,9 +39,17 @@ for (const font of FONTS) {
   } else {
     const shown = gaps.slice(0, 12)
       .map(g => `${g.ch} (U+${g.cp.toString(16).toUpperCase()}) ${g.where}`).join('\n      ');
+    /* 이모지는 fix-fonts 로 채우지 않습니다 — 넣으면 폰의 컬러 이모지를 흑백으로 덮습니다.
+       가르는 눈은 코드포인트가 아니라 "기본이 이모지 모양인가"(Emoji_Presentation) 입니다:
+       ✅ ⭐ ⏰ 은 BMP 여도 이모지, ★ ✔ ▶ 은 이모지 목록에 있어도 글자 모양이 기본이라
+       도너에서 채웁니다. fix-fonts 는 빠진 글자를 한 도너에서 **다** 찾아야 해서, 둘이
+       섞이면 이모지를 먼저 빼야 돕니다. */
+    const emoji = gaps.filter(g => /\p{Emoji_Presentation}/u.test(g.ch)).length;
+    const fixable = gaps.length - emoji;
     no(name + ': ' + gaps.length + '자가 없습니다 — 폰에서 네모가 되거나 구글에서 받아 옵니다',
        shown + (gaps.length > 12 ? `\n      … 외 ${gaps.length - 12}자` : '') +
-       '\n      고치려면: node tools/fix-fonts.js');
+       (emoji ? '\n      이모지는 글꼴에 넣지 않습니다 — 문구에서 빼거나 아이콘으로 그립니다(ui/symbols.dart)' : '') +
+       (fixable ? `\n      고치려면: ${emoji ? '이모지를 먼저 빼고 ' : ''}node tools/fix-fonts.js` : ''));
   }
 
   /* 한글은 통째로 있어야 합니다 — 사용자 이름과 음식 이름은 우리가 정하는

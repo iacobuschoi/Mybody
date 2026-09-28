@@ -74,6 +74,12 @@ class Store {
   DateTime _now() => (now ?? DateTime.now)();
 
   PhotoHost? photos;
+
+  /// 이 기록 칸 **밖에서** 그 사진을 가리키는가 — 앱이 계정마다 기록 칸을 따로 두면서(local_owner.dart)
+  /// 사진 파일은 모든 칸이 한 폴더를 같이 씁니다. 치워 둔 칸의 측정이 가리키는 사진을 이 칸에서
+  /// 지우면 되찾을 길이 없습니다(사진은 서버에 안 갑니다). 없으면(원본 · 시험) 이 칸만 봅니다.
+  bool Function(String photoId)? photoKeptElsewhere;
+
   NewsReset? newsReset;
   WeekSummary? weekSummaryOf;
   /// 스트릭 두 개 — {workoutDays, foodDays}. 화면 쪽(Schedule)이 꽂아 줍니다.
@@ -180,12 +186,14 @@ class Store {
     try {
       if (storage.write(jsonEncode(_state))) return true;
     } catch (_) {/* 아래에서 사진을 버려 봅니다 */}
-    // 사진을 버려서 자리를 만들어 봅니다 (오래된 것부터)
+    // 사진을 버려서 자리를 만들어 봅니다 (오래된 것부터). 다른 기록 칸이 가리키는 사진은 이 칸의
+    // 자리를 위해 버리지 않습니다 — 그 칸의 유일본입니다.
     try {
       final p = photos;
       if (p != null) {
         final map = p.list();
-        final ids = map.keys.toList()
+        final kept = photoKeptElsewhere;
+        final ids = map.keys.where((id) => kept == null || !kept(id)).toList()
           ..sort((a, b) {
             final ta = '${(map[a] as Map?)?['at'] ?? ''}';
             final tb = '${(map[b] as Map?)?['at'] ?? ''}';
@@ -264,6 +272,37 @@ class Store {
     save();
   }
 
+  /// 계정이 바뀔 때 이 기기의 기록 칸을 통째로 갈아 끼웁니다(앱의 local_owner.dart).
+  ///
+  /// [reset] 과 다릅니다 — 사진을 안 지웁니다. 치워 둔 계정의 측정이 photoId 로
+  /// 그 사진을 가리키고, 그 계정으로 돌아오면 다시 보여야 합니다.
+  /// [importJSON] 과도 다릅니다 — 친구에게 올리지 않고(publishWeekly), 기기가 꽉 찼다고
+  /// 사진을 버리지도 않습니다. 듣는 쪽에는 알립니다(알림 예약이 새 칸으로 다시 잡힙니다).
+  /// 알리는 동안 [swapping] 이 참이라, 동기화는 이것을 "이 기기가 바꾼 것" 으로 찍지 않습니다.
+  /// 기기에 못 썼으면 false — 칸은 그래도 바뀝니다(이번 실행 동안은 새 칸으로 돕니다).
+  bool swap(Map<String, Object?> next) {
+    _state = {...blank(), ...next};
+    var ok = false;
+    try {
+      ok = storage.write(jsonEncode(_state));
+    } catch (_) {
+      ok = false;
+    }
+    _lastSaveOk = ok;
+    _swapping = true;
+    try {
+      _notify();
+    } finally {
+      _swapping = false;
+    }
+    return ok;
+  }
+
+  bool _swapping = false;
+
+  /// [swap] 이 듣는 쪽에 알리는 중인가.
+  bool get swapping => _swapping;
+
   /// 오너의 실제 인바디 데이터로 채웁니다 (검증용 한 방 버튼).
   Map<String, Object?> seed() {
     _state = blank();
@@ -325,15 +364,29 @@ class Store {
     _state['scans'] = list.where((s) => (s as Map)['id'] != id).toList();
     _tombstone('scans', id);
     if (gone != null && jsTruthy(gone['photoId']) && photos != null) {
-      final stillUsed =
-          (_state['scans'] as List).any((s) => (s as Map)['photoId'] == gone!['photoId']);
-      if (!stillUsed) {
+      if (!photoInUse(gone['photoId'])) {
         try {
           photos!.remove('${gone['photoId']}');
         } catch (_) {}
       }
     }
     save();
+  }
+
+  /// 그 사진을 아직 누가 가리키나 — 이 칸의 다른 측정([exceptScanId] 는 빼고) 또는 다른 기록 칸
+  /// ([photoKeptElsewhere]). 측정을 지우거나 사진을 바꿀 때 파일을 지워도 되는지 봅니다.
+  bool photoInUse(Object? photoId, {Object? exceptScanId}) {
+    if (!jsTruthy(photoId)) return false;
+    final here = ((_state['scans'] as List?) ?? const [])
+        .any((s) => s is Map && s['id'] != exceptScanId && s['photoId'] == photoId);
+    if (here) return true;
+    final kept = photoKeptElsewhere;
+    if (kept == null) return false;
+    try {
+      return kept('$photoId');
+    } catch (_) {
+      return true;   // 모르면 남깁니다 — 지운 사진은 되찾을 수 없습니다
+    }
   }
 
   Map<String, Object?>? scanById(Object? id) {

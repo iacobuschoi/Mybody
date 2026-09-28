@@ -7,8 +7,9 @@
  * 계산(Gallagher 2000 · Lee 2000)과 실측으로 바꾸기는 estimate.dart ·
  * estimate_upgrade.dart 의 시험이 봅니다. 여기서 보는 것은 화면입니다:
  *
- *   1. 길 — 홈 빈 화면 · 업로드 화면에서 시트를 열고, 체중 한 칸을 넣고,
- *      저장하면 목표 화면으로 갑니다. 프로필이 비었으면 그 칸들을 묻습니다.
+ *   1. 길 — 홈 빈 화면 · 추이 빈 화면 · 업로드 화면에서 시트를 열고, 체중 한
+ *      칸을 넣고, 저장하면 목표 화면으로 갑니다. 프로필이 비었으면 그 칸들을
+ *      묻습니다.
  *   2. 표시 — 숫자가 나오는 곳마다 「추정」 이 붙고(홈 요약 · 목표 카드 ·
  *      플랜 탭 · 측정 자세히 · 기록 · 추이), 추정이 낀 차이(±)는 안 찍힙니다.
  *   3. 선 — 추이 그래프는 실측이 있으면 실측만 그립니다. 추정 → 실측의 선은
@@ -158,6 +159,65 @@ void main() {
     /* 곧장 목표 화면 — 시작하는 이유가 계획입니다. */
     expect(calls, ['goal']);
     expect(t.takeException(), isNull);
+  });
+
+  testWidgets('추이 · 빈 화면 — 부담 없는 한 줄, 「인바디 올리기」 · 「인바디 없이 시작」 → 시트 → 목표 화면으로',
+      (t) async {
+    size(t, const Size(400, 1400));
+    final app = await seeded();
+    final calls = <String>[];
+    await t.pumpWidget(host(app, Scaffold(body: ProgressScreen(go: (r, [_]) => calls.add(r)))));
+    await settle(t);
+    /* 피드백 51 — 「두 번 이상 넣으면」 은 한 번도 안 넣은 사람에게 짐이었습니다. */
+    expect(find.text('인바디를 올리고 확인해보세요!'), findsOneWidget);
+    expect(find.textContaining('두 번'), findsNothing);
+    /* 홈처럼 주 버튼(올리기)이 먼저, 「없이 시작」 은 보조(tonal). 둘 다 FilledButton
+       이라 모양은 칠해진 색으로 가립니다. */
+    final cs = Theme.of(t.element(find.byType(ProgressScreen))).colorScheme;
+    Color fill(String label) => t
+        .widget<Material>(find
+            .descendant(of: find.widgetWithText(FilledButton, label), matching: find.byType(Material))
+            .first)
+        .color!;
+    expect(fill('인바디 올리기'), cs.primary, reason: '주 버튼');
+    expect(fill('인바디 없이 시작'), cs.secondaryContainer, reason: '보조 버튼(tonal)');
+    final up = t.getRect(find.widgetWithText(FilledButton, '인바디 올리기'));
+    final est = t.getRect(find.widgetWithText(FilledButton, '인바디 없이 시작'));
+    expect(up.top < est.top || (up.top == est.top && up.left < est.left), isTrue, reason: '올리기가 먼저');
+
+    await t.tap(find.widgetWithText(FilledButton, '인바디 올리기'));
+    await settle(t);
+    expect(calls, ['upload']);
+
+    await t.tap(find.widgetWithText(FilledButton, '인바디 없이 시작'));
+    await settle(t);
+    expect(find.byType(EstimateSheet), findsOneWidget, reason: '홈과 같은 시트');
+    await t.enterText(find.byKey(_weightKey), '86.7');
+    await t.pump();
+    await t.tap(find.byKey(_saveKey));
+    await settle(t);
+    expect(app.store.sortedScans().single['source'], 'estimate');
+    expect(find.byType(EstimateSheet), findsNothing);
+    expect(calls, ['upload', 'goal']);
+    /* 저장하면 빈 화면이 추정 한 점으로 바뀝니다. */
+    expect(find.textContaining('추정치로 시작했어요.'), findsOneWidget);
+    expect(t.takeException(), isNull);
+  });
+
+  testWidgets('추이 · 빈 화면 — 시트를 그냥 닫으면 아무 데도 안 간다', (t) async {
+    size(t, const Size(400, 1400));
+    final app = await seeded();
+    final calls = <String>[];
+    await t.pumpWidget(host(app, Scaffold(body: ProgressScreen(go: (r, [_]) => calls.add(r)))));
+    await settle(t);
+    await t.tap(find.widgetWithText(FilledButton, '인바디 없이 시작'));
+    await settle(t);
+    expect(find.byType(EstimateSheet), findsOneWidget);
+    await t.tapAt(const Offset(200, 20));
+    await settle(t);
+    expect(find.byType(EstimateSheet), findsNothing);
+    expect(calls, isEmpty);
+    expect(app.store.sortedScans(), isEmpty);
   });
 
   testWidgets('시트 · 완료 키 — 체중이 맞으면 그 자리에서 저장', (t) async {
@@ -416,7 +476,7 @@ void main() {
     await t.pumpWidget(host(app, Scaffold(body: ProgressScreen(go: (_, [__]) {}))));
     await settle(t);
     expect(find.textContaining('추정치로 시작했어요.'), findsOneWidget);
-    expect(find.textContaining('측정이 한 번뿐입니다'), findsNothing);
+    expect(find.textContaining('첫 측정이에요'), findsNothing);
     expect(find.text('처음부터 지금까지'), findsNothing);
     expect(pill('추정'), findsNWidgets(2));
     Finder card(String title) =>
@@ -446,7 +506,7 @@ void main() {
     expect(charts[2].series.first.points.single.y, closeTo(23.1, 0.05));
     expect(pill('추정'), findsNothing);
     expect(find.textContaining('추정치로 시작했어요.'), findsNothing);
-    expect(find.textContaining('측정이 한 번뿐입니다'), findsOneWidget);
+    expect(find.textContaining('첫 측정이에요'), findsOneWidget);
     /* 기록 수는 전부 — 추정도 기록 화면에서 보고 지울 수 있습니다. */
     expect(find.text('측정 기록 2건'), findsOneWidget);
   });
@@ -617,6 +677,38 @@ void main() {
         await clean(t);
         expect(find.widgetWithText(FilledButton, '인바디 없이 시작'), findsOneWidget);
       });
+
+      /* 폭이 좁으면 두 번째 버튼이 다음 줄로 — 높이까지 모자라면(분할 화면 · 낮은 창)
+         넘치지 않고 밀려야 합니다. 셸처럼 제목줄 · 아래 탭까지 두고 봅니다. */
+      for (final h in [800.0, 400.0]) {
+        testWidgets('추이 · 빈 화면 — 360×${h.round()} 에서도 두 버튼이 넘치지 않고 눌린다', (t) async {
+          await narrow(t);
+          size(t, Size(360, h));
+          final app = await seeded();
+          await t.pumpWidget(host(
+              app,
+              Scaffold(
+                appBar: AppBar(title: const Text('추이')),
+                body: SafeArea(child: ProgressScreen(go: (_, [__]) {})),
+                bottomNavigationBar: NavigationBar(destinations: const [
+                  NavigationDestination(icon: Icon(Icons.home), label: '홈'),
+                  NavigationDestination(icon: Icon(Icons.show_chart), label: '추이'),
+                ]),
+              ),
+              theme: v.theme));
+          await settle(t);
+          await clean(t);
+          for (final label in ['인바디 올리기', '인바디 없이 시작']) {
+            final b = find.widgetWithText(FilledButton, label);
+            expect(b, findsOneWidget);
+            await t.ensureVisible(b);
+            await settle(t);
+            expect(b.hitTestable(), findsOneWidget, reason: '「$label」 이 가려지거나 잘림');
+            final r = t.getRect(b);
+            expect(r.left >= 0 && r.right <= 360, isTrue, reason: '「$label」 이 화면 밖: $r');
+          }
+        });
+      }
 
       testWidgets('시트 · 접힌 기본 정보 + 미리보기, 그리고 펼친 칸', (t) async {
         await narrow(t);

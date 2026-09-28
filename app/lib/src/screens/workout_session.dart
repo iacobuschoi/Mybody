@@ -38,6 +38,10 @@
  *     그걸 건너뛴 사람에게는 첫 줄이 살짝 밀렸다 돌아오는 힌트를 한 번 보여 줍니다 —
  *     밀어서 빼는 길은 눈에 안 보여서 주인이 실기기에서 못 찾았습니다(3차 29).
  *     둘 다 settings 에 본 것으로 적어 다시 안 뜹니다.
+ *   · 종료 시트(헬스 · 유산소)와 맨몸의 「n/m 했습니다」 창에는 「저장」 밑에 조용한
+ *     「저장 안 함」 이 있습니다(피드백 49) — 한 번 누르면 기록 없이 끝나고 화면이
+ *     닫힙니다. 뒤로가기의 「나가기」 와 같은 길(_leave)이라 남는 것이 없습니다. 시트를
+ *     그냥 닫으면 시계가 다시 도는 것은 그대로 — 실수로 누른 「종료」 보호입니다.
  *
  * 기록은 코어의 setScheduleLog 로 갑니다 — 그 날의 체크(done)까지 같이 남습니다.
  *   헬스   log['gym']    = {kind:'gym', startedAt, minutes, kcal, sets,
@@ -790,6 +794,34 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     return yes == true;
   }
 
+  /// 종료 시트 · 맨몸 확인창에서 「저장 안 함」 을 눌렀는가. 창을 그냥 닫은 것(시계를
+  /// 도로 돌립니다)과 가르려고 창이 닫히기 전에 적어 둡니다 — 부른 쪽이 보고 [_leave] 로.
+  bool _discarded = false;
+
+  /// 기록 없이 끝냅니다 — 뒤로가기의 「나가기」 와 「저장 안 함」 이 같은 길. 시계를
+  /// 세우고 화면을 닫을 뿐 어디에도 적지 않습니다(기록 · 체크 · 이어 할 상태 없음).
+  /// [told] 면 닫힌 자리에 한 줄 — 확인창 없이 끝났으니 무엇이 됐는지는 말해 줍니다.
+  void _leave({bool told = false}) {
+    if (!mounted) return;
+    _tick?.cancel();
+    _tick = null;
+    Navigator.of(context).pop();
+    if (told) toast(context, '기록하지 않았어요');
+  }
+
+  /// 「저장 안 함」 — 「저장」 밑의 흐린 글자 단추. 한 번이면 끝입니다(확인창 없음).
+  /// 시트에서는 가운데에 글자 폭만큼, 「저장」 과 10 띄워 둡니다 — 폭 가득 붙어 있으면
+  /// 「저장」 을 살짝 아래로 누른 손가락이 운동을 통째로 버립니다.
+  Widget _discardButton(BuildContext ctx) => TextButton(
+        key: const ValueKey('discard'),
+        style: TextButton.styleFrom(foregroundColor: Theme.of(ctx).hintColor),
+        onPressed: () {
+          _discarded = true;
+          Navigator.pop(ctx);
+        },
+        child: const Text('저장 안 함'),
+      );
+
   @override
   Widget build(BuildContext context) {
     final app = Scope.of(context);
@@ -803,8 +835,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
       canPop: !_dirty,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
-        final leave = await _confirmLeave();
-        if (leave && mounted) Navigator.of(this.context).pop();
+        if (await _confirmLeave()) _leave();
       },
       child: Scaffold(
         /* 날짜는 작은 줄로 — 한 줄에 붙이면 360px 폰에서 날짜가 잘렸습니다. */
@@ -1064,9 +1095,12 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
               child: const Text('저장'),
             ),
           ),
+          const SizedBox(height: 10),
+          Center(child: _discardButton(ctx)),
         ]);
       }),
     );
+    if (_discarded) return _leave(told: true);
     if (r == null || !mounted) {
       /* 창을 그냥 닫았으면 시계를 도로 돌립니다 — 실수로 누른 「종료」가 시간을 멈춰 두면 안 됩니다. */
       if (r == null && wasRunning && mounted) _start();
@@ -1291,9 +1325,12 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
               child: const Text('저장'),
             ),
           ),
+          const SizedBox(height: 10),
+          Center(child: _discardButton(ctx)),
         ]);
       }),
     );
+    if (_discarded) return _leave(told: true);
     if (r == null || !mounted) {
       if (r == null && wasRunning && mounted) _start();
       return;
@@ -1480,12 +1517,26 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
         builder: (ctx) => AlertDialog(
           title: Text('$done/${exercises.length} 했습니다'),
           content: const Text('남은 종목은 다음에 — 지금까지 한 것으로 오늘을 기록할까요?'),
+          /* 「저장 안 함」 은 종료 시트처럼 두 단추 밑 한 줄에 — 360px 폰의 창(280)에는
+             셋이 한 줄로 안 들어가서 폰마다 모양이 달라집니다. 두 단추는 OverflowBar 라
+             큰 글씨(2배)로 한 줄에 안 들어가면 창의 기본 단추처럼 위아래로 섭니다. */
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('더 하기')),
-            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('기록하기')),
+            Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.end, children: [
+              OverflowBar(
+                spacing: 8,
+                alignment: MainAxisAlignment.end,
+                overflowAlignment: OverflowBarAlignment.end,
+                children: [
+                  TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('더 하기')),
+                  FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('기록하기')),
+                ],
+              ),
+              _discardButton(ctx),
+            ]),
           ],
         ),
       );
+      if (_discarded) return _leave(told: true);
       if (yes != true || !mounted) return;
     }
     /* 한 만큼만 셉니다 — 60% 했는데 100% 의 kcal 을 적으면 기록이 거짓말을 합니다. */

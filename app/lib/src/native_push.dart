@@ -724,8 +724,9 @@ enum PushLine { on, off, serverOff }
 
 /// 로그아웃 직전에 이 기기의 알림 등록을 서버에서 지우는 Api.
 ///
-/// 로그아웃 버튼이 여러 화면에 있어서(설정 · 계정 · 동의 거절 · 전부 지우기 · 계정 지우기)
-/// 한 곳에서 잡습니다. main.dart 가 Api 를 이것으로 만듭니다.
+/// 로그아웃 버튼이 여러 화면에 있어서(설정 · 계정 · 동의 거절 · 전부 지우기)
+/// 한 곳에서 잡습니다. main.dart 가 Api 를 이것으로 만듭니다. 「계정 지우기」 는
+/// [Api.deleteAccount] 라 여기를 안 지납니다 — 서버가 계정과 함께 기기 행을 지웁니다.
 class PushAwareApi extends Api {
   PushAwareApi({required super.baseUrl, super.client, NativePush? push}) : _push = push;
 
@@ -733,10 +734,10 @@ class PushAwareApi extends Api {
   NativePush get push => _push ?? NativePush.instance;
 
   @override
-  Future<void> signOut() async {
+  Future<void> signOut({bool flush = true, bool thenGuest = false}) async {
     try {
       await push.beforeSignOut(this);
     } catch (_) {/* 못 지워도 로그아웃은 됩니다 — 서버가 세션과 같이 지웁니다 */}
-    await super.signOut();
+    await super.signOut(flush: flush, thenGuest: thenGuest);
   }
 }

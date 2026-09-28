@@ -12,12 +12,19 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'dart:io';
+
 import 'package:mybody/src/api.dart';
 import 'package:mybody/src/app_state.dart';
+import 'package:mybody/src/local_owner.dart';
+import 'package:mybody/src/photos.dart';
 import 'package:mybody/src/scope.dart';
 import 'package:mybody/src/screens/settings.dart';
 import 'package:mybody/src/sync_queue.dart';
 import 'package:mybody/src/theme.dart';
+import 'package:mybody_core/mybody_core.dart' as core;
+
+import 'fake_accounts.dart' show FakeAccounts, Rig, recordsOfA;
 
 class MemQueue implements QueueStorage {
   String? _v;
@@ -129,5 +136,51 @@ void main() {
         reason: '계정 지우기는 기기 기록을 안 건드린다고 말했습니다');
     expect(find.byType(SettingsScreen), findsNothing);
     s.queue.clear();
+  });
+
+  /* 이 기기에는 치워 둔 칸이 있을 수 있습니다 — 로그아웃한 다른 계정, 로그인 없이 쓴 기록(local_owner.dart).
+     "전부 지웠다" 고 믿고 폰을 넘긴 사람에게 누군가의 기록 · 친구 이름이 남아 있으면 안 됩니다. */
+  testWidgets('전부 지우면 치워 둔 모든 칸 · 사진 · 독촉 · 소식 · 초대 표시 · 큐까지', (t) async {
+    final dir = Directory.systemTemp.createTempSync('mybody-wipe-');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final server = FakeAccounts()..add('a');
+    final r = await Rig.boot(server, prefs: {
+      'mybody.state.v1': jsonEncode({...core.Store.blank(), ...recordsOfA(photoId: 'p1')}),
+      kOwnerKey: jsonEncode({'server': 'https://x.test', 'uid': 'u_a'}),
+      '${kSlotPrefix}https://x.test|u_b.state': '{"scans":[{"id":"b1"}]}',
+      '${kSlotPrefix}https://x.test|u_b.pokes': '[{"id":2}]',
+      '${kSlotPrefix}guest.state': '{"scans":[{"id":"g1"}]}',
+      'mybody.pokes.v1': '[{"id":1,"name":"나린"}]',
+      'mybody.news.v1': '{"items":[]}',
+      'mybody.invite.mine.v1': 'ABCDEFGH',
+      'mybody.invite.handled.v1': '["ABCDEFGH"]',
+      'mybody.invite.clipboard.v1': true,
+    }, signedInAs: 'a');
+    final photos = FilePhotos.at(dir);
+    r.app.photos = photos;
+    r.app.store.photos = photos;
+    await t.runAsync(() => photos.save([1, 2]));   // 진짜 파일 — 가짜 시계 밖에서
+    server.failWrites = true;
+    r.queue.add('block', {'userId': 'f2'});
+
+    await t.pumpWidget(r.host(const SettingsScreen()));
+    await t.pumpAndSettle();
+    await t.tap(find.text('이 기기에서 전부 지우기'));
+    await t.pumpAndSettle();
+    await t.tap(find.widgetWithText(FilledButton, '전부 지우기'));
+    await t.pumpAndSettle();
+
+    final sp = await SharedPreferences.getInstance();
+    final left = sp.getKeys().where((k) =>
+        k.startsWith(kSlotPrefix) || k.startsWith('mybody.invite.') || k == 'mybody.pokes.v1' ||
+        k == 'mybody.news.v1' || k.startsWith('mybody.cloud.')).toList();
+    expect(left, isEmpty, reason: '남은 것: $left');
+    expect(photos.list(), isEmpty, reason: '결과지 사진(치워 둔 칸의 것까지 한 폴더)');
+    expect(r.queue.pending, 0);
+    expect(sp.getString('mybody.sync.queue.v1'), '[]');
+    expect(r.app.pokes!.items, isEmpty);
+    expect(r.app.store.sortedScans(), isEmpty);
+    expect(r.api.signedIn, isFalse);
+    r.dispose();
   });
 }

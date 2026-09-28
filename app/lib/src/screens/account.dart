@@ -9,6 +9,12 @@
  * 동의 문구는 동기화가 들어온 뒤에도 한동안 "주간 요약만 올라간다" 였습니다.
  * 문구는 0.2.5 에서 고쳤고, 판은 2026-09-23 에서 올려 옛 판으로 가입한
  * 사람에게 한 번 다시 묻습니다([ConsentGate]).
+ *
+ * **로그인 · 가입은 이 기기의 기록 칸을 바꿉니다**(피드백 52 · local_owner.dart). 다른 계정의
+ * 기록은 절대 합치지 않고, 로그인 없이 쓴 기록만 「이 계정에 합칠까요?」 를 묻습니다
+ * ([askMergeLocal]). 묻는 것도, 한 번뿐인 복구 코드 창도 **토큰을 알리기 전에** 띄웁니다 — 알린
+ * 뒤에는 셸이 이 화면을 내리면서 창을 띄울 자리가 사라질 수 있습니다(첫 화면 가입에서 복구 코드
+ * 창이 안 뜨던 까닭).
  * ========================================================================== */
 import 'dart:async';
 
@@ -18,6 +24,7 @@ import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../api.dart';
+import '../scope.dart';
 import '../theme.dart';
 import '../ui/widgets.dart';
 import 'update_banner.dart';
@@ -108,8 +115,9 @@ class ConsentGate extends StatefulWidget {
   const ConsentGate({super.key, required this.api, required this.child, this.onDecline});
   final Api api;
   final Widget child;
-  /// 동의하지 않고 로그아웃한 뒤 — 셸은 여기서 「로그인 없이 쓰기」로 넘깁니다.
-  /// 기기의 기록은 그대로 남습니다.
+  /// 동의하지 않고 로그아웃하기 직전에 부릅니다(셸은 안 씀). 「로그인 없이 쓰기」 표시는 로그아웃이
+  /// 다음 칸에 세웁니다(thenGuest) — 여기서 기록을 저장하면 로그인이 살아 있는 채 주간 요약 · 못 보낸
+  /// 사본이 나갑니다(2차 검토). 이 계정의 기록은 이 기기에 따로 보관되고, 다시 로그인하면 돌아옵니다.
   final VoidCallback? onDecline;
   @override
   State<ConsentGate> createState() => _ConsentGateState();
@@ -145,12 +153,15 @@ class _ConsentGateState extends State<ConsentGate> {
     setState(() { _busy = false; _needed = false; });
   }
 
-  /* 「로그인 없이 쓰기」를 먼저 남기고 로그아웃합니다. 반대로 하면 그
-     사이에 셸이 로그인 화면을 한 번 그립니다. */
+  /* 로그아웃이 이 계정의 칸을 치우면서 다음 칸(빈 기록 · 전에 로그인 없이 쓰던 기록)을 알리기 전에
+     곧바로 「로그인 없이 쓰기」 로 세웁니다(thenGuest) — 셸이 로그인 화면을 한 번 그리지 않습니다.
+     못 보낸 것은 보내 보지 않습니다(flush: false) — 새 문구에 동의하지 않은 사람의 기록을 그 자리에서
+     올리지 않게. 칸에 남았다가 다시 로그인하면 갑니다. 그래서 로그아웃 전에 기록을 저장하는 일도
+     없어야 합니다(저장하면 주간 요약이 큐에 들어가며 큐를 보냅니다 — [onDecline] 주석). */
   Future<void> _decline() async {
     setState(() => _busy = true);
     widget.onDecline?.call();
-    await widget.api.signOut();
+    await widget.api.signOut(flush: false, thenGuest: true);
   }
 
   @override
@@ -168,9 +179,9 @@ class _ConsentGateState extends State<ConsentGate> {
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             const HealthConsentPoints(
-                ifRefused: '로그아웃하고 로그인 없이 계속 쓸 수 있습니다. 그때 기록은 이 '
-                    '기기에만 남고, 사진 판독 · 친구 기능만 못 씁니다. 계정에 이미 저장된 '
-                    '기록까지 지우려면 아래 계정 삭제 페이지를 쓰세요.'),
+                ifRefused: '로그아웃하고 로그인 없이 쓸 수 있습니다(사진 판독 · 친구만 못 씀). '
+                    '이 계정의 기록은 이 기기에 따로 보관돼, 다시 로그인하면 돌아옵니다. '
+                    '계정에 이미 저장된 기록까지 지우려면 아래 계정 삭제 페이지를 쓰세요.'),
             CheckboxListTile(
               value: _checked,
               onChanged: (v) => setState(() => _checked = v ?? false),
@@ -202,6 +213,98 @@ class _ConsentGateState extends State<ConsentGate> {
       ]),
     );
   }
+}
+
+/* --- 계정이 바뀌는 경계의 창 ------------------------------------------------ */
+
+/// 「로그아웃할까요?」 — 설정 맨 아래와 계정 관리 앱바가 같은 창을 씁니다. [unsent] 는 아직 못 보낸
+/// 큐 작업 수 — 로그아웃하기 전에 보내 보고, 못 보낸 것은 이 계정의 칸에 남았다가 돌아오면 갑니다.
+Future<bool> confirmSignOut(BuildContext context, {int unsent = 0}) async {
+  final t = Theme.of(context);
+  final yes = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      title: const Text('로그아웃할까요?'),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const Text('이 계정의 기록은 이 기기에 따로 보관돼, 다시 로그인하면 돌아와요.'),
+        if (unsent > 0) ...[
+          const SizedBox(height: 8),
+          Text('못 보낸 것 $unsent건은 지금 보내 보고, 안 되면 다시 로그인할 때 보내요.',
+              key: const Key('settings-logout-unsent'),
+              style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
+        ],
+      ]),
+      actions: [
+        TextButton(
+          key: const Key('settings-logout-cancel'),
+          onPressed: () => Navigator.pop(ctx, false),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          key: const Key('settings-logout-confirm'),
+          onPressed: () => Navigator.pop(ctx, true),
+          child: const Text('로그아웃'),
+        ),
+      ],
+    ),
+  );
+  return yes == true;
+}
+
+/// 로그인 · 가입하는데 이 기기에 주인 없는 기록이 있을 때 — 「로그인 없이 쓴 기록(측정 N건 · 최근
+/// ○/○ ○kg)을 이 계정에 합칠까요?」. 누구 것인지 모르는 기록(0.2.19 에서 올라온 기기)이면
+/// 「다른 계정의 기록일 수 있어요」 를 더하고 [합치지 않기]를 앞에 세웁니다. 합치지 않아도 기록은
+/// 이 기기에 따로 남습니다(로그아웃하면 「로그인 없이 쓰기」 로 돌아옴). 고르기 전에는 토큰이 없어
+/// 아무것도 안 나갑니다. 참이면 합칩니다. 뒤로 가기로는 안 닫힙니다 — 고르지 않은 것을 [합치지 않기]
+/// 로 적으면 같은 계정에 다시 묻지 않아, 합칠 길이 사라집니다.
+Future<bool?> askMergeLocal(BuildContext context, LocalRecords recs) async {
+  final t = Theme.of(context);
+  final what = [
+    if (recs.scans > 0) '측정 ${recs.scans}건',
+    if (recs.scans > 0 && recs.latest != null) '최근 ${recs.latest}',
+    if (recs.scans == 0 && recs.foodLogs > 0) '식단 ${recs.foodLogs}건',
+  ].join(' · ');
+  return showDialog<bool>(
+    context: context,
+    barrierDismissible: false,
+    builder: (ctx) => PopScope(canPop: false, child: AlertDialog(
+      key: const Key('merge-local'),
+      title: const Text('이 기기의 기록'),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('로그인 없이 쓴 기록${what.isEmpty ? '' : '($what)'}을 이 계정에 합칠까요?'),
+        if (recs.unknown) ...[
+          const SizedBox(height: 8),
+          Text('다른 계정의 기록일 수 있어요',
+              key: const Key('merge-local-warn'),
+              style: t.textTheme.bodyMedium?.copyWith(color: mb(ctx).bad, fontWeight: FontWeight.w700)),
+        ],
+        const SizedBox(height: 8),
+        Text('합치지 않아도 이 기기에 따로 남아요',
+            style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
+      ]),
+      actions: recs.unknown
+          ? [
+              TextButton(
+                  key: const Key('merge-local-yes'),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('합치기')),
+              FilledButton(
+                  key: const Key('merge-local-no'),
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('합치지 않기')),
+            ]
+          : [
+              TextButton(
+                  key: const Key('merge-local-no'),
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('합치지 않기')),
+              FilledButton(
+                  key: const Key('merge-local-yes'),
+                  onPressed: () => Navigator.pop(ctx, true),
+                  child: const Text('합치기')),
+            ],
+    )),
+  );
 }
 
 /* --- 서버 주소 -------------------------------------------------------------
@@ -388,10 +491,15 @@ class _SignInScreenState extends State<SignInScreen> {
     }
     setState(() { _busy = true; _err = null; });
 
+    /* 로그인 없이 쓴 기록이 있으면 이 계정에 합칠지 — 토큰을 알리기 전에 묻습니다(머리 주석).
+       화면이 이미 내려갔으면 고르지 않은 것(null) — 합치지 않되 다음 로그인에 다시 묻습니다. */
+    Future<bool?> ask(LocalRecords recs) => mounted ? askMergeLocal(context, recs) : Future.value(null);
+
     final ApiResult r;
     switch (_mode) {
       case _AuthMode.signIn:
-        r = await widget.api.signIn(handle: handle, password: _pw.text);
+        r = await widget.api.signIn(
+            handle: handle, password: _pw.text, askMerge: ask, beforeToken: _showRecoveryCode);
       case _AuthMode.signUp:
         r = await widget.api.signUp(
           handle: handle,
@@ -399,20 +507,29 @@ class _SignInScreenState extends State<SignInScreen> {
           displayName: _name.text.trim().isEmpty ? handle : _name.text.trim(),
           pairSecret: _pair.text.trim(),
           healthConsent: kHealthConsentVersion,
+          askMerge: ask,
+          /* 복구 코드도 토큰을 알리기 전에 — 셸 첫 화면에서 가입하면 알리는 순간 이 화면이 내려가
+             창이 안 뜰 수 있었습니다. 복구(비밀번호 잊음)도 새 코드를 줍니다. */
+          beforeToken: _showRecoveryCode,
         );
       case _AuthMode.recover:
         r = await widget.api.recover(
-            handle: handle, code: _code.text.trim(), password: _pw.text);
+            handle: handle, code: _code.text.trim(), password: _pw.text,
+            askMerge: ask, beforeToken: _showRecoveryCode);
     }
     if (!mounted) return;
     if (!r.ok) {
       setState(() { _busy = false; _err = r.reason; });
       return;
     }
-    /* 복구 코드는 **이때 한 번만** 보여 줍니다. 서버는 해시만 들고 있어서
-       다시 꺼내 줄 수 없습니다. 놓치면 비밀번호를 잊었을 때 길이 없습니다. */
+    widget.onDone();
+  }
+
+  /* 복구 코드는 **이때 한 번만** 보여 줍니다. 서버는 해시만 들고 있어서
+     다시 꺼내 줄 수 없습니다. 놓치면 비밀번호를 잊었을 때 길이 없습니다. */
+  Future<void> _showRecoveryCode(ApiResult r) async {
     final code = r.body['recoveryCode'];
-    if (code is String && code.isNotEmpty) {
+    if (code is String && code.isNotEmpty && mounted) {
       await showDialog<void>(
         context: context,
         barrierDismissible: false,
@@ -431,7 +548,9 @@ class _SignInScreenState extends State<SignInScreen> {
           actions: [
             TextButton(
               onPressed: () async {
-                await Clipboard.setData(ClipboardData(text: code));
+                try {
+                  await Clipboard.setData(ClipboardData(text: code));
+                } catch (_) {/* 복사가 안 되는 기기여도 창은 닫힙니다 — 코드는 화면에 있었습니다 */}
                 if (ctx.mounted) Navigator.pop(ctx);
               },
               child: const Text('복사하고 닫기'),
@@ -440,8 +559,6 @@ class _SignInScreenState extends State<SignInScreen> {
         ),
       );
     }
-    if (!mounted) return;
-    widget.onDone();
   }
 
   @override
@@ -692,12 +809,18 @@ class _AccountScreenState extends State<AccountScreen> {
       appBar: AppBar(
         title: const Text('Mybody'),
         actions: [
+          /* 설정 맨 아래의 「로그아웃」 과 같은 길 — 같은 창으로 묻고, api.signOut 이 못 보낸 것을
+             보내 본 뒤 이 계정의 칸을 치웁니다(local_owner.dart). */
           IconButton(
             icon: const Icon(LucideIcons.logOut),
             tooltip: '로그아웃',
             onPressed: () async {
+              final unsent = context.getInheritedWidgetOfExactType<Scope>()?.queue?.pending ?? 0;
+              if (!await confirmSignOut(context, unsent: unsent) || !context.mounted) return;
               await widget.api.signOut();
-              if (context.mounted) widget.onServerChange(widget.api.baseUrl);
+              if (!context.mounted) return;
+              Navigator.of(context).popUntil((r) => r.isFirst);
+              unawaited(widget.onServerChange(widget.api.baseUrl));
             },
           ),
         ],
