@@ -9,7 +9,7 @@
 # 한 번은 사람이 해야 하는 것(스크립트가 끝에 다시 알려 줌):
 #   · 「deskd 이(가) 마이크에 접근하려고 합니다」 창 — 허용 (시험 때는 「터미널」 도 한 번)
 #   · 얼굴 등록(deskctl enroll) — 「deskd 이(가) 카메라에 접근하려고 합니다」 창도 허용
-#   · 시스템 음성 Yuna (프리미엄) 내려받기 — 설정 → 손쉬운 사용 → 읽기 및 말하기
+#   · (선택) 시스템 음성 Yuna (프리미엄) 내려받기 — 설정 → 손쉬운 사용 → 읽기 및 말하기. 평소엔 Supertonic 이 말하고 say 는 예비
 #   · 화면이 꺼졌다 켜질 때 암호 안 묻게 — 설정 → 잠금 화면 → 「화면 보호기 시작 또는 디스플레이가 꺼진 후 암호 요구」 → 안 함
 # =============================================================================
 set -euo pipefail
@@ -34,7 +34,8 @@ PY=$(command -v python3.12 || command -v python3.13 || command -v python3.11 || 
 [ -d "$VENV" ] || "$PY" -m venv "$VENV"
 "$VENV/bin/pip" install -q --upgrade pip
 "$VENV/bin/pip" install -q numpy sounddevice webrtcvad-wheels mlx-whisper pyobjc-framework-Quartz \
-  opencv-python-headless pyobjc-framework-AVFoundation     # 얼굴 인증(맥 안에서만) · 카메라 이름으로 고르기
+  opencv-python-headless pyobjc-framework-AVFoundation \
+  supertonic     # 얼굴 인증(맥 안에서만) · 카메라 이름으로 고르기 · 신경망 목소리(맥 안에서, 키 · 결제 없음)
 
 say_ "마이크 · 스피커 고르기"
 # 마이크: Brio 가 있으면 그것. 스피커: 맥 미니 내장(TV 가 꺼져 있어도 안내가 들리게).
@@ -57,6 +58,8 @@ echo "  마이크: ${MIC:-시스템 기본}  ·  스피커: ${SPK:-시스템 기
 
 say_ "받아쓰기 모델 내려받기 (처음 한 번, 1.5GB 안팎)"
 ( cd "$DESK" && "$VENV/bin/python" -c "from desk.stt import WhisperSTT; from desk import config; c=config.load()['stt']; WhisperSTT(c['model'], c['language']).warmup(); print('모델 준비됨')" ) || echo "※ 모델 준비 실패 — 네트워크 확인 뒤 다시"
+say_ "목소리 모델 내려받기 (처음 한 번, 380MB 안팎)"
+( cd "$DESK" && "$VENV/bin/python" -c "from supertonic import TTS; from desk import config; TTS(model=config.load()['tts']['model']); print('목소리 준비됨')" ) || echo "※ 목소리 모델 실패 — 그동안은 say 로 말함"
 
 say_ "얼굴 인증 모델 (처음 한 번, 37MB · 등록 데이터는 ~/.local/share/desk/face — 다시 깔아도 남음)"
 ( cd "$DESK" && "$VENV/bin/python" -m desk face models ) || echo "※ 얼굴 모델 준비 실패 — 네트워크 확인 뒤 다시(그동안은 박수만으로 깨어남)"
@@ -139,7 +142,7 @@ cat <<TXT
 남은 것 (한 번만, 사람이):
   1. 「deskd」 · 「터미널」 이 마이크를 쓰겠다고 하면 허용.
      놓쳤으면: 설정 → 개인정보 보호 및 보안 → 마이크 → deskd 켜기 (selftest 가 막혔는지 알려 줌).
-  2. 설정 → 손쉬운 사용 → 읽기 및 말하기 → 시스템 음성 → 한국어 Yuna (프리미엄) 내려받기.
+  2. (선택) 설정 → 손쉬운 사용 → 읽기 및 말하기 → 시스템 음성 → 한국어 Yuna (프리미엄) 내려받기 — 예비 목소리.
   3. 설정 → 잠금 화면 → 디스플레이가 꺼진 후 암호 요구 → 안 함.  (키보드 없이 쓰려면 필요)
   4. 방에서:  cd $DESK && $VENV/bin/python -m desk calibrate   → 박수 몇 번 쳐서 ★ 가 뜨는지.
   5.          $VENV/bin/python -m desk selftest

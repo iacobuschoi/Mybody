@@ -32,9 +32,13 @@ language = "ko"
 prompt = "앱 공장, 상황판, 브리핑, 클로드, 깃허브, 맥 미니, 아이폰, 안드로이드, 워크플로, 출시"
 
 [tts]
-voice = "Yuna"                    # 설정 → 손쉬운 사용 → 읽기 및 말하기 → 시스템 음성에서 "Yuna (프리미엄)" 권장
-rate = 190
-device = ""                       # 소리 낼 장치(say -a). TV 가 꺼져도 들리게 맥 미니 내장 스피커로 — install.sh 가 채움
+engine = "supertonic"             # 신경망 목소리(맥 안에서, 무료). "say" 면 맥 기본 음성 — 모델을 못 쓰면 알아서 say
+style = "F1"                      # Supertonic 목소리: F1~F5(여) · M1~M5(남)
+speed = 1.05                      # 빠르게 1.2 · 느리게 0.9
+steps = 5                         # 합성 단계 — 높이면(8) 조금 더 매끈하고 느림
+voice = "Yuna"                    # say 목소리(설정 → 손쉬운 사용 → 읽기 및 말하기 → 시스템 음성에서 "Yuna (프리미엄)" 권장)
+rate = 190                        # say 빠르기
+device = ""                       # 소리 낼 장치. TV 가 꺼져도 들리게 맥 미니 내장 스피커로 — install.sh 가 채움
 
 [brain]
 workdir = "~/lab/desk-assistant"

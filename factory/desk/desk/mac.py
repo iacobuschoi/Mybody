@@ -95,6 +95,15 @@ def best_voice(name: str) -> str:
     return name
 
 
+def make_voice(c: dict) -> "Voice":
+    """[tts] 설정대로 목소리를 만듭니다. engine = "supertonic" 이면 신경망 목소리(desk/tts.py, 못 쓰면 알아서 say)."""
+    if c.get("engine") == "supertonic":
+        from .tts import NeuralVoice
+        return NeuralVoice(c.get("style", "F1"), c.get("model", "supertonic-3"), c.get("speed", 1.05),
+                           c.get("steps", 5), voice=c["voice"], rate=c["rate"], device=c.get("device", ""))
+    return Voice(c["voice"], c["rate"], device=c.get("device", ""))
+
+
 class Voice:
     """`say` 로 말하기. 말하는 동안 busy — 데몬이 그동안 귀를 닫습니다(제 목소리를 명령으로 안 듣게)."""
 
