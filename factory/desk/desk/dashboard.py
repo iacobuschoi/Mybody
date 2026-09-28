@@ -4,7 +4,7 @@
 /events    상태가 바뀔 때마다 보내는 스트림(SSE)
 /api/<명령> deskctl 이 부르는 곳: wake · sleep · brief · mute · unmute · stop · say · show
 
-옆 칸의 「백그라운드 작업」 은 `claude agents --json` 을 몇 초마다 읽어 채웁니다(watch_agents).
+오른쪽 칸의 「백그라운드 작업」 은 `claude agents --json` 을 몇 초마다 읽어 채웁니다(watch_agents).
 """
 from __future__ import annotations
 
@@ -30,7 +30,8 @@ header{display:flex;align-items:baseline;gap:24px;flex-wrap:wrap}
 .listening #dot{background:var(--acc);box-shadow:0 0 0 0 var(--acc);animation:p 1.6s infinite}
 .thinking #dot{background:var(--warn)}.speaking #dot{background:#7aa2f7}.muted #dot{background:var(--bad)}
 @keyframes p{0%{box-shadow:0 0 0 0 rgba(86,212,193,.6)}70%{box-shadow:0 0 0 18px rgba(86,212,193,0)}100%{box-shadow:0 0 0 0 rgba(86,212,193,0)}}
-main{display:grid;grid-template-columns:1.2fr 1fr .8fr;gap:24px;min-height:0}
+main{display:grid;grid-template-columns:1.4fr 1fr;grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:24px;min-height:0}
+#agentsCard{grid-column:2;grid-row:1/3}
 section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px 24px;overflow:auto;min-height:0}
 h2{margin:0 0 12px;font-size:14px;letter-spacing:.08em;color:var(--dim);font-weight:600}
 #heard{font-size:30px;font-weight:600;min-height:1.5em}#reply{font-size:22px;margin-top:14px;white-space:pre-wrap;color:#c9d1d9}
@@ -48,7 +49,7 @@ footer{color:var(--dim);font-size:15px}
 <main>
  <section><h2>들은 말</h2><div id="heard">—</div><div id="reply"></div><div id="panel"></div></section>
  <section><h2>지금 상태</h2><div id="brief"></div><h2 style="margin-top:20px">기록</h2><div id="log"></div></section>
- <section><h2>백그라운드 작업</h2><div id="agents"></div></section>
+ <section id="agentsCard"><h2>백그라운드 작업</h2><div id="agents"></div></section>
 </main>
 <footer>명령 예: "브리핑" · "조용히" · "다시 들어" · "화면 꺼" · "멈춰" · 그 밖의 말은 Claude 에게</footer>
 <script>
