@@ -88,12 +88,18 @@ def selftest() -> None:
         return f"rms {rms:.3f}"
 
     def tts():
-        v = mac.Voice(cfg["tts"]["voice"], cfg["tts"]["rate"], device=cfg["tts"].get("device", ""))
+        v = mac.make_voice(cfg["tts"])
+        if hasattr(v, "ready"):                 # 신경망 목소리: 모델이 뜰 때까지(처음이면 내려받기)
+            v.ready.wait(300)
+            if v.error:
+                raise RuntimeError(f"Supertonic 못 씀 — {v.error} (pip install supertonic)")
         v.say("책상 시스템 점검 중입니다.", block=True)
+        where = cfg["tts"].get("device") or "기본 출력"
+        if hasattr(v, "engine"):
+            return f"{v.engine} · {where}"
         voices = subprocess.run(["say", "-v", "?"], capture_output=True, text=True).stdout
         if cfg["tts"]["voice"] not in voices:
             raise RuntimeError(f"음성 {cfg['tts']['voice']} 없음 — 설정 → 손쉬운 사용 → 읽기 및 말하기에서 내려받기")
-        where = cfg["tts"].get("device") or "기본 출력"
         if "(" not in v.voice:
             return f"{v.voice} · {where} — 프리미엄을 받으면 더 자연스러움"
         return f"{v.voice} · {where}"
