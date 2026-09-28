@@ -292,15 +292,15 @@ async function main() {
   ok('<title>Mybody 친구 초대</title>', a.body.includes('<title>Mybody 친구 초대</title>'));
   ok('큰 코드 글자 (class="code")', a.body.includes('<p class="code">' + CODE + '</p>'));
   ok('og:title = Mybody 친구 초대', meta(a.body, 'property', 'og:title') === 'Mybody 친구 초대');
-  ok('og:description = 링크를 누르면 친구 요청이 가요 · 코드 <CODE>',
-     meta(a.body, 'property', 'og:description') === '링크를 누르면 친구 요청이 가요 · 코드 ' + CODE,
+  ok('og:description = 링크를 누르면 바로 친구가 돼요 · 코드 <CODE>',
+     meta(a.body, 'property', 'og:description') === '링크를 누르면 바로 친구가 돼요 · 코드 ' + CODE,
      meta(a.body, 'property', 'og:description'));
   ok('og:type website · twitter:card summary', meta(a.body, 'property', 'og:type') === 'website' &&
      meta(a.body, 'name', 'twitter:card') === 'summary');
   ok('robots noindex (메타 · 머리글 둘 다)', meta(a.body, 'name', 'robots') === 'noindex' &&
      a.headers['x-robots-tag'] === 'noindex');
-  ok('"앱을 연 뒤에는 친구 요청이 자동으로 가요 (로그인 필요)"',
-     a.body.includes('앱을 연 뒤에는 친구 요청이 자동으로 가요 (로그인 필요)'));
+  ok('"앱을 연 뒤에는 바로 친구가 돼요 (로그인 필요)"',
+     a.body.includes('앱을 연 뒤에는 바로 친구가 돼요 (로그인 필요)'));
   ok('"앱이 없나요?" 칸', a.body.includes('<h2>앱이 없나요?</h2>'));
   const icon = /<img class="icon" src="([^"]+)"/.exec(a.body);
   ok('앱 아이콘을 같은 서버에서 보여 준다', icon && icon[1] === '/assets/icon-192.png', icon && icon[1]);

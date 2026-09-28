@@ -7,7 +7,9 @@
  *   · 아이폰 권한은 한 번만 묻는다. 거절해도 등록은 한다(서버가 크롬으로 대신 보냄).
  *   · 알림의 갈 곳(route) — 모르는 값은 버린다. 앞에 떠 있을 때 안드로이드만 직접 띄운다.
  *   · 앱으로 돌아올 때 독촉을 가져온다(푸시가 없는 사람의 안전망).
- *   · 설정 화면의 「푸시 알림」 줄과 「크롬(웹) 알림 끄기」.
+ *   · 설정 화면의 「푸시 알림」 줄 — 크롬 · 웹 알림 이야기는 없다(주인 의견 47).
+ *   · 크롬(웹) 알림 구독은 앱 알림 등록 뒤 계정마다 한 번 저절로 지운다 — 실패 · 거절 · FCM 꺼짐이면
+ *     안 지우고, 실패는 다음 등록 때 다시.
  *   · 구글 등록(FCM 자동 초기화)은 로그인한 뒤에만 · 서버마다 다른 설치 비밀.
  *   · 서버를 바꾸면 옛 서버에서 빼고 토큰을 새로 받는다.
  *   · 같은 독촉이 앱 알림과 가져오기 두 길로 와도 한 번만 띄운다.
@@ -106,14 +108,28 @@ class _Server {
   int webSubs = 2;
   /// 크롬 구독 지우기가 /push/web 이 아니라 /push/web-subscriptions 인 서버.
   bool webSubscriptionsName = false;
+  /// 로그인 토큰 → 계정 id(/me). 로그인하면 'tok2' 를 줍니다 — 다른 계정으로 들어온 것.
+  final users = <String, String>{'tok': 'u_a', 'tok2': 'u_b'};
+  /// 기기 등록(POST /push/device)의 답 — 200 이 아니면 등록 실패.
+  int deviceStatus = 200;
+  /// 크롬 구독 지우기의 답 — 200 이 아니면 실패.
+  int webStatus = 200;
+  /// 크롬 구독 지우기를 누구의 로그인으로 몇 번 불렀나(성공 · 실패 모두).
+  final webDrops = <String>[];
 
   MockClient get client => MockClient((req) async {
         final p = req.url.path.replaceFirst('/api', '');
         calls.add('${req.method} $p');
         final b = req.body.isEmpty ? <String, dynamic>{} : (jsonDecode(req.body) as Map).cast<String, dynamic>();
+        final tok = (req.headers['authorization'] ?? '').replaceFirst('Bearer ', '');
         if (p == '/auth/signout' || p == '/auth/signin') return _json({'ok': true, 'token': 'tok2'});
+        if (p == '/me' && req.method == 'GET') {
+          final id = users[tok];
+          return id == null ? _json({'ok': false}, 401) : _json({'ok': true, 'user': {'id': id, 'displayName': '나'}});
+        }
         if (!knowsPush) return _json({'ok': false, 'reason': '없는 길'}, 404);
         if (p == '/push/device' && req.method == 'POST') {
+          if (deviceStatus != 200) return _json({'ok': false, 'reason': '안 됨'}, deviceStatus);
           devices.add(b);
           return _json({'ok': true, 'fcm': fcm});
         }
@@ -127,6 +143,8 @@ class _Server {
         }
         final webPath = webSubscriptionsName ? '/push/web-subscriptions' : '/push/web';
         if (p == webPath && req.method == 'DELETE') {
+          webDrops.add(users[tok] ?? tok);
+          if (webStatus != 200) return _json({'ok': false, 'reason': '안 됨'}, webStatus);
           final n = webSubs;
           webSubs = 0;
           return _json({'ok': true, 'removed': n});
@@ -145,6 +163,8 @@ void main() {
     test('아는 route 만 따라간다 — 모르는 값 · 빈 값은 버린다', () {
       expect(pushRoute({'route': 'pokes'}), 'pokes');
       expect(pushRoute({'route': 'social', 'kind': 'news'}), 'social');
+      /* 「새 의견이 왔어요」(운영자에게만) — 셸이 의견함을 엽니다(feedback_inbox_test.dart). */
+      expect(pushRoute({'route': 'feedback', 'kind': 'feedback'}), 'feedback');
       expect(pushRoute({'route': 'admin'}), isNull, reason: '새 서버가 보낸 모르는 값으로 엉뚱한 곳에 가면 안 됩니다');
       expect(pushRoute({}), isNull);
       expect(const PushMessage(data: {'route': 'pokes'}).route, 'pokes');
@@ -583,16 +603,159 @@ void main() {
     });
   });
 
+  group('크롬(웹) 알림은 저절로 지운다 (주인 의견 47)', () {
+    /* 설정의 「크롬(웹) 알림 끄기」 단추 대신 — 앱 알림이 등록되면 계정마다 한 번, 조용히. */
+    Future<({NativePush push, PushAwareApi api, FakePush fake})> boot(_Server s,
+        {String token = 'tok', PushPermission perm = PushPermission.granted}) async {
+      final fake = FakePush(perm: perm);
+      final push = NativePush(platform: () => fake, appVersion: _version);
+      final api = PushAwareApi(baseUrl: 'https://x.test', client: s.client, push: push);
+      await api.setToken(token);
+      await push.start(api: api);
+      await push.idle;
+      return (push: push, api: api, fake: fake);
+    }
+
+    test('등록이 되면 한 번 지운다 — 다시 등록해도 · 다음 실행에도 또 안 지운다', () async {
+      final s = _Server();
+      final a = await boot(s);
+      expect(s.devices, hasLength(1));
+      expect(s.webDrops, ['u_a'], reason: '등록 뒤에 이 계정의 크롬 구독을 지웁니다');
+      expect(s.webSubs, 0);
+      expect(s.calls.indexOf('POST /push/device'), lessThan(s.calls.indexOf('DELETE /push/web')),
+          reason: '앱 알림 등록이 된 **뒤**에만');
+
+      await a.push.register(force: true);
+      await a.push.idle;
+      expect(s.devices, hasLength(2));
+      expect(s.webDrops, hasLength(1), reason: '계정마다 한 번');
+
+      /* 다음 실행 — 표시가 이 기기에 남아 있습니다. */
+      final again = await boot(s);
+      expect(s.devices, hasLength(3));
+      expect(s.webDrops, hasLength(1));
+      expect(again.push.registered, isTrue);
+    });
+
+    test('등록이 실패하면(서버 오류 · 옛 서버 404) 지우지 않는다', () async {
+      final bad = _Server()..deviceStatus = 500;
+      final a = await boot(bad);
+      expect(a.push.registered, isFalse);
+      expect(bad.webDrops, isEmpty);
+      expect(bad.calls, isNot(contains('DELETE /push/web')));
+
+      final old = _Server()..knowsPush = false;
+      await boot(old);
+      expect(old.webDrops, isEmpty);
+      expect(old.calls.where((c) => c.startsWith('DELETE /push/web')), isEmpty);
+    });
+
+    test('앱으로 못 받는 때는 안 지운다 — 알림 거절 · 서버 FCM 꺼짐(크롬이 남은 유일한 길)', () async {
+      final denied = _Server();
+      await boot(denied, perm: PushPermission.denied);
+      expect(denied.devices.single['permission'], 'denied');
+      expect(denied.webDrops, isEmpty);
+
+      final noFcm = _Server()..fcm = false;
+      await boot(noFcm);
+      expect(noFcm.devices, hasLength(1));
+      expect(noFcm.webDrops, isEmpty);
+    });
+
+    test('거절했던 알림을 켜고 돌아오면 그때 지운다', () async {
+      final s = _Server();
+      final a = await boot(s, perm: PushPermission.denied);
+      expect(s.webDrops, isEmpty);
+      a.fake.perm = PushPermission.granted;
+      await a.push.resumed();
+      expect(s.webDrops, ['u_a']);
+    });
+
+    test('지우기가 실패하면 적지 않고 다음 등록 때 다시 — 사람에게는 아무것도 안 뜬다', () async {
+      final s = _Server()..webStatus = 500;
+      final a = await boot(s);
+      expect(s.webDrops, hasLength(1));
+      expect(a.push.registered, isTrue, reason: '지우기 실패는 등록과 상관없음');
+      s.webStatus = 200;
+      await a.push.register(force: true);
+      await a.push.idle;
+      expect(s.webDrops, hasLength(2));
+      expect(s.webSubs, 0);
+      await a.push.register(force: true);
+      await a.push.idle;
+      expect(s.webDrops, hasLength(2), reason: '성공한 뒤로는 그만');
+    });
+
+    test('계정마다 — 다른 계정으로 들어오면 그 계정 것을 한 번, 앞 계정으로 돌아오면 안 지운다', () async {
+      final s = _Server();
+      final a = await boot(s);
+      expect(s.webDrops, ['u_a']);
+      await a.api.signOut();
+      await a.push.idle;
+      await a.api.signIn(handle: 'b', password: 'pw');   // 흉내 서버는 'tok2'(u_b)를 줍니다
+      await Future<void>.delayed(Duration.zero);
+      await a.push.idle;
+      expect(s.webDrops, ['u_a', 'u_b']);
+
+      await a.api.signOut();
+      await a.push.idle;
+      await a.api.setToken('tok');   // 다시 u_a
+      await Future<void>.delayed(Duration.zero);
+      await a.push.idle;
+      expect(s.devices.last['token'], isNot(s.devices.first['token']), reason: '다시 로그인했으니 새 토큰으로 등록');
+      expect(s.webDrops, ['u_a', 'u_b'], reason: 'u_a 는 이미 지웠음');
+    });
+
+    test('서버마다 — 다른 서버의 같은 계정 id 는 따로 센다', () async {
+      final a = _Server(), b = _Server();
+      final api1 = Api(baseUrl: 'https://a.test', client: a.client);
+      await api1.setToken('tok');
+      final push = NativePush(platform: FakePush.new, appVersion: _version);
+      await push.start(api: api1);
+      await push.idle;
+      expect(a.webDrops, ['u_a']);
+      final api2 = Api(baseUrl: 'https://b.test', client: b.client);
+      await api2.setToken('tok');
+      push.attach(api2);
+      await Future<void>.delayed(Duration.zero);
+      await push.idle;
+      expect(b.webDrops, ['u_a']);
+    });
+
+    test('서버가 다른 이름(/push/web-subscriptions)이어도 지운다', () async {
+      final s = _Server()..webSubscriptionsName = true;
+      await boot(s);
+      expect(s.calls, containsAllInOrder(['DELETE /push/web', 'DELETE /push/web-subscriptions']));
+      expect(s.webSubs, 0);
+      expect(s.webDrops, ['u_a']);
+    });
+
+    test('셸이 이미 /me 를 받았으면 다시 묻지 않는다', () async {
+      final s = _Server();
+      final fake = FakePush();
+      final push = NativePush(platform: () => fake, appVersion: _version);
+      final api = PushAwareApi(baseUrl: 'https://x.test', client: s.client, push: push);
+      await api.setToken('tok');
+      await api.me();
+      expect(api.userId, 'u_a');
+      await push.start(api: api);
+      await push.idle;
+      expect(s.calls.where((c) => c == 'GET /me'), hasLength(1));
+      expect(s.webDrops, ['u_a']);
+      await api.setToken('tok2');
+      expect(api.userId, isNull, reason: '로그인이 바뀌면 앞 계정의 id 를 버립니다');
+      await Future<void>.delayed(Duration.zero);
+      await push.idle;
+      expect(s.webDrops, ['u_a', 'u_b'], reason: '새 계정은 /me 로 다시 알아내서 그 계정 것을 지웁니다');
+    });
+  });
+
   group('설정 화면', () {
-    Future<({_Server s, Api api})> open(WidgetTester t, {bool knowsPush = true, bool webName = false,
-        int webSubs = 2, bool firebase = true}) async {
+    Future<({_Server s, Api api})> open(WidgetTester t, {bool knowsPush = true, bool firebase = true}) async {
       t.view.physicalSize = const Size(1000, 3000);
       t.view.devicePixelRatio = 1.0;
       addTearDown(t.view.reset);
-      final s = _Server()
-        ..knowsPush = knowsPush
-        ..webSubscriptionsName = webName
-        ..webSubs = webSubs;
+      final s = _Server()..knowsPush = knowsPush;
       final api = Api(baseUrl: 'https://x.test', client: s.client);
       await api.setToken('tok');
       final push = NativePush(platform: () => FakePush(initOk: firebase), appVersion: _version);
@@ -609,42 +772,36 @@ void main() {
       return (s: s, api: api);
     }
 
-    testWidgets('켜짐 + 크롬 알림이 남아 있으면 「끄기」 — 누르면 지우고 줄이 사라진다', (t) async {
+    /* 주인 의견 47 "설정에서 크롬 알림관련내용 없애" — 줄 · 단추 · 설명 어디에도. */
+    void noChrome() {
+      expect(find.textContaining('크롬'), findsNothing);
+      expect(find.textContaining('웹 알림'), findsNothing);
+      expect(find.textContaining('웹 앱'), findsNothing);
+      expect(find.widgetWithText(OutlinedButton, '끄기'), findsNothing);
+    }
+
+    testWidgets('켜짐 — 「푸시 알림」 한 줄만, 크롬 이야기는 없다', (t) async {
       final o = await open(t);
       expect(find.text('푸시 알림'), findsOneWidget);
       expect(find.text('켜짐'), findsOneWidget);
-      expect(find.text('크롬(웹) 알림 끄기'), findsOneWidget);
-      expect(find.textContaining('2곳'), findsOneWidget);
-      await t.tap(find.widgetWithText(OutlinedButton, '끄기'));
-      await t.pumpAndSettle();
-      expect(o.s.calls, contains('DELETE /push/web'));
-      expect(o.s.webSubs, 0);
-      expect(find.text('크롬(웹) 알림 끄기'), findsNothing);
+      noChrome();
+      /* 크롬 구독이 남아 있던 계정 — 화면 대신 등록이 조용히 지웠습니다. */
+      expect(o.s.webDrops, ['u_a']);
       expect(t.takeException(), isNull);
-      await t.pump(const Duration(seconds: 5));   // 토스트가 사라질 때까지
     });
 
-    testWidgets('서버가 다른 이름(/push/web-subscriptions)이어도 끈다', (t) async {
-      final o = await open(t, webName: true);
-      await t.tap(find.widgetWithText(OutlinedButton, '끄기'));
-      await t.pumpAndSettle();
-      expect(o.s.calls, containsAllInOrder(['DELETE /push/web', 'DELETE /push/web-subscriptions']));
-      expect(o.s.webSubs, 0);
-      expect(find.text('크롬(웹) 알림 끄기'), findsNothing);
-      await t.pump(const Duration(seconds: 5));
-    });
-
-    testWidgets('옛 서버(404) — 「서버 미지원」, 크롬 줄은 숨긴다', (t) async {
+    testWidgets('옛 서버(404) — 「서버 미지원」, 크롬 이야기는 없다', (t) async {
       await open(t, knowsPush: false);
       expect(find.text('서버 미지원'), findsOneWidget);
-      expect(find.text('크롬(웹) 알림 끄기'), findsNothing);
+      noChrome();
     });
 
-    testWidgets('크롬 구독이 없으면 크롬 줄을 숨긴다 · 설정 파일 없는 빌드는 「꺼짐」', (t) async {
-      await open(t, webSubs: 0, firebase: false);
+    testWidgets('설정 파일 없는 빌드는 「꺼짐」 · 크롬 이야기는 없다', (t) async {
+      final o = await open(t, firebase: false);
       expect(find.text('꺼짐'), findsOneWidget);
       expect(find.textContaining('이 판은 앱 알림을 받지 못합니다'), findsOneWidget);
-      expect(find.text('크롬(웹) 알림 끄기'), findsNothing);
+      noChrome();
+      expect(o.s.webDrops, isEmpty, reason: '앱 알림이 없으면 크롬은 그대로 둡니다');
     });
 
     testWidgets('360px 에서도 넘치지 않는다', (t) async {
@@ -652,7 +809,8 @@ void main() {
       t.view.physicalSize = const Size(360, 3000);
       await t.pumpAndSettle();
       expect(t.takeException(), isNull);
-      expect(find.text('크롬(웹) 알림 끄기'), findsOneWidget);
+      expect(find.text('푸시 알림'), findsOneWidget);
+      noChrome();
     });
   });
 }

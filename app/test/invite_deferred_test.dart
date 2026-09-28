@@ -14,6 +14,8 @@
  *   · 클립보드     안드로이드는 탭 화면이 처음 설 때 한 번 읽어 초대가 있으면 위의 띠로 묻고
  *                 「요청」 → 보냄. 아이폰은 **스스로 읽지 않는다**(붙여넣기 허용 창) — 칩을
  *                 눌렀을 때만(friend_add_test · tester_welcome_test).
+ *   · 링크 · 요청   주인 의견 48 — https 링크 · 설치 referrer 로 온 코드는 via:'link'(곧바로
+ *                 친구), 클립보드에서 고른 코드는 via 없이(코드 주인이 수락하는 요청).
  *   · 띠 · 말풍선   누를 것이 있는 안내(「로그인」 · 「요청」)는 위의 띠 — 의견 말풍선의 처음
  *                 자리와 겹치지 않는다(360×640 · 390×844, 「인바디」 단추가 있는 홈 · 없는 탭).
  * ========================================================================== */
@@ -392,9 +394,9 @@ void main() {
       await a.start();
       await _host(t, app: app, api: api, inbox: a);
       expect(s.bodiesTo('/friends/request'), [
-        {'inviteCode': 'K7M2QX9D'}
-      ]);
-      expect(find.text('친구 요청을 보냈어요'), findsOneWidget);
+        {'inviteCode': 'K7M2QX9D', 'via': 'link'}
+      ], reason: '설치 referrer 는 링크를 누르고 깐 것 — 링크와 같이 곧바로 친구');
+      expect(find.text('친구 요청을 보냈어요'), findsOneWidget, reason: '말은 서버의 답대로(이 흉내 서버는 요청으로 받음)');
       expect(_prompt, findsNothing, reason: 'referrer 는 묻지 않습니다');
 
       await t.pumpWidget(const SizedBox());
@@ -420,7 +422,7 @@ void main() {
       d.ctrl.add(Uri.parse('mybody://invite/K7M2QX9D'));   // 같은 코드가 다른 모양으로
       await _host(t, app: app, api: api, inbox: a);
       expect(s.bodiesTo('/friends/request'), [
-        {'inviteCode': 'K7M2QX9D'}
+        {'inviteCode': 'K7M2QX9D', 'via': 'link'}
       ]);
       expect(find.text('친구 요청을 보냈어요'), findsOneWidget);
 
@@ -454,7 +456,7 @@ void main() {
       d.ctrl.add(_https('WXYZ2345'));
       await t.pumpAndSettle();
       expect(s.bodiesTo('/friends/request'), [
-        {'inviteCode': 'WXYZ2345'}
+        {'inviteCode': 'WXYZ2345', 'via': 'link'}
       ], reason: '다른 서버 링크로 겹침 표시가 남아 진짜 링크를 거르면 안 됩니다');
       expect(find.text('친구 요청을 보냈어요'), findsOneWidget);
     });
@@ -481,7 +483,7 @@ void main() {
       await t.pumpAndSettle();
       expect(s.bodiesTo('/friends/request'), [
         {'inviteCode': 'K7M2QX9D'}
-      ]);
+      ], reason: '클립보드의 코드는 via 없이 — 곧바로 친구가 아니라 코드 주인이 수락하는 요청(주인 의견 48)');
       expect(find.text('친구 요청을 보냈어요'), findsOneWidget);
       expect(_prompt, findsNothing);
 
@@ -663,7 +665,7 @@ void main() {
   });
 
   /* --- 누를 것이 있는 안내 vs 의견 말풍선 --------------------------------------------------
-     예전엔 「로그인하면 친구 요청이 가요」 가 스낵바였고, 스낵바는 「인바디」 단추 위에 떠서
+     예전엔 「로그인하면 친구 요청이 가요」(지금은 링크면 「로그인하면 바로 친구가 돼요」)가 스낵바였고, 스낵바는 「인바디」 단추 위에 떠서
      오른쪽 끝의 「로그인」 을 그 바로 위의 말풍선(처음 자리)이 덮었습니다. */
   group('위의 띠는 의견 말풍선의 처음 자리와 겹치지 않는다', () {
     for (final (size, text) in const [
@@ -694,7 +696,7 @@ void main() {
         await a.start();
         await _host(t, app: app, api: s.api(signedIn: false), inbox: a, framed: true);
         expect(find.byType(FloatingActionButton), findsOneWidget, reason: '「인바디」 단추가 있는 홈 — 스낵바였다면 그 위');
-        expect(find.text('로그인하면 친구 요청이 가요'), findsOneWidget);
+        expect(find.text('로그인하면 바로 친구가 돼요'), findsOneWidget, reason: 'https 링크로 온 초대');
         clear(t, '홈');
         await t.tap(find.widgetWithText(NavigationDestination, '식단'));
         await t.pumpAndSettle();

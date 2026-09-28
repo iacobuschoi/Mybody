@@ -4,9 +4,10 @@
  * 권한은 전부 여기와 server.js 에서 겁니다. 클라이언트를 믿지 않습니다.
  *
  * 앱 안 「의견 보내기」 가 쌓는 feedback · feedback_images 도 여기 있습니다. 검사는
- * server/feedback.js 가 하고, 여기서는 넣기 · 세기 · 읽음 표시 · 지우기만 합니다.
- * 지우는 길은 둘입니다 — 탈퇴(deleteMe)와 1년 보관 기간(pruneOldFeedback). 주인이
- * 읽었다고 지우지는 않습니다(읽음 표시만). 처리방침에 적은 것과 어긋나지 않게.
+ * server/feedback.js 가 하고, 여기서는 넣기 · 세기 · 목록(의견함) · 읽음 표시 · 지우기만 합니다.
+ * 지우는 길은 셋입니다 — 탈퇴(deleteMe), 1년 보관 기간(pruneOldFeedback), 그리고 운영자가
+ * 앱 안 「의견함」에서 직접 지우는 것(deleteFeedback). 읽었다고 저절로 지우지는 않습니다
+ * (읽음 표시만). 처리방침의 "1년" 은 가장 오래 두는 기간이라, 먼저 지우는 것은 어긋나지 않습니다.
  * ========================================================================== */
 'use strict';
 const { DatabaseSync } = require('node:sqlite');
@@ -56,6 +57,21 @@ function open(file) {
       created_at TEXT NOT NULL,
       responded_at TEXT,
       PRIMARY KEY (a_id, b_id)
+    );
+    /* "owner 가 other 에게 싫다고 한 적이 있다" — 거절(decline) · 친구 끊기(removeFriend) ·
+       차단(block)의 기억. 초대 링크의 "곧바로 친구"(주인 의견 48 · sendRequest 의 viaLink)가
+       **거절한 사람을 되살리는 뒷문**이 되지 않게 둡니다.
+       거절 · 끊기는 관계 행을 지우고, 차단은 풀면 지워서 흔적이 안 남습니다. 그런데 초대 코드는
+       바뀌지 않아서 거절당한 사람 · 끊긴 친구도 그 코드를 쥐고 있습니다 — via:'link' 한 번이면
+       수락 없이 다시 친구가 되고 그 사람의 기본 공유를 봅니다. 그래서 이 행이 있는 사이는
+       링크로 와도 예전처럼 **요청**(코드 주인이 수락)으로 받습니다. 손으로 친 요청은 예전
+       그대로라 이 표를 보지 않습니다. 다시 친구가 되면(accept) 양쪽 다 지우고, 계정을 지우면
+       연쇄로 사라집니다(처리방침 「친구 관계」). */
+    CREATE TABLE IF NOT EXISTS friend_refusals (
+      owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      other_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (owner_id, other_id)
     );
     CREATE TABLE IF NOT EXISTS shares (
       owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -153,7 +169,8 @@ function open(file) {
      * **탈퇴하면 같이 지워집니다**(외래키 연쇄 + deleteMe 가 한 번 더). 보낸 곳의
      * 주소(IP)는 저장하지 않습니다 — 하루 개수 세기는 메모리에서만 합니다.
      * 1년이 지나면 지웁니다(pruneOldFeedback — 서버가 뜰 때와 하루 한 번).
-     * read_at 은 주인이 노트북 도구(tools/feedback.js --mark-read)로 읽음 표시한 때.
+     * read_at 은 주인이 읽음 표시한 때 — 앱 안 「의견함」에서 열었을 때(server.js
+     * handleFeedbackInbox), 또는 노트북 도구(tools/feedback.js --mark-read).
      * AUTOINCREMENT — 지운 번호를 다시 쓰지 않습니다. 도구가 꺼낸 캡처 파일 이름이
      * <번호>-<n>.png 라서, 번호가 돌아오면 탈퇴한 사람의 캡처가 새 의견의 것으로 보이고
      * 도구가 "지워진 의견의 파일" 을 가려 지울 수도 없습니다. */
@@ -484,6 +501,13 @@ function makeApi(db) {
     setEdgeBlocked: db.prepare('UPDATE friendships SET status=?, blocked_by=?, responded_at=? WHERE a_id=? AND b_id=?'),
     deleteEdge: db.prepare('DELETE FROM friendships WHERE a_id=? AND b_id=?'),
     edgesOf: db.prepare('SELECT * FROM friendships WHERE a_id = ? OR b_id = ?'),
+    /* 거절 · 끊기 · 차단의 기억(friend_refusals 주석). */
+    refused: db.prepare('SELECT 1 FROM friend_refusals WHERE owner_id=? AND other_id=?'),
+    addRefusal: db.prepare(
+      'INSERT INTO friend_refusals (owner_id,other_id,created_at) VALUES (?,?,?) ' +
+      'ON CONFLICT(owner_id,other_id) DO UPDATE SET created_at=excluded.created_at'),
+    clearRefusals: db.prepare(
+      'DELETE FROM friend_refusals WHERE (owner_id=? AND other_id=?) OR (owner_id=? AND other_id=?)'),
 
     getShare: db.prepare('SELECT * FROM shares WHERE owner_id=? AND viewer_id=?'),
     upsertShare: db.prepare(
@@ -587,6 +611,22 @@ function makeApi(db) {
     feedbackImages: db.prepare('SELECT idx, type, data FROM feedback_images WHERE feedback_id=? ORDER BY idx'),
     feedbackIds: db.prepare('SELECT id FROM feedback'),
     markFeedbackRead: db.prepare('UPDATE feedback SET read_at=? WHERE id=? AND read_at IS NULL'),
+    /* 앱 안 「의견함」 — 번호(id)로 새것부터, before 보다 작은 것만. 시각(created_at)이 아니라
+       번호로 넘기는 이유: 번호는 다시 쓰이지 않고(AUTOINCREMENT) 겹치지 않아서, 사이에 새
+       의견이 들어오거나 하나가 지워져도 다음 쪽이 한 건을 두 번 주거나 건너뛰지 않습니다.
+       보낸 사람은 **표시 이름만** 붙입니다(아이디 · 내부 id 는 안 꺼냄). */
+    inboxPage: db.prepare(
+      'SELECT f.id, f.created_at, f.app_version, f.platform, f.screen, f.text, f.read_at, ' +
+      'u.id AS from_id, u.display_name AS from_name ' +
+      'FROM feedback f LEFT JOIN users u ON u.id = f.user_id ' +
+      'WHERE f.id < ? ORDER BY f.id DESC LIMIT ?'),
+    /* 목록에는 사진의 번호 · 형식만 — 바이트(한 장 1.5MB)는 한 장씩 따로(feedbackImage). */
+    feedbackImageMeta: db.prepare('SELECT idx, type FROM feedback_images WHERE feedback_id=? ORDER BY idx'),
+    feedbackImage: db.prepare('SELECT type, data FROM feedback_images WHERE feedback_id=? AND idx=?'),
+    countUnreadFeedback: db.prepare('SELECT COUNT(*) c FROM feedback WHERE read_at IS NULL'),
+    markAllFeedbackRead: db.prepare('UPDATE feedback SET read_at=? WHERE read_at IS NULL AND id <= ?'),
+    deleteFeedbackImagesById: db.prepare('DELETE FROM feedback_images WHERE feedback_id=?'),
+    deleteFeedbackById: db.prepare('DELETE FROM feedback WHERE id=?'),
     /* 사진 먼저 지웁니다. 외래키 연쇄(ON DELETE CASCADE)로도 지워지지만, 그건 이
        연결에 PRAGMA foreign_keys 가 켜져 있을 때만입니다 — 몸 숫자가 찍혔을 수 있는
        사진을 설정 한 줄에 맡기지 않습니다. */
@@ -874,20 +914,46 @@ function makeApi(db) {
       return !!(e && e.status === 'accepted');
     },
 
-    sendRequest(me, code) {
+    /* opts.viaLink — **초대 링크로 온 요청**(앱이 링크 · 설치 추천인으로 받은 코드, 서버의
+       POST /friends/request 에 via:'link'). 주인 의견 48: "초대 링크로 오면 바로 친구되게 해".
+       링크는 코드 주인이 직접 골라 보낸 초대라서, 주인이 한 번 더 수락하는 것은 이미 한 말을
+       되묻는 셈입니다. 그래서 그 자리에서 맺습니다 — 새로 맺는 길을 따로 두지 않고 **코드
+       주인이 수락 단추를 누른 것과 같은 accept()** 를 부릅니다. 각 방향의 기본 공유가 복사되는
+       것까지 똑같습니다(아래 accept 주석).
+         · 요청이 없던 사이     요청을 적고 곧바로 코드 주인이 수락
+         · 내가 이미 보낸 요청   그 요청을 코드 주인이 수락(링크를 받기 전에 코드를 쳐 둔 사람)
+         · 상대가 보낸 요청     전과 같은 맞요청 — 내가 수락
+         · 이미 친구            그대로 {status:'accepted', already:true} — 아무것도 안 바꾸고,
+                                알림도 다시 안 갑니다(server.js). 링크를 두 번 누른 사람에게
+                                「이미 보낸 요청」 같은 실패를 보이지 않게.
+       차단 · 내 코드 · 없는 코드는 전과 똑같이 거절입니다. 손으로 친 코드(viaLink 없음)는
+       예전 그대로 요청 → 수락입니다.
+       **코드 주인이 나를 거절 · 끊기 · 차단한 적이 있으면**(friend_refusals) 링크여도 손으로 친
+       것과 같게 — 요청으로 받습니다. 코드는 바뀌지 않아서, 거절당한 사람 · 끊긴 친구도 옛 링크를
+       쥐고 있습니다. 링크 한 번으로 싫다고 한 사람의 친구 목록 · 기본 공유에 되돌아오면 안 됩니다.
+       답은 예전 요청과 같은 모양(pending · 이름 없음)이고, 코드 주인은 다시 고를 수 있습니다. */
+    sendRequest(me, code, opts) {
       if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다' };
       const other = q.userByCode.get(str(code).toUpperCase());
       if (!other) return { ok: false, reason: '그런 코드를 가진 사람이 없습니다' };
       if (other.id === me) return { ok: false, reason: '자기 자신은 추가할 수 없습니다' };
+      const viaLink = !!(opts && opts.viaLink) && !q.refused.get(other.id, me);
       const [x, y] = pair(me, other.id);
       const e = q.edge.get(x, y);
       if (e) {
         if (e.status === 'blocked') return { ok: false, reason: '요청할 수 없는 상대입니다' };
-        if (e.status === 'accepted') return { ok: false, reason: '이미 친구입니다' };
-        if (e.requested_by === me) return { ok: false, reason: '이미 보낸 요청입니다' };
+        if (e.status === 'accepted') {
+          return viaLink ? { ok: true, status: 'accepted', already: true, otherId: other.id }
+                         : { ok: false, reason: '이미 친구입니다' };
+        }
+        if (e.requested_by === me) {
+          if (!viaLink) return { ok: false, reason: '이미 보낸 요청입니다' };
+          return Object.assign({ otherId: other.id }, this.accept(other.id, me));
+        }
         return Object.assign({ otherId: other.id }, this.accept(me, other.id));
       }
       q.insertEdge.run(x, y, 'pending', me, nowISO());
+      if (viaLink) return Object.assign({ otherId: other.id }, this.accept(other.id, me));
       /* 상대의 id 를 같이 돌려줍니다 — 서버가 그 사람에게 알림을 보내야
          하는데, 여기 말고는 "방금 누구에게 갔는가" 를 아는 곳이 없습니다.
          새어 나가는 것은 없습니다: 초대 코드를 쥐고 방금 그 사람을 추가한
@@ -915,13 +981,18 @@ function makeApi(db) {
          것입니다 — 한쪽의 기본값이 다른 쪽 방향을 정하면 안 됩니다. */
       q.upsertShare.run(me, otherId, JSON.stringify(this.shareDefaults(me)), '');
       q.upsertShare.run(otherId, me, JSON.stringify(this.shareDefaults(otherId)), '');
+      /* 다시 친구가 됐으니 예전의 "싫다" 는 지난 일입니다(friend_refusals) — 양쪽 다. */
+      q.clearRefusals.run(me, otherId, otherId, me);
       return { ok: true, status: 'accepted' };
     },
+    /* 거절 · 끊기 · 차단은 "이 사람의 초대 링크로는 곧바로 못 돌아온다" 를 같이 적습니다
+       (friend_refusals · sendRequest). 적는 쪽은 싫다고 한 사람(me)뿐입니다. */
     decline(me, otherId) {
       const [x, y] = pair(me, otherId);
       const e = q.edge.get(x, y);
       if (!e || e.status !== 'pending') return { ok: false, reason: '받은 요청이 없습니다' };
       q.deleteEdge.run(x, y);
+      q.addRefusal.run(me, otherId, nowISO());
       return { ok: true };
     },
     removeFriend(me, otherId) {
@@ -937,6 +1008,9 @@ function makeApi(db) {
       q.deleteEdge.run(x, y);
       q.deleteShare.run(me, otherId);
       q.deleteShare.run(otherId, me);
+      /* 친구를 끊은 것만 적습니다. 내가 보낸 요청을 거둔 것은 상대를 싫다고 한 것이 아니고,
+         차단 행을 지운 것(차단 해제와 같음)은 차단할 때 이미 적었습니다. */
+      if (e.status === 'accepted') q.addRefusal.run(me, otherId, nowISO());
       return { ok: true };
     },
     block(me, otherId) {
@@ -951,6 +1025,8 @@ function makeApi(db) {
       q.setEdgeBlocked.run('blocked', me, nowISO(), x, y);
       q.deleteShare.run(me, otherId);
       q.deleteShare.run(otherId, me);
+      /* 차단을 풀어도(unblock — 행을 지움) 링크로 곧바로 돌아오지는 못하게 — 요청은 됩니다. */
+      q.addRefusal.run(me, otherId, nowISO());
       return { ok: true };
     },
     /** 차단 해제. 차단한 본인만. 이게 없으면 차단한 사람이 영원히 지울 수 없는 행에 묶입니다. */
@@ -1101,7 +1177,8 @@ function makeApi(db) {
 
     exists(uid) { return !!(uid && q.userById.get(uid)); },
 
-    /** 아이디 → 내부 id. 없으면 null. 주인 알림(FEEDBACK_NOTIFY)이 아이디로 적혀 있어서. */
+    /** 아이디 → 내부 id. 없으면 null. 주인 알림 · 「의견함」의 운영자(FEEDBACK_NOTIFY)가 아이디로
+     *  적혀 있어서. 로그인과 같은 규칙(앞뒤 공백 빼고 소문자)으로 찾습니다. */
     userIdByHandle(handle) {
       const u = q.userByHandle.get(str(handle).trim().toLowerCase());
       return u ? u.id : null;
@@ -1159,6 +1236,74 @@ function makeApi(db) {
         throw e;
       }
       return n;
+    },
+
+    /* --- 앱 안 「의견함」 (운영자만 — 누가 운영자인지는 server.js 가 요청마다 가립니다) ---
+     * 노트북 도구와 같은 표를 읽습니다. 다른 점은 둘: 사람을 가명이 아니라 **표시 이름**으로
+     * 보여 주고(운영자 폰의 화면이라 누가 보냈는지 알아야 답을 할 수 있습니다), 사진 바이트는
+     * 목록에 싣지 않습니다(한 장씩 따로 — 목록 한 번에 수십 MB 가 오가지 않게).
+     * ------------------------------------------------------------------- */
+    /**
+     * 새것부터 한 쪽. before 가 있으면 그 번호보다 작은 것만(다음 쪽).
+     * @returns {{unread:number, items:object[], nextBefore:number|null}}
+     *   items[i] = {id, createdAt, appVersion|null, platform|null, screen|null, text(없으면 ''),
+     *               read, images:[{n, type}], from:{name}|null(익명)}
+     */
+    feedbackInbox({ before = null, limit = 30 } = {}) {
+      const want = Math.floor(Number(limit));
+      const lim = Number.isFinite(want) ? Math.min(50, Math.max(1, want)) : 30;
+      const cut = Number.isSafeInteger(before) && before > 0 ? before : Number.MAX_SAFE_INTEGER;
+      /* 하나 더 읽어 봅니다 — 있으면 다음 쪽이 있다는 뜻. 따로 세는 질의가 필요 없습니다. */
+      const rows = q.inboxPage.all(cut, lim + 1);
+      const more = rows.length > lim;
+      const items = rows.slice(0, lim).map(r => {
+        const id = Number(r.id);
+        return {
+          id, createdAt: r.created_at,
+          appVersion: r.app_version || null, platform: r.platform || null,
+          /* 저장할 때 이미 걸렀지만(server/feedback.js), 서버를 거치지 않고 들어간 옛 행 ·
+             손으로 넣은 행도 있습니다. 글자 방향 뒤집기 문자는 앱 화면에서도 보이는 글과
+             실제 글을 다르게 만듭니다 — 노트북 도구처럼 내보낼 때 한 번 더 거릅니다. */
+          screen: r.screen ? FEEDBACK.cleanText(r.screen) : null,
+          text: r.text ? FEEDBACK.cleanText(r.text) : '',
+          read: !!r.read_at,
+          images: q.feedbackImageMeta.all(id).map(i => ({ n: Number(i.idx), type: i.type })),
+          /* 표시 이름은 글보다 덜 걸러진 채 저장됩니다 — 가입 · 이름 바꾸기(updateMe)는 길이만
+             자르고 제어 · 방향 뒤집기 문자를 안 뺍니다. 여기서는 그 이름이 "누가 보냈나" 를
+             가리키는 칸이라, 보이는 이름과 실제 이름이 달라지면 안 됩니다. 같은 규칙으로 거르고
+             줄바꿈 · 탭도 한 칸으로(이름은 한 줄입니다). */
+          from: r.from_id
+            ? { name: FEEDBACK.cleanText(r.from_name || '').replace(/\s+/g, ' ').trim() }
+            : null
+        };
+      });
+      return { unread: Number(q.countUnreadFeedback.get().c) || 0, items,
+               nextBefore: more && items.length ? items[items.length - 1].id : null };
+    },
+    /** 사진 한 장 {type, data:Buffer}. 없으면 null. */
+    feedbackImage(id, n) {
+      const r = q.feedbackImage.get(Number(id), Number(n));
+      return r ? { type: r.type, data: Buffer.from(r.data) } : null;
+    },
+    /** 안 읽은 것 전부를 읽음으로. upTo(번호)가 있으면 그 번호까지만 — 화면에 보인 적 없는
+     *  (그 뒤에 온) 의견이 "읽음" 이 되지 않게. 바뀐 개수를 돌려줍니다. */
+    markAllFeedbackRead(upTo = null) {
+      const top = Number.isSafeInteger(upTo) && upTo > 0 ? upTo : Number.MAX_SAFE_INTEGER;
+      return Number(q.markAllFeedbackRead.run(nowISO(), top).changes) || 0;
+    },
+    /** 의견 하나와 그 사진을 한 트랜잭션으로 지웁니다. 있었으면 true.
+     *  사진을 먼저 직접 지웁니다 — 외래키 연쇄에만 맡기지 않는 이유는 deleteFeedbackImagesOf 와 같습니다. */
+    deleteFeedback(id) {
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        q.deleteFeedbackImagesById.run(Number(id));
+        const n = Number(q.deleteFeedbackById.run(Number(id)).changes) || 0;
+        db.exec('COMMIT');
+        return n > 0;
+      } catch (e) {
+        try { db.exec('ROLLBACK'); } catch {}
+        throw e;
+      }
     },
     /** 보관 기간(기본 1년)이 지난 의견과 그 사진을 지웁니다. 지운 의견 수를 돌려줍니다.
      *  서버가 뜰 때와 하루 한 번 부릅니다(server.js) — 처리방침에 적은 "1년" 을 지키는 곳. */
@@ -1264,7 +1409,8 @@ function makeApi(db) {
       }));
     },
     dropPushSub(endpoint) { q.delPush.run(str(endpoint)); },
-    /** 「크롬(웹) 알림 끄기」 — 이 사람의 웹 푸시 구독을 전부 지웁니다. */
+    /** 이 사람의 웹 푸시(크롬) 구독을 전부 지웁니다 — DELETE /push/web. 예전엔 설정의 「크롬(웹)
+        알림 끄기」 단추가, 이제는 앱이 앱 알림을 등록한 뒤 계정마다 한 번 저절로 부릅니다. */
     dropPushSubsOf(uid) {
       const r = q.delPushOf.run(uid);
       return { ok: true, removed: Number(r.changes) || 0 };

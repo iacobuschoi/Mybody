@@ -21,6 +21,10 @@
  * 로그인 없이 가는 길도 같은 [Api.send] 로 갑니다 — 토큰이 있을 때만 머리에
  * 붙이므로, 로그인 안 한 사람의 「의견 보내기」 는 그냥 토큰 없이 나갑니다
  * (서버가 그때는 익명으로 받습니다).
+ *
+ * 그렇게 모인 의견을 운영자가 앱 안에서 읽는 길(「의견함」)은 맨 아래
+ * [ApiFeedbackInbox] 입니다. 캡처 사진만은 JSON 이 아니라 바이트로 받아서
+ * [Api.send] 를 못 타고 따로 갑니다 — 토큰은 똑같이 머리에 붙입니다.
  * ========================================================================== */
 import 'dart:async';
 
@@ -67,6 +71,19 @@ class Api extends ChangeNotifier {
   final http.Client _client;
   String? _token;
 
+  /// 이 로그인이 운영자인가(/me 의 user.isOperator). null 이면 아직 모름 — [me] 가 채웁니다.
+  bool? _operator;
+
+  /// 이 로그인의 계정 id(/me 의 user.id). null 이면 아직 모름 — [me] 가 채웁니다.
+  String? _userId;
+
+  /* 의견함 캡처의 메모리 캐시([ApiFeedbackInbox.inboxImage]). 넣은 차례가 곧 오래된 차례라
+     (LinkedHashMap) 꺼낼 때 뒤로 다시 넣으면 LRU 입니다. 받는 중인 것은 [_inboxImageLoads] 에
+     — 목록의 작은 그림과 상세가 같은 장을 동시에 청해도 한 번만 받게. */
+  final _inboxImages = <String, Uint8List>{};
+  final _inboxImageLoads = <String, Future<Uint8List?>>{};
+  int _inboxImageBytes = 0;
+
   static const _tokenKey = 'mybody.token.v1';
 
   String? get token => _token;
@@ -88,6 +105,9 @@ class Api extends ChangeNotifier {
   Future<void> setToken(String? t) => _saveToken(t);
 
   Future<void> _saveToken(String? t) async {
+    /* 로그인이 바뀌면 운영자인지도, 운영자로 받아 둔 캡처도 앞 사람 것입니다 — 같은 기기에서
+       다른 계정으로 들어온 사람에게 앞 운영자의 의견 사진이 캐시에서 나오면 안 됩니다. */
+    if (t != _token) _forgetAccountMemory();
     _token = t;
     notifyListeners();   // 저장보다 먼저 — 화면은 지금 바뀌어야 합니다
     try {
@@ -99,6 +119,14 @@ class Api extends ChangeNotifier {
         await sp.setString(_tokenKey, t);
       }
     } catch (_) {/* 못 적어도 이번 실행 동안은 씁니다 */}
+  }
+
+  void _forgetAccountMemory() {
+    _operator = null;
+    _userId = null;
+    _inboxImages.clear();
+    _inboxImageLoads.clear();
+    _inboxImageBytes = 0;
   }
 
   /// [kAccountCachePrefixes] 의 캐시를 전부 지웁니다. 로그인이 끝날 때와
@@ -260,7 +288,32 @@ class Api extends ChangeNotifier {
     await _saveToken(null);
   }
 
-  Future<ApiResult> me() => _send('GET', '/me');
+  /// 내 계정. 받을 때마다 운영자인지([isOperator])를 적어 둡니다 — 셸 · 친구 탭 · 계정 화면이
+  /// 이미 /me 를 부르므로, 설정의 「의견함」 줄은 대개 따로 묻지 않고 그 값을 씁니다.
+  Future<ApiResult> me() async {
+    final asked = _token;
+    final r = await _send('GET', '/me');
+    /* 기다리는 사이 로그인이 바뀌었으면 앞 계정의 답입니다 — 적지 않습니다. */
+    if (r.ok && asked == _token) {
+      final u = r.body['user'];
+      _operator = isOperatorUser(u);
+      final id = u is Map ? u['id'] : null;
+      _userId = id is String && id.isNotEmpty ? id : null;
+    }
+    return r;
+  }
+
+  /// 이 로그인의 계정 id — [me] 를 한 번 받은 뒤에 압니다(모르면 null). 계정마다 한 번만
+  /// 하는 일(native_push.dart 의 크롬 알림 지우기)이 열쇠로 씁니다. 로그인이 바뀌면 비웁니다.
+  String? get userId => signedIn ? _userId : null;
+
+  /// 이 로그인이 운영자인가 — 서버 설정(feedbackNotify)에 적힌 아이디의 계정만 참.
+  /// null 이면 이 로그인으로 아직 /me 를 못 받았습니다. 화면을 가르는 데만 씁니다 —
+  /// 의견함의 권한 판정은 언제나 서버가 합니다(아니면 403).
+  bool? get isOperator => signedIn ? _operator : false;
+
+  /// /me 의 user 가 운영자인가. 옛 서버는 칸이 없어서 거짓입니다.
+  static bool isOperatorUser(Object? user) => user is Map && user['isOperator'] == true;
 
   /// 옛 판으로 동의한 계정이 새 판에 다시 동의합니다 (account.dart ConsentGate).
   Future<ApiResult> consent(String version) =>
@@ -293,8 +346,13 @@ extension ApiSocial on Api {
 
   /* 서버는 inviteCode 를 읽습니다. 예전에 'code' 로 보내서 앱에서는 친구
      추가가 한 번도 안 됐습니다(웹은 맞게 보냈음). */
-  Future<ApiResult> requestFriend(String inviteCode) =>
-      send('POST', '/friends/request', {'inviteCode': inviteCode});
+  /*
+     [viaLink] — 초대 링크(· 설치 추천인)로 받은 코드. 서버가 요청이 아니라 그 자리에서 친구로
+     맺습니다(주인 의견 48 · server.js POST /friends/request 의 via:'link'). 손으로 친 코드 ·
+     클립보드에서 고른 코드 · 다시 보내기 줄(sync_queue.dart)은 붙이지 않습니다 — 코드 주인의
+     수락을 기다리는 예전 흐름 그대로. 이 칸을 모르는 옛 서버는 버리고 요청으로 받습니다. */
+  Future<ApiResult> requestFriend(String inviteCode, {bool viaLink = false}) =>
+      send('POST', '/friends/request', {'inviteCode': inviteCode, if (viaLink) 'via': 'link'});
   Future<ApiResult> acceptFriend(String userId) =>
       send('POST', '/friends/accept', {'userId': userId});
   Future<ApiResult> declineFriend(String userId) =>
@@ -362,7 +420,8 @@ extension ApiSocial on Api {
 extension ApiPush on Api {
   /// `{ok, fcm}` — fcm 은 서버가 실제로 보낼 수 있는가(설정 파일이 있는가).
   /// 서버가 FCM 을 아직 안 켰어도 저장은 합니다 — 켜는 날 바로 씁니다.
-  /// [permission] 은 'granted' · 'denied' — 거절된 기기는 서버가 크롬(웹) 알림을 계속 보냅니다.
+  /// [permission] 은 'granted' · 'denied' — 거절된 기기는 서버가 앱이 있는 것으로 치지 않습니다
+  /// (크롬(웹) 구독이 남아 있으면 그리로 보냄).
   /// [secret] 은 이 설치가 이 서버에 쓰는 난수 비밀 — 다른 계정이 토큰만으로 이 기기를
   /// 옮겨 가지 못하게 서버가 봅니다(맞지 않으면 409).
   Future<ApiResult> registerPushDevice({
@@ -384,15 +443,263 @@ extension ApiPush on Api {
   Future<ApiResult> removePushDevice(String token) =>
       send('DELETE', '/push/device', {'token': token});
 
-  /// 설정 화면의 알림 줄. `{ok, fcm, web, devices, webSubs, webMuted}`.
+  /// 설정 화면의 「푸시 알림」 줄. `{ok, fcm, web, devices, webSubs, webMuted}` — 화면은 fcm 만
+  /// 봅니다(크롬 칸은 설정에서 뺐습니다 · 주인 의견 47).
   Future<ApiResult> pushStatus() => send('GET', '/push/status');
 
   /// 이 계정의 크롬(웹) 알림 구독을 전부 지웁니다. `{ok, removed}`.
+  /// 사람이 누르는 단추는 없습니다 — 이 기기의 앱 알림을 서버에 등록한 뒤 NativePush 가
+  /// 계정마다 한 번 저절로 부릅니다(native_push.dart).
   /// 서버 판에 따라 이름이 둘이라(설계는 /push/web, 먼저 알린 이름은 /push/web-subscriptions)
   /// 앞의 것이 404 면 뒤의 것을 부릅니다. 둘 다 404 면 이 서버에는 없는 기능입니다.
   Future<ApiResult> dropWebPush() async {
     final r = await send('DELETE', '/push/web');
     if (r.status != 404) return r;
     return send('DELETE', '/push/web-subscriptions');
+  }
+}
+
+/* --- 의견함(운영자) ----------------------------------------------------------
+ *
+ * 앱 안 「의견 보내기」 로 모인 의견을 운영자가 폰에서 읽는 길(screens/feedback_inbox.dart).
+ * 서버 설정(feedbackNotify)에 적힌 아이디로 로그인한 계정만 됩니다 — 다른 계정은 403
+ * `{ok:false, error:'운영자만 볼 수 있어요'}`, 로그인 안 했으면 다른 길처럼 401.
+ *
+ * 보낸 사람은 표시 이름만 옵니다(`from: {name}`, 로그인 없이 보냈으면 null). 아이디 ·
+ * 이메일은 서버가 싣지 않습니다.
+ * -------------------------------------------------------------------------- */
+
+/// 의견에 붙은 캡처 한 장 — [n] 은 1부터(서버의 feedback_images.idx).
+typedef InboxImage = ({int n, String type});
+
+/// 의견함의 한 건.
+class InboxItem {
+  const InboxItem({
+    required this.id,
+    this.createdAt,
+    this.appVersion,
+    this.platform,
+    this.screen,
+    this.text = '',
+    this.read = false,
+    this.images = const [],
+    this.anonymous = true,
+    this.fromName,
+  });
+
+  final int id;
+
+  /// 보낸 때(이 폰의 시각대로 바꿔 둠). 서버가 이상한 값을 주면 null.
+  final DateTime? createdAt;
+  final String? appVersion;
+
+  /// 'android' · 'ios' — 모르는 값이면 그대로.
+  final String? platform;
+
+  /// 보낼 때 보던 화면의 앱바 제목(홈 · 식단 · 설정 …).
+  final String? screen;
+
+  /// 글. 캡처만 보냈으면 빈 글자.
+  final String text;
+  final bool read;
+  final List<InboxImage> images;
+
+  /// 로그인 없이 보냈는가(`from: null`).
+  final bool anonymous;
+
+  /// 보낸 계정의 표시 이름. 익명이거나 계정의 이름이 비었으면 null — 둘은 [anonymous] 로 가릅니다.
+  final String? fromName;
+
+  InboxItem copyWith({bool? read}) => InboxItem(
+        id: id,
+        createdAt: createdAt,
+        appVersion: appVersion,
+        platform: platform,
+        screen: screen,
+        text: text,
+        read: read ?? this.read,
+        images: images,
+        anonymous: anonymous,
+        fromName: fromName,
+      );
+
+  /// 서버의 한 칸을 읽습니다. id 가 없으면 null — 그 칸은 버립니다(누를 수도 지울 수도 없음).
+  static InboxItem? fromJson(Object? j) {
+    if (j is! Map) return null;
+    final id = _int(j['id']);
+    if (id == null) return null;
+    String? s(Object? v) => v is String && v.trim().isNotEmpty ? v.trim() : null;
+    final at = j['createdAt'];
+    final from = j['from'];
+    return InboxItem(
+      id: id,
+      createdAt: at is String ? DateTime.tryParse(at)?.toLocal() : null,
+      appVersion: s(j['appVersion']),
+      platform: s(j['platform']),
+      screen: s(j['screen']),
+      text: j['text'] is String ? j['text'] as String : '',
+      read: j['read'] == true,
+      images: [
+        if (j['images'] is List)
+          for (final i in j['images'] as List)
+            if (i is Map && _int(i['n']) != null)
+              (n: _int(i['n'])!, type: i['type'] is String ? i['type'] as String : 'image/png'),
+      ],
+      anonymous: from is! Map,
+      fromName: from is Map ? s(from['name']) : null,
+    );
+  }
+
+  static int? _int(Object? v) =>
+      v is int ? v : v is num ? v.toInt() : v is String ? int.tryParse(v) : null;
+}
+
+/// GET /feedback/inbox 한 쪽.
+class InboxPage {
+  const InboxPage(this.result, {this.items = const [], this.unread = 0, this.nextBefore});
+  final ApiResult result;
+
+  /// 새것부터.
+  final List<InboxItem> items;
+
+  /// 서버 전체의 안 읽은 개수(이 쪽만이 아니라).
+  final int unread;
+
+  /// 다음 쪽을 부를 때의 before. null 이면 이게 마지막 쪽.
+  final int? nextBefore;
+
+  bool get ok => result.ok;
+
+  /// 운영자가 아니다(403) · 로그인이 없다(401) — 다시 해 봐도 같은 답입니다.
+  bool get denied => result.status == 403 || result.status == 401;
+
+  /// 화면에 쓸 까닭. 서버는 이 길에서 까닭을 `error` 로 줍니다.
+  String get reason => inboxReason(result);
+
+  factory InboxPage.from(ApiResult r) {
+    if (!r.ok) return InboxPage(r);
+    final b = r.body;
+    return InboxPage(
+      r,
+      items: [
+        if (b['items'] is List)
+          for (final j in b['items'] as List)
+            if (InboxItem.fromJson(j) case final it?) it,
+      ],
+      unread: InboxItem._int(b['unread']) ?? 0,
+      nextBefore: InboxItem._int(b['nextBefore']),
+    );
+  }
+}
+
+/// 의견함 길의 실패를 한 줄로. 운영자 판정(401 · 403)은 무엇을 하면 되는지로 말합니다.
+String inboxReason(ApiResult r) {
+  if (r.status == 403 || r.status == 401) return '운영자 계정으로 로그인하면 볼 수 있어요';
+  final e = r.body['error'];
+  if (e is String && e.isNotEmpty) return e;
+  return r.reason;
+}
+
+/// 캡처 캐시에 두는 장수 · 바이트 — 한 장이 1.5MB 까지라 장수만 세면 45MB 가 될 수 있어 둘 다 봅니다.
+const kInboxImageCacheCount = 30;
+const kInboxImageCacheBytes = 32 * 1024 * 1024;
+
+extension ApiFeedbackInbox on Api {
+  /// 의견함 한 쪽 — 새것부터 [limit](1~50)건. 다음 쪽은 앞 쪽의 [InboxPage.nextBefore] 를 [before] 로.
+  Future<InboxPage> fetchInbox({int? before, int limit = 30}) async {
+    final n = limit.clamp(1, 50);
+    final r = await _send('GET', '/feedback/inbox?limit=$n${before == null ? '' : '&before=$before'}');
+    return InboxPage.from(r);
+  }
+
+  /// 캡처 한 장의 바이트. 못 받으면 null(권한 · 없음 · 못 닿음 — 부르는 쪽은 깨진 그림 표시만).
+  ///
+  /// 받은 것은 메모리에만 [kInboxImageCacheCount] 장까지 둡니다(오래 안 본 것부터 뺌).
+  /// 디스크에는 안 남깁니다 — 캡처에 몸 숫자가 찍혀 있을 수 있고, 서버에서 지워지면
+  /// (1년 · 탈퇴 · 의견함에서 지우기) 폰에도 없어야 합니다. 로그인이 바뀌면 비웁니다.
+  Future<Uint8List?> inboxImage(int id, int n) {
+    final key = '$id/$n';
+    final hit = cachedInboxImage(id, n);
+    if (hit != null) return Future.value(hit);
+    final going = _inboxImageLoads[key];
+    if (going != null) return going;
+    /* 끝나면 받는 중 표에서 뺍니다 — 단 **자기 것일 때만**. 그사이 로그인이 바뀌어 표가 비고
+       새 계정이 같은 장을 청했으면 그 자리는 새 받기의 것입니다. */
+    late final Future<Uint8List?> load;
+    load = _loadInboxImage(key, id, n).whenComplete(() {
+      if (identical(_inboxImageLoads[key], load)) _inboxImageLoads.remove(key);
+    });
+    return _inboxImageLoads[key] = load;
+  }
+
+  /// 이미 받아 둔 캡처(없으면 null) — 화면이 첫 그림부터 자리표시 없이 그리게. 꺼내면 최근 것이 됩니다.
+  Uint8List? cachedInboxImage(int id, int n) {
+    final key = '$id/$n';
+    final hit = _inboxImages.remove(key);
+    if (hit != null) _inboxImages[key] = hit;
+    return hit;
+  }
+
+  Future<Uint8List?> _loadInboxImage(String key, int id, int n) async {
+    final asked = _token;
+    if (!signedIn) return null;
+    try {
+      final req = http.Request('GET', Uri.parse('$baseUrl/api/feedback/inbox/$id/image/$n'))
+        ..headers['Authorization'] = 'Bearer $asked';
+      /* 몸통까지 다 받는 데 30초 — 캡처 한 장이 1.5MB 까지라 [_send] 의 20초(머리만)보다 넉넉히.
+         머리만 제한하면 느린 데이터에서 몸통을 받다가 영영 멈춘 채 자리표시로 남습니다. */
+      final res = await () async {
+        final streamed = await _client.send(req);
+        return http.Response.fromStream(streamed);
+      }()
+          .timeout(const Duration(seconds: 30));
+      final type = res.headers['content-type'] ?? '';
+      if (res.statusCode != 200 || !type.startsWith('image/') || res.bodyBytes.isEmpty) return null;
+      /* 받는 사이 로그인이 바뀌었으면 앞 계정의 것 — 캐시에도 안 넣고 화면에도 안 줍니다
+         (다른 계정으로 들어온 사람 앞에 앞 운영자의 캡처가 뜨지 않게). */
+      if (asked != _token) return null;
+      final bytes = res.bodyBytes;
+      _rememberInboxImage(key, bytes);
+      return bytes;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  void _rememberInboxImage(String key, Uint8List bytes) {
+    final old = _inboxImages.remove(key);
+    if (old != null) _inboxImageBytes -= old.length;
+    _inboxImages[key] = bytes;
+    _inboxImageBytes += bytes.length;
+    while (_inboxImages.length > 1 &&
+        (_inboxImages.length > kInboxImageCacheCount || _inboxImageBytes > kInboxImageCacheBytes)) {
+      final first = _inboxImages.keys.first;
+      _inboxImageBytes -= _inboxImages.remove(first)!.length;
+    }
+  }
+
+  /// 캐시에 몇 장 있나 — 시험이 LRU 를 확인합니다.
+  @visibleForTesting
+  int get inboxImageCacheSize => _inboxImages.length;
+
+  /// 한 건을 읽은 것으로. `{ok}`.
+  Future<ApiResult> markRead(int id) => _send('POST', '/feedback/inbox/$id/read');
+
+  /// 전부 읽은 것으로(이 쪽만이 아니라 서버 전체). `{ok}`.
+  ///
+  /// [upTo] 는 화면에 받아 둔 것 중 가장 새 번호 — 주면 서버가 그 번호까지만 읽음으로 합니다.
+  /// 목록을 받은 뒤에 온 의견(아직 본 적 없는 것)이 「모두 읽음」 에 같이 쓸려 가지 않게.
+  Future<ApiResult> markAllRead({int? upTo}) =>
+      _send('POST', '/feedback/inbox/read-all', upTo == null ? null : {'upTo': upTo});
+
+  /// 한 건과 그 캡처를 지웁니다 — 되돌릴 수 없습니다. 받아 둔 캡처도 캐시에서 뺍니다.
+  Future<ApiResult> deleteFeedback(int id) async {
+    final r = await _send('DELETE', '/feedback/inbox/$id');
+    if (r.ok || r.status == 404) {
+      for (final k in _inboxImages.keys.where((k) => k.startsWith('$id/')).toList()) {
+        _inboxImageBytes -= _inboxImages.remove(k)!.length;
+      }
+    }
+    return r;
   }
 }

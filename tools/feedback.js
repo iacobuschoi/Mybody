@@ -8,11 +8,12 @@
  *   node tools/feedback.js --no-export        화면 캡처를 파일로 꺼내지 않음
  *
  * 왜 있나
- *   의견은 서버의 DB(feedback · feedback_images)에 쌓입니다. HTTP 로 읽는 길은 일부러
- *   안 만들었습니다 — "남이 보낸 의견과 화면 캡처를 내려받는 주소" 가 인터넷에 열려
- *   있으면, 비밀번호 하나가 새는 순간 모든 사람의 캡처(몸 숫자가 찍혀 있을 수 있음)가
- *   같이 샙니다. 그래서 reset-password.js 처럼 **서버 컴퓨터 앞에 앉은 사람만** DB 를
- *   직접 열어 봅니다. 서버를 끄지 않아도 됩니다(WAL).
+ *   의견은 서버의 DB(feedback · feedback_images)에 쌓입니다. 이 도구는 reset-password.js
+ *   처럼 **서버 컴퓨터 앞에 앉은 사람**이 DB 를 직접 열어 봅니다. 서버를 끄지 않아도 됩니다(WAL).
+ *   폰에서 보는 길은 따로 있습니다 — 운영자(설정의 feedbackNotify 계정)의 앱 설정 「의견함」
+ *   (server.js handleFeedbackInbox). 그 길은 운영자 한 계정에만 열려서, 그 계정의 비밀번호가
+ *   새면 모든 의견과 캡처(몸 숫자가 찍혀 있을 수 있음)가 같이 샙니다. 운영자 계정의 비밀번호는
+ *   다른 곳과 다르게 두세요. 이 도구의 읽음 표시 · 번호는 의견함과 같은 표를 씁니다.
  *
  * DB 는 서버와 같은 규칙으로 찾습니다
  *   환경변수 DB → ~/.mybody/config.json 의 db → server/mybody.db
@@ -36,11 +37,12 @@
  *   터미널을 조작할 수 있어서 빼고 찍습니다(서버도 저장할 때 한 번 뺍니다).
  *
  * 읽음 표시(--mark-read)는 **이번에 목록에 나온 것만** 표시합니다. 보여 준 적 없는
- * 의견이 "읽음" 이 되는 일은 없습니다. 지우지는 않습니다 — 의견은 1년이 지나거나
- * 보낸 사람이 탈퇴하면 서버가 지웁니다(처리방침과 같은 규칙).
+ * 의견이 "읽음" 이 되는 일은 없습니다. 이 도구는 지우지 않습니다 — 의견은 1년이 지나거나
+ * 보낸 사람이 탈퇴하면 서버가 지우고(처리방침과 같은 규칙), 운영자가 앱의 「의견함」에서
+ * 직접 지울 수도 있습니다.
  *
  * 꺼내 둔 캡처도 그 규칙을 따릅니다
- *   서버가 DB 에서 지운 의견(탈퇴 · 1년)의 캡처가 ~/.mybody/feedback 에 남아 있으면
+ *   서버가 DB 에서 지운 의견(탈퇴 · 1년 · 의견함에서 지움)의 캡처가 ~/.mybody/feedback 에 남아 있으면
  *   처리방침의 "탈퇴하면 함께 지워집니다 · 1년 뒤 지웁니다" 가 이 노트북에서만 거짓이
  *   됩니다. 그래서 돌릴 때마다(--no-export 여도) **DB 에 더는 없는 번호**의 파일을
  *   지웁니다. 번호는 다시 쓰이지 않아서(db.js AUTOINCREMENT) 헷갈릴 일이 없고, 남아
@@ -125,7 +127,7 @@ function exportImages(api, item, dir) {
   return out;
 }
 
-/* 꺼내 둔 캡처 중 DB 에서 지워진 의견(탈퇴 · 1년)의 것을 지웁니다. 지운 수를 돌려줍니다.
+/* 꺼내 둔 캡처 중 DB 에서 지워진 의견(탈퇴 · 1년 · 의견함에서 지움)의 것을 지웁니다. 지운 수를 돌려줍니다.
    도구가 만든 이름(<번호>-<n>.png|jpg|bin)만 봅니다. */
 function sweepExports(api, dir) {
   let names;
@@ -167,7 +169,7 @@ function main() {
   const what = f.since ? f.since + ' 부터 온 의견' : (f.all ? '모든 의견' : '안 읽은 의견');
   console.log('');
   const swept = sweepExports(api, dir);
-  if (swept) console.log('지워진 의견(탈퇴 · 1년)의 캡처 ' + swept + '장을 ' + dir + ' 에서 지웠습니다.\n');
+  if (swept) console.log('지워진 의견(탈퇴 · 1년 · 의견함에서 지움)의 캡처 ' + swept + '장을 ' + dir + ' 에서 지웠습니다.\n');
   if (!items.length) {
     console.log(what + '이 없습니다.' + (includeRead ? '' : '  (읽은 것까지: --all)'));
     console.log('');

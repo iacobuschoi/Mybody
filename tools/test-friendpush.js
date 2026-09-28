@@ -244,6 +244,46 @@ async function main() {
     ok('알림도 다시 안 간다', got.length === 0, got.map(g => g.path));
   }
 
+  console.log('\n[6-3] 초대 링크로 오면 — 코드 주인에게 "○○님과 친구가 됐어요"');
+  {
+    /* 주인 의견 48. 링크를 누른 사람은 코드 주인의 수락 없이 친구가 됩니다. 코드 주인은
+       수락 단추를 누른 적이 없으니, 알림이 없으면 새 친구가 생긴 줄도 모릅니다. */
+    const owner = await mk('jiwoo', '지우');
+    const guest = await mk('hana', '하나');
+    const subOw = newSubscriber('jiwoo');
+    const subGu = newSubscriber('hana');
+    for (const [sb, tok] of [[subOw, owner.token], [subGu, guest.token]]) {
+      await call('POST', '/push/subscribe',
+        { endpoint: sb.endpoint, p256dh: sb.p256dh, auth: sb.auth }, tok);
+    }
+    got.length = 0;
+    const r = await call('POST', '/friends/request',
+      { inviteCode: owner.user.inviteCode, via: 'link' }, guest.token);
+    ok('링크로 곧 친구', r.json && r.json.ok && r.json.status === 'accepted', r.json);
+    await wait(600);
+    ok('알림은 코드 주인에게 한 통', got.length === 1 && /\/sub\/jiwoo$/.test(got[0].path),
+       got.map(g => g.path));
+    ok('링크를 누른 본인에게는 안 간다', !got.some(g => /\/sub\/hana$/.test(g.path)),
+       got.map(g => g.path));
+    if (got.length === 1) {
+      let msg = null;
+      try { msg = JSON.parse(PUSH.decrypt(got[0].body, subOw.priv, subOw.auth).toString('utf8')); }
+      catch (e) { msg = null; }
+      ok('"하나님과 친구가 됐어요"', !!(msg && msg.t === '하나님과 친구가 됐어요'), msg && msg.t);
+      ok('둘째 줄은 코드 주인이 이제 보여 주는 것', !!(msg && /친구에게 내 .* 보입니다|내 기록은 안 보입니다/.test(msg.b)),
+         msg && msg.b);
+      ok('친구 화면으로 보낸다', !!(msg && msg.u === '/#P15'), msg && msg.u);
+    }
+
+    /* 링크를 또 눌러도(이미 친구) 코드 주인의 폰이 또 울리지 않습니다. */
+    got.length = 0;
+    const again = await call('POST', '/friends/request',
+      { inviteCode: owner.user.inviteCode, via: 'link' }, guest.token);
+    await wait(500);
+    ok('다시 누르면 그대로 친구(already)', again.json && again.json.ok && again.json.already === true, again.json);
+    ok('알림은 다시 안 간다', got.length === 0, got.map(g => g.path));
+  }
+
   console.log('\n[7] 알림 열쇠가 없는 서버는 조용히 넘어간다');
   stop();
   await wait(300);

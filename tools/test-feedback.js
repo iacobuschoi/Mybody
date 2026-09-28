@@ -337,14 +337,15 @@ async function integration() {
 
   ok('주인에게 알림이 한 번 간다', await until(() => feedbackPushes().length === 1), fcmGot.length);
   const note = (feedbackPushes()[0] || {}).m || {};
-  ok('알림 문구는 일반 문구뿐 (새 의견이 왔어요 · 노트북에서 확인하세요)',
+  ok('알림 문구는 일반 문구뿐 (새 의견이 왔어요 · 눌러서 보기)',
      note.notification && note.notification.title === '새 의견이 왔어요' &&
-     note.notification.body === '노트북에서 확인하세요', note.notification);
+     note.notification.body === '눌러서 보기', note.notification);
   const rawNote = (feedbackPushes()[0] || {}).raw || '';
   ok('알림에 의견 내용 · 보낸 사람 · 판이 안 실린다', rawNote && !rawNote.includes(MARK) && !rawNote.includes('tester1') &&
      !rawNote.includes(T.user.id) && !rawNote.includes('0.2.17') && !rawNote.includes('시험자'), rawNote.slice(0, 300));
-  ok('앱이 모르는 곳으로 가지 않는다 (route 없음) · 한 칸(tag feedback)',
-     !('route' in (note.data || {})) && note.android && note.android.notification.tag === 'feedback', note.data);
+  /* 누르면 운영자의 「의견함」으로 — 앱이 아는 길(route 'feedback')만. 자세한 것은 test-feedback-inbox.js. */
+  ok('누르면 의견함으로 (route feedback) · 한 칸(tag feedback)',
+     (note.data || {}).route === 'feedback' && note.android && note.android.notification.tag === 'feedback', note.data);
 
   const pngBuf = png(2000);
   const b = await send({ images: [img('image/png', pngBuf)] });
@@ -374,7 +375,8 @@ async function integration() {
   ok('1.5MB 사진 세 장(본문 약 6MB)은 받는다 — 이 길만 상한을 올림', three.status === 200 && three.json.ok, three);
   ok('다른 길은 그대로 2MB (PATCH /me 에 3MB → 413)',
      (await call('PATCH', '/me', { displayName: 'x', pad: 'x'.repeat(3_000_000) }, T2.token)).status === 413);
-  ok('의견을 읽는 HTTP 길은 없다 (GET → 로그인 없으면 401 · 있으면 404)',
+  /* 읽는 길은 운영자의 「의견함」(/feedback/inbox…) 하나뿐입니다 — tools/test-feedback-inbox.js. */
+  ok('GET /api/feedback 으로 읽는 길은 없다 (로그인 없으면 401 · 있으면 404)',
      (await call('GET', '/feedback')).status === 401 && (await call('GET', '/feedback', null, O.token)).status === 404);
 
   console.log('\n[3-2] 하루 20개');

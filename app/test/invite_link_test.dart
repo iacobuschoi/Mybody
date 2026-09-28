@@ -6,12 +6,16 @@
  *      <코드>)를 받으면 앱이 **한 번** 요청을 보내고 결과를 한 줄로 알린다.
  *   44 "갤럭시인데 아이폰 친구가 보낸 초대가 TestFlight 로 뜸" — 보내는 글에 설치 주소가 없다
  *      (기기는 링크의 페이지가 가린다).
+ *   48 "초대 링크로 오면 바로 친구되게 해" — 링크로 받은 코드는 via:'link' 로 보내 곧바로 친구
+ *      (「○○님과 친구가 됐어요」 · 친구 목록을 새로 받음). 손으로 친 코드 · 저장만 된 옛 초대는
+ *      예전처럼 요청.
  *
  *   · 코드 모양   cleanInviteCode · isInviteCode — 서버와 같은 글자판(I · O · 0 · 1 없음) 여덟
  *                글자, 소문자는 대문자로, 받은 글(링크 · 「코드: …」)에서 코드만, 틀린 것은 틀림.
  *                입력 칸 다듬기(InviteCodeFormatter) — 붙여 넣으면 코드만, 여덟 글자까지.
  *   · 보내는 글   inviteShareText — 링크 한 줄과 코드 한 줄, 설치 주소 없음.
- *   · 요청 · 답   requestFriendByCode 는 틀린 모양을 서버에 안 묻는다 · friendRequestMessage.
+ *   · 요청 · 답   requestFriendByCode 는 틀린 모양을 서버에 안 묻는다 · 링크일 때만 via:'link' ·
+ *                friendRequestMessage(친구가 됐으면 서버가 준 이름 · 이미 친구).
  *   · 링크 받기   inviteCodeFromUri · InviteInbox — 저장 · 7일 · 겹침 거르기 · 꺼내면 비움.
  *                https://<서버>/i/<코드> 는 이 앱의 서버와 호스트가 같을 때만(자세한 것은
  *                invite_deferred_test.dart — 주인 의견 45).
@@ -54,6 +58,9 @@ const _me = {
 };
 
 const _pendingKey = 'mybody.invite.pending.v1';
+
+/// 지금 서버가 링크로 온 요청에 주는 답 — 곧바로 친구, 코드 주인의 이름(server.js POST /friends/request).
+const _linked = {'ok': true, 'status': 'accepted', 'otherId': 'u_1', 'friend': {'name': '지우'}};
 
 /// 서버 흉내. [routes] 의 값이 Map 이면 200 + 그 몸, 없으면 404. 나간 요청을 [sent] 에.
 class _Server {
@@ -225,7 +232,7 @@ void main() {
   group('보내는 글', () {
     test('링크 한 줄과 코드 한 줄 — 설치 주소는 없다(주인 의견 44)', () {
       expect(inviteShareText('K7M2QX9D', 'https://desk.example.ts.net'),
-          'Mybody 같이 해요! 링크를 누르면 친구 요청이 가요\n'
+          'Mybody 같이 해요! 링크를 누르면 바로 친구가 돼요\n'
           'https://desk.example.ts.net/i/K7M2QX9D\n'
           '(앱에서 친구 탭 → 친구 추가에 코드 K7M2QX9D 를 넣어도 돼요)');
       final s = inviteShareText('K7M2QX9D', 'https://desk.example.ts.net');
@@ -261,7 +268,12 @@ void main() {
       expect(ok!.ok, isTrue);
       expect(s.bodiesTo('/friends/request'), [
         {'inviteCode': 'K7M2QX9D'}
-      ]);
+      ], reason: '손으로 넣은 것(기본)은 via 없이 — 코드 주인의 수락을 기다리는 요청');
+      await requestFriendByCode(api, 'WXYZ2345', viaLink: true);
+      expect(s.bodiesTo('/friends/request').last, {'inviteCode': 'WXYZ2345', 'via': 'link'},
+          reason: '초대 링크로 온 코드만 via:link — 서버가 곧바로 친구로 맺습니다');
+      expect(await requestFriendByCode(api, 'ab12cd', viaLink: true), isA<ApiResult>());
+      expect(s.bodiesTo('/friends/request'), hasLength(2), reason: '링크여도 틀린 모양은 안 물음');
     });
 
     test('friendRequestMessage — 보냄 · 맺어짐 · 이름 · 흔한 실패 셋은 앱 말투, 나머지는 서버의 까닭', () {
@@ -271,6 +283,13 @@ void main() {
       expect(friendRequestMessage(ok({'status': 'accepted'})), '친구가 됐어요');
       expect(friendRequestMessage(ok({'status': 'pending', 'displayName': '민수'})), '민수님에게 친구 요청을 보냈어요');
       expect(friendRequestMessage(ok({'status': 'accepted', 'other': {'displayName': '민수'}})), '민수님과 친구가 됐어요');
+      /* 지금 서버의 모양 — 친구가 됐을 때만 friend.name(초대 링크 · 맞요청). */
+      expect(friendRequestMessage(ok({'status': 'accepted', 'otherId': 'u_1', 'friend': {'name': '지우'}})),
+          '지우님과 친구가 됐어요');
+      expect(friendRequestMessage(ok({'status': 'accepted', 'friend': {'name': '  '}})), '친구가 됐어요');
+      expect(friendRequestMessage(ok({'status': 'accepted', 'already': true, 'friend': {'name': '지우'}})),
+          '이미 지우님과 친구예요', reason: '링크를 또 누름 — 실패가 아니라 이미 된 일');
+      expect(friendRequestMessage(ok({'status': 'accepted', 'already': true})), '이미 친구예요');
       expect(friendRequestMessage(no('이미 친구입니다')), '이미 친구예요');
       expect(friendRequestMessage(no('자기 자신은 추가할 수 없습니다')), '내 코드예요');
       expect(friendRequestMessage(no('이미 보낸 요청입니다')), '이미 요청을 보냈어요');
@@ -319,8 +338,10 @@ void main() {
       expect(told, 1);
       expect(a.pending!.code, 'K7M2QX9D');
       expect(a.pending!.at, l.clock);
+      expect(a.pending!.link, isTrue, reason: '링크로 받은 것 — 곧바로 친구로 보냅니다');
       final sp = await SharedPreferences.getInstance();
-      expect(jsonDecode(sp.getString(_pendingKey)!), {'code': 'K7M2QX9D', 'at': l.clock.millisecondsSinceEpoch});
+      expect(jsonDecode(sp.getString(_pendingKey)!),
+          {'code': 'K7M2QX9D', 'at': l.clock.millisecondsSinceEpoch, 'link': true});
 
       /* 다시 켠 것처럼 — 새 받는 곳이 저장된 것을 읽습니다. */
       final b = l.inbox();
@@ -343,6 +364,36 @@ void main() {
       final sp = await SharedPreferences.getInstance();
       await Future<void>.delayed(Duration.zero);
       expect(sp.getString(_pendingKey), isNull, reason: '다시 켜도 또 안 보내게 저장소에서도');
+    });
+
+    /* 주인 의견 48 — 링크로 온 것만 곧바로 친구. 어디서 왔는지가 꺼낼 때까지(앱을 껐다 켜도) 남아야
+       합니다. 클립보드에서 고른 것(offer)은 누가 넣었는지 모르니 요청으로. */
+    test('어디서 왔나 — 링크는 link, 클립보드(offer)는 요청 · 다시 켜도 남고 takeInvite 로 꺼낸다', () async {
+      SharedPreferences.setMockInitialValues({});
+      final l = _Links();
+      final a = l.inbox();
+      await a.start();
+      await a.offer('k7m2qx9d');
+      expect(a.pending!.link, isFalse);
+      final sp = await SharedPreferences.getInstance();
+      expect(jsonDecode(sp.getString(_pendingKey)!), {'code': 'K7M2QX9D', 'at': l.clock.millisecondsSinceEpoch},
+          reason: '요청이면 link 칸이 없습니다');
+      /* 같은 코드가 링크로 오면 링크가 이깁니다 — 사람이 코드 주인의 링크를 누른 것. */
+      l.clock = l.clock.add(const Duration(minutes: 1));
+      await a.receive(_link('K7M2QX9D'));
+      expect(a.pending!.link, isTrue);
+      a.markPrompted();
+      expect(a.pending!.prompted, isTrue);
+      expect(a.pending!.link, isTrue, reason: '로그인 안내를 적어도 어디서 왔는지는 그대로');
+
+      final b = l.inbox();
+      await b.start();
+      final got = b.takeInvite();
+      expect(got?.code, 'K7M2QX9D');
+      expect(got?.link, isTrue, reason: '다시 켜도 링크로 온 것');
+      expect(b.takeInvite(), isNull);
+      expect(PendingInvite.fromJson({'code': 'K7M2QX9D', 'at': 1})?.link, isFalse,
+          reason: '칸이 생기기 전에 쥔 것은 요청으로 — 누가 넣었는지 모르면 수락이 필요한 쪽');
     });
 
     test('7일이 지나면 버린다 — 저장된 것도, 쥐고 있던 것도', () async {
@@ -523,7 +574,7 @@ void main() {
         (t) async {
       _phone(t, const Size(390, 844));
       final l = _Links(initial: _link('k7m2qx9d'));
-      final s = _Server({'/me': _me, '/friends/request': {'ok': true, 'status': 'pending', 'otherId': 'u_1'}});
+      final s = _Server({'/me': _me, '/friends/request': _linked});
       final app = await _app();
       final inbox = l.inbox();
       await inbox.start();
@@ -531,9 +582,9 @@ void main() {
       await _host(t, app: app, api: s.api(), inbox: inbox);
 
       expect(s.bodiesTo('/friends/request'), [
-        {'inviteCode': 'K7M2QX9D'}
-      ]);
-      expect(find.text('친구 요청을 보냈어요'), findsOneWidget);
+        {'inviteCode': 'K7M2QX9D', 'via': 'link'}
+      ], reason: '링크로 온 코드 — 곧바로 친구(주인 의견 48)');
+      expect(find.text('지우님과 친구가 됐어요'), findsOneWidget);
       expect(inbox.pending, isNull, reason: '보냈으면 비웁니다');
 
       /* 다시 그려지고(상태 바뀜 · 탭 이동) · 앱으로 돌아오고 · 로그인 알림이 또 와도 그대로. */
@@ -565,7 +616,7 @@ void main() {
       l.ctrl.add(_link('ZZZZ9999'));
       await t.pumpAndSettle();
       expect(s.bodiesTo('/friends/request'), [
-        {'inviteCode': 'ZZZZ9999'}
+        {'inviteCode': 'ZZZZ9999', 'via': 'link'}
       ]);
       expect(find.text('그런 코드를 가진 사람이 없습니다'), findsOneWidget);
       expect(inbox.pending, isNull, reason: '실패해도 한 번 — 다시 누르면 다시 갑니다');
@@ -587,6 +638,68 @@ void main() {
       });
     }
 
+    /* 링크를 모르는 옛 서버(via 를 버리고 요청으로 받음)여도 말은 서버의 답대로입니다. */
+    testWidgets('옛 서버 — 링크여도 요청으로 받으면 「친구 요청을 보냈어요」', (t) async {
+      _phone(t, const Size(390, 844));
+      final l = _Links(initial: _link('WXYZ2345'));
+      final s = _Server({'/me': _me, '/friends/request': {'ok': true, 'status': 'pending', 'otherId': 'u_1'}});
+      final inbox = l.inbox();
+      final app = await _app();
+      await inbox.start();
+      await _host(t, app: app, api: s.api(), inbox: inbox);
+      expect(s.bodiesTo('/friends/request').single?['via'], 'link');
+      expect(find.text('친구 요청을 보냈어요'), findsOneWidget);
+    });
+
+    testWidgets('링크를 또 누름(이미 친구) — 「이미 지우님과 친구예요」', (t) async {
+      _phone(t, const Size(390, 844));
+      final l = _Links(initial: _link('WXYZ2345'));
+      final s = _Server({'/me': _me, '/friends/request': {..._linked, 'already': true}});
+      final inbox = l.inbox();
+      final app = await _app();
+      await inbox.start();
+      await _host(t, app: app, api: s.api(), inbox: inbox);
+      expect(find.text('이미 지우님과 친구예요'), findsOneWidget);
+    });
+
+    /* 친구 탭을 보고 있는데 링크로 친구가 됐으면 목록에 바로 떠야 합니다 — 다시 들어가야 보이면
+       "됐다더니 없다" 가 됩니다. */
+    testWidgets('친구 탭을 보는 중에 링크로 친구가 되면 목록을 새로 받아 바로 보인다', (t) async {
+      _phone(t, const Size(390, 844));
+      final l = _Links();
+      final s = _Server({
+        '/me': _me,
+        '/friends': {'ok': true, 'friends': {'accepted': [], 'incoming': [], 'outgoing': []}},
+        '/friends/request': _linked,
+      });
+      final inbox = l.inbox();
+      final app = await _app();
+      await inbox.start();
+      await _host(t, app: app, api: s.api(), inbox: inbox);
+      await t.tap(find.widgetWithText(NavigationDestination, '친구'));
+      await t.pumpAndSettle();
+      expect(find.text('지우'), findsNothing);
+      final before = s.bodiesTo('/friends').length;
+
+      s.routes['/friends'] = {
+        'ok': true,
+        'friends': {
+          'accepted': [
+            {'id': 'u_1', 'displayName': '지우', 'since': '2026-09-27T00:00:00Z', 'avatar': null}
+          ],
+          'incoming': [],
+          'outgoing': [],
+        },
+      };
+      l.ctrl.add(_link('K7M2QX9D'));
+      await t.pumpAndSettle();
+      expect(s.bodiesTo('/friends/request').single, {'inviteCode': 'K7M2QX9D', 'via': 'link'});
+      expect(s.bodiesTo('/friends').length, greaterThan(before), reason: '친구 목록을 다시 받습니다');
+      expect(find.text('지우'), findsWidgets);
+      expect(t.takeException(), isNull);
+      await t.pump(const Duration(seconds: 4));   // 스낵바가 사라질 때까지
+    });
+
     testWidgets('맞요청이면 「친구가 됐어요」', (t) async {
       _phone(t, const Size(390, 844));
       final l = _Links(initial: _link('WXYZ2345'));
@@ -601,7 +714,7 @@ void main() {
     testWidgets('로그인 없이 쓰는 중 — 코드는 쥐고 안내 한 번(위의 띠 · 「로그인」), 로그인하면 보낸다', (t) async {
       _phone(t, const Size(390, 844));
       final l = _Links(initial: _link('K7M2QX9D'));
-      final s = _Server({'/me': _me, '/friends/request': {'ok': true, 'status': 'pending'}});
+      final s = _Server({'/me': _me, '/friends/request': _linked});
       final api = s.api(signedIn: false);
       final app = await _app(guest: true);
       final inbox = l.inbox();
@@ -609,7 +722,7 @@ void main() {
       await _host(t, app: app, api: api, inbox: inbox);
 
       expect(s.bodiesTo('/friends/request'), isEmpty, reason: '로그인 없이는 못 보냅니다');
-      expect(find.text('로그인하면 친구 요청이 가요'), findsOneWidget);
+      expect(find.text('로그인하면 바로 친구가 돼요'), findsOneWidget, reason: '링크로 온 것 — 요청이 아니라 친구');
       expect(find.byType(MaterialBanner), findsOneWidget, reason: '누를 것이 있는 안내는 위의 띠로');
       expect(find.byType(SnackBar), findsNothing);
       expect(inbox.pending?.code, 'K7M2QX9D', reason: '버리지 않고 쥡니다');
@@ -618,18 +731,18 @@ void main() {
       /* 안내는 한 번 — 다시 그려지거나 탭을 옮겨도 또 안 뜹니다. */
       await t.pump(const Duration(seconds: 7));
       await t.pumpAndSettle();
-      expect(find.text('로그인하면 친구 요청이 가요'), findsNothing, reason: '저절로 사라짐');
+      expect(find.text('로그인하면 바로 친구가 돼요'), findsNothing, reason: '저절로 사라짐');
       await t.tap(find.widgetWithText(NavigationDestination, '식단'));
       await t.pumpAndSettle();
       app.store.set({'foodFavorites': ['밥']});
       await t.pumpAndSettle();
-      expect(find.text('로그인하면 친구 요청이 가요'), findsNothing);
+      expect(find.text('로그인하면 바로 친구가 돼요'), findsNothing);
 
       /* 새로 누르면 다시 알리고, 이번엔 「로그인」 을 눌러 로그인합니다. */
       l.clock = l.clock.add(const Duration(minutes: 1));
       l.ctrl.add(_link('K7M2QX9D'));
       await t.pumpAndSettle();
-      expect(find.text('로그인하면 친구 요청이 가요'), findsOneWidget);
+      expect(find.text('로그인하면 바로 친구가 돼요'), findsOneWidget);
       await t.tap(find.widgetWithText(TextButton, '로그인'));
       await t.pumpAndSettle();
       expect(find.byType(MaterialBanner), findsNothing, reason: '누르면 띠는 걷힙니다');
@@ -641,9 +754,9 @@ void main() {
       await t.pumpAndSettle();
       expect(find.byType(SignInScreen), findsNothing);
       expect(s.bodiesTo('/friends/request'), [
-        {'inviteCode': 'K7M2QX9D'}
+        {'inviteCode': 'K7M2QX9D', 'via': 'link'}
       ]);
-      expect(find.text('친구 요청을 보냈어요'), findsOneWidget);
+      expect(find.text('지우님과 친구가 됐어요'), findsOneWidget);
       expect(inbox.pending, isNull);
       expect(t.takeException(), isNull);
     });
@@ -664,7 +777,23 @@ void main() {
       expect(find.byType(MaterialBanner), findsNothing);
     });
 
-    testWidgets('지난번에 못 보낸 코드(저장됨)는 켜서 탭 화면이 서면 보낸다', (t) async {
+    testWidgets('지난번에 못 보낸 코드(저장됨)는 켜서 탭 화면이 서면 보낸다 — 링크였으면 링크로', (t) async {
+      _phone(t, const Size(390, 844));
+      final l = _Links();
+      final s = _Server({'/me': _me, '/friends/request': {'ok': true}});
+      final app = await _app(prefs: {
+        _pendingKey: jsonEncode(
+            {'code': 'K7M2QX9D', 'at': l.clock.millisecondsSinceEpoch, 'prompted': true, 'link': true}),
+      });
+      final inbox = l.inbox();
+      await inbox.start();
+      await _host(t, app: app, api: s.api(), inbox: inbox);
+      expect(s.bodiesTo('/friends/request'), [
+        {'inviteCode': 'K7M2QX9D', 'via': 'link'}
+      ]);
+    });
+
+    testWidgets('옛 판이 적어 둔 초대(어디서 왔는지 칸 없음)는 요청으로 보낸다', (t) async {
       _phone(t, const Size(390, 844));
       final l = _Links();
       final s = _Server({'/me': _me, '/friends/request': {'ok': true}});
@@ -676,7 +805,7 @@ void main() {
       await _host(t, app: app, api: s.api(), inbox: inbox);
       expect(s.bodiesTo('/friends/request'), [
         {'inviteCode': 'K7M2QX9D'}
-      ]);
+      ], reason: '누가 넣은 코드인지 모르면 곧바로 친구로 맺지 않습니다');
     });
 
     /* 링크로 켜진 앱이 뒤에서 꺼졌다가 아이콘으로 열리면 안드로이드가 그 링크로 화면을 다시

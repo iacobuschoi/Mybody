@@ -24,18 +24,23 @@
  *
  * **초대 링크**(invite_link.dart)로 받은 코드도 여기서 보냅니다 — 보낼 수 있는 때를 셸만
  * 압니다: 탭 화면이 서 있고(로그인 · 첫 설정 · 동의 화면이 아님), 로그인돼 있을 때. 그때
- * 받은 코드를 **꺼내서 비우고** 한 번 보내고, 결과를 스낵바 한 줄로 알립니다(「친구 요청을
- * 보냈어요」 · 「이미 친구예요」 · 「내 코드예요」 · 서버의 까닭 — 서버에 못 닿았으면 보낸 것으로
- * 치지 않아서, 같은 링크를 다시 누르면 다시 갑니다). 로그인 없이 쓰는 중이면 코드는
- * 쥔 채로 「로그인하면 친구 요청이 가요」 를 한 번 알리고 「로그인」 을 붙입니다. 부르는
- * 때는 셋 — 탭 화면이 설 때, 새 링크가 올 때, 로그인할 때. 테스터 인사가 뜨는 차례면 인사가
- * 닫힌 뒤에 보냅니다 — 결과 스낵바가 인사 시트 밑에 깔려 안 보이면 요청이 갔는지 모릅니다.
+ * 받은 코드를 **꺼내서 비우고** 한 번 보내고, 결과를 스낵바 한 줄로 알립니다. 링크 · 설치
+ * referrer 로 온 코드는 **곧바로 친구**입니다(주인 의견 48 — via:'link', 「○○님과 친구가
+ * 됐어요」 · 이미 친구면 「이미 ○○님과 친구예요」). 그 밖의 결과는 「친구 요청을 보냈어요」 ·
+ * 「내 코드예요」 · 서버의 까닭입니다 — 서버에 못 닿았으면 보낸 것으로 치지 않아서, 같은 링크를
+ * 다시 누르면 다시 갑니다. 로그인 없이 쓰는 중이면 코드는 쥔 채로 「로그인하면 바로 친구가
+ * 돼요」(클립보드에서 고른 코드면 「로그인하면 친구 요청이 가요」)를 한 번 알리고 「로그인」 을
+ * 붙입니다. 부르는 때는 셋 — 탭 화면이 설 때, 새 링크가 올 때, 로그인할 때. 테스터 인사가 뜨는
+ * 차례면 인사가 닫힌 뒤에 보냅니다 — 결과 스낵바가 인사 시트 밑에 깔려 안 보이면 요청이 갔는지
+ * 모릅니다. 친구가 됐거나 요청이 갔으면 친구 탭을 새로 그립니다(_socialEpoch) — 보고 있던
+ * 친구 목록에 새 친구가 바로 뜨게.
  *
  * **클립보드의 초대**(안드로이드, 탭 화면이 처음 설 때 한 번 — invite_link.dart 머리 주석):
  * 앱이 없던 친구가 초대 페이지의 설치 단추를 누르면 초대 글이 클립보드에 남습니다. 보낼 것이
  * 없을 때 한 번 읽어 초대가 있으면 「초대 코드 <코드> 로 친구 요청할까요?」 를 묻고, 「요청」 을
- * 누르면 링크로 받은 것과 같은 길로 보냅니다. 이것만은 묻습니다 — 클립보드는 남의 글일 수도
- * 있습니다(설치 referrer 로 온 코드는 묻지 않고 보냅니다).
+ * 누르면 링크로 받은 것과 같은 길로 — 다만 **요청으로**(via 없이) 보냅니다. 이것만은 묻고, 곧바로
+ * 친구로 맺지도 않습니다 — 클립보드는 남의 글일 수도 있습니다(설치 referrer 로 온 코드는 묻지
+ * 않고 링크처럼 보냅니다).
  *
  * **누를 것이 있는 안내는 위의 띠(MaterialBanner)로.** 「로그인」 · 「요청」 을 스낵바에 달았더니,
  * 의견 말풍선의 처음 자리(「인바디」 단추 바로 위)가 떠 있는 스낵바의 오른쪽 끝 — 바로 그
@@ -66,6 +71,7 @@ import 'screens/goal.dart';
 import 'screens/history.dart';
 import 'screens/account.dart';
 import 'screens/checkin.dart';
+import 'screens/feedback_inbox.dart';
 import 'screens/onboarding.dart';
 import 'screens/scandetail.dart';
 import 'screens/tester_welcome.dart';
@@ -177,6 +183,16 @@ class _ShellState extends State<Shell> {
       Navigator.of(context).popUntil((route) => route.isFirst);
       _go('social');
     }
+    /* 「새 의견이 왔어요」(운영자 한 사람에게만 가는 앱 알림)는 의견함으로 — 위에 뜬 화면은
+       닫고 셸 위에 엽니다. 로그인하지 않았으면 아무것도 안 합니다: 로그아웃하면 서버가 이
+       기기를 알림 받는 곳에서 빼므로, 늦게 온 한 통입니다. 로그인한 사람이 운영자가 아니면
+       의견함이 서버의 403 을 받아 「운영자 계정으로 로그인하면 볼 수 있어요」 만 보입니다.
+       로그인 여부는 **닫기 전에** 봅니다 — 열 것도 없는데 보던 화면(쓰던 기록 등)만 닫히면 안 됩니다. */
+    if (r == 'feedback') {
+      if (!Scope.apiOf(context).signedIn) return;
+      Navigator.of(context).popUntil((route) => route.isFirst);
+      _go('feedback');
+    }
   }
 
   static const _tabs = [
@@ -218,6 +234,10 @@ class _ShellState extends State<Shell> {
             builder: (_) => WorkoutSessionScreen(dateKey: dateKey, type: type)));
       case 'settings':
         Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
+      /* 의견함(운영자) — 알림 · 설정 → 도움말의 줄이 여는 곳. */
+      case 'feedback':
+        if (!Scope.apiOf(context).signedIn) return;
+        Navigator.of(context).push(MaterialPageRoute(builder: (_) => const FeedbackInboxScreen()));
       case 'signin':
         Navigator.of(context).push(MaterialPageRoute(
             builder: (_) => SignInScreen(
@@ -328,15 +348,17 @@ class _ShellState extends State<Shell> {
       /* 로그인 없이 쓰는 중 — 코드는 쥔 채로, 안내는 한 번만. */
       if (p.prompted) return;
       inbox.markPrompted();
-      _invitePrompt('로그인하면 친구 요청이 가요',
+      _invitePrompt(p.link ? '로그인하면 바로 친구가 돼요' : '로그인하면 친구 요청이 가요',
           action: '로그인', dismiss: '닫기', onAction: () => _go('signin'));
       return;
     }
-    final code = inbox.take();
-    if (code == null) return;
+    final taken = inbox.takeInvite();
+    if (taken == null) return;
+    final code = taken.code;
     _inviteBusy = true;
     try {
-      final r = await requestFriendByCode(api, code);
+      /* 링크 · 설치 referrer 로 온 코드면 곧바로 친구(via:'link'), 클립보드에서 고른 것은 요청. */
+      final r = await requestFriendByCode(api, code, viaLink: taken.link);
       /* 서버에 못 닿았으면(0 · 5xx) 보낸 것으로 치지 않습니다 — 같은 링크를 다시 누르면 앱이
          꺼져 있다 켜지는 길이어도 다시 갑니다(invite_link.dart 「되살아난 링크」). */
       if (r == null || r.status == 0 || r.status >= 500) inbox.unsent(code);
@@ -359,8 +381,8 @@ class _ShellState extends State<Shell> {
 
   /* 클립보드의 초대(머리 주석) — 이 셸에서 한 번 묻고, 이 기기에서 한 번인지는 InviteInbox 가
      적습니다(아이폰은 읽지 않고 null). 읽는 사이 탭 화면이 내려갔으면 묻지 않습니다. 「요청」 을
-     누르면 링크로 받은 것처럼 쥐고(offer) — 쥐면 알림이 와서 위의 _deliverInvite 가 보냅니다
-     (로그인 없이 쓰는 중이면 「로그인하면 친구 요청이 가요」). */
+     누르면 링크로 받은 것처럼 쥐고(offer — 다만 요청으로, 곧바로 친구는 아님) — 쥐면 알림이 와서
+     위의 _deliverInvite 가 보냅니다(로그인 없이 쓰는 중이면 「로그인하면 친구 요청이 가요」). */
   Future<void> _askClipboard() async {
     final inbox = widget.invites;
     if (_clipboardAsked || inbox == null) return;

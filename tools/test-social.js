@@ -482,6 +482,178 @@ async function main() {
     dbx.close();
   }
 
+  /* 주인 의견 48 "초대 링크로 오면 바로 친구되게 해". 앱은 초대 링크 · 설치 추천인으로 받은
+     코드에만 via:'link' 를 붙입니다(손으로 친 코드 · 클립보드는 예전 그대로 요청). 링크로 오면
+     코드 주인이 수락을 누른 것과 **똑같이** 맺어져야 합니다 — 각 방향 기본 공유까지. */
+  console.log('\n[6-4] 초대 링크로 오면 바로 친구 (via: link)');
+  {
+    const mk = async (handle, displayName) => {
+      const r = await call('POST', '/auth/signup', { handle, displayName });
+      return { tok: r.json.token, id: r.json.user.id, code: r.json.user.inviteCode, name: displayName };
+    };
+    const L = await mk('linkowner', '링크주인');
+    const J = await mk('linkjoin', '링크손님');
+    /* 둘의 기본 공유를 서로 다르게 — 어느 방향에 누구 값이 갔는지 보이게. */
+    await call('PUT', '/share-defaults', { weightTrend: true, schedule: false }, L.tok);
+    await call('PUT', '/share-defaults', { smmTrend: true, diet: false }, J.tok);
+    const defL = (await call('GET', '/share-defaults', null, L.tok)).json.defaults;
+    const defJ = (await call('GET', '/share-defaults', null, J.tok)).json.defaults;
+
+    const r = await call('POST', '/friends/request', { inviteCode: L.code, via: 'link' }, J.tok);
+    ok('링크로 온 요청은 곧바로 친구 (status accepted)', r.status === 200 && r.json.ok === true &&
+       r.json.status === 'accepted' && !r.json.already, r.json);
+    ok('답에 코드 주인의 표시 이름 (friend.name)', r.json.friend && r.json.friend.name === '링크주인', r.json);
+    const fl = (await call('GET', '/friends', null, L.tok)).json.friends;
+    const fj = (await call('GET', '/friends', null, J.tok)).json.friends;
+    ok('코드 주인 쪽: 수락 없이 친구 목록에 · 받은 요청은 없음',
+       fl.accepted.some(f => f.id === J.id) && fl.incoming.length === 0, fl);
+    ok('링크를 누른 쪽: 친구 목록에 · 보낸 요청은 없음',
+       fj.accepted.some(f => f.id === L.id) && fj.outgoing.length === 0, fj);
+    const sLJ = (await call('GET', '/share/' + J.id, null, L.tok)).json.share;
+    const sJL = (await call('GET', '/share/' + L.id, null, J.tok)).json.share;
+    ok('코드 주인 → 손님 방향은 코드 주인의 기본 공유', JSON.stringify(sLJ) === JSON.stringify(defL), [sLJ, defL]);
+    ok('손님 → 코드 주인 방향은 손님의 기본 공유', JSON.stringify(sJL) === JSON.stringify(defJ), [sJL, defJ]);
+    {
+      /* 수락과 같은 뜻의 행 — updated_at 빈 문자열("아직 아무도 고른 적 없음", db.js accept). */
+      const { DatabaseSync } = require('node:sqlite');
+      const d = new DatabaseSync(DB, { readOnly: true });
+      try {
+        const rows = d.prepare('SELECT owner_id, updated_at FROM shares WHERE (owner_id=? AND viewer_id=?) OR (owner_id=? AND viewer_id=?)')
+          .all(L.id, J.id, J.id, L.id);
+        ok('공유 행 둘 · 수락과 똑같이 「아직 안 고름」(updated_at 빈 값)',
+           rows.length === 2 && rows.every(x => x.updated_at === ''), rows);
+      } finally { d.close(); }
+    }
+    ok('수락한 친구처럼 추이를 볼 수 있다',
+       (await call('GET', '/snapshots/' + L.id, null, J.tok)).json.ok === true);
+
+    const again = await call('POST', '/friends/request', { inviteCode: L.code, via: 'link' }, J.tok);
+    ok('이미 친구면 그대로 — ok · accepted · already (실패가 아님)',
+       again.json.ok === true && again.json.status === 'accepted' && again.json.already === true &&
+       again.json.friend && again.json.friend.name === '링크주인', again.json);
+    ok('이미 친구 — 관계는 하나 그대로',
+       (await call('GET', '/friends', null, J.tok)).json.friends.accepted.filter(f => f.id === L.id).length === 1);
+
+    const own = await call('POST', '/friends/request', { inviteCode: J.code, via: 'link' }, J.tok);
+    ok('링크여도 내 코드는 거절', own.json.ok === false && own.json.reason === '자기 자신은 추가할 수 없습니다' &&
+       own.json.friend === undefined, own.json);
+    const none = await call('POST', '/friends/request', { inviteCode: 'ZZZZ2345', via: 'link' }, J.tok);
+    ok('링크여도 없는 코드는 거절 · 이름 없음', none.json.ok === false && none.json.friend === undefined, none.json);
+
+    /* 링크를 받기 전에 코드를 쳐서 요청해 둔 사람 — 그 요청이 곧 수락됩니다. */
+    const K = await mk('linkmine', '먼저친사람');
+    const typed = await call('POST', '/friends/request', { inviteCode: L.code }, K.tok);
+    ok('via 없이는 예전처럼 요청 (pending)', typed.json.ok === true && typed.json.status === 'pending', typed.json);
+    ok('요청만 간 답에는 이름이 없다', typed.json.friend === undefined &&
+       !JSON.stringify(typed.json).includes('링크주인'), typed.json);
+    ok('코드 주인에게 받은 요청으로 들어간다',
+       (await call('GET', '/friends', null, L.tok)).json.friends.incoming.some(f => f.id === K.id));
+    const kl = await call('POST', '/friends/request', { inviteCode: L.code, via: 'link' }, K.tok);
+    ok('내가 보낸 요청이 있어도 링크면 곧 친구', kl.json.ok === true && kl.json.status === 'accepted' &&
+       kl.json.friend && kl.json.friend.name === '링크주인', kl.json);
+    const flK = (await call('GET', '/friends', null, L.tok)).json.friends;
+    ok('코드 주인의 받은 요청에서 빠지고 친구로', flK.accepted.some(f => f.id === K.id) &&
+       !flK.incoming.some(f => f.id === K.id), flK);
+    ok('이 방향도 코드 주인의 기본 공유',
+       JSON.stringify((await call('GET', '/share/' + K.id, null, L.tok)).json.share) === JSON.stringify(defL));
+
+    /* 코드 주인이 먼저 요청해 둔 사람이 그 주인의 링크를 누름 — 맞요청처럼 곧 친구. */
+    const M = await mk('linkasked', '요청받은사람');
+    await call('POST', '/friends/request', { inviteCode: M.code }, L.tok);
+    const ml = await call('POST', '/friends/request', { inviteCode: L.code, via: 'link' }, M.tok);
+    ok('상대가 보낸 요청이 있으면 링크로 곧 친구', ml.json.ok === true && ml.json.status === 'accepted' &&
+       ml.json.friend && ml.json.friend.name === '링크주인', ml.json);
+    ok('양쪽 다 친구 목록에',
+       (await call('GET', '/friends', null, L.tok)).json.friends.accepted.some(f => f.id === M.id) &&
+       (await call('GET', '/friends', null, M.tok)).json.friends.accepted.some(f => f.id === L.id));
+
+    /* via 는 'link' 만. 다른 값은 없는 것과 같습니다 — 손으로 친 코드의 흐름을 지킵니다. */
+    const Q = await mk('linkother', '다른값');
+    for (const v of ['LINK', true, 'typed']) {
+      const x = await call('POST', '/friends/request', { inviteCode: L.code, via: v }, Q.tok);
+      if (x.json.status === 'pending') await call('DELETE', '/friends/' + L.id, null, Q.tok);
+      ok('via=' + JSON.stringify(v) + ' → 예전처럼 요청', x.json.ok === true && x.json.status === 'pending' &&
+         x.json.friend === undefined, x.json);
+    }
+    const manualDup = await call('POST', '/friends/request', { inviteCode: L.code }, J.tok);
+    ok('via 없이 이미 친구면 예전처럼 「이미 친구입니다」', manualDup.json.ok === false &&
+       manualDup.json.reason === '이미 친구입니다', manualDup.json);
+
+    /* 차단한 사이는 링크로도 못 뚫습니다. */
+    const X = await mk('linkblocked', '차단된사람');
+    await call('POST', '/friends/block', { userId: X.id }, L.tok);
+    const xb = await call('POST', '/friends/request', { inviteCode: L.code, via: 'link' }, X.tok);
+    ok('차단당했으면 링크여도 거절 · 이름 없음', xb.json.ok === false && xb.json.friend === undefined, xb.json);
+    ok('차단 관계 그대로', !(await call('GET', '/friends', null, X.tok)).json.friends.accepted.some(f => f.id === L.id));
+
+    /* 싫다고 한 사람이 옛 링크로 곧바로 되돌아오면 안 됩니다(db.js friend_refusals). 초대 코드는
+       바뀌지 않아서 거절당한 사람 · 끊긴 친구 · 차단이 풀린 사람도 그 코드를 쥐고 있습니다.
+       그 사이는 링크여도 예전처럼 요청 — 코드 주인이 다시 고릅니다. */
+    const pendingOnly = (x) => x.json.ok === true && x.json.status === 'pending' && x.json.friend === undefined &&
+      !JSON.stringify(x.json).includes('링크주인');
+    const acceptedOf = async (tok, id) =>
+      (await call('GET', '/friends', null, tok)).json.friends.accepted.some(f => f.id === id);
+    const incomingOf = async (tok, id) =>
+      (await call('GET', '/friends', null, tok)).json.friends.incoming.some(f => f.id === id);
+
+    ok('차단을 풀어도', (await call('POST', '/friends/unblock', { userId: X.id }, L.tok)).json.ok === true);
+    const xu = await call('POST', '/friends/request', { inviteCode: L.code, via: 'link' }, X.tok);
+    ok('차단했던 사람은 링크로 곧바로 못 돌아온다 — 요청으로 · 이름 없음', pendingOnly(xu), xu.json);
+    ok('코드 주인의 받은 요청에 · 친구는 아님', await incomingOf(L.tok, X.id) && !(await acceptedOf(L.tok, X.id)));
+
+    const D = await mk('linkdeclined', '거절된사람');
+    await call('POST', '/friends/request', { inviteCode: L.code }, D.tok);
+    ok('코드 주인이 거절', (await call('POST', '/friends/decline', { userId: D.id }, L.tok)).json.ok === true);
+    const dl = await call('POST', '/friends/request', { inviteCode: L.code, via: 'link' }, D.tok);
+    ok('거절당한 사람이 링크를 눌러도 곧바로 친구가 아니다 — 요청으로', pendingOnly(dl), dl.json);
+    ok('거절당한 쪽 친구 목록에도 없다', !(await acceptedOf(D.tok, L.id)));
+    const dl2 = await call('POST', '/friends/request', { inviteCode: L.code, via: 'link' }, D.tok);
+    ok('링크를 또 눌러도 수락이 되지 않는다(이미 보낸 요청)', dl2.json.ok === false &&
+       dl2.json.reason === '이미 보낸 요청입니다' && dl2.json.friend === undefined, dl2.json);
+
+    /* 끊긴 친구 — 위에서 링크로 친구가 된 J. 코드 주인 L 이 끊습니다. */
+    ok('코드 주인이 친구를 끊음', (await call('DELETE', '/friends/' + J.id, null, L.tok)).json.ok === true);
+    const jr = await call('POST', '/friends/request', { inviteCode: L.code, via: 'link' }, J.tok);
+    ok('끊긴 친구가 옛 링크를 눌러도 곧바로 친구가 아니다 — 요청으로', pendingOnly(jr), jr.json);
+    ok('끊은 쪽의 공유 행은 되살아나지 않는다',
+       (await call('GET', '/snapshots/' + L.id, null, J.tok)).json.ok !== true);
+
+    /* 코드 주인이 다시 받아 주면(수락) 예전의 "싫다" 는 지워집니다 — 그 뒤 J 가 끊었다가 L 의
+       링크를 누르면 다시 곧바로(L 은 J 를 싫다고 한 적이 없는 상태). */
+    ok('코드 주인이 수락', (await call('POST', '/friends/accept', { userId: J.id }, L.tok)).json.status === 'accepted');
+    ok('이번엔 손님이 끊음', (await call('DELETE', '/friends/' + L.id, null, J.tok)).json.ok === true);
+    const jb = await call('POST', '/friends/request', { inviteCode: L.code, via: 'link' }, J.tok);
+    ok('수락으로 기억이 지워져서 · 끊은 사람 본인이 누른 링크는 곧바로 친구', jb.json.ok === true &&
+       jb.json.status === 'accepted' && jb.json.friend && jb.json.friend.name === '링크주인', jb.json);
+    /* 방향이 있습니다: 끊은 J 의 링크를 L 이 누르면 요청입니다. */
+    ok('다시 끊음', (await call('DELETE', '/friends/' + L.id, null, J.tok)).json.ok === true);
+    const lj = await call('POST', '/friends/request', { inviteCode: J.code, via: 'link' }, L.tok);
+    ok('끊은 사람(J)의 링크를 끊긴 사람(L)이 누르면 요청', lj.json.ok === true && lj.json.status === 'pending' &&
+       lj.json.friend === undefined, lj.json);
+
+    /* 내가 보낸 요청을 거둔 것은 "싫다" 가 아닙니다 — 그 사람은 여전히 내 링크로 곧바로. */
+    const W = await mk('linkwithdrawn', '거둔사이');
+    await call('POST', '/friends/request', { inviteCode: W.code }, L.tok);
+    ok('코드 주인이 보낸 요청을 거둠', (await call('DELETE', '/friends/' + W.id, null, L.tok)).json.ok === true);
+    const wl = await call('POST', '/friends/request', { inviteCode: L.code, via: 'link' }, W.tok);
+    ok('요청을 거둔 것은 거절이 아니다 — 링크로 곧바로 친구', wl.json.ok === true && wl.json.status === 'accepted', wl.json);
+
+    {
+      /* 탈퇴하면 기억도 연쇄로 사라집니다(외래키). */
+      const { DatabaseSync } = require('node:sqlite');
+      const d = new DatabaseSync(DB, { readOnly: true });
+      let n = -1;
+      try { n = d.prepare('SELECT COUNT(*) c FROM friend_refusals WHERE owner_id=? OR other_id=?').get(D.id, D.id).c; }
+      finally { d.close(); }
+      ok('거절 기억이 적혀 있다', n === 1, n);
+      ok('거절당한 사람 탈퇴', (await call('DELETE', '/me', null, D.tok)).json.ok === true);
+      const d2 = new DatabaseSync(DB, { readOnly: true });
+      try { n = d2.prepare('SELECT COUNT(*) c FROM friend_refusals WHERE owner_id=? OR other_id=?').get(D.id, D.id).c; }
+      finally { d2.close(); }
+      ok('탈퇴하면 거절 기억도 지워진다', n === 0, n);
+    }
+  }
+
   console.log('\n[7] 탈퇴 뒷정리');
   const C = await call('POST', '/auth/signup', { handle: 'temp', displayName: '임시' });
   ok('탈퇴', (await call('DELETE', '/me', null, C.json.token)).json.ok === true);

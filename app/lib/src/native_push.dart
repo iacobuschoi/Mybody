@@ -26,6 +26,14 @@
  * 폰을 쓰던 사람 · 토큰을 받아 간 다른 서버의 운영자)이 이 기기를 자기 계정으로 옮기지 못하게
  * 서버가 이 값을 봅니다(server/db.js addPushDevice). 서버마다 다르므로 한 서버가 받은 비밀로
  * 다른 서버의 등록을 옮길 수도 없습니다.
+ *
+ * **크롬 알림은 저절로 지웁니다**(주인 의견 47 "설정에서 크롬 알림관련내용 없애"). 예전엔 설정에
+ * 「크롬(웹) 알림 끄기」 단추가 있어서 사람이 찾아 눌러야 했습니다. 이제 이 기기의 앱 알림이
+ * 서버에 등록되면 — 그리고 정말 앱으로 받을 수 있을 때(서버가 FCM 을 켰고 폰이 알림을 허락함)
+ * — 이 계정의 크롬 구독을 **계정마다 한 번** 조용히 지웁니다([kPushWebClearedKey], 서버 주소 ·
+ * 계정 id 마다). 알림을 거절한 폰 · FCM 이 꺼진 서버에서는 지우지 않습니다: 그 사람에게는
+ * 크롬이 남은 유일한 길입니다(서버 pushToUser 가 그때 크롬으로 보냅니다). 실패하면 적지 않고
+ * 다음 등록 때 다시 합니다 — 사람에게는 아무것도 안 보입니다.
  * ========================================================================== */
 import 'dart:async';
 import 'dart:convert';
@@ -42,7 +50,12 @@ import 'api.dart';
 
 /// 알림 data.route 중 앱이 따라가는 것. 모르는 값은 버립니다 — 서버가 새 값을 보내도
 /// 옛 앱이 엉뚱한 곳으로 가지 않게.
-const kPushRoutes = {'social', 'pokes'};
+///
+/// 'social' · 'pokes' 는 친구 탭, 'feedback' 은 「새 의견이 왔어요」(운영자 한 사람에게만 가는
+/// 알림)의 「의견함」(screens/feedback_inbox.dart) — 셸이 그 화면을 엽니다. 운영자가 아닌 계정에
+/// 이 값이 와도 의견함은 서버가 403 으로 막고 「운영자 계정으로 로그인하면 볼 수 있어요」 만
+/// 보입니다.
+const kPushRoutes = {'social', 'pokes', 'feedback'};
 
 /// 알림의 data 에서 갈 곳을 꺼냅니다. [kPushRoutes] 밖이면 null.
 String? pushRoute(Map<String, dynamic> data) {
@@ -69,6 +82,11 @@ const kPushAskedKey = 'mybody.push.asked.v1';
 
 /// 설치 비밀을 두는 자리. 뒤에 `|서버 주소` 가 붙습니다(서버마다 따로).
 const kPushSecretKey = 'mybody.push.secret.v1';
+
+/// 이 계정의 크롬(웹) 알림 구독을 지웠다는 표시. 뒤에 `|서버 주소|계정 id` 가 붙습니다 —
+/// 계정마다 한 번(머리 주석). 로그아웃해도 지우지 않습니다: 같은 계정으로 다시 들어오면
+/// 이미 지운 것이고, 다른 계정이면 열쇠가 다릅니다.
+const kPushWebClearedKey = 'mybody.push.webcleared.v1';
 
 /// 독촉 알림 한 칸. 서버는 FCM 에 tag `poke-<독촉 번호>` 를 붙여 보내고, 안드로이드의 FCM 알림은
 /// 그 tag 와 번호 0 으로 뜹니다. 앱이 가져와서 띄우는 로컬 알림도 같은 칸을 쓰면, 둘이 엇갈려
@@ -568,6 +586,32 @@ class NativePush extends ChangeNotifier {
       _registeredAt = _now();
     }
     notifyListeners();
+    /* 앱으로 정말 받을 수 있게 됐을 때만 크롬을 지웁니다(머리 주석). 줄 안에서 기다립니다 —
+       뒤이은 등록 · 토큰 폐기(로그아웃)가 이 계정의 일이 끝난 뒤에 돌게. */
+    if (r.ok && _serverFcm == true && _perm == PushPermission.granted) await _clearWebOnce(api);
+  }
+
+  /* 크롬(웹) 알림 구독 지우기 — 계정마다 한 번, 조용히(주인 의견 47). 계정 id 는 /me 로 압니다
+     (셸이 켤 때 이미 받았으면 그 값 — Api.userId). 실패는 적지 않고 넘어갑니다: 다음 등록
+     (다음 실행 · 12시간 뒤 돌아옴 · 토큰 갱신) 때 다시 합니다. 기다리는 사이 로그인이 바뀌었으면
+     아무것도 안 합니다 — 앞 계정의 표시를 뒤 계정 몫으로 적거나 그 반대가 되지 않게. */
+  Future<void> _clearWebOnce(Api api) async {
+    final session = api.token;
+    bool same() => identical(api, _api) && api.signedIn && api.token == session;
+    try {
+      var uid = api.userId;
+      if (uid == null) {
+        await api.me();
+        uid = api.userId;
+      }
+      if (uid == null || !same()) return;
+      final sp = await SharedPreferences.getInstance();
+      final k = '$kPushWebClearedKey|${api.baseUrl}|$uid';
+      if (sp.getBool(k) == true) return;
+      final r = await api.dropWebPush();
+      if (!r.ok || !same()) return;
+      await sp.setBool(k, true);
+    } catch (_) {/* 다음 등록 때 다시 */}
   }
 
   /// 이 서버에 보낼 설치 비밀. 처음이면 만들어 둡니다(32바이트 난수). 못 만들면 null — 그때는

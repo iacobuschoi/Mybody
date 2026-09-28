@@ -840,6 +840,27 @@ async function integration() {
   const wo2 = await call('DELETE', '/push/web-subscriptions', null, C.token);
   ok('다른 이름(/push/web-subscriptions)도 받는다', wo2.status === 200 && wo2.json.removed === 1, wo2.json);
 
+  console.log('\n[20b] 초대 링크로 곧 친구 → 코드 주인의 앱 알림은 일반 문구(이름 없음)');
+  {
+    /* 주인 의견 48. 웹 푸시에는 "○○님과 친구가 됐어요" 가 가지만(test-friendpush.js [6-3]),
+       FCM 은 평문이라 이름을 싣지 않습니다 — 일반 문구 APP_TEXT.friend_link("새 친구가 생겼어요"). */
+    const G = await mk('gildong', '길동'), H = await mk('hanbit', '한빛');
+    const devG = devTok('ok', 'g');
+    await call('POST', '/push/device', { token: devG, platform: 'android', permission: 'granted' }, G.token);
+    fcmGot.length = 0; webGot.length = 0;
+    const lk = await call('POST', '/friends/request', { inviteCode: G.user.inviteCode, via: 'link' }, H.token);
+    ok('링크로 곧 친구 · 답에 이름', lk.json && lk.json.status === 'accepted' && lk.json.friend && lk.json.friend.name === '길동', lk.json);
+    ok('코드 주인의 앱(FCM)으로 한 통', await until(() => fcmGot.length === 1), fcmGot.length);
+    await wait(300);
+    const m = fcmGot[0];
+    ok('kind friend_link · route social', m && m.data.kind === 'friend_link' && m.data.route === 'social', m && m.data);
+    ok('일반 문구 — "새 친구가 생겼어요"(요청을 보낸 적 없는 코드 주인에게 「수락됐어요」 는 어색)', m && m.notification.title === '새 친구가 생겼어요', m && m.notification);
+    ok('링크를 누른 사람 이름 · 사용자 id · 공유 설정이 평문에 없다',
+       m && ['한빛', '길동', G.user.id, H.user.id, '보입니다', '친구가 됐어요'].every(w => !JSON.stringify(m).includes(w)), m);
+    ok('앱이 있는 코드 주인에게 크롬은 0건', webGot.length === 0, webGot);
+    await call('DELETE', '/push/device', { token: devG }, G.token);
+  }
+
   console.log('\n[21] 로그아웃 · 모든 기기 로그아웃 · 탈퇴 → 기기 행 0');
   {
     const s2 = (await call('POST', '/auth/signin', { handle: 'younghee', password: PW })).json;

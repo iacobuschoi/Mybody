@@ -12,7 +12,8 @@
  *     않으므로 계정 삭제로는 사라지지 않습니다 — 두 개는 다른 일입니다.
  *
  * 차례(위 → 아래): 내 몸 정보 · 화면 · 운동 환경 · 계정 · 기본 공유(로그인
- * 했을 때) · 동기화 · **도움말(의견 버튼 보이기 · 앱 안내 다시 보기)** · 지우기 ·
+ * 했을 때) · 동기화 · **도움말(의견함 — 운영자만 · 의견 버튼 보이기 · 앱 안내 다시
+ * 보기)** · 지우기 ·
  * **로그아웃(로그인했을 때)** · 작은 글씨(내보내기 · 가져오기 ·
  * 개인정보처리방침) · 앱 버전.
  *
@@ -30,6 +31,10 @@
  * **비공개 시험 기간에는 켜진 채 잠급니다**(「테스트 기간에는 켜 둡니다」) — 말풍선의
  * X 도 그동안은 못 치웁니다. 시험판의 의견이 시험의 전부라서입니다(feedback.dart 의
  * feedbackBubbleLocked). 시험이 끝나면(서버 testing 거짓) 평소처럼 켜고 끕니다.
+ *
+ * **보낸 의견을 읽는 곳(「의견함」)은 도움말 맨 위** — 운영자(서버 설정 feedbackNotify 의
+ * 계정)에게만 섭니다. 주인의 물음 "의견 어디서 봐" 의 답이 노트북 도구뿐이었습니다. 다른
+ * 사람에게는 줄도 자리표시도 없습니다(feedback_inbox.dart FeedbackInboxRow).
  *
  * **로그아웃은 맨 아래 한 곳입니다.** 예전엔 긴 페이지 한가운데 「계정」
  * 카드 안, 「계정 관리」 옆의 작은 버튼이었고 주인이 못 찾았습니다 —
@@ -57,6 +62,7 @@ import '../update.dart';
 import 'account.dart';
 import 'feedback.dart'
     show feedbackBubbleLocked, feedbackBubbleOn, loadFeedbackBubbleOn, setFeedbackBubbleOn;
+import 'feedback_inbox.dart' show FeedbackInboxRow;
 import 'gym_settings.dart';
 import 'share_defaults.dart';
 import 'sync_settings.dart';
@@ -165,7 +171,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 setState(() {});
               },
             ),
-            /* 친구 알림(앱 알림) 상태와 「크롬(웹) 알림 끄기」 — 로그인했을 때만(친구는 계정 기능). */
+            /* 친구 알림(앱 알림) 상태 한 줄 — 로그인했을 때만(친구는 계정 기능). */
             if (api.signedIn) _PushRows(key: ValueKey(api)),
             /* 헬스 화면의 「따라 해 보기」 는 처음 한 번만 뜹니다 — 다시 보는 길은 여기뿐.
                이름은 열리는 화면의 제목과 같은 상수 — 「도움말」 을 눌렀는데 「따라 해 보기」 가
@@ -235,10 +241,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
            안내는 누구에게나 같습니다. 스위치는 말풍선과 같은 값(feedbackBubbleOn)을
            봐서, 켜면 뒤로 가기 전에도 이 화면 옆에 말풍선이 바로 돌아옵니다.
            시험 기간이면 켜진 채 잠급니다 — 새 판 확인기가 시험이 끝났다는 답을 받으면
-           이 화면을 연 채로도 곧바로 풀립니다(확인기도 같이 듣습니다). */
+           이 화면을 연 채로도 곧바로 풀립니다(확인기도 같이 듣습니다).
+           맨 위 「의견함」 은 운영자에게만 — 아니면 줄이 아무것도 안 그립니다. 서버를 옮기면
+           Api 가 새것이라 줄도 새로 묻습니다(열쇠). */
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             const SectionTitle('도움말'),
+            if (api.signedIn) FeedbackInboxRow(key: ValueKey(api)),
             ListenableBuilder(
               listenable: Listenable.merge([feedbackBubbleOn, if (update != null) update]),
               builder: (context, _) {
@@ -697,11 +706,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-/* 「푸시 알림」 상태 한 줄과 「크롬(웹) 알림 끄기」.
+/* 「푸시 알림」 상태 한 줄 — 친구 독촉 · 소식이 이 폰에 앱 알림으로 바로 오는가.
  *
- * 친구 독촉이 앱이 아니라 크롬으로 온다는 말을 들었습니다 — 예전 웹 앱이 크롬에 남긴 알림
- * 구독 때문입니다. 서버는 앱 알림이 되는 사람에게 크롬을 조용히 하지만, 크롬 쪽 구독을
- * 아예 지우는 길도 여기 둡니다. 서버가 그 길을 모르면(404) 줄을 숨깁니다. */
+ * 크롬 이야기는 여기 없습니다(주인 의견 47 "설정에서 크롬 알림관련내용 없애"). 예전엔 이 밑에
+ * 「크롬(웹) 알림 끄기」 가 있었습니다 — 예전 웹 앱이 크롬에 남긴 알림 구독 때문에 독촉이 앱이
+ * 아니라 크롬으로 왔기 때문입니다. 이제는 앱 알림이 등록되면 앱이 그 구독을 계정마다 한 번
+ * 저절로 지웁니다(native_push.dart). 사람이 찾아 누를 것이 없습니다.
+ *
+ * 이 줄은 남깁니다 — 「꺼짐 — 폰 설정에서 Mybody 알림을 켜면…」 처럼 사람이 할 일이 있는
+ * 경우를 알려 주는 곳이 여기뿐입니다. 서버가 등록 길을 모르면(404) 「서버 미지원」. */
 class _PushRows extends StatefulWidget {
   const _PushRows({super.key});
   @override
@@ -710,8 +723,6 @@ class _PushRows extends StatefulWidget {
 
 class _PushRowsState extends State<_PushRows> {
   ApiResult? _status;
-  bool _webGone = false;
-  bool _busy = false;
 
   @override
   void initState() {
@@ -725,24 +736,6 @@ class _PushRowsState extends State<_PushRows> {
     if (mounted) setState(() => _status = r);
   }
 
-  Future<void> _dropWeb() async {
-    final api = Scope.apiOf(context);
-    setState(() => _busy = true);
-    final r = await api.dropWebPush();
-    if (!mounted) return;
-    setState(() => _busy = false);
-    if (r.status == 404) {
-      setState(() => _webGone = true);
-      return;
-    }
-    if (!r.ok) {
-      toast(context, r.reason);
-      return;
-    }
-    setState(() => _webGone = true);
-    toast(context, '크롬(웹) 알림을 껐습니다 — 친구 알림은 앱으로 받습니다');
-  }
-
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
@@ -751,34 +744,14 @@ class _PushRowsState extends State<_PushRows> {
       listenable: push,
       builder: (context, _) {
         final d = describePush(push, status: _status);
-        final st = _status;
-        final webSubs = st != null && st.ok ? st.body['webSubs'] : null;
-        /* 서버가 구독 수를 알려 주면 0 일 때 숨기고, 모르면(판 차이) 보여 줍니다. */
-        final showWeb = !_webGone && st != null && st.ok && !(webSubs is num && webSubs <= 0);
-        return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('푸시 알림'),
-            subtitle: Text(d.hint, style: t.textTheme.labelSmall),
-            trailing: Text(d.label,
-                style: t.textTheme.labelLarge?.copyWith(
-                    color: d.line == PushLine.on ? t.colorScheme.primary : t.hintColor)),
-          ),
-          if (showWeb)
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              title: const Text('크롬(웹) 알림 끄기'),
-              subtitle: Text(
-                  webSubs is num
-                      ? '예전 웹 앱이 크롬에 남긴 알림 ${webSubs.toInt()}곳을 지웁니다'
-                      : '예전 웹 앱이 크롬에 남긴 알림을 지웁니다',
-                  style: t.textTheme.labelSmall),
-              trailing: OutlinedButton(
-                onPressed: _busy ? null : _dropWeb,
-                child: Text(_busy ? '끄는 중…' : '끄기'),
-              ),
-            ),
-        ]);
+        return ListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('푸시 알림'),
+          subtitle: Text(d.hint, style: t.textTheme.labelSmall),
+          trailing: Text(d.label,
+              style: t.textTheme.labelLarge?.copyWith(
+                  color: d.line == PushLine.on ? t.colorScheme.primary : t.hintColor)),
+        );
       },
     );
   }

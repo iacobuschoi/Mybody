@@ -14,6 +14,9 @@
  * 검사(server/feedback.js)로 막습니다. 설정에
  * feedbackNotify(아이디)를 적어 두면 새 의견이 올 때 그 사람 폰으로 "새 의견이
  * 왔어요" 한 줄이 10분에 한 번까지 갑니다 — 의견 내용은 알림에 안 실립니다.
+ * 그 아이디의 계정(운영자)만 앱 설정의 「의견함」(/api/feedback/inbox…)에서 의견을
+ * 읽습니다. 받는 길과 반대로 읽는 길은 로그인 관문 **뒤**에 있고, 운영자인지는 요청마다
+ * 서버가 가립니다(handleFeedbackInbox).
  *
  * /api 밖에서 로그인 없이 여는 페이지가 정적 파일 말고 하나 더 있습니다 — 친구 초대
  * 링크(GET /i/<코드>). DB 를 보지 않고 코드 모양만 봅니다(아래 serveInvite). 그 링크를
@@ -588,9 +591,13 @@ const APP_TEXT = {
   workout: { t: '친구가 운동했어요', b: '친구 탭에서 확인하세요' },
   friend_request: { t: '친구 요청이 왔어요', b: '친구 탭에서 확인하세요' },
   friend_accept: { t: '친구 요청이 수락됐어요', b: '친구 탭에서 확인하세요' },
+  /* 초대 링크로 곧 친구가 된 경우 — 코드 주인은 요청을 보낸 적이 없어서 "수락됐어요" 가 어색했습니다
+     (0.2.19 리뷰). 이름 없이 "생겼다" 만. */
+  friend_link: { t: '새 친구가 생겼어요', b: '친구 탭에서 확인하세요' },
   /* 주인에게만 갑니다(FEEDBACK_NOTIFY). 의견 글 · 보낸 사람 · 판은 싣지 않습니다 —
-     읽는 곳은 노트북(tools/feedback.js)이고, 알림은 "왔다" 만 알리면 됩니다. */
-  feedback: { t: '새 의견이 왔어요', b: '노트북에서 확인하세요' }
+     누르면 앱이 「의견함」을 엽니다(route 'feedback'). 내용은 그 화면이 로그인한 채로
+     서버에서 가져오고, 알림은 "왔다" 만 알리면 됩니다. */
+  feedback: { t: '새 의견이 왔어요', b: '눌러서 보기' }
 };
 const APP_TEXT_FALLBACK = { t: '친구 알림이 왔어요', b: '앱에서 확인하세요' };
 
@@ -611,7 +618,7 @@ function appNoteFor(userId, n) {
  * note: { t, b, u, route, kind, appTag, collapse, data, onDelivered }
  *   t · b · u  웹 푸시(암호화)의 제목 · 본문 · 누르면 열 주소. FCM 에는 안 실립니다
  *   kind       무슨 소식인가 — FCM 의 일반 문구(APP_TEXT)를 고릅니다
- *   route      앱이 누르면 갈 곳('pokes' · 'social')
+ *   route      앱이 누르면 갈 곳('pokes' · 'social' · 'feedback' — 운영자의 「의견함」)
  *   appTag     FCM 의 tag 를 그대로(독촉: 'poke-<번호>')
  *   collapse   [접두어, 누구에 대한 소식인가] — 받는 사람별 HMAC tag 로 바뀝니다
  *   onDelivered  FCM 이 한 기기에라도 받았을 때 **바로** 한 번 — 나머지 기기로 보내기를
@@ -716,12 +723,34 @@ function anonFeedbackBump(ip, day) {
   }
 }
 
+/* 운영자 = 설정의 feedbackNotify(FEEDBACK_NOTIFY)에 적은 아이디의 계정. 없으면 아무도 아님.
+ *
+ * **요청마다 다시 찾습니다**(아이디 → 내부 id, 유일 색인 한 번). 기억해 두면 운영자가
+ * 탈퇴하고 다시 가입했을 때(내부 id 가 바뀜) 옛 id 를 들고 있거나, 거꾸로 "없음" 을 들고
+ * 있다가 가입한 뒤에도 의견함이 안 열립니다 — 무효화할 곳을 빠뜨리면 조용히 틀립니다.
+ * 아이디는 로그인과 같은 규칙(앞뒤 공백 빼고 소문자)으로 맞춥니다(db.js userIdByHandle).
+ *
+ * 아이디로 적혀 있다는 것이 약점이기도 합니다: 그 계정을 지우면 아이디가 비고, 같은
+ * 아이디로 새로 가입한 사람이 운영자가 됩니다. 그래서 계정을 지웠으면 설정의 아이디도
+ * 지우거나 바꿔야 하고(server/README.md), 그 계정이 아직 없으면 뜰 때 크게 말합니다 — 누구나
+ * 가입할 수 있는 서버(OPEN_SIGNUP)면 아무나, 아니어도 가입 코드를 받은 사람이면 그 아이디를 먼저 가져갑니다. */
+function operatorId() {
+  return FEEDBACK_NOTIFY ? api.userIdByHandle(FEEDBACK_NOTIFY) : null;
+}
+function isOperator(uid) {
+  const op = operatorId();
+  return !!(op && uid && op === uid);
+}
+
 /* 주인에게 "새 의견이 왔어요". 응답을 기다리게 하지 않습니다 — 알림이 늦는 것은
    괜찮지만, 보낸 사람 화면이 FCM 을 기다리며 굳으면 안 됩니다. 간격은 **보낼 사람을
-   찾은 뒤에** 셉니다: 아이디를 잘못 적어 둔 동안 들어온 의견이 간격만 깎지 않게. */
+   찾은 뒤에** 셉니다: 아이디를 잘못 적어 둔 동안 들어온 의견이 간격만 깎지 않게.
+   앱 알림(FCM)은 누르면 「의견함」으로 갑니다(route 'feedback' · APP_TEXT.feedback).
+   크롬(웹 푸시)은 앱이 없는 운영자에게만 가고, 웹 앱에는 의견함이 없어서 "눌러서 보기"
+   대신 어디서 보는지를 적습니다. */
 function notifyOwnerOfFeedback() {
   if (!FEEDBACK_NOTIFY || (!VAPID && !FCM)) return;
-  const owner = api.userIdByHandle(FEEDBACK_NOTIFY);
+  const owner = operatorId();
   if (!owner) {
     if (!feedbackOwnerWarned) {
       feedbackOwnerWarned = true;
@@ -730,8 +759,103 @@ function notifyOwnerOfFeedback() {
     return;
   }
   if (!feedbackNotifyAllowed()) return;
-  pushToUser(owner, Object.assign({ kind: 'feedback', appTag: 'feedback', u: '/' }, APP_TEXT.feedback))
+  pushToUser(owner, { kind: 'feedback', appTag: 'feedback', route: 'feedback', u: '/',
+                      t: APP_TEXT.feedback.t, b: '앱의 설정 → 「의견함」에서 볼 수 있어요' })
     .catch(() => {});
+}
+
+/* --- 앱 안 「의견함」 (운영자만) -------------------------------------------
+ *
+ * 왜 있나
+ *   "의견 어디서 봐" — 알림은 폰으로 오는데 보려면 노트북을 열어 도구를 돌려야 했습니다.
+ *   알림을 누르면 바로 그 의견이 보여야 합니다. 그래서 운영자 계정의 앱에만 읽는 길을 엽니다.
+ *
+ * 약속 (앱: app/lib/src/api.dart · 의견함 화면)
+ *   GET    /api/feedback/inbox?limit=30&before=<번호>
+ *            → {ok, unread, items:[{id, createdAt, appVersion|null, platform|null, screen|null,
+ *               text('' = 글 없음), read, images:[{n, type}], from:{name}|null(익명)}], nextBefore|null}
+ *            새것부터 · 번호로 넘김(db.js feedbackInbox) · limit 1~50
+ *   GET    /api/feedback/inbox/<번호>/image/<n>   사진 바이트 그대로(저장된 형식) · 없으면 404
+ *   POST   /api/feedback/inbox/<번호>/read        읽음 표시(이미 읽었으면 그 시각 그대로)
+ *   POST   /api/feedback/inbox/read-all           안 읽은 것 전부 — {upTo:<번호>} 를 주면 거기까지만
+ *   DELETE /api/feedback/inbox/<번호>             의견과 사진을 함께(한 트랜잭션)
+ *   읽음 · 지우기는 없는 번호여도 {ok:true} 입니다 — 다른 기기에서 먼저 지웠거나 1년이 지나
+ *   서버가 지운 것을 다시 지우는 것은 할 일이 없는 것이지 실패가 아닙니다. 노트북에 꺼내 둔
+ *   캡처는 tools/feedback.js 가 다음에 돌 때 "DB 에 더는 없는 번호" 로 보고 지웁니다.
+ *
+ * 막는 것
+ *   · 로그인 관문 뒤에 있습니다 — 토큰이 없거나 틀리면 다른 길과 같은 401.
+ *   · 운영자가 아니면 **어느 길이든**(사진 포함) 403 「운영자만 볼 수 있어요」. 누가 운영자인지는
+ *     어디에도 내보내지 않습니다 — /api/me 의 isOperator 는 본인에게만, 운영자일 때만 붙습니다.
+ *   · 의견 · 사진 번호는 1 이상의 정수만(아니면 400)이고, 사진 번호가 1~3 밖이면 없는 것(404).
+ *     SQLite 까지 이상한 값이 내려가지 않게.
+ *   · 캐시 금지(private, no-store) — 몸 숫자가 찍혀 있을 수 있는 캡처가 폰 · 중간 캐시에 남지 않게.
+ *   · 로그에는 경로와 상태만 남습니다(logLine) — 의견 내용은 안 찍힙니다.
+ * -------------------------------------------------------------------------- */
+const INBOX_HEADERS = { 'Cache-Control': 'private, no-store' };
+/* 경로의 번호 — 1 이상의 안전한 정수만. "1e3" · "0x10" · "-1" · 아주 긴 숫자는 거절. */
+function inboxId(s) {
+  if (typeof s !== 'string' || !/^[1-9]\d{0,15}$/.test(s)) return null;
+  const n = Number(s);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+async function handleFeedbackInbox(req, res, url, p, method, me) {
+  const fail = (status, msg) => send(res, status, { ok: false, error: msg, reason: msg }, INBOX_HEADERS);
+  const ok = body => send(res, 200, Object.assign({ ok: true }, body || {}), INBOX_HEADERS);
+  /* 경로 모양을 보기 **전에** 운영자부터 — 없는 길 · 틀린 번호로 두드려 봐도 운영자가
+     아니면 똑같이 403 이라, 응답으로 어떤 길이 있는지 · 몇 번 의견이 있는지 알 수 없습니다. */
+  if (!isOperator(me)) return fail(403, '운영자만 볼 수 있어요');
+
+  if (p === '/feedback/inbox' && method === 'GET') {
+    const raw = url.searchParams.get('before');
+    let before = null;
+    if (raw !== null && raw !== '') {
+      before = inboxId(raw);
+      /* 틀린 커서를 첫 쪽으로 바꿔 주면 앱의 "더 보기" 가 같은 쪽을 끝없이 다시 받습니다. */
+      if (!before) return fail(400, 'before 는 의견 번호(1 이상의 정수)여야 합니다');
+    }
+    const limit = intParam(url.searchParams.get('limit'), 30, 1, 50);
+    return ok(api.feedbackInbox({ before, limit }));
+  }
+  if (p === '/feedback/inbox/read-all' && method === 'POST') {
+    const b = await readBody(req, 16_000);
+    const rawUp = b && typeof b === 'object' && b.upTo !== undefined && b.upTo !== null
+      ? b.upTo : url.searchParams.get('upTo');
+    let upTo = null;
+    if (rawUp !== null && rawUp !== undefined && rawUp !== '') {
+      upTo = inboxId(String(rawUp));
+      if (!upTo) return fail(400, 'upTo 는 의견 번호(1 이상의 정수)여야 합니다');
+    }
+    api.markAllFeedbackRead(upTo);
+    return ok();
+  }
+
+  const m = p.match(/^\/feedback\/inbox\/([^/]+)(?:\/(read|image)(?:\/([^/]+))?)?$/);
+  if (!m) return fail(404, '그런 경로가 없습니다');
+  const id = inboxId(m[1]);
+  if (!id) return fail(400, '의견 번호는 1 이상의 정수여야 합니다');
+
+  if (m[2] === 'image' && m[3] !== undefined && method === 'GET') {
+    const n = inboxId(m[3]);
+    if (!n) return fail(400, '사진 번호는 1 이상의 정수여야 합니다');
+    const im = n <= FEEDBACK.IMAGES_MAX ? api.feedbackImage(id, n) : null;
+    if (!im) return fail(404, '그 사진이 없어요');
+    /* 저장된 형식 그대로 — 단, 받을 때 검사하는 형식(PNG · JPEG)만. 서버를 거치지 않고 들어간
+       행이 text/html 같은 것을 들고 있어도 그대로 내보내지 않습니다(nosniff 와 함께). */
+    const type = Object.prototype.hasOwnProperty.call(FEEDBACK.TYPES, im.type) ? im.type : 'application/octet-stream';
+    return send(res, 200, im.data, Object.assign({ 'Content-Type': type,
+                                                   'Content-Length': String(im.data.length) }, INBOX_HEADERS));
+  }
+  if (m[2] === 'read' && m[3] === undefined && method === 'POST') {
+    api.markFeedbackRead([id]);
+    return ok();
+  }
+  if (m[2] === undefined && method === 'DELETE') {
+    api.deleteFeedback(id);
+    return ok();
+  }
+  return fail(404, '그런 경로가 없습니다');
 }
 
 /* 오늘 한도에 걸렸으면 그 까닭(429 로 내보낼 말), 아니면 null. 저장한 것만 셉니다:
@@ -919,20 +1043,38 @@ async function handleApi(req, res, url) {
     const r = api.newRecoveryCode(me, b);
     return send(res, r.ok ? 200 : 400, r);
   }
-  if (p === '/me' && method === 'GET') return send(res, 200, { ok: true, user: api.me(me), stats: api.stats(me) });
-  if (p === '/me' && method === 'PATCH') return send(res, 200, { ok: true, user: api.updateMe(me, await readBody(req)) });
+  /* isOperator — 앱이 설정에 「의견함」 칸을 보일지 정하는 표시. **본인에게만, 운영자일 때만**
+     붙습니다(아니면 칸 자체가 없음). 친구 목록 · 스냅샷 같은 남에게 가는 응답에는 안 실어서
+     누가 운영자인지 다른 사람은 알 수 없습니다. 보이는 칸은 편의일 뿐이고, 막는 것은
+     의견함의 모든 길이 요청마다 다시 가리는 쪽입니다(handleFeedbackInbox).
+     PATCH 도 같은 user 를 돌려줍니다 — 앱이 그 답으로 자기 정보를 갈아 끼워도 칸이 안 사라지게. */
+  const meView = u => (u && isOperator(me) ? Object.assign(u, { isOperator: true }) : u);
+  if (p === '/me' && method === 'GET') return send(res, 200, { ok: true, user: meView(api.me(me)), stats: api.stats(me) });
+  if (p === '/me' && method === 'PATCH') return send(res, 200, { ok: true, user: meView(api.updateMe(me, await readBody(req))) });
   if (p === '/me' && method === 'DELETE') { api.deleteMe(me); return send(res, 200, { ok: true }); }
   if (p === '/me/consent' && method === 'POST') {
     const r = api.consent(me, await readBody(req));
     return send(res, r.ok ? 200 : 400, r);
   }
 
+  /* 운영자의 「의견함」 — 로그인 관문 뒤. 운영자인지는 그 안에서 요청마다 가립니다.
+     받는 길(POST /feedback)은 위, 관문 앞에 따로 있습니다. */
+  if (p === '/feedback/inbox' || p.startsWith('/feedback/inbox/')) {
+    return handleFeedbackInbox(req, res, url, p, method, me);
+  }
+
   if (p === '/friends' && method === 'GET') return send(res, 200, { ok: true, friends: api.listFriends(me) });
   if (p === '/friends/request' && method === 'POST') {
     const b = await readBody(req);
     /* 안드로이드 앱 0.2.3 까지는 'code' 로 보냈습니다. 이미 깔린 앱이 서버만
-       다시 띄우면 친구 추가가 되도록 둘 다 받습니다. */
-    const r = api.sendRequest(me, b.inviteCode || b.code);
+       다시 띄우면 친구 추가가 되도록 둘 다 받습니다.
+       via:'link' — 앱이 초대 링크(· 설치 추천인)로 받은 코드입니다. 그러면 요청이 아니라
+       그 자리에서 친구가 됩니다(주인 의견 48 · db.js sendRequest). 손으로 친 코드 · 클립보드에서
+       고른 코드는 via 없이 와서 예전처럼 코드 주인의 수락을 기다립니다. 다른 값은 없는 것으로.
+       코드 주인이 나를 거절 · 끊기 · 차단한 적이 있으면 링크여도 요청입니다(db.js friend_refusals) —
+       그때 답 · 알림은 아래 pending 그대로입니다. */
+    const viaLink = !!(b && b.via === 'link');
+    const r = api.sendRequest(me, b.inviteCode || b.code, { viaLink });
     /* 친구 요청은 **앱을 안 열면 영영 모르는** 소식이었습니다.
      * 요청을 받은 쪽은 상대가 기다리는 줄도 모르고, 보낸 쪽은 무시당한
      * 줄 압니다. 둘 다 앱을 안 여는 이유가 됩니다.
@@ -945,21 +1087,33 @@ async function handleApi(req, res, url) {
      *
      * 응답을 기다리게 하지 않습니다 — 푸시 서비스가 느리면 화면이 그만큼
      * 멈춥니다. 알림이 늦는 것과 앱이 굳는 것 중에는 전자가 낫습니다. */
-    if (r.ok && r.otherId) {
+    /* 링크로 이미 친구인 사이(already)는 아무것도 안 바뀌었으니 알림도 없습니다 — 링크를 다시
+       누를 때마다 코드 주인의 폰이 울리면 안 됩니다. */
+    if (r.ok && r.otherId && !r.already) {
       const who = api.me(me);
       const name = (who && who.displayName) || '누군가';
       /* 둘째 줄은 **알림을 받는 사람이 보여 주게 될 것** — 그 사람의 실제 값으로.
          요청이면 아직 관계가 없으니 그 사람의 기본값(수락하면 그대로 복사됩니다),
-         맞요청으로 방금 친구가 됐으면 이미 복사된 그 방향의 행. */
+         맞요청 · 초대 링크로 방금 친구가 됐으면 이미 복사된 그 방향의 행.
+         초대 링크면 코드 주인은 수락을 누른 적이 없으니 "○○님과 친구가 됐어요" 로 알립니다.
+         앱 알림(FCM)은 일반 문구 APP_TEXT.friend_link("새 친구가 생겼어요") — 코드 주인은 요청을
+         보낸 적이 없으니 "친구 요청이 수락됐어요" 는 어색합니다. 이름은 여전히 싣지 않습니다. */
       const msg = r.status === 'accepted'
-        ? { t: name + '님과 친구가 되었습니다',
-            b: shareNotice(api.shareFields(r.otherId, me), '친구에게'), kind: 'friend_accept' }
+        ? { t: name + (viaLink ? '님과 친구가 됐어요' : '님과 친구가 되었습니다'),
+            b: shareNotice(api.shareFields(r.otherId, me), '친구에게'), kind: viaLink ? 'friend_link' : 'friend_accept' }
         : { t: name + '님이 친구 요청을 보냈습니다',
             b: shareNotice(api.shareDefaults(r.otherId), '수락하면 상대에게'), kind: 'friend_request' };
       /* 이름 · 공유 기본값은 웹 푸시(암호화)에만 실립니다. 앱 알림(FCM)은 평문이라
          "친구 요청이 왔어요" 같은 일반 문구만 갑니다(APP_TEXT). */
       pushToUser(r.otherId, Object.assign(msg, { u: '/#P15', route: 'social', collapse: ['friend', me] }))
         .catch(() => {});
+    }
+    /* 친구가 됐으면(맞요청 · 초대 링크) 상대의 표시 이름을 같이 줍니다 — 앱이 「○○님과 친구가
+       됐어요」 라고 말하게. **이때만** 싣습니다: 이제 친구라 친구 목록에도 뜨는 이름이고,
+       요청만 간 상태(pending)나 실패에 실으면 코드 → 이름 사전이 됩니다(초대 페이지 주석과 같은 까닭). */
+    if (r.ok && r.status === 'accepted' && r.otherId) {
+      const them = api.me(r.otherId);
+      return send(res, 200, Object.assign({}, r, { friend: { name: (them && them.displayName) || '' } }));
     }
     return send(res, 200, r);
   }
@@ -1112,17 +1266,20 @@ async function handleApi(req, res, url) {
     /* 남의 토큰 · 없는 토큰 · 내 토큰 모두 200 {ok:true} — 답으로 토큰이 있는지 알 수 없게. */
     return send(res, 200, api.removePushDevice(me, b.token));
   }
-  /* 설정 화면이 "앱 알림 · 크롬 알림이 지금 어떤가" 를 보여 주는 데 씁니다.
-     webMuted 는 "크롬 구독이 있어도 앱이 있어서 크롬으로는 안 보낸다" 입니다. */
+  /* 설정 화면의 「푸시 알림」 줄이 fcm(서버가 앱으로 보낼 수 있나)을 봅니다. 크롬 쪽 칸
+     (webSubs · webMuted)은 이제 앱 화면에 안 나옵니다 — 설정에서 크롬 이야기를 뺐습니다(주인
+     의견 47). 옛 앱 · 검사용으로 그대로 둡니다. webMuted 는 "크롬 구독이 있어도 앱이 있어서
+     크롬으로는 안 보낸다" 입니다. */
   if (p === '/push/status' && method === 'GET') {
     const c = api.pushCounts(me);
     return send(res, 200, { ok: true, fcm: !!FCM, web: !!VAPID,
                             devices: c.devices, webSubs: c.webSubs,
                             webMuted: !!FCM && api.hasRecentAppDevice(me, 30) });
   }
-  /* 「크롬(웹) 알림 끄기」 — 내 웹 푸시 구독을 전부 지웁니다. 크롬이 알림을
-     쥐고 있으면 브라우저를 안 열어도 계속 울려서, 앱만 쓰는 사람도 여기서
-     끌 수 있어야 합니다. 두 이름 다 받습니다. */
+  /* 내 웹 푸시(크롬) 구독을 전부 지웁니다. 크롬이 알림을 쥐고 있으면 브라우저를
+     안 열어도 계속 울립니다. 예전엔 설정의 「크롬(웹) 알림 끄기」 단추가 불렀고, 이제는
+     앱이 이 기기의 앱 알림을 등록한 뒤 **계정마다 한 번 저절로** 부릅니다(주인 의견 47 ·
+     app/lib/src/native_push.dart). 두 이름 다 받습니다. */
   if ((p === '/push/web' || p === '/push/web-subscriptions') && method === 'DELETE') {
     return send(res, 200, api.dropPushSubsOf(me));
   }
@@ -1218,7 +1375,8 @@ function serveStatic(req, res, url) {
  *   친구를 부르는 길이 "코드 여덟 글자를 불러 주기" 뿐이었습니다. 받은 사람은 앱을 열고 ·
  *   친구 탭으로 가서 · 칸을 찾아 · 여덟 글자를 옮겨 칩니다. 앱이 아직 없으면 어디서 받는지부터
  *   물어야 합니다 — 비공개 시험이라 가게에서 검색해도 안 나옵니다. 링크 하나로 줄입니다:
- *   누르면 앱이 열려 요청이 가고, 앱이 없으면 받는 곳이 바로 보입니다.
+ *   누르면 앱이 열려 바로 친구가 되고(주인 의견 48 — 코드 주인의 수락 없이, 앱이 보내는
+ *   POST /friends/request 의 via:'link'), 앱이 없으면 받는 곳이 바로 보입니다.
  *
  * 약속 (앱의 딥링크 처리와 같아야 합니다)
  *   링크        <서버 주소>/i/<코드>     코드는 대문자 8자. 소문자로 오면 대문자 주소로 돌려보냅니다
@@ -1649,7 +1807,7 @@ function serveInvite(req, res, url) {
     dataAttr('inapp', inapp === 'kakao' ? 'kakao' : '') +
     dataAttr('intent', autoIntent) + dataAttr('later', later);
 
-  const desc = '링크를 누르면 친구 요청이 가요 · 코드 ' + code;
+  const desc = '링크를 누르면 바로 친구가 돼요 · 코드 ' + code;
   const image = inviteIcon(['icon-512.png', 'icon-192.png', 'apple-touch-icon.png']);
   const head = '<title>Mybody 친구 초대</title>\n' +
     '<meta name="description" content="' + escHtml(desc) + '">\n' +
@@ -1663,7 +1821,7 @@ function serveInvite(req, res, url) {
   /* 앱이 없어서 돌아온 경우(noapp)는 "앱에서 열기" 를 설치 안내 끝으로 내립니다 — 설치한 뒤
      누르는 단추입니다. 그 밖에는 코드 바로 밑의 큰 단추입니다. 아이폰은 그 밑에 "설치
      페이지로 가요… 여기 있기" 줄(스크립트가 켤 때만 보임). */
-  const auto = '<p class="hint">앱을 연 뒤에는 친구 요청이 자동으로 가요 (로그인 필요)</p>\n';
+  const auto = '<p class="hint">앱을 연 뒤에는 바로 친구가 돼요 (로그인 필요)</p>\n';
   const codeCard = '<section class="card"><p class="label">초대 코드</p>' +
     '<p class="code">' + escHtml(code) + '</p>\n' +
     (open && !noapp ? inviteBtn(open, '앱에서 열기', true) : '') +
@@ -1966,6 +2124,20 @@ if (require.main === module) {
                : (FEEDBACK_NOTIFY_GAP_MS / 1000) + '초') + '에 한 번까지)'
            : '⚠ 설정(feedbackNotify)에 적은 아이디의 계정이 없습니다');
       console.log('  의견 알림 ' + why);
+      /* 의견함은 알림 길과 상관없이 열립니다(읽는 것은 HTTP). 그 계정이 아직 없으면, 그 아이디로
+         **먼저 가입한 사람**이 의견함을 봅니다 — 조용히 넘기지 않습니다(operatorId 주석).
+         누구나 가입할 수 있는 서버(OPEN_SIGNUP)만의 일이 아닙니다: 가입 코드는 주인이 시험하는
+         사람들에게 나눠 주는 것이라, 코드를 받은 사람이면 그 아이디를 먼저 가져갈 수 있습니다.
+         위의 "의견 알림" 줄은 알림 길이 꺼져 있으면 계정 얘기를 안 하므로 여기서 따로 말합니다. */
+      if (api.userIdByHandle(FEEDBACK_NOTIFY)) {
+        console.log('  의견함   켜짐 — 설정한 계정으로 로그인한 앱의 설정 화면에');
+      } else {
+        console.log(OPEN_SIGNUP
+          ? '  ⚠ 의견함: 누구나 가입할 수 있는데 설정(feedbackNotify)에 적은 아이디의 계정이 아직 없습니다.'
+          : '  ⚠ 의견함: 설정(feedbackNotify)에 적은 아이디의 계정이 아직 없습니다 (가입 코드를 아는 사람은 그 아이디로 가입할 수 있습니다).');
+        console.log('    그 아이디로 먼저 가입한 사람이 모든 의견을 보게 됩니다 — 지금 그 아이디로 가입하거나');
+        console.log('    ~/.mybody/config.json 의 feedbackNotify 를 지우고 다시 띄우세요.');
+      }
     }
     /* 열어 둔 상태는 띄울 때마다 눈에 띄어야 합니다. 설정 파일 안에만
        있으면 몇 주 뒤엔 자기가 열어 뒀다는 것도 잊습니다. */

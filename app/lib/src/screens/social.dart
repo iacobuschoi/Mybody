@@ -788,7 +788,8 @@ class _InvitePasteChipState extends State<InvitePasteChip> with WidgetsBindingOb
  * 친구에게 보내는 것은 **링크 하나**입니다 — <서버 주소>/i/<코드>. 앱이 있으면 이 주소가
  * 곧바로 앱을 엽니다(안드로이드 App Links · 아이폰 연결된 도메인 — invite_link.dart). 아직
  * 확인이 안 된 폰이면 서버의 초대 페이지(server.js)가 뜨고 그 단추가 앱을 엽니다
- * (mybody://invite/<코드>). 어느 길이든 앱이 요청을 보냅니다. 앱이 없으면 **받는 사람의
+ * (mybody://invite/<코드>). 어느 길이든 앱이 보내고, 링크로 온 코드라 곧바로 친구가 됩니다(주인
+ * 의견 48 — 코드 주인의 수락 없이, 아래 requestFriendByCode). 앱이 없으면 **받는 사람의
  * 기기에 맞는** 설치 안내가 나오고, 깔고 나면 코드가 따라옵니다(플레이 설치 referrer ·
  * 클립보드 — install_referrer.dart · [InvitePasteChip]).
  *
@@ -810,7 +811,7 @@ String inviteShareText(String code, String base) {
   if (base.trim().isEmpty) {
     return 'Mybody 같이 해요!\n앱에서 친구 탭 → 친구 추가에 코드 $c 를 넣어 주세요';
   }
-  return 'Mybody 같이 해요! 링크를 누르면 친구 요청이 가요\n'
+  return 'Mybody 같이 해요! 링크를 누르면 바로 친구가 돼요\n'
       '${inviteUrl(base, c)}\n'
       '(앱에서 친구 탭 → 친구 추가에 코드 $c 를 넣어도 돼요)';
 }
@@ -874,26 +875,38 @@ Future<bool> shareInviteText(BuildContext anchor, String code, String base) asyn
  * 봐야 되는지가 정해지고, 그 답을 지금 보여 줘야 합니다. 나중에 조용히 보냈다가 "없는
  * 코드" 로 실패하면 알릴 곳이 없습니다. 그래서 못 닿으면 그 자리에서 실패로 보이고, 다시
  * 누르면 됩니다.
+ *
+ * **초대 링크로 온 코드는 곧바로 친구입니다**(주인 의견 48 "초대 링크로 오면 바로 친구되게 해").
+ * [viaLink] 를 켜면 서버가 요청이 아니라 그 자리에서 맺습니다 — 코드 주인이 링크를 골라 보낸
+ * 것이 이미 초대라서, 한 번 더 수락을 기다리게 하지 않습니다. 켜는 곳은 셸 하나이고, 그것도
+ * 링크(mybody:// · https 앱 링크)와 설치 추천인(플레이)으로 받은 코드뿐입니다. 손으로 친 코드 ·
+ * 클립보드에서 찾아 「요청」 을 누른 코드는 예전처럼 요청 → 수락입니다 — 클립보드의 여덟
+ * 글자는 누가 넣었는지 모릅니다(invite_link.dart PendingInvite.link).
+ * 링크여도 코드 주인이 나를 거절 · 끊기 · 차단한 적이 있으면 서버가 요청으로 받습니다(server/db.js
+ * friend_refusals — 옛 링크로 곧바로 되돌아오지 못하게). 그래서 말은 언제나 서버의 답대로입니다.
  * -------------------------------------------------------------------------- */
 
 /// 친구 코드로 친구 요청을 보냅니다. 코드가 비었으면 보내지 않고 null. 모양이 틀리면
-/// 서버에 묻지 않고 실패(까닭 [kInviteCodeInvalid])를 돌려줍니다.
-Future<ApiResult?> requestFriendByCode(Api api, String input) async {
+/// 서버에 묻지 않고 실패(까닭 [kInviteCodeInvalid])를 돌려줍니다. [viaLink] 면 초대 링크로 온
+/// 코드라고 알려 곧바로 친구가 됩니다(위 주석).
+Future<ApiResult?> requestFriendByCode(Api api, String input, {bool viaLink = false}) async {
   final code = cleanInviteCode(input);
   if (code.isEmpty) return null;
   if (!isInviteCode(code)) {
     return const ApiResult(400, {'ok': false, 'reason': kInviteCodeInvalid});
   }
-  return api.requestFriend(code);
+  return api.requestFriend(code, viaLink: viaLink);
 }
 
-/// 요청이 곧바로 친구가 됐나 — 상대가 먼저 나에게 요청해 둔 사이면 서버가 그 자리에서
-/// 맺습니다(`status: 'accepted'`). 그때 "수락을 기다려요" 라고 하면 틀린 말입니다.
+/// 요청이 곧바로 친구가 됐나 — 초대 링크로 왔거나, 상대가 먼저 나에게 요청해 둔 사이면 서버가
+/// 그 자리에서 맺습니다(`status: 'accepted'`). 그때 "수락을 기다려요" 라고 하면 틀린 말입니다.
 bool becameFriends(ApiResult r) => r.ok && r.body['status'] == 'accepted';
 
 /// 친구 요청의 답을 한 줄로 — 친구 탭 · 초대 링크가 같은 말을 합니다(테스터 인사는 실패
-/// 문구만 같이 씁니다). 서버가 상대 이름(displayName)을 실어 주면 이름을 넣습니다 — 지금
-/// 서버(POST /friends/request)는 이름 없이 {status, otherId} 만 주므로 이름 없는 말이 나갑니다.
+/// 문구만 같이 씁니다). 이름은 서버가 **친구가 됐을 때만** 실어 줍니다(`friend: {name}` —
+/// server.js POST /friends/request). 요청만 간 때는 이름 없는 말이 나갑니다. 옛 모양
+/// (displayName · other.displayName)도 읽습니다. 링크를 또 누른 사람(이미 친구 — `already`)에게는
+/// 「이미 친구예요」 — 실패가 아니라 이미 된 일입니다.
 String friendRequestMessage(ApiResult r) {
   if (!r.ok) {
     return switch (r.body['reason']) {
@@ -903,10 +916,16 @@ String friendRequestMessage(ApiResult r) {
       _ => r.reason,
     };
   }
+  final friend = r.body['friend'];
   final other = r.body['other'];
-  final n = r.body['displayName'] ?? (other is Map ? other['displayName'] : null);
+  final n = (friend is Map ? friend['name'] : null) ??
+      r.body['displayName'] ??
+      (other is Map ? other['displayName'] : null);
   final name = n is String && n.trim().isNotEmpty ? n.trim() : null;
-  if (becameFriends(r)) return name == null ? '친구가 됐어요' : '$name님과 친구가 됐어요';
+  if (becameFriends(r)) {
+    if (r.body['already'] == true) return name == null ? '이미 친구예요' : '이미 $name님과 친구예요';
+    return name == null ? '친구가 됐어요' : '$name님과 친구가 됐어요';
+  }
   return name == null ? '친구 요청을 보냈어요' : '$name님에게 친구 요청을 보냈어요';
 }
 

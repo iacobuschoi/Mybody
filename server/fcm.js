@@ -187,7 +187,7 @@ const RESERVED = /^(from|notification|message_type|collapse_key)$|^(google|gcm)(
 /**
  * note: { t, b, route, kind, tag, data }
  *   t · b  알림 제목 · 본문
- *   route  앱이 누르면 갈 곳('pokes' · 'social'). 모르는 값은 앱이 버립니다.
+ *   route  앱이 누르면 갈 곳('pokes' · 'social' · 'feedback'). 모르는 값은 앱이 버립니다.
  *   kind   무슨 소식인가 — 앱이 앞에 떠 있을 때 고르는 데 씁니다.
  *   tag    같은 tag 는 알림 한 칸을 덮어씁니다(64바이트 이하).
  */

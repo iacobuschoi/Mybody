@@ -23,6 +23,15 @@
  * 곳([InviteInbox])입니다. 실제로 보내는 것은 셸(shell.dart)이 합니다 — 보낼 수 있는지
  * (로그인 · 첫 설정 · 탭 화면)는 셸만 압니다.
  *
+ * **링크로 온 코드는 요청이 아니라 곧바로 친구입니다**(주인 의견 48 "초대 링크로 오면 바로
+ * 친구되게 해"). 코드 주인이 골라 보낸 초대이니 수락을 한 번 더 기다리게 하지 않습니다 —
+ * 셸이 via:'link' 로 보내고 서버가 그 자리에서 맺습니다(social.dart requestFriendByCode).
+ * 그래서 쥐고 있는 초대마다 **어디서 왔는지**를 같이 적습니다([PendingInvite.link]):
+ *   · 링크(mybody:// · https 앱 링크) · 설치 referrer   link — 곧바로 친구
+ *   · 클립보드에서 찾아 사람이 「요청」 을 누른 것([offer])   요청 — 코드 주인이 수락
+ * 클립보드의 여덟 글자는 누가 넣었는지 모릅니다(초대 페이지일 수도, 아무 글일 수도) — 그래서
+ * 그것만은 예전처럼 요청으로 둡니다. 손으로 친 코드도 요청입니다(social.dart).
+ *
  * 앱이 없던 사람 — 스토어를 거쳐도 코드가 따라오게
  *   · 안드로이드: 페이지가 플레이 주소에 referrer=invite%3D<코드> 를 실어 보내고, 깔린 앱이
  *     처음 켤 때 한 번 그것을 물어 링크와 똑같이 쥡니다(install_referrer.dart) — 묻지 않고.
@@ -62,8 +71,8 @@
  *     못 보낸 것은 적은 것을 지웁니다([InviteInbox.unsent]) — 다시 누르면 다시 갑니다.
  *
  * 로그인 안 한 사람 · 로그인 없이 쓰는 사람
- *   코드는 그대로 쥐고, 「로그인하면 친구 요청이 가요」 를 **한 번만** 알립니다(prompted 를
- *   같이 적어 둡니다). 로그인하면 그때 보냅니다.
+ *   코드는 그대로 쥐고, 「로그인하면 바로 친구가 돼요」(링크) · 「로그인하면 친구 요청이 가요」
+ *   (클립보드)를 **한 번만** 알립니다(prompted 를 같이 적어 둡니다). 로그인하면 그때 보냅니다.
  *
  * 시험은 링크 · 서버 주소 · referrer · 클립보드 · 기종이 오는 길을 바꿔 끼웁니다(생성자) —
  * 진짜 것들은 플랫폼 채널이라 시험 안에서는 없습니다. 그래서 main.dart 만
@@ -206,18 +215,28 @@ String? inviteCodeFromClipboard(String? text, {String? serverBase}) {
 /// 진짜 클립보드의 글. 시험은 [InviteInbox] 의 clipboard 로 바꿔 끼웁니다.
 Future<String?> readClipboardText() async => (await Clipboard.getData(Clipboard.kTextPlain))?.text;
 
-/// 받아 두고 아직 못 보낸 초대 — 코드, 받은 시각, 로그인 안내를 이미 했는가.
+/// 받아 두고 아직 못 보낸 초대 — 코드, 받은 시각, 로그인 안내를 이미 했는가, 링크로 왔는가.
 @immutable
 class PendingInvite {
-  const PendingInvite(this.code, this.at, {this.prompted = false});
+  const PendingInvite(this.code, this.at, {this.prompted = false, this.link = false});
   final String code;
   final DateTime at;
   final bool prompted;
 
-  PendingInvite prompt() => PendingInvite(code, at, prompted: true);
+  /// 초대 링크(mybody:// · https 앱 링크)나 설치 referrer 로 왔는가 — 그러면 셸이 via:'link' 로
+  /// 보내 곧바로 친구가 됩니다(머리 주석). 클립보드에서 고른 코드([InviteInbox.offer])는 false —
+  /// 예전처럼 요청입니다. 저장된 값에 칸이 없으면(이 칸이 생기기 전에 쥔 것) false: 누가 넣은
+  /// 코드인지 모르면 수락이 필요한 쪽으로 둡니다.
+  final bool link;
 
-  Map<String, Object> toJson() =>
-      {'code': code, 'at': at.millisecondsSinceEpoch, if (prompted) 'prompted': true};
+  PendingInvite prompt() => PendingInvite(code, at, prompted: true, link: link);
+
+  Map<String, Object> toJson() => {
+        'code': code,
+        'at': at.millisecondsSinceEpoch,
+        if (prompted) 'prompted': true,
+        if (link) 'link': true,
+      };
 
   /// 저장된 값에서. 모양이 틀리면 null — 저장소가 깨져도 엉뚱한 요청을 보내지 않습니다.
   static PendingInvite? fromJson(Object? j) {
@@ -226,7 +245,7 @@ class PendingInvite {
     final at = j['at'];
     if (code is! String || !isInviteCode(code) || at is! int) return null;
     return PendingInvite(code, DateTime.fromMillisecondsSinceEpoch(at),
-        prompted: j['prompted'] == true);
+        prompted: j['prompted'] == true, link: j['link'] == true);
   }
 }
 
@@ -327,7 +346,7 @@ class InviteInbox extends ChangeNotifier {
       final code = await installReferrerInviteOnce(read);
       if (code == null || _disposed) return;
       _seen[code] = _now();
-      await _hold(code, launch: true);
+      await _hold(code, launch: true, link: true);
     } catch (_) {/* referrer 가 없어도 링크 · 코드 칸이 있습니다 */}
   }
 
@@ -367,10 +386,11 @@ class InviteInbox extends ChangeNotifier {
       }
       return false;
     }
-    return _hold(guess, launch: launch);
+    return _hold(guess, launch: launch, link: true);
   }
 
-  /// 사람이 「요청」 을 눌러 고른 코드(클립보드에서 찾은 초대)를 링크로 받은 것처럼 쥡니다.
+  /// 사람이 「요청」 을 눌러 고른 코드(클립보드에서 찾은 초대)를 링크로 받은 것처럼 쥡니다 —
+  /// 다만 **링크가 아니라 요청으로**(link false): 클립보드의 글은 누가 넣었는지 모릅니다(머리 주석).
   /// 모양이 틀리면 false. 이미 꺼내 간 코드여도 받습니다 — 누른 사람은 답을 봐야 합니다.
   Future<bool> offer(String code) async {
     final c = code.trim().toUpperCase();
@@ -380,10 +400,10 @@ class InviteInbox extends ChangeNotifier {
     return _hold(c);
   }
 
-  Future<bool> _hold(String code, {bool launch = false}) async {
+  Future<bool> _hold(String code, {bool launch = false, bool link = false}) async {
     if (launch && (_handled.contains(code) || pending?.code == code)) return false;
     /* 다시 누른 링크면 안내도 다시 — 누른 사람은 무슨 일이 생기는지 알고 싶어 합니다. */
-    _pending = PendingInvite(code, _now());
+    _pending = PendingInvite(code, _now(), link: link);
     await _save();
     if (!_disposed) notifyListeners();
     return true;
@@ -440,8 +460,12 @@ class InviteInbox extends ChangeNotifier {
   }
 
   /// 보낼 코드를 꺼냅니다 — **꺼내는 순간 비웁니다**. 같은 코드를 두 번 보내지 않는 자리가
-  /// 여기 하나입니다. 없거나 지났으면 null.
-  String? take() {
+  /// 여기 하나입니다. 없거나 지났으면 null. 어디서 왔는지(링크인가)까지 필요하면 [takeInvite].
+  String? take() => takeInvite()?.code;
+
+  /// [take] 와 같고, 꺼낸 초대를 통째로 줍니다 — 셸이 [PendingInvite.link] 를 보고 링크로 온
+  /// 것이면 곧바로 친구가 되게 보냅니다.
+  PendingInvite? takeInvite() {
     final p = pending;
     if (p == null) return null;
     _pending = null;
@@ -451,7 +475,7 @@ class InviteInbox extends ChangeNotifier {
       ..add(p.code);
     if (_handled.length > _handledCap) _handled.removeRange(0, _handled.length - _handledCap);
     unawaited(_save());
-    return p.code;
+    return p;
   }
 
   /// 꺼내 간 코드를 서버에 못 보냈을 때(닿지 않음) — 꺼내 간 것으로 적은 것을 지웁니다.
