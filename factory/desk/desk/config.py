@@ -19,7 +19,7 @@ DEFAULTS: dict = {
     "stt": {"model": "mlx-community/whisper-large-v3-turbo", "language": "ko",
             "prompt": "앱 공장, 상황판, 브리핑, 클로드, 깃허브, 맥 미니, 아이폰, 안드로이드, 워크플로, 출시"},
     "idle_minutes": 15,             # 이만큼 아무 말 없으면 화면 끄고 박수 대기로
-    "tts": {"voice": "Yuna", "rate": 190},
+    "tts": {"voice": "Yuna", "rate": 190, "device": ""},   # device: say -a 장치 이름(비우면 기본 출력)
     "brain": {"workdir": "~/lab/desk-assistant", "model": "", "timeout_s": 180},
     "briefing": {"city": "Seoul", "repo": "", "ship_repo": ""},   # repo = 주인/app-factory
     "dashboard": {"port": 7070, "open_cmd": ""},

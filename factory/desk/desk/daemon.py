@@ -44,7 +44,7 @@ class Desk:
                              min_utt_s=li["min_utt_s"], max_utt_s=li["max_utt_s"])
         st = cfg["stt"]
         self.stt = WhisperSTT(st["model"], st["language"], st.get("prompt", ""))
-        self.voice = mac.Voice(cfg["tts"]["voice"], cfg["tts"]["rate"])
+        self.voice = mac.Voice(cfg["tts"]["voice"], cfg["tts"]["rate"], device=cfg["tts"].get("device", ""))
         b = cfg["brain"]
         self.brain = Brain(b["workdir"], b.get("model", ""), b.get("timeout_s", 180))
         self.board = Board()
@@ -55,6 +55,7 @@ class Desk:
         self.brain_q: queue.Queue[str] = queue.Queue(maxsize=8)
         self._stop = threading.Event()
         self._dash_opened = False
+        self._changed_at = 0.0                        # 우리가 화면을 켜고/끈 시각 — 화면 감시가 헷갈리지 않게
 
     # ── 상태 바꾸기 ────────────────────────────────────────────────────────
     def _show(self, sub: str | None = None) -> None:
@@ -67,6 +68,7 @@ class Desk:
             self.say_brief()
             return "이미 깨어 있음"
         log.info("깨어남 (%s)", why)
+        self._changed_at = time.time()
         self.mode = "awake"
         self.last_activity = time.time()
         self.clap.reset()
@@ -96,6 +98,7 @@ class Desk:
         self.brain.cancel()
         self.voice.say("화면 끌게요. 박수 두 번이면 다시 켜요.", block=True)
         self.mode = "sleep"
+        self._changed_at = time.time()
         self.seg.reset()
         self.clap.reset()
         mac.display_off()
@@ -254,7 +257,7 @@ class Desk:
         with sd.InputStream(samplerate=self.sr, channels=1, dtype="float32", blocksize=int(self.sr * 0.03),
                             device=dev, callback=cb):
             self._show()
-            last_show = 0.0
+            last_show = last_display = 0.0
             while not self._stop.is_set():
                 try:
                     x = self.audio_q.get(timeout=1)
@@ -264,6 +267,38 @@ class Desk:
                 if time.time() - last_show > 0.5:        # 말하기가 끝났는지 등 — 상태판을 따라가게
                     self._show()
                     last_show = time.time()
+                if time.time() - last_display > 2:       # 키보드로 켠 화면 · 저절로 꺼진 화면 따라가기
+                    self._watch_display()
+                    last_display = time.time()
+
+    def _watch_display(self) -> None:
+        """박수 말고 다른 걸로 화면이 켜지거나 꺼졌을 때 상태를 맞춥니다.
+        키보드 · 마우스로 화면을 켜면 → 조용히 '듣는 중'(인사 · 브리핑 없이 딩만)
+        30분 안전망이나 손으로 화면이 꺼지면 → '자는 중'"""
+        if time.time() - self._changed_at < 8:
+            return
+        asleep = mac.displays_asleep()
+        if asleep is None:
+            return
+        if self.mode == "sleep" and not asleep:
+            log.info("화면이 켜짐(키보드 · 마우스) → 듣는 중")
+            self._changed_at = time.time()
+            self.mode = "awake"
+            self.last_activity = time.time()
+            self.clap.reset()
+            self.seg.reset()
+            mac.sound("Tink")
+            self.board.log("wake", "키보드 · 마우스")
+            self._show()
+        elif self.mode in ("awake", "muted") and asleep and not self.voice.busy():
+            log.info("화면이 꺼짐 → 자는 중")
+            self._changed_at = time.time()
+            self.brain.cancel()
+            self.mode = "sleep"
+            self.seg.reset()
+            self.clap.reset()
+            self.board.log("sleep", "화면 꺼짐")
+            self._show()
 
     def _warmup(self) -> None:
         try:

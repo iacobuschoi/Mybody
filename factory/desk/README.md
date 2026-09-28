@@ -36,6 +36,13 @@
 예: "가계부 앱 실기기 시험 돌려 줘" · "오늘 승인할 거 있어?" · "새 앱 만들자, 수능 영단어 음성 퀴즈" · "왼쪽 화면에 사파리 열어".
 나한테 한 말이 아니라고 Claude 가 판단하면(통화 · 영상 소리 · 혼잣말) 아무것도 안 합니다 — 상태판에 회색으로만 남습니다.
 
+## 처음이면 → [DAY1.md](DAY1.md)
+
+꽂는 법 · macOS 설정 · 한 줄 설치 · 시험까지 순서대로. 한 줄 설치:
+```
+bash <(curl -fsSL https://raw.githubusercontent.com/iacobuschoi/Mybody/claude/app-dev-automation-workflow-h4d88r/factory/desk/day1.sh)
+```
+
 ## 설치 (맥 미니에서)
 
 ```bash

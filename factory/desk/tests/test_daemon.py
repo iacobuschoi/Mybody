@@ -14,6 +14,7 @@ from desk import briefing, config, daemon, mac  # noqa: E402
 from tests.test_clap import clap, silence  # noqa: E402
 
 CALLS: list[str] = []
+DISPLAY = {"asleep": None}
 
 
 class FakeVoice:
@@ -52,6 +53,7 @@ def make():
     for name in ["display_on", "display_off", "open_dashboard", "keep_system_awake"]:
         setattr(mac, name, (lambda n: (lambda *a, **k: CALLS.append(n)))(name))
     mac.sound = lambda *a, **k: None
+    mac.displays_asleep = lambda: DISPLAY["asleep"]
     mac.change_volume = lambda d: 50
     mac.Voice = FakeVoice
     daemon.Brain = FakeBrain
@@ -129,6 +131,20 @@ class DaemonFlow(unittest.TestCase):
         d.handle("멈춰")
         self.assertIn("brain.cancel", CALLS)
         self.assertIn("voice.stop", CALLS)
+
+
+    def test_keyboard_wake_and_external_sleep(self):
+        d = make()
+        DISPLAY["asleep"] = False                 # 키보드로 화면을 켬
+        d._changed_at = 0
+        d._watch_display()
+        self.assertEqual(d.mode, "awake")
+        self.assertFalse(any("시스템을 시작합니다" in s for s in d.voice.said))   # 조용히
+        DISPLAY["asleep"] = True                  # 30분 안전망으로 화면이 꺼짐
+        d._changed_at = 0
+        d._watch_display()
+        self.assertEqual(d.mode, "sleep")
+        DISPLAY["asleep"] = None
 
 
 if __name__ == "__main__":

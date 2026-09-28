@@ -78,7 +78,7 @@ def selftest() -> None:
         import sounddevice as sd
         sr = cfg["audio"]["samplerate"]
         print("2초 동안 말해 보세요 … ", end="", flush=True)
-        x = sd.rec(int(sr * 2), samplerate=sr, channels=1, dtype="float32")
+        x = sd.rec(int(sr * 2), samplerate=sr, channels=1, dtype="float32", device=cfg["audio"].get("device") or None)
         sd.wait()
         rms = float(np.sqrt(np.mean(x ** 2)))
         if rms < 0.003:
@@ -86,7 +86,7 @@ def selftest() -> None:
         return f"rms {rms:.3f}"
 
     def tts():
-        v = mac.Voice(cfg["tts"]["voice"], cfg["tts"]["rate"])
+        v = mac.Voice(cfg["tts"]["voice"], cfg["tts"]["rate"], device=cfg["tts"].get("device", ""))
         v.say("책상 시스템 점검 중입니다.", block=True)
         voices = subprocess.run(["say", "-v", "?"], capture_output=True, text=True).stdout
         if cfg["tts"]["voice"] not in voices:

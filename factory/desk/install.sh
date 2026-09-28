@@ -34,6 +34,25 @@ PY=$(command -v python3.12 || command -v python3.13 || command -v python3.11 || 
 "$VENV/bin/pip" install -q --upgrade pip
 "$VENV/bin/pip" install -q numpy sounddevice webrtcvad-wheels mlx-whisper pyobjc-framework-Quartz
 
+say_ "마이크 · 스피커 고르기"
+# 마이크: Brio 가 있으면 그것. 스피커: 맥 미니 내장(TV 가 꺼져 있어도 안내가 들리게).
+MIC=$("$VENV/bin/python" -c "import sounddevice as sd; print(next((d['name'] for d in sd.query_devices() if d['max_input_channels']>0 and 'brio' in d['name'].lower()), ''))" 2>/dev/null || true)
+SPK=$(say -a '?' 2>/dev/null | grep -iE 'mac ?mini' | grep -iE 'speaker|스피커' | head -1 | sed -E 's/^ *[0-9]+ +//' || true)
+"$VENV/bin/python" - "$HOME/.config/desk/config.toml" "$MIC" "$SPK" <<'PY'
+import re, sys
+path, mic, spk = sys.argv[1:4]
+s = open(path, encoding="utf-8").read()
+def put(section, key, val):
+    global s
+    m = re.search(rf"(^\[{section}\][^\[]*?^{key} = )\"[^\"]*\"", s, flags=re.M | re.S)
+    if m and val:
+        s = s[:m.start()] + m.group(1) + '"' + val.replace('"', '') + '"' + s[m.end():]
+put("audio", "device", mic.split(",")[0].strip())
+put("tts", "device", spk.strip())
+open(path, "w", encoding="utf-8").write(s)
+PY
+echo "  마이크: ${MIC:-시스템 기본}  ·  스피커: ${SPK:-시스템 기본}"
+
 say_ "받아쓰기 모델 내려받기 (처음 한 번, 1.5GB 안팎)"
 ( cd "$DESK" && "$VENV/bin/python" -c "from desk.stt import WhisperSTT; from desk import config; c=config.load()['stt']; WhisperSTT(c['model'], c['language']).warmup(); print('모델 준비됨')" ) || echo "※ 모델 준비 실패 — 네트워크 확인 뒤 다시"
 
@@ -86,7 +105,7 @@ launchctl bootstrap "gui/$(id -u)" "$PL"
 echo "  시작됨 — 로그: tail -f ~/Library/Logs/deskd.log"
 
 say_ "점검"
-( cd "$DESK" && "$VENV/bin/python" -m unittest discover -s tests -q ) && echo "  시험 통과"
+( cd "$DESK" && "$VENV/bin/python" -m unittest discover -s tests -t . -q ) && echo "  시험 통과"
 cat <<TXT
 
 남은 것 (한 번만, 사람이):

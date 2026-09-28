@@ -83,8 +83,11 @@ def speakable(text: str, max_sentences: int = 3) -> str:
 class Voice:
     """`say` 로 말하기. 말하는 동안 busy — 데몬이 그동안 귀를 닫습니다(제 목소리를 명령으로 안 듣게)."""
 
-    def __init__(self, voice: str = "Yuna", rate: int = 190, tail_s: float = 0.5):
-        self.voice, self.rate, self.tail_s = voice, rate, tail_s
+    def __init__(self, voice: str = "Yuna", rate: int = 190, tail_s: float = 0.5, device: str = ""):
+        # device: 소리를 낼 장치(say -a). 비우면 시스템 기본 출력.
+        # TV 를 HDMI 로 꽂으면 맥이 기본 출력을 TV 로 바꾸는데, TV 가 꺼져 있으면 안내가 안 들립니다 —
+        # 그래서 맥 미니 내장 스피커를 이름으로 고정해 둡니다(install.sh 가 찾아서 넣음).
+        self.voice, self.rate, self.tail_s, self.device = voice, rate, tail_s, device
         self._p: subprocess.Popen | None = None
         self._until = 0.0
         self._lock = threading.Lock()
@@ -103,7 +106,8 @@ class Voice:
             return
         self.stop()
         self.last_text = text
-        cmd = ["say", "-r", str(self.rate)] + (["-v", self.voice] if self.voice else []) + [text]
+        cmd = (["say", "-r", str(self.rate)] + (["-v", self.voice] if self.voice else [])
+               + (["-a", self.device] if self.device else []) + [text])
         with self._lock:
             try:
                 self._p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
