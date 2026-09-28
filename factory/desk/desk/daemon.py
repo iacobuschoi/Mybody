@@ -182,6 +182,7 @@ class Desk:
         self.seg.reset()
         self.clap.reset()
         mac.display_off()
+        mac.cameras_off(self.cfg["camera_off"])
         self.board.log("sleep", why)
         self._show()
         return "ok"
@@ -507,6 +508,7 @@ class Desk:
             self.mode = "sleep"
             self.seg.reset()
             self.clap.reset()
+            mac.cameras_off(self.cfg["camera_off"])
             self.board.log("sleep", "화면 꺼짐")
             self._show()
 

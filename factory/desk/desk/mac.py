@@ -26,6 +26,19 @@ def display_off() -> None:
     subprocess.Popen(["pmset", "displaysleepnow"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def cameras_off(cmds: list[str]) -> None:
+    """화면을 끌 때 카메라 쓰는 것들을 끕니다(hand-mouse off 등). 뒤에서 돌아 잠들기를 막지 않습니다."""
+    import os
+    import shlex
+
+    def run():
+        for c in cmds:
+            argv = [os.path.expanduser(a) for a in shlex.split(c)]
+            _run(argv, timeout=10)
+    if cmds:
+        threading.Thread(target=run, daemon=True, name="cameras_off").start()
+
+
 def displays_asleep() -> bool | None:
     """모르면 None. (pyobjc 가 있으면 실제 상태)"""
     try:

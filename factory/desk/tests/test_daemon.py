@@ -55,7 +55,7 @@ class FakeBrain:
 
 def make():
     CALLS.clear()
-    for name in ["display_on", "display_off", "open_dashboard", "keep_system_awake"]:
+    for name in ["display_on", "display_off", "open_dashboard", "keep_system_awake", "cameras_off"]:
         setattr(mac, name, (lambda n: (lambda *a, **k: CALLS.append(n)))(name))
     mac.sound = lambda *a, **k: None
     mac.displays_asleep = lambda: DISPLAY["asleep"]
@@ -107,6 +107,7 @@ class DaemonFlow(unittest.TestCase):
         d.handle("화면 꺼 줘")
         self.assertEqual(d.mode, "sleep")
         self.assertIn("display_off", CALLS)
+        self.assertIn("cameras_off", CALLS)             # 화면을 끄면 hand-mouse 카메라도
 
     def test_muted_unmutes_on_double_clap(self):
         d = make()
@@ -150,7 +151,14 @@ class DaemonFlow(unittest.TestCase):
         d._changed_at = 0
         d._watch_display()
         self.assertEqual(d.mode, "sleep")
+        self.assertIn("cameras_off", CALLS)             # 손 · 안전망으로 꺼져도 카메라는 끔
         DISPLAY["asleep"] = None
+
+    def test_idle_sleep_turns_cameras_off(self):
+        d = make()
+        d.mode = "awake"
+        d.sleep("idle")
+        self.assertIn("cameras_off", CALLS)
 
     def test_mic_blocked_when_only_zeros(self):
         # 권한이 없으면 macOS 는 정확히 0 만 보냄 → 6초 뒤 막힘으로 보고 한 번만 말함, 소리가 오면 풀림
@@ -168,6 +176,18 @@ class DaemonFlow(unittest.TestCase):
         self.assertFalse(d.mic_blocked)
         self.assertEqual(d.board.get()["mic"], "ok")
 
+
+
+class CamerasOff(unittest.TestCase):
+    def test_runs_each_command_with_home_expanded(self):
+        import importlib, os, threading
+        m = importlib.reload(mac)                     # make() 가 바꿔 둔 가짜가 아니라 진짜 함수
+        ran, done = [], threading.Event()
+        m._run = lambda argv, timeout=5: (ran.append(argv), len(ran) == 2 and done.set())
+        m.cameras_off(["~/.local/bin/hand-mouse off", "echo 'a b'"])
+        self.assertTrue(done.wait(2))
+        self.assertEqual(ran, [[os.path.expanduser("~/.local/bin/hand-mouse"), "off"], ["echo", "a b"]])
+        importlib.reload(mac)
 
 if __name__ == "__main__":
     unittest.main()
