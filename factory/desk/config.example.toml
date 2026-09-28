@@ -1,5 +1,5 @@
 # ~/.config/desk/config.toml — 없으면 기본값(desk/config.py). 바꾼 뒤: launchctl kickstart -k gui/$(id -u)/lab.deskd
-# ([tts] 는 상태판의 「목소리」 창에서 바꾸면 여기에 적히고 다시 켜지 않아도 바로 적용됩니다)
+# ([tts] 는 상태판의 「목소리」 창, [brain] model 은 위쪽 모델 토글에서 바꾸면 여기에 적히고 다시 켜지 않아도 바로 적용됩니다)
 
 owner = ""                        # 인사할 때 부를 이름
 idle_minutes = 15                 # 아무 말 없이 이만큼 지나면 화면 끄고 박수 대기 ([표] 아래에 두면 그 표 안의 값이 됨)
@@ -45,7 +45,8 @@ device = ""                       # 소리 낼 장치. TV 가 꺼져도 들리�
 
 [brain]
 workdir = "~/lab/desk-assistant"
-model = ""                        # 비우면 Claude Code 기본. 빠른 답이 좋으면 "sonnet"
+model = ""                        # 비우면 Claude Code 기본(Opus 5.5). 상태판 위쪽 토글 · "빠른 모드" · deskctl model 로 바꾸면 여기에 적힘
+                                  # "claude-opus-5-5" 정확 · "claude-sonnet-5" 빠름 · "claude-haiku-4-5-20251001" 가장 빠름
 timeout_s = 180
 
 [briefing]

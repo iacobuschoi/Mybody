@@ -39,6 +39,7 @@ class FakeVoice:
 class FakeBrain:
     def __init__(self, *a, **k):
         self.asked = []
+        self.model = a[1] if len(a) > 1 else ""
 
     def busy(self):
         return False

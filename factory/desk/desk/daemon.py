@@ -22,7 +22,7 @@ import time
 
 import numpy as np
 
-from . import briefing, config, mac, voice_settings
+from . import briefing, config, mac, model_settings, voice_settings
 from .face import Gate
 from .bargein import Listener, has_stop_word, is_stop_utterance
 from .brain import Brain
@@ -51,6 +51,7 @@ class Desk:
         b = cfg["brain"]
         self.brain = Brain(b["workdir"], b.get("model", ""), b.get("timeout_s", 180))
         self.board = Board()
+        self.board.set(model=model_settings.current(self.brain.model), models=model_settings.options())
         self.face = Gate(cfg["face"])
         self._verifying = False                       # 얼굴 보는 중엔 박수를 더 받지 않음
         bi = cfg["bargein"]
@@ -240,6 +241,22 @@ class Desk:
         self.board.log("voice", " · ".join(f"{k} {v}" for k, v in c.items()))
         return "저장했어요 — " + getattr(self.voice, "engine", "say")
 
+    # ── 모델 고르기 (상태판 토글 · "빠른 모드" · deskctl model) ────────────
+    def model_set(self, text: str = "") -> str:
+        """빈 글이면 지금 모델만 알려 줌. 고르면 [brain] model 에 기록하고 다음 말부터 — 다시 켜지 않아도 됨"""
+        if not (text or "").strip():
+            return model_settings.label(self.brain.model)
+        mid = model_settings.resolve(text)
+        if not mid:
+            raise ValueError(f"모르는 모델: {text.strip()[:40]} — " + " · ".join(o["label"] for o in model_settings.options()))
+        if self.cfg["brain"].get("model") != mid:
+            config.save_table("brain", {"model": mid})
+            self.cfg["brain"]["model"] = mid
+            self.brain.model = mid
+            self.board.log("model", model_settings.label(mid))
+        self.board.set(model=mid)
+        return model_settings.label(mid)
+
     def show(self, text: str) -> str:
         """Claude 가 긴 내용을 화면에 (deskctl show)"""
         self.board.set(panel=text[:20000], panel_at=int(time.time() * 1000))   # 같은 글을 다시 띄워도 다시 보이게
@@ -271,6 +288,9 @@ class Desk:
             self.voice.say(f"소리 {v}." if v >= 0 else "소리를 바꿨어요.")
         elif k == "repeat":
             self.voice.say(self.voice.last_text or "아직 한 말이 없어요.")
+        elif k == "model":
+            self.model_set(a.arg)
+            self.voice.say(f"{model_settings.spoken(a.arg)}로 바꿨어요. 다음 말부터 적용돼요.")
         elif k == "time":
             n = dt.datetime.now()
             self.voice.say(f"{'오전' if n.hour < 12 else '오후'} {n.hour % 12 or 12}시 {n.minute}분이에요.")
@@ -419,7 +439,8 @@ class Desk:
                            "unmute": self.unmute, "stop": self.stop,
                            "say": lambda t: (self.voice.say(t), "ok")[1], "show": self.show,
                            "enroll": self.enroll, "face": self.face_test,
-                           "tts": self.tts_view, "tts_test": self.tts_test, "tts_save": self.tts_save},
+                           "tts": self.tts_view, "tts_test": self.tts_test, "tts_save": self.tts_save,
+                           "model": self.model_set},
               port=self.cfg["dashboard"]["port"])
         watch_agents(self.board)
         threading.Thread(target=self._stt_worker, daemon=True).start()

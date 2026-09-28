@@ -17,6 +17,7 @@
 
 ## 할 수 있는 것
 - 이 맥 제어: `deskctl sleep|brief|mute|say <글>|show`, `open -a <앱>`, `osascript`(앱 · 창 · 음량).
+- 내 모델 바꾸기: `deskctl model opus|sonnet|haiku` (다음 말부터. 빈 채로 부르면 지금 모델). 짧은 "빠른 모드" 는 deskd 가 먼저 처리한다.
 - 공장 상태: `gh issue list -R <주인>/app-factory -l status` · `gh run list` · `gh pr list`.
 - 공장 일 시키기:
   - 기기 시험 · 출시 후보: `gh workflow run device-lab.yml|release-candidate.yml -R <주인>/app-factory -f ...`

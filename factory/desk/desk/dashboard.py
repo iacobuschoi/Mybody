@@ -4,6 +4,7 @@
 /events    상태가 바뀔 때마다 보내는 스트림(SSE) — 화면 판(build)이 바뀌면 열린 페이지가 스스로 새로고침
 /api/<명령> deskctl 이 부르는 곳: wake · sleep · brief · mute · unmute · stop · say · show
            그리고 「목소리」 설정 창: tts(지금 값) · tts_test(들어 보기) · tts_save(저장 → config.toml [tts])
+           위쪽 모델 토글: model(고른 모델 → config.toml [brain] model, 빈 글이면 지금 모델)
 
 오른쪽 칸의 「백그라운드 작업」 은 `claude agents --json` 을 몇 초마다 읽어 채웁니다(watch_agents).
 """
@@ -48,6 +49,10 @@ h2{margin:0 0 12px;font-size:14px;letter-spacing:.08em;color:var(--dim);font-wei
 footer{color:var(--dim);font-size:15px}
 #agents .row{font-size:16px;flex-wrap:wrap;row-gap:0}#agents .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 #agents .st{margin-left:auto;white-space:nowrap;font-variant-numeric:tabular-nums}.ag-working{color:var(--acc)}.ag-waiting{color:var(--warn)}.ag-done{color:var(--dim)}
+#models{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+#models button{background:none;border:0;border-left:1px solid var(--line);color:var(--dim);padding:6px 14px;font:inherit;font-size:16px;cursor:pointer}
+#models button:first-child{border-left:0}#models button:hover{color:var(--ink)}
+#models button.on{background:var(--acc);color:#04201c;font-weight:600}#models button small{font-size:12px;opacity:.75;margin-left:6px}
 #voiceBtn{background:none;border:1px solid var(--line);color:var(--dim);border-radius:8px;padding:6px 14px;font:inherit;font-size:16px;cursor:pointer}
 #voiceBtn:hover{color:var(--ink);border-color:var(--dim)}
 #voiceDlg{position:fixed;inset:0;background:rgba(1,4,9,.72);display:flex;align-items:center;justify-content:center;z-index:10}
@@ -62,7 +67,7 @@ footer{color:var(--dim);font-size:15px}
 #voiceBox button.pri{background:var(--acc);color:#04201c;border-color:var(--acc);font-weight:600}#voiceBox .btns span{margin-left:auto}
 #vMsg{margin-top:14px;min-height:1.4em;font-size:15px;color:var(--dim)}
 </style></head><body class="sleep">
-<header><div id="clock">--:--</div><div id="date"></div><div id="state"><span id="dot"></span><span id="stateText">대기</span></div><button id="voiceBtn">목소리</button></header>
+<header><div id="clock">--:--</div><div id="date"></div><div id="state"><span id="dot"></span><span id="stateText">대기</span></div><div id="models" title="비서 모델 — 말로도: &quot;빠른 모드&quot; · &quot;정확한 모드&quot;"></div><button id="voiceBtn">목소리</button></header>
 <main>
  <section id="heardCard"><h2>들은 말</h2><div id="heard">—</div><div id="reply"></div></section>
  <section id="briefCard"><h2>지금 상태</h2><div id="brief"></div><h2 style="margin-top:20px">기록</h2><div id="log"></div></section>
@@ -77,7 +82,7 @@ footer{color:var(--dim);font-size:15px}
  <small id="vNote">비서 목소리에만 — 시스템 음량과 따로예요.</small>
  <div class="btns"><button id="vTest">들어 보기</button><button id="vSave" class="pri">저장</button><span></span><button id="vClose">닫기</button></div>
  <div id="vMsg"></div></div></div>
-<footer>명령 예: "브리핑" · "조용히" · "다시 들어" · "화면 꺼" · "멈춰" · 그 밖의 말은 Claude 에게</footer>
+<footer>명령 예: "브리핑" · "조용히" · "다시 들어" · "화면 꺼" · "멈춰" · "빠른 모드" · 그 밖의 말은 Claude 에게</footer>
 <script>
 const S={sleep:"자는 중",listening:"듣는 중",thinking:"생각 중",speaking:"말하는 중",muted:"조용히 모드"};
 const W="일월화수목금토";
@@ -109,8 +114,16 @@ function render(st){last=st;
  if(l.runner!==undefined)h+=`<div class="row"><span>실험실</span><span>러너 ${l.runner?"켜짐":"꺼짐"} · 아이폰 ${l.iphone?"연결":"없음"} · 안드로이드 ${l.android||0} · 디스크 ${esc(l.disk_free||"")}</span></div>`;
  brief.innerHTML=h||'<span style="color:var(--dim)">박수 두 번이면 브리핑합니다</span>';
  if(st.agents!==undefined&&JSON.stringify(st.agents)!==JSON.stringify(agentsNow)){agentsNow=st.agents;renderAgents()}
+ drawModels(st);
  log.innerHTML=(st.log||[]).slice().reverse().map(x=>`<div class="${x.kind==='ignore'?'ig':''}">${esc(x.t)} ${esc(x.kind)} · ${esc(x.text)}</div>`).join("");
 }
+// 위쪽 모델 토글 — 누르면 config.toml [brain] model 에 쓰고 다음 말부터 그 모델 (말로는 "빠른 모드" 등)
+let modelsKey="";
+function drawModels(st){const ms=st.models||[];const k=JSON.stringify(ms);
+ if(k!==modelsKey){modelsKey=k;models.innerHTML=ms.map(m=>`<button data-id="${esc(m.id)}">${esc(m.label)}<small>${esc(m.note)}</small></button>`).join("")}
+ models.querySelectorAll("button").forEach(b=>b.className=b.dataset.id===st.model?"on":"")}
+models.onclick=e=>{const b=e.target.closest("button");if(!b||b.className==="on")return;
+ fetch("/api/model",{method:"POST",body:b.dataset.id}).then(async r=>{if(!r.ok)alert("모델을 못 바꿈: "+await r.text())})};
 const BUILD="@BUILD@";   // deskd 가 다른 화면으로 바뀌어 다시 뜨면 스스로 새로고침
 function connect(){const es=new EventSource("/events");es.onmessage=e=>{const st=JSON.parse(e.data);if(st.build&&st.build!==BUILD)return location.reload();render(st)};es.onerror=()=>{es.close();setTimeout(connect,2000)}}
 // 「목소리」 설정 창 — 들어 보기는 저장 없이 한 번, 저장하면 config.toml [tts] 에 쓰고 deskd 가 바로 적용

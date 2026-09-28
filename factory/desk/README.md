@@ -92,6 +92,7 @@ cd ~/lab/desk && .venv/bin/python -m desk calibrate   # 박수를 쳐 보고 ★
 | 침대에서 한 말을 못 알아들음 | `[listen] energy_db = 4` (말 안 했는데 받아쓰면 8) |
 | 박수 간격이 느린 편 | `[clap] max_gap_s = 1.0` |
 | 받아쓰기가 느림 | `[stt] model = "mlx-community/whisper-small-mlx"` |
+| Claude 답이 느림 | 상태판 위쪽 토글에서 Sonnet 5 · Haiku 4.5, 또는 말로 "빠른 모드" · "제일 빠른 모드"(되돌리기: "정확한 모드"). 다시 켤 필요 없음 |
 | 말이 끝나기 전에 잘림 | `[listen] end_silence_s = 1.2` |
 | 금방 꺼짐 / 안 꺼짐 | `idle_minutes` |
 
@@ -124,6 +125,7 @@ desk/vad.py        말소리 구간 자르기 (말하는 동안 귀 닫기)
 desk/stt.py        받아쓰기(mlx-whisper) + 환각 거르기
 desk/router.py     짧은 정해진 말 → 즉시 명령, 나머지 → Claude
 desk/brain.py      claude -p · 하루 단위로 대화 이어 가기 · 권한 창 없음(auto)
+desk/model_settings.py  비서 모델 고르기(Opus 5.5 · Sonnet 5 · Haiku 4.5) — 토글 · "빠른 모드" · deskctl model
 desk/briefing.py   gh · adb · xcrun · 날씨 → 틀에 넣은 문장 (Claude 안 거침: 빠르고 숫자를 지어내지 않음)
 desk/mac.py        화면 켜기/끄기 · 말하기(say) · 음량 · 시스템 안 재우기
 desk/dashboard.py  상태판(127.0.0.1:7070) · deskctl 이 부르는 /api

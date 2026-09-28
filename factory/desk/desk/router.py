@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from . import model_settings
+
 LOCAL_MAX_CHARS = 14   # 공백 · 문장부호를 뺀 글자 수
 
 # 순서가 중요합니다 — "그만 들어" 는 mute, "그만" 은 stop.
@@ -25,11 +27,16 @@ PATTERNS: list[tuple[str, str]] = [
 ]
 _COMPILED = [(k, re.compile(p)) for k, p in PATTERNS]
 
+# "빠른 모드" · "하이쿠로 바꿔" · "정확한 모드로 해 줘" — 모델 이름(model_settings.SPEECH)과 바꾸라는 말이 함께 있어야
+# ("소넷 써 봤어?" 같은 말은 Claude 로)
+MODEL_VERB = re.compile(r"(모드|모델|바꿔|로해|으로해|로가자|로답|써줘|쓰자)")
+
 
 @dataclass
 class Action:
-    kind: str          # unmute · mute · sleep · stop · brief · louder · softer · repeat · time · claude · ignore
+    kind: str          # unmute · mute · sleep · stop · brief · louder · softer · repeat · time · model · claude · ignore
     text: str = ""
+    arg: str = ""      # model: 고른 model id
 
 
 def normalize(text: str) -> str:
@@ -47,6 +54,8 @@ def route(text: str, muted: bool = False) -> Action:
             return Action("unmute", t)
         return Action("ignore", t)
     if len(n) <= LOCAL_MAX_CHARS:
+        if MODEL_VERB.search(n) and (mid := model_settings.resolve(n)):
+            return Action("model", t, mid)
         for kind, rx in _COMPILED:
             if rx.search(n):
                 return Action(kind, t)

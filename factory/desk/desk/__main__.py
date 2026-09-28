@@ -5,7 +5,7 @@
   selftest    마이크 · 말하기 · 받아쓰기 · Claude · gh 를 차례로 확인
   brief       브리핑 글만 출력 (말 안 함)
   face <명령>  얼굴 인증: models(모델 받기) · enroll(등록) · verify(확인) · forget(지우기) · status
-  ctl <명령> [글]  실행 중인 데몬에 명령: wake · sleep · brief · mute · unmute · stop · say · show
+  ctl <명령> [글]  실행 중인 데몬에 명령: wake · sleep · brief · mute · unmute · stop · say · show · model [이름]
                    · enroll(얼굴 등록) · face(얼굴 확인만)
 """
 from __future__ import annotations
