@@ -31,5 +31,13 @@ class ReadAgents(unittest.TestCase):
         self.assertIsNone(read_agents(run=boom))
 
 
+class PageBuild(unittest.TestCase):
+    def test_page_reloads_itself_when_build_changes(self):
+        from desk import dashboard
+        self.assertNotIn("@BUILD@", dashboard.PAGE)
+        self.assertIn(f'const BUILD="{dashboard.BUILD}"', dashboard.PAGE)
+        self.assertIn("location.reload()", dashboard.PAGE)
+
+
 if __name__ == "__main__":
     unittest.main()

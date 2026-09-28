@@ -1,13 +1,14 @@
 """화면 — 첫 번째 모니터에 띄우는 상태판. 이 맥 안에서만 열립니다(127.0.0.1).
 
 /          상태판 (전체 화면 크롬 앱 창)
-/events    상태가 바뀔 때마다 보내는 스트림(SSE)
+/events    상태가 바뀔 때마다 보내는 스트림(SSE) — 화면 판(build)이 바뀌면 열린 페이지가 스스로 새로고침
 /api/<명령> deskctl 이 부르는 곳: wake · sleep · brief · mute · unmute · stop · say · show
 
 오른쪽 칸의 「백그라운드 작업」 은 `claude agents --json` 을 몇 초마다 읽어 채웁니다(watch_agents).
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -80,9 +81,12 @@ function render(st){
  if(st.agents!==undefined&&JSON.stringify(st.agents)!==JSON.stringify(agentsNow)){agentsNow=st.agents;renderAgents()}
  log.innerHTML=(st.log||[]).slice().reverse().map(x=>`<div class="${x.kind==='ignore'?'ig':''}">${esc(x.t)} ${esc(x.kind)} · ${esc(x.text)}</div>`).join("");
 }
-function connect(){const es=new EventSource("/events");es.onmessage=e=>render(JSON.parse(e.data));es.onerror=()=>{es.close();setTimeout(connect,2000)}}
+const BUILD="@BUILD@";   // deskd 가 다른 화면으로 바뀌어 다시 뜨면 스스로 새로고침
+function connect(){const es=new EventSource("/events");es.onmessage=e=>{const st=JSON.parse(e.data);if(st.build&&st.build!==BUILD)return location.reload();render(st)};es.onerror=()=>{es.close();setTimeout(connect,2000)}}
 connect();renderAgents();
 </script></body></html>"""
+BUILD = hashlib.sha1(PAGE.encode()).hexdigest()[:12]
+PAGE = PAGE.replace("@BUILD@", BUILD)
 
 
 class Board:
@@ -164,6 +168,7 @@ def serve(board: Board, commands: dict, host: str = "127.0.0.1", port: int = 707
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")   # 사파리가 옛 화면을 붙들고 있지 않게
             self.end_headers()
             self.wfile.write(body)
 
@@ -182,7 +187,7 @@ def serve(board: Board, commands: dict, host: str = "127.0.0.1", port: int = 707
                 try:
                     while True:
                         ver = board.wait(ver)
-                        self.wfile.write(b"data: " + json.dumps(board.get(), ensure_ascii=False).encode() + b"\n\n")
+                        self.wfile.write(b"data: " + json.dumps({**board.get(), "build": BUILD}, ensure_ascii=False).encode() + b"\n\n")
                         self.wfile.flush()
                 except (BrokenPipeError, ConnectionResetError):
                     return
