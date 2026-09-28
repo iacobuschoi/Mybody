@@ -120,7 +120,9 @@ cat > "$PL" <<PLIST
 </dict></plist>
 PLIST
 launchctl bootout "gui/$(id -u)/lab.deskd" 2>/dev/null || true
-launchctl bootstrap "gui/$(id -u)" "$PL"
+# bootout 은 끝날 때까지 기다려 주지 않습니다 — 옛 것이 다 내려가기 전에 bootstrap 하면 "5: Input/output error"
+for _ in $(seq 20); do launchctl print "gui/$(id -u)/lab.deskd" >/dev/null 2>&1 || break; sleep 0.5; done
+launchctl bootstrap "gui/$(id -u)" "$PL" 2>/dev/null || { sleep 2; launchctl bootstrap "gui/$(id -u)" "$PL"; }
 echo "  시작됨 — 로그: tail -f ~/Library/Logs/deskd.log"
 echo "  → 곧 「deskd 이(가) 마이크에 접근하려고 합니다」 창이 뜨면 【허용】"
 
