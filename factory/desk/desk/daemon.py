@@ -1,7 +1,7 @@
 """deskd — 책상의 상주 프로그램.
 
-    자는 중(화면 꺼짐) ──박수 두 번──▶ 깨어남: 화면 켜기 · 차임 · 인사 · 브리핑
-         ▲                                  │
+    자는 중(화면 꺼짐) ──박수 두 번──▶ (얼굴 인증) ──주인──▶ 깨어남: 화면 켜기 · 차임 · 인사 · 브리핑
+         ▲          ▲ 아니면 짧게 알리고 그대로 ─┘                │
          │ "화면 꺼" · 15분 조용 · 박수(설정)   ▼
          └──────────────────────────── 듣는 중 ──말──▶ 로컬 명령(즉시) 또는 Claude(생각 중 → 말하는 중)
                                           │ "조용히" ▲ "다시 들어" · 박수 두 번
@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
 import logging
 import queue
 import threading
@@ -22,6 +23,7 @@ import time
 import numpy as np
 
 from . import briefing, config, mac
+from .face import Gate
 from .brain import Brain
 from .clap import ClapConfig, ClapDetector
 from .dashboard import Board, serve
@@ -48,6 +50,8 @@ class Desk:
         b = cfg["brain"]
         self.brain = Brain(b["workdir"], b.get("model", ""), b.get("timeout_s", 180))
         self.board = Board()
+        self.face = Gate(cfg["face"])
+        self._verifying = False                       # 얼굴 보는 중엔 박수를 더 받지 않음
         self.mode = "sleep"                          # sleep · awake · muted
         self.last_activity = time.time()
         self.audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=400)
@@ -66,7 +70,7 @@ class Desk:
         self.board.set(mode=m or sub or ("speaking" if self.voice.busy() else
                                          "thinking" if self.brain.busy() else "listening"))
 
-    def wake(self, why: str = "clap") -> str:
+    def wake(self, why: str = "clap", greeting: str = "시스템을 시작합니다.") -> str:
         why = why or "deskctl"                         # /api/wake 는 빈 글을 넘김
         if self.mode != "sleep":
             self.say_brief()
@@ -83,10 +87,72 @@ class Desk:
             mac.open_dashboard(f"http://127.0.0.1:{self.cfg['dashboard']['port']}", self.cfg["dashboard"].get("open_cmd", ""))
             self._dash_opened = True
         self.board.log("wake", why)
-        self.voice.say("시스템을 시작합니다.")
+        self.voice.say(greeting)
         threading.Thread(target=self.say_brief, daemon=True).start()
         self._show()
         return "ok"
+
+    # ── 얼굴 인증 ──────────────────────────────────────────────────────────
+    def clap_wake(self) -> None:
+        """자는 중에 박수 — 얼굴 인증을 켰고 등록했으면 먼저 얼굴을 봅니다(따로 스레드, 소리 흐름은 안 멈춤)"""
+        if self._verifying:
+            return
+        if not self.face.active():
+            self.wake("clap")
+            return
+        self._verifying = True
+        threading.Thread(target=self._face_wake, daemon=True).start()
+
+    def _face_wake(self) -> None:
+        fc = self.cfg["face"]
+        try:
+            self.board.log("face", "얼굴 확인 중")
+            self.voice.say(fc.get("prompt", ""))
+            r = self.face.check()
+            log.info("얼굴 확인: %s", r)
+            if self.mode != "sleep":                   # 그새 키보드 · deskctl 로 깨어남
+                return
+            if r.get("ok"):
+                self.wake("clap · 얼굴", greeting=self._welcome())
+                return
+            err = r.get("error")
+            self.board.log("face", f"실패: {err}" if err else f"주인 아님 (닮음 {r.get('best', 0)})")
+            if err and fc.get("on_error") == "wake":
+                self.wake("clap · 얼굴 확인 못 함")
+                return
+            while self.voice.busy():
+                time.sleep(0.1)
+            self.voice.say(fc.get("error_say", "") if err else fc.get("fail", ""))
+            self.clap.reset()
+        except Exception as e:  # noqa: BLE001 — 무슨 일이 있어도 데몬은 계속
+            log.exception("얼굴 확인 중 오류")
+            self.board.log("error", f"얼굴 확인: {e}")
+        finally:
+            self._verifying = False
+
+    def _welcome(self) -> str:
+        fc = self.cfg["face"]
+        name = (fc.get("name") or self.cfg.get("owner") or "").strip()
+        if not name:
+            return "환영합니다."
+        try:
+            return fc.get("welcome", "{name}님, 환영합니다.").format(name=name)
+        except (KeyError, IndexError, ValueError):
+            return f"{name}님, 환영합니다."
+
+    def enroll(self, _: str = "") -> str:
+        """deskctl enroll — 데몬이 찍어서 카메라 권한이 deskd 하나로 끝남"""
+        self.voice.say("카메라를 보고 10초쯤 기다려 주세요.")
+        r = self.face.enroll()
+        self.board.log("face", f"등록: {r}")
+        self.voice.say("얼굴을 등록했어요." if r.get("ok") else "얼굴 등록에 실패했어요. 자세한 건 화면에.")
+        return json.dumps(r, ensure_ascii=False)
+
+    def face_test(self, _: str = "") -> str:
+        """deskctl face — 지금 카메라 앞 얼굴이 주인인지(깨우지는 않음)"""
+        if not self.face.active():
+            return json.dumps({"ok": False, "error": "얼굴 인증이 꺼져 있거나 등록 전"}, ensure_ascii=False)
+        return json.dumps(self.face.check(), ensure_ascii=False)
 
     def say_brief(self, _: str = "") -> str:
         data = briefing.gather(self.cfg)
@@ -239,7 +305,7 @@ class Desk:
         bursts = self.clap.feed(x)
         if self.mode == "sleep":
             if any(n == self._required_claps() for n in bursts):
-                self.wake("clap")
+                self.clap_wake()
             return
         if bursts and any(n == 2 for n in bursts):
             if self.mode == "muted":
@@ -268,7 +334,8 @@ class Desk:
         mac.keep_system_awake()
         serve(self.board, {"wake": self.wake, "sleep": self.sleep, "brief": self.say_brief, "mute": self.mute,
                            "unmute": self.unmute, "stop": self.stop,
-                           "say": lambda t: (self.voice.say(t), "ok")[1], "show": self.show},
+                           "say": lambda t: (self.voice.say(t), "ok")[1], "show": self.show,
+                           "enroll": self.enroll, "face": self.face_test},
               port=self.cfg["dashboard"]["port"])
         threading.Thread(target=self._stt_worker, daemon=True).start()
         threading.Thread(target=self._brain_worker, daemon=True).start()
