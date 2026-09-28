@@ -24,6 +24,7 @@ import numpy as np
 
 from . import briefing, config, mac, voice_settings
 from .face import Gate
+from .bargein import Listener, has_stop_word, is_stop_utterance
 from .brain import Brain
 from .clap import ClapConfig, ClapDetector
 from .dashboard import Board, serve, watch_agents
@@ -52,6 +53,13 @@ class Desk:
         self.board = Board()
         self.face = Gate(cfg["face"])
         self._verifying = False                       # 얼굴 보는 중엔 박수를 더 받지 않음
+        bi = cfg["bargein"]
+        self.barge_on = bool(bi.get("enabled", True)) and bool(bi.get("stop_words"))
+        self.stop_words = list(bi.get("stop_words", []))
+        self.barge = Listener(sr=sr, margin_db=bi.get("margin_db", 3.0), min_s=bi.get("min_s", 0.15),
+                              grace_s=bi.get("grace_s", 0.3))
+        self._barged_at = 0.0                        # 멈춤 말로 말하기를 끊은 시각
+        self._stt_lock = threading.Lock()            # 받아쓰기 모델은 한 번에 하나만
         self.mode = "sleep"                          # sleep · awake · muted
         self.last_activity = time.time()
         self.audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=400)
@@ -239,6 +247,8 @@ class Desk:
 
     # ── 들은 말 처리 ───────────────────────────────────────────────────────
     def handle(self, text: str) -> None:
+        if self._speech_stop(text):
+            return
         a = route(text, muted=(self.mode == "muted"))
         self.board.log(a.kind, text)
         if a.kind == "ignore":
@@ -272,12 +282,47 @@ class Desk:
                 self.voice.say("밀린 일이 많아요. 잠시 뒤에 다시 말해 주세요.")
         self._show()
 
+    # ── 끼어들기 (desk/bargein.py) ─────────────────────────────────────────
+    def _speech_stop(self, text: str) -> bool:
+        """말하는 중(또는 막 끊은 뒤)에 들은 "멈춰" · "그만" 류 — 말하기만 멈추고, 명령으로는 넘기지 않음"""
+        speaking = self.voice.busy()
+        if not (speaking or time.time() - self._barged_at < 4) or not is_stop_utterance(text, self.stop_words):
+            return False
+        if speaking:
+            self._cut(text)
+        else:
+            self.board.log("barge", f"(이미 멈춤) {text}")
+        return True
+
+    def _cut(self, heard: str) -> None:
+        """스피커 말하기만 멈춤 — Claude 호출 · 명령 · 백그라운드 작업은 그대로"""
+        self._barged_at = time.time()
+        self.voice.stop()
+        log.info("끼어들기: 말하기 멈춤 (%s)", heard)
+        self.board.log("barge", heard)
+        self._show()
+
+    def _probe(self, audio: np.ndarray, spoken: str) -> None:
+        """말하는 도중 들린 소리를 받아써 멈춤 말인지 봄. 받아쓰기가 바쁘면 이번 건 건너뜀"""
+        if not self._stt_lock.acquire(blocking=False):
+            return
+        try:
+            text = self.stt.hear(audio)
+        except Exception as e:  # noqa: BLE001
+            log.warning("끼어들기 받아쓰기 실패: %s", e)
+            return
+        finally:
+            self._stt_lock.release()
+        if text and self.voice.busy() and has_stop_word(text, self.stop_words, spoken):
+            self._cut(text)
+
     # ── 일꾼 스레드 ────────────────────────────────────────────────────────
     def _stt_worker(self) -> None:
         while not self._stop.is_set():
             audio = self.utt_q.get()
             try:
-                text = self.stt.transcribe(audio)
+                with self._stt_lock:
+                    text = self.stt.transcribe(audio)
             except Exception as e:  # noqa: BLE001
                 log.exception("받아쓰기 실패")
                 self.board.log("error", f"받아쓰기: {e}")
@@ -348,8 +393,13 @@ class Desk:
                 threading.Thread(target=self.sleep, args=("clap",), daemon=True).start()
                 return
         if self.mode == "awake" or self.mode == "muted":
-            if self.voice.busy():
-                self.seg.pause()                     # 스피커에서 나가는 제 목소리를 듣지 않게
+            speaking = self.voice.busy() and time.time() - self._barged_at > 1.0   # 끊은 직후 남은 꼬리는 말하는 중 아님
+            if self.barge_on:
+                heard = self.barge.feed(x, speaking)
+                if heard is not None:
+                    threading.Thread(target=self._probe, args=(heard, self.voice.last_text), daemon=True).start()
+            if speaking:
+                self.seg.pause()                     # 스피커에서 나가는 제 목소리를 듣지 않게(멈춤 말은 위에서 따로)
                 return
             self.seg.resume()
             for utt in self.seg.feed(x):

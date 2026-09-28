@@ -47,6 +47,13 @@ DEFAULTS: dict = {
         "min_face_px": 40,          # 이보다 작은 얼굴은 안 봄
         "timeout_s": 15,
     },
+    "bargein": {                    # 말하는 도중 멈춤 말을 들으면 말하기만 멈춤 (desk/bargein.py)
+        "enabled": True,
+        "stop_words": ["잠깐", "멈춰", "그만", "스톱", "스탑"],
+        "margin_db": 3.0,           # 민감도: 스피커 되먹임보다 이만큼 커야 받아써 봄. 못 알아들으면 낮추고(0), 헛멈추면 올림(6)
+        "min_s": 0.12,              # 0.3초 안에 그 큰 소리가 이만큼 있어야
+        "grace_s": 0.3,             # 말 시작 뒤 이 시간은 되먹임 크기만 배움
+    },
 }
 
 PATH = os.path.expanduser(os.environ.get("DESK_CONFIG", "~/.config/desk/config.toml"))

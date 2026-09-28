@@ -72,3 +72,11 @@ class WhisperSTT:
         except TypeError:                         # 판에 따라 받는 인자가 다름
             r = mw.transcribe(audio, path_or_hf_repo=self.model, language=self.language)
         return clean_transcript(r.get("text", ""), r.get("segments"))
+
+    def hear(self, audio) -> str:
+        """멈춤 말 찾기용(desk/bargein.py) — 힌트 문구 없이, 거르지 않은 글.
+        짧은 낱말 하나를 스피커 소리 위에서 찾을 때는 힌트가 그쪽 낱말로 끌고 가고, 환각 거르기가 진짜 말도 버립니다
+        (방 녹음 시험: 힌트 · 거르기 있으면 24번 중 16번, 없으면 22번 찾음). 멈춤 말만 보므로 환각은 상관없음."""
+        r = self._load().transcribe(audio, path_or_hf_repo=self.model, language=self.language, temperature=0.0,
+                                    condition_on_previous_text=False, verbose=None)
+        return r.get("text", "")
