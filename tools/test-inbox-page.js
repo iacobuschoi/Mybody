@@ -24,11 +24,16 @@
  *       · 로그인(틀린 비밀번호 · 비운영자는 거절 + 토큰이 끊김 · 운영자 · Enter 로도) · 토큰은 기본
  *         sessionStorage, 「로그인 유지」 면 localStorage · 주소에 비밀번호 · 토큰이 안 실림
  *       · 목록(익명 · 이름 · 판 · 기종 · 화면 · 사진 수 · 한국 시각 · 안 읽음 점) · 자세히(pre-wrap) ·
- *         사진(Authorization 로 받아 blob: · 누르면 크게 · 떠나면 revoke) · 글이 태그가 아니라 글자 ·
- *         열면 읽음 · j/k · 「안 읽은 것만」(모자라면 다음 쪽을 저절로) · 「더 보기」 · 새로고침(받아
- *         둔 옛 쪽 유지) · 「모두 읽음」(upTo) · 「지우기」(페이지 안에서 묻기 — confirm() 없음)
- *       · 401 → 로그인 칸 · 로그아웃(서버 로그인도 끊김 · 저장소 비움)
- *       · 360px 에서 가로로 안 밀림(목록 · 자세히 · 로그인) · 어두운 테마
+ *         사진(Authorization 로 받아 blob: · 누르면 크게 · 크게 볼 때 Tab 은 그 안에서만 · 떠나면
+ *         revoke) · 글이 태그가 아니라 글자 · 열면 읽음 · j/k · 「안 읽은 것만」(모자라면 다음 쪽을
+ *         저절로) · 「더 보기」(실패하면 「다시 시도」 가 다음 쪽을) · 새로고침(받아 둔 옛 쪽 유지) ·
+ *         「모두 읽음」(upTo) · 「지우기」(페이지 안에서 묻기 — confirm() 없음 · 초점은 다음 줄)
+ *       · 넓은 화면: 목록 · 자세히가 따로 스크롤(목록을 내린 뒤 고른 의견도 화면 안)
+ *       · 첫 쪽 실패 → 까닭만(「아직 의견이 없어요」 아님) · 401 → 로그인 칸 · 로그아웃(서버 로그인도
+ *         끊김 · 저장소 비움 · 아이디 칸도 비움 · 열린 다른 탭도 나감 — 유지 · 안 유지 둘 다)
+ *       · 360px 에서 가로로 안 밀림(목록 · 자세히 · 로그인) · 「← 목록」 은 보던 자리 · 줄로 · 어두운 테마
+ *       · 브라우저 시간대는 일부러 서울이 아닌 곳(America/Los_Angeles) — 「한국 시각」 이 이 컴퓨터의
+ *         시간대와 상관없는지(서울 컴퓨터에서 돌려도 같은 뜻의 시험)
  *       · alert · 페이지 오류 · 콘솔 오류 · CSP 위반이 하나도 없음
  *   [4] 윈도우 줄바꿈 — server/inbox-page.js 를 CRLF 로 읽어도 스크립트 · 스타일은 LF 로 나가고
  *       브라우저가 줄바꿈을 맞춘 뒤 재는 해시가 CSP 와 맞음
@@ -302,7 +307,10 @@ async function browserChecks(browser) {
   const first = await inbox();
   const it1 = first.items.find(i => i.id === id1), it2 = first.items.find(i => i.id === id2);
 
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  /* 시간대는 서울이 아닌 곳 — 페이지가 이 컴퓨터의 시간대로 찍으면 한국 시각 검사가 틀리게
+     (서울 컴퓨터에서는 그런 실수가 가려집니다). */
+  const TZ = 'America/Los_Angeles';
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 }, timezoneId: TZ });
   /* 페이지보다 먼저 도는 관찰자 — CSP 위반 · 만든 · 거둔 blob URL 을 적어 둡니다(페이지 CSP 밖에서 돕니다). */
   await ctx.addInitScript(() => {
     window.__csp = [];
@@ -314,6 +322,8 @@ async function browserChecks(browser) {
     URL.revokeObjectURL = u => { window.__revoked.push(u); return rv(u); };
   });
   const dialogs = [], errors = [], csp = [], reqs = [];
+  /* 시험이 일부러 실패시킨 요청(500 · 끊김) — 브라우저가 자원 오류로 찍는 그 줄만 봐줍니다. */
+  const induced = new Set();
   const watch = page => {
     page.on('dialog', d => { dialogs.push(d.type() + ': ' + d.message()); d.dismiss().catch(() => {}); });
     page.on('pageerror', e => errors.push('pageerror: ' + e.message));
@@ -321,6 +331,7 @@ async function browserChecks(browser) {
       if (msg.type() !== 'error') return;
       /* 일부러 부른 401(틀린 비밀번호 · 끊긴 로그인)은 브라우저가 자원 오류로 찍습니다 — 그것만 봐줍니다. */
       if (/Failed to load resource: the server responded with a status of 401/.test(msg.text())) return;
+      if (/Failed to load resource/.test(msg.text()) && induced.has((msg.location() || {}).url)) return;
       errors.push('console: ' + msg.text());
     });
     page.on('request', r => reqs.push(r));
@@ -338,6 +349,7 @@ async function browserChecks(browser) {
 
   /* --- 로그인 --- */
   await page.goto(BASE + '/inbox');
+  ok('브라우저 시간대는 ' + TZ + ' (서울 아님)', await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone) === TZ);
   ok('처음엔 로그인 칸 (목록은 숨김)', await until(() => page.isVisible('#login-form')) && !(await page.isVisible('#inbox')));
   await page.fill('#handle', 'owner');
   await page.fill('#password', 'wrong-password-9');
@@ -424,8 +436,19 @@ async function browserChecks(browser) {
   ok('누르면 크게 (같은 blob)', await until(() => page.isVisible('#viewer')) &&
      await page.$eval('#viewer-img', i => i.src) === blob2 &&
      await until(() => page.$eval('#viewer-img', i => i.complete && i.naturalWidth === 30)));
+  ok('사진 창이 열리면 뒤의 페이지는 inert', await page.$eval('#inbox', e => e.inert === true));
+  const inViewer = () => page.evaluate(() => document.getElementById('viewer').contains(document.activeElement));
+  let trapped = await inViewer();
+  for (const k of ['Tab', 'Tab', 'Shift+Tab', 'Shift+Tab', 'Tab']) {
+    await page.keyboard.press(k);
+    if (!(await inViewer())) trapped = false;
+  }
+  ok('사진 창에서 Tab · Shift+Tab 은 창 안에서만 돈다 (뒤의 단추로 안 샘)', trapped,
+     await page.evaluate(() => document.activeElement && (document.activeElement.id || document.activeElement.tagName)));
   await page.keyboard.press('Escape');
-  ok('Esc 로 닫힘', await until(async () => !(await page.isVisible('#viewer'))));
+  ok('Esc 로 닫힘 · inert 풀림 · 초점은 누른 사진으로', await until(async () => !(await page.isVisible('#viewer'))) &&
+     await page.$eval('#inbox', e => e.inert === false) &&
+     await page.evaluate(() => !!document.activeElement && document.activeElement.classList.contains('shot')));
   await page.click('#detail .shot');
   await until(() => page.isVisible('#viewer'));
   await page.click('#viewer-img');
@@ -481,24 +504,72 @@ async function browserChecks(browser) {
   ok('지우면 목록에서 빠지고 서버에도 없다', await until(async () => !(await rows()).includes(id3)) &&
      await until(async () => !(await inbox()).items.some(i => i.id === id3)), await rows());
   ok('지운 뒤 자세히는 비고 「지웠어요」', (await text('#detail') || '').includes('지웠어요') && (await selId()) === null);
+  ok('지운 뒤 초점은 그 자리의 다음 줄 (body 로 안 떨어짐)', await until(() => page.evaluate(() =>
+    document.activeElement && document.activeElement.getAttribute('data-id')).then(v => v === String(id2))),
+     await page.evaluate(() => document.activeElement && (document.activeElement.getAttribute('data-id') || document.activeElement.tagName)));
 
   /* --- 더 보기 · 새로고침이 옛 쪽을 지킴 --- */
   const d = new DatabaseSync(DB);
   const ins = d.prepare('INSERT INTO feedback (created_at, text) VALUES (?, ?)');
   const bulk = [];
-  for (let i = 0; i < 35; i++) bulk.push(Number(ins.run(new Date().toISOString(), '묶음 ' + i).lastInsertRowid));
+  /* 가장 옛 묶음 하나는 UTC 15:30 — 한국은 이튿날 00:30, 이 브라우저(로스앤젤레스)는 그날 아침.
+     날짜까지 한국 시각으로 찍는지 봅니다. (의견은 1년만 두므로 30일 전으로.) */
+  const cross = new Date(Date.now() - 30 * 86400000);
+  cross.setUTCHours(15, 30, 0, 0);
+  for (let i = 0; i < 35; i++) {
+    bulk.push(Number(ins.run(i ? new Date().toISOString() : cross.toISOString(), '묶음 ' + i).lastInsertRowid));
+  }
   d.close();
   await page.click('#refresh');
   ok('새로고침 → 30건 · 「더 보기」 가 보인다', await until(async () => (await rows()).length === 30) &&
      await page.isVisible('#more'), (await rows()).length);
+  /* 「더 보기」 첫 번은 끊기게 — 실패 한 줄의 「다시 시도」 는 첫 쪽이 아니라 다음 쪽을 다시 받아야. */
+  const nextPage = u => u.pathname === '/api/feedback/inbox' && u.searchParams.has('before');
+  let cutMore = 1;
+  await page.route(nextPage, route => {
+    if (cutMore-- > 0) { induced.add(route.request().url()); return route.abort('failed'); }
+    return route.continue();
+  });
   await page.click('#more');
-  ok('「더 보기」 → 37건 전부 · 끝이면 「더 보기」 없음', await until(async () => (await rows()).length === 37) &&
+  ok('「더 보기」 가 끊기면 위에 까닭 한 줄 · 받아 둔 30건은 그대로', await until(async () =>
+    await page.isVisible('#err') && /닿지 않아요/.test(await text('#err-text') || '')) && (await rows()).length === 30,
+     [await text('#err-text'), (await rows()).length]);
+  await page.click('#retry');
+  ok('「다시 시도」 → 다음 쪽을 받아 37건 전부 · 끝이면 「더 보기」 없음', await until(async () => (await rows()).length === 37) &&
      await until(async () => !(await page.isVisible('#more'))), (await rows()).length);
+  ok('다음 쪽을 받았으면 실패 한 줄은 사라진다', await until(async () => !(await page.isVisible('#err'))));
+  await page.unroute(nextPage);
+  const kc = kstParts(cross.toISOString());
+  ok('날짜가 바뀌는 시각도 한국 날짜로 (' + kc.label + ')', (await text(`#list .row[data-id="${bulk[0]}"] .time`)) ===
+     (kc.y === kstParts(new Date().toISOString()).y ? kc.label : kc.y + '년 ' + kc.label),
+     await text(`#list .row[data-id="${bulk[0]}"] .time`));
   await page.click('#refresh');
   await until(async () => !(await page.isDisabled('#refresh')));
   ok('새로고침해도 「더 보기」 로 받아 둔 옛 쪽이 남는다', (await rows()).length === 37 && !(await page.isVisible('#more')),
      (await rows()).length);
   ok('안 읽음 35 (새로 넣은 것)', (await text('#unread')) === '안 읽음 35', await text('#unread'));
+
+  /* --- 넓은 화면: 목록 · 자세히가 따로 스크롤 --- */
+  const geo = () => page.evaluate(() => {
+    const lp = document.getElementById('list-pane'), t = document.getElementById('d-text');
+    const r = t ? t.getBoundingClientRect() : null;
+    return { lpH: lp.scrollHeight, lpC: lp.clientHeight, docH: document.documentElement.scrollHeight,
+      vh: window.innerHeight, y: window.scrollY, top: r ? Math.round(r.top) : null };
+  });
+  const inView = g => g.y === 0 && g.top !== null && g.top >= 0 && g.top < g.vh;
+  const g0 = await geo();
+  ok('넓은 화면: 목록 칸이 제 안에서 스크롤하고 페이지는 화면 높이 그대로', g0.lpH > g0.lpC + 200 && g0.docH <= g0.vh, g0);
+  await page.$eval('#list-pane', e => { e.scrollTop = e.scrollHeight; });
+  await page.click(`#list .row[data-id="${id1}"]`);
+  ok('목록을 끝까지 내린 뒤 맨 아래 줄을 골라도 자세히가 화면 안에', await until(async () =>
+    (await text('#d-text')) === it1.text && inView(await geo())), await geo());
+  await page.keyboard.press('k');
+  ok('k 로 옮겨도 자세히는 화면 안 · 고른 줄은 목록 칸 안에 보인다', await until(async () => (await selId()) === id2 &&
+    inView(await geo()) && await page.evaluate(() => {
+      const a = document.querySelector('#list .row.sel').getBoundingClientRect();
+      const p = document.getElementById('list-pane').getBoundingClientRect();
+      return a.top >= p.top - 1 && a.bottom <= p.bottom + 1;
+    })), await geo());
 
   /* 다시 열면(토큰은 이 탭에 남음) 첫 쪽만 — 「안 읽은 것만」 은 모자라는 안 읽은 것을 저절로 더 받는다. */
   await collectCsp(page);
@@ -520,6 +591,31 @@ async function browserChecks(browser) {
     i => i.complete && i.naturalWidth > 0).catch(() => false)) && await noHScroll());
   await page.click('#back');
   ok('「← 목록」 → 목록으로', await until(() => page.isVisible('#list')) && !(await page.isVisible('#back')));
+
+  /* 보던 자리로 — 목록 가운데쯤의 줄을 화면 가운데가 아닌 곳(아래에서 up 만큼 위)에 두고 고릅니다.
+     돌아올 때 "그 줄이 보이게 가운데로" 만 해도 통과하지 않게, 자리는 2px 안으로 같아야. */
+  const scrollY = () => page.evaluate(() => Math.round(window.scrollY));
+  const activeId = () => page.evaluate(() => document.activeElement && document.activeElement.getAttribute('data-id'));
+  const place = (id, up) => page.$eval(`#list .row[data-id="${id}"]`, (b, n) => {
+    b.scrollIntoView({ block: 'end' });
+    window.scrollBy(0, n);
+  }, up);
+  const [midA, midB] = [(await rows())[20], (await rows())[12]];
+  await place(midA, 60);
+  const y0 = await scrollY();
+  await page.click(`#list .row[data-id="${midA}"]`);
+  await until(async () => /^묶음 /.test(await text('#d-text') || ''));
+  const yd = await scrollY();
+  await page.click('#back');
+  ok('「← 목록」 → 보던 목록 자리 그대로 · 보던 줄에 초점', y0 > 1000 && yd === 0 && await until(async () =>
+    Math.abs((await scrollY()) - y0) <= 2 && (await activeId()) === String(midA)), [y0, yd, await scrollY(), await activeId()]);
+  await place(midB, 200);
+  const yb = await scrollY();
+  await page.click(`#list .row[data-id="${midB}"]`);
+  await until(async () => /^묶음 /.test(await text('#d-text') || ''));
+  await page.keyboard.press('Escape');
+  ok('Esc 로도 목록 — 보던 자리 · 줄로', yb > 500 && await until(async () => await page.isVisible('#list') &&
+    Math.abs((await scrollY()) - yb) <= 2 && (await activeId()) === String(midB)), [yb, await scrollY(), await activeId()]);
   await page.emulateMedia({ colorScheme: 'dark' });
   const darkBg = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   await page.emulateMedia({ colorScheme: 'light' });
@@ -541,12 +637,46 @@ async function browserChecks(browser) {
   const revoked1 = await page.evaluate(() => window.__revoked);
   ok('만든 blob URL 은 전부 거뒀다', made1.length > 0 && made1.every(u => revoked1.includes(u)), [made1.length, revoked1.length]);
 
-  /* --- 로그인 유지 · 로그아웃 --- */
-  await page.fill('#handle', 'owner');
-  await page.fill('#password', PW);
-  await page.check('#keep');
-  await page.click('#login-btn');
-  await until(async () => (await rows()).length > 0);
+  /* --- 로그인 유지 · 첫 쪽 실패 · 여러 탭 · 로그아웃 --- */
+  const storageOf = pg => pg.evaluate(() => ({
+    s: sessionStorage.getItem('mybody-inbox-token'), l: localStorage.getItem('mybody-inbox-token') }));
+  const loginOn = async (pg, keepIt) => {
+    await pg.fill('#handle', 'owner');
+    await pg.fill('#password', PW);
+    if (keepIt) await pg.check('#keep'); else await pg.uncheck('#keep');
+    await pg.click('#login-btn');
+  };
+  const rowsOn = pg => pg.$$eval('#list .row', bs => bs.length);
+  /* 나감 = 로그인 칸 · 목록 · 글이 화면에 없음 · 아이디 칸도 빔(운영자 아이디를 남기지 않음). */
+  const kicked = async pg => await until(() => pg.isVisible('#login-form')) && !(await pg.isVisible('#inbox')) &&
+    (await pg.inputValue('#handle')) === '' &&
+    (await rowsOn(pg)) === 0 && (await pg.$$('#d-text')).length === 0;
+  const alive = async tok => (await call('GET', '/me', null, tok)).status === 200;
+
+  /* 저장된 로그인이 없을 때 열어 둔 탭 — 뒤에서 「다른 탭의 새 로그인」 을 만듭니다. */
+  const page3 = await ctx.newPage();
+  watch(page3);
+  await page3.goto(BASE + '/inbox');
+  await until(() => page3.isVisible('#login-form'));
+
+  /* 로그인 뒤 첫 쪽을 한 번 500 으로 — 까닭만 보이고 「아직 의견이 없어요」 는 안 보여야. */
+  const firstPage = u => u.pathname === '/api/feedback/inbox' && u.search === '?limit=30';
+  let failFirst = 1;
+  await page.route(firstPage, route => {
+    if (failFirst-- > 0) {
+      induced.add(route.request().url());
+      return route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ ok: false, reason: '잠깐 고장' }) });
+    }
+    return route.continue();
+  });
+  await loginOn(page, true);
+  ok('첫 쪽을 못 받으면 위에 까닭 한 줄만 (「아직 의견이 없어요」 는 안 보임)', await until(async () =>
+    await page.isVisible('#err') && (await text('#err-text')) === '잠깐 고장') && !(await page.isVisible('#empty')) &&
+     (await rows()).length === 0, [await text('#err-text'), await page.isVisible('#empty'), await text('#empty')]);
+  await page.unroute(firstPage);
+  await page.click('#retry');
+  ok('「다시 시도」 → 목록 · 실패 한 줄은 사라짐', await until(async () => (await rows()).length === 30 &&
+    !(await page.isVisible('#err'))), (await rows()).length);
   const st3 = await storage();
   ok('「이 컴퓨터에서 로그인 유지」 → localStorage (sessionStorage 에는 없음)', !!st3.l && st3.s === null, st3);
   await collectCsp(page);
@@ -555,12 +685,62 @@ async function browserChecks(browser) {
   await page2.goto(BASE + '/inbox');
   ok('새 탭에서도 로그인 없이 바로 목록', await until(() => page2.isVisible('#list .row')) &&
      !(await page2.isVisible('#login-form')));
+
+  /* 다른 탭이 새로 로그인(유지)하면 저장 칸의 토큰이 바뀝니다 — 이 탭들은 새 로그인을 따라가고 옛 것은 끊음. */
+  await loginOn(page3, true);
+  await until(async () => (await rowsOn(page3)) > 0);
+  const st4 = await storageOf(page3);
+  ok('다른 탭의 새 로그인(유지) → 옛 로그인은 서버에서 끊기고 두 탭은 목록 그대로', !!st4.l && st4.l !== st3.l &&
+     await until(async () => !(await alive(st3.l))) && await page.isVisible('#list .row') &&
+     await page2.isVisible('#list .row'), [!!st4.l, st4.l !== st3.l]);
+  await until(async () => !(await page.isDisabled('#refresh')));
+  const [adoptReq] = await Promise.all([
+    page.waitForRequest(r => r.url().endsWith('/api/feedback/inbox?limit=30')),
+    page.click('#refresh')
+  ]);
+  ok('… 이 탭은 새 로그인으로 부른다', (await adoptReq.allHeaders()).authorization === 'Bearer ' + st4.l);
+
+  /* 로그아웃한 탭 말고 다른 탭(유지)에 사진 없는 의견이 열려 있어도(열 때 읽음 말고는 더 부르는 것이
+     없음) 나가야. */
+  const openId = (await rows())[0];
+  await page.click(`#list .row[data-id="${openId}"]`);
+  await until(async () => /^묶음 /.test(await text('#d-text') || ''));
   await page2.click('#logout');
   ok('로그아웃 → 로그인 칸 · 「로그아웃했어요」', await until(() => page2.isVisible('#login-form')) &&
      (await page2.$eval('#login-msg', e => e.textContent)) === '로그아웃했어요');
-  ok('로그아웃 → 서버의 로그인도 끊겼다', await until(async () => (await call('GET', '/me', null, st3.l)).status === 401));
+  ok('로그아웃 → 서버의 로그인도 끊겼다', await until(async () => !(await alive(st4.l))));
   ok('로그아웃 → 저장소가 비었다', await until(() => page2.evaluate(() =>
     localStorage.getItem('mybody-inbox-token') === null && sessionStorage.getItem('mybody-inbox-token') === null)));
+  ok('로그아웃 → 열린 다른 탭(유지)도 나간다 — 목록 · 열어 둔 글이 화면에서 치워짐', await kicked(page) &&
+     await kicked(page3), [await page.isVisible('#inbox'), await rowsOn(page), (await page.$$('#d-text')).length]);
+  ok('로그아웃 → 로그인 칸의 아이디는 비어 있다 (운영자 아이디를 남기지 않음)',
+     (await page2.inputValue('#handle')) === '' && (await page.inputValue('#handle')) === '' &&
+     (await page3.inputValue('#handle')) === '', [await page2.inputValue('#handle'), await page.inputValue('#handle')]);
+
+  /* 알림 없이 저장소만 비어도(옛 판의 탭 · 직접 지움) 따라 나가고, 의견을 고를 때도 저장소를 다시 봅니다. */
+  await loginOn(page, true);
+  await until(async () => (await rows()).length > 0);
+  const st5 = await storage();
+  await collectCsp(page2);
+  await page2.reload();
+  await until(async () => (await rowsOn(page2)) > 0);
+  await page.evaluate(() => localStorage.removeItem('mybody-inbox-token'));
+  ok('저장된 로그인이 지워지면 다른 탭도 나가고 그 로그인을 서버에서 끊는다', await kicked(page2) &&
+     await until(async () => !(await alive(st5.l))));
+  await page.click(`#list .row[data-id="${openId}"]`);
+  ok('저장소와 어긋난 로그인으로는 의견을 열지 않는다 (고를 때 다시 봄)', await kicked(page));
+
+  /* 「유지」 가 아닌 탭끼리(저장 칸이 탭마다 따로)도 로그아웃은 함께. */
+  await loginOn(page, false);
+  await loginOn(page2, false);
+  await until(async () => (await rows()).length > 0 && (await rowsOn(page2)) > 0);
+  const s1 = (await storage()).s, s2 = (await storageOf(page2)).s;
+  ok('「유지」 없이 두 탭 — 각자 sessionStorage', !!s1 && !!s2 && s1 !== s2 && (await storage()).l === null);
+  await page2.click('#logout');
+  ok('한 탭의 로그아웃 → 다른 탭도 나가고 그 탭의 로그인도 서버에서 끊긴다', await kicked(page) &&
+     await until(async () => !(await alive(s1)) && !(await alive(s2))));
+  await collectCsp(page);
+  await collectCsp(page3);
   await page2.setViewportSize({ width: 360, height: 740 });
   ok('360px 로그인 칸 — 가로로 안 밀린다', await until(() => page2.evaluate(() =>
     document.documentElement.scrollWidth <= window.innerWidth)));

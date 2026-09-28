@@ -26,8 +26,10 @@
  *
  * 토큰
  *   기본은 sessionStorage(탭을 닫으면 없어짐), 「이 컴퓨터에서 로그인 유지」 를 켜면 localStorage.
- *   「로그아웃」 은 서버의 로그인을 끊고(signout) 두 곳을 다 비웁니다. 401 이 오면 비우고
- *   로그인 화면으로. 토큰은 Authorization 머리로만 나가고 주소 · 쿠키에는 안 실립니다.
+ *   「로그아웃」 은 서버의 로그인을 끊고(signout) 두 곳을 다 비우고, 열린 다른 탭도 나가게
+ *   합니다(BroadcastChannel · storage 알림) — 같이 쓰는 컴퓨터에서 잊고 둔 탭에 글이 남지 않게.
+ *   로그인 칸의 아이디도 비웁니다(운영자 아이디는 어디에도 내보내지 않음). 401 이 오면 그 토큰만
+ *   비우고 로그인 화면으로. 토큰은 Authorization 머리로만 나가고 주소 · 쿠키에는 안 실립니다.
  *
  * 남의 글을 다루는 법 (XSS)
  *   의견 글은 **로그인 없이도** 보낼 수 있는 남의 글이고, 보낸 사람 이름 · 판 · 화면 이름도
@@ -63,9 +65,11 @@
 const crypto = require('node:crypto');
 
 /* 페이지 모양. 색은 초대 페이지(server.js INVITE_CSS)와 같은 토큰이고, 밝게 · 어둡게는 컴퓨터를
-   따릅니다. 넓으면(801px~) 왼쪽 목록 · 오른쪽 자세히 — 둘이 따로 스크롤. 좁으면 한 줄: 목록을
-   누르면 자세히가 목록 자리에 서고 「← 목록」 으로 돌아옵니다. 360px 에서도 가로로 밀리지 않게
-   긴 글자는 아무 데서나 끊고(overflow-wrap:anywhere) 칩은 말줄임. 글꼴은 시스템 것만 —
+   따릅니다. 넓으면(801px~) 왼쪽 목록 · 오른쪽 자세히 — 둘이 따로 스크롤: 화면 높이에 묶어야
+   (.inbox 높이 = 화면, .panes min-height:0) overflow:auto 가 듣습니다. 안 묶으면 페이지 전체가
+   늘어나 목록을 내린 뒤 고른 의견이 화면 위쪽 밖에 그려집니다. 좁으면 한 줄: 목록을 누르면
+   자세히가 목록 자리에 서고 「← 목록」 으로 보던 목록 자리에 돌아옵니다. 360px 에서도 가로로
+   밀리지 않게 긴 글자는 아무 데서나 끊고(overflow-wrap:anywhere) 칩은 말줄임. 글꼴은 시스템 것만 —
    CSP 가 밖의 글꼴을 막습니다. **여기를 고치면 CSP 해시가 저절로 따라갑니다.** */
 const INBOX_CSS = [
   ':root{--bg:#f6f7f9;--surface:#fff;--border:#e2e5ea;--text:#16181d;--muted:#5b6270;',
@@ -103,7 +107,7 @@ const INBOX_CSS = [
   '.login label.check{flex-direction:row;align-items:center;gap:8px;color:var(--text)}',
   '.login .btn{padding:11px 12px;font-size:16px}',
   /* 위 막대 */
-  '.inbox{display:flex;flex-direction:column;min-height:100vh}',
+  '.inbox{display:flex;flex-direction:column;height:100vh;height:100dvh}',
   '.bar{position:sticky;top:0;z-index:3;display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;',
   'padding:10px 16px;background:var(--surface);border-bottom:1px solid var(--border)}',
   '.bar h1{font-size:18px;display:flex;align-items:center;gap:8px;margin-right:auto}',
@@ -117,8 +121,10 @@ const INBOX_CSS = [
   'background:var(--bad-bg);color:var(--bad);font-size:14px}',
   '.err span{flex:1;min-width:0}',
   /* 목록 · 자세히 */
-  '.panes{flex:1;display:grid;grid-template-columns:minmax(280px,380px) minmax(0,1fr);min-height:0}',
-  '.list-pane{border-right:1px solid var(--border);overflow:auto;padding:12px}',
+  '.panes{flex:1;display:grid;grid-template-columns:minmax(280px,380px) minmax(0,1fr);grid-template-rows:minmax(0,1fr);',
+  'min-height:0;overflow:hidden}',
+  '.list-pane{border-right:1px solid var(--border);overflow:auto;padding:12px;min-height:0}',
+  '.list-pane:focus{outline:0}',
   '.list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}',
   '.row{display:block;width:100%;text-align:left;background:var(--surface);border:1px solid var(--border);',
   'border-radius:12px;padding:10px 12px;cursor:pointer;min-width:0}',
@@ -139,7 +145,7 @@ const INBOX_CSS = [
   '.preview.none,.d-text.none{color:var(--muted);font-style:italic}',
   '.empty{padding:32px 8px;text-align:center;color:var(--muted)}',
   '.more{display:block;width:100%;margin-top:10px;padding:10px}',
-  '.detail{overflow:auto;padding:16px 20px 40px;min-width:0}',
+  '.detail{overflow:auto;padding:16px 20px 40px;min-width:0;min-height:0}',
   '.placeholder{padding:48px 8px;text-align:center;color:var(--muted)}',
   '.d-head{display:flex;align-items:center;gap:10px;margin-bottom:12px}',
   '.d-head h2{flex:1;min-width:0;font-size:19px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}',
@@ -170,7 +176,8 @@ const INBOX_CSS = [
   'background:var(--text);color:var(--bg);border-radius:10px;padding:8px 14px;font-size:14px}',
   /* 좁은 화면 — 한 줄 */
   '@media (max-width:800px){',
-  '.panes{display:block}',
+  '.inbox{height:auto;min-height:100vh}',
+  '.panes{display:block;overflow:visible}',
   '.list-pane{border-right:0;overflow:visible}',
   '.detail{overflow:visible;padding:14px 16px 32px}',
   'body.show-detail .list-pane,body:not(.show-detail) .detail{display:none}',
@@ -213,7 +220,7 @@ const INBOX_BODY = [
   '<div id="err" class="err" role="alert" hidden><span id="err-text"></span>',
   '<button id="retry" class="btn" type="button">다시 시도</button></div>',
   '<div class="panes">',
-  '<nav id="list-pane" class="list-pane" aria-label="의견 목록">',
+  '<nav id="list-pane" class="list-pane" aria-label="의견 목록" tabindex="-1">',
   '<ul id="list" class="list"></ul>',
   '<p id="empty" class="empty" hidden></p>',
   '<button id="more" class="btn more" type="button" hidden>더 보기</button>',
@@ -245,11 +252,15 @@ const INBOX_BODY = [
  *   목록   새것부터 30건. 「더 보기」 는 nextBefore 로. 「안 읽은 것만」 일 때 받아 둔 쪽에
  *          안 읽은 것이 서버의 수보다 적으면 다음 쪽을 저절로 받습니다(한 번에 열 쪽까지).
  *          새로고침은 첫 쪽만 다시 받아 그 범위를 갈아 끼웁니다 — 「더 보기」 로 받아 둔 옛 쪽은
- *          그대로. 탭으로 돌아왔을 때 30초가 지났으면 저절로 새로고침.
+ *          그대로. 탭으로 돌아왔을 때 30초가 지났으면 저절로 새로고침. 실패는 위에 한 줄과
+ *          「다시 시도」(실패한 그 일 — 첫 쪽 · 다음 쪽), 못 받았을 때 「아직 의견이 없어요」 는 안 씀.
  *   자세히 고르면 읽음(앱과 같음 — 화면 먼저, 못 닿으면 되돌림). 사진은 그때 받아 blob URL 로,
- *          다른 의견으로 가거나 목록으로 돌아가거나 지우거나 로그아웃하면 revoke.
+ *          다른 의견으로 가거나 목록으로 돌아가거나 지우거나 로그아웃하면 revoke. 좁은 화면의
+ *          「← 목록」 은 보던 목록 자리 · 줄로, 지운 뒤 초점은 다음 줄로.
+ *   탭     다른 탭의 로그아웃(저장 칸이 빔 · 알림)이면 이 탭도 나감 — 탭으로 돌아올 때 · 의견을
+ *          고를 때도 저장소를 다시 봄(서버에 안 묻고).
  *   키     j · k 로 위아래(한글 자판이어도 — 키 자리로 봄), Esc 로 사진 닫기 · 묻기 취소 ·
- *          (좁은 화면) 목록으로. 사진을 크게 볼 때 ← → 로 넘김.
+ *          (좁은 화면) 목록으로. 사진을 크게 볼 때 ← → 로 넘기고, Tab 은 사진 창 안에서만 돎.
  */
 function inboxScript() {
   'use strict';
@@ -262,7 +273,8 @@ function inboxScript() {
   const S = {
     token: '', items: [], unread: 0, nextBefore: null, sel: null, unreadOnly: false,
     gen: 0, loading: false, loadingMore: false, readingAll: false, auto: 0, lastLoad: 0,
-    detailGen: 0, urls: [], shots: [], view: -1, busyLogin: false
+    detailGen: 0, urls: [], shots: [], view: -1, busyLogin: false,
+    stored: false, listY: 0, error: '', retry: null
   };
 
   /* 요소 만들기 — 글자는 늘 글자로(textContent). */
@@ -321,15 +333,25 @@ function inboxScript() {
     }
     return '';
   };
-  const forget = () => {
+  /* only 를 주면 그 토큰이 든 칸만, 안 주면 두 곳 다(로그아웃 — 이 컴퓨터에서 나감). */
+  const forget = only => {
     for (const k of ['session', 'local']) {
-      try { const b = box(k); if (b) b.removeItem(KEY); } catch (e) {}
+      try { const b = box(k); if (b && (!only || b.getItem(KEY) === only)) b.removeItem(KEY); } catch (e) {}
     }
   };
+  /* 지웠다 넣지 않고 바로 덮습니다 — 다른 탭이 "비었다(로그아웃)" 를 먼저 보지 않게. 「유지」 가
+     아니면 localStorage(다른 탭의 로그인)는 건드리지 않습니다. 저장해서 다시 읽히면 true. */
   const keep = (tok, long) => {
-    forget();
-    try { const b = box(long ? 'local' : 'session'); if (b) b.setItem(KEY, tok); } catch (e) {}
+    try {
+      if (long) { const s = box('session'); if (s) s.removeItem(KEY); }
+      const b = box(long ? 'local' : 'session');
+      if (!b) return false;
+      b.setItem(KEY, tok);
+      return savedToken() === tok;
+    } catch (e) { return false; }
   };
+  let chan = null;
+  try { chan = typeof BroadcastChannel === 'function' ? new BroadcastChannel('mybody-inbox') : null; } catch (e) {}
 
   /* API 한 번. token 을 안 주면 지금 로그인. asBlob 이면 성공일 때 바이트. */
   async function call(method, path, body, token, asBlob) {
@@ -368,15 +390,37 @@ function inboxScript() {
     if (r.status === 403) { out('운영자 계정만 볼 수 있어요', true); return true; }
     return false;
   }
-  /* 나가기 — 화면 · 저장소를 비우고 로그인 칸. signout 이면 서버의 로그인도 끊습니다. */
+  /* 나가기 — 화면 · 이 토큰의 저장 칸을 비우고 로그인 칸. signout 이면 서버의 로그인도 끊습니다.
+     아이디 칸도 비웁니다 — 운영자 아이디는 어디에도 내보내지 않는 것(server.js handleFeedbackInbox)
+     이고, 같이 쓰는 컴퓨터에서 다음 사람에게 남기지 않게. 기억은 브라우저의 비밀번호 관리자에게. */
   function out(msg, signout, calm) {
     const tok = S.token;
     S.token = '';
+    S.stored = false;
     S.gen++;
-    forget();
+    if (tok) forget(tok);
     wipe();
+    $('handle').value = '';
     showLogin(msg, calm);
     return signout && tok ? call('POST', '/auth/signout', undefined, tok) : Promise.resolve();
+  }
+  /* 다른 탭이 로그아웃했거나(저장 칸이 빔) 새로 로그인했으면(다른 토큰) 따라갑니다 — 이 탭에 남은
+     목록 · 글을 로그아웃 뒤에 읽을 수 없게. 서버에 묻지 않고 저장소만 봅니다. 나갔으면 true. */
+  function syncToken() {
+    if (!S.token || !S.stored) return false;
+    const t = savedToken();
+    if (t === S.token) return false;
+    if (!t) { out('로그아웃했어요', true, true); return true; }
+    const old = S.token;
+    S.token = t;
+    call('POST', '/auth/signout', undefined, old);
+    load();
+    return false;
+  }
+  /* 탭으로 돌아옴 — 먼저 로그인이 그대로인지, 그다음 30초가 지났으면 새로고침. */
+  function recheck() {
+    if (syncToken()) return;
+    if (S.token && !$('inbox').hidden && !S.loading && Date.now() - S.lastLoad > 30000) load();
   }
   function wipe() {
     deselect();
@@ -407,9 +451,12 @@ function inboxScript() {
     loginMsg('');
     if (S.sel === null) deselect();
   }
-  function showErr(msg) {
-    $('err-text').textContent = msg;
-    $('err').hidden = !msg;
+  /* 실패 한 줄. retry 는 「다시 시도」 가 부를 것 — 실패한 그 일(첫 쪽이면 load, 다음 쪽이면 more). */
+  function showErr(msg, retry) {
+    S.error = msg || '';
+    S.retry = S.error ? retry || load : null;
+    $('err-text').textContent = S.error;
+    $('err').hidden = !S.error;
   }
   let toastTimer = 0;
   function toast(msg) {
@@ -438,7 +485,7 @@ function inboxScript() {
       const me = await call('GET', '/me', undefined, tok);
       if (me.ok && me.body.user && me.body.user.isOperator === true) {
         S.token = tok;
-        keep(tok, $('keep').checked);
+        S.stored = keep(tok, $('keep').checked);
         $('password').value = '';
         showInbox();
         load();
@@ -454,8 +501,13 @@ function inboxScript() {
       btn.textContent = '로그인';
     }
   }
+  /* 로그아웃 — 이 컴퓨터에서 나감: 두 저장 칸을 다 비우고, 열린 다른 탭도 나가게 알립니다
+     (「로그인 유지」 가 아닌 탭 — 탭 복제로 같은 토큰을 가진 탭 포함 — 은 저장소 알림을 못 받습니다). */
   function logout() {
-    return out('로그아웃했어요', true, true);
+    const p = out('로그아웃했어요', true, true);
+    forget();
+    try { if (chan) chan.postMessage('out'); } catch (e) {}
+    return p;
   }
 
   /* --- 목록 --- */
@@ -471,7 +523,7 @@ function inboxScript() {
     S.loading = false;
     S.lastLoad = Date.now();
     paintBusy();
-    if (!r.ok) { if (!gate(r)) { showErr(r.reason); paint(); } return; }
+    if (!r.ok) { if (!gate(r)) { showErr(r.reason, load); paint(); } return; }
     showErr('');
     mergeTop(r.body);
     const cur = S.sel === null ? null : find(S.sel);
@@ -503,7 +555,8 @@ function inboxScript() {
     const r = await call('GET', '/feedback/inbox?limit=' + PAGE + '&before=' + before);
     if (gen !== S.gen) return;
     S.loadingMore = false;
-    if (!r.ok) { if (!gate(r)) { showErr(r.reason); paint(); } return; }
+    if (!r.ok) { if (!gate(r)) { showErr(r.reason, more); paint(); } return; }
+    if (S.retry === more) showErr('');
     const have = new Set(S.items.map(i => i.id));
     const got = (Array.isArray(r.body.items) ? r.body.items : []).map(clean).filter(i => i && !have.has(i.id));
     S.items = S.items.concat(got);
@@ -559,8 +612,10 @@ function inboxScript() {
     for (const it of vis) frag.append(row(it));
     list.replaceChildren(frag);
     const empty = $('empty');
-    empty.hidden = vis.length > 0;
-    empty.textContent = S.loading || S.loadingMore ? '불러오는 중…'
+    const busy = S.loading || S.loadingMore;
+    /* 못 받았을 때는 위의 실패 한 줄만 — 「아직 의견이 없어요」 는 받아 본 뒤에만 말합니다. */
+    empty.hidden = vis.length > 0 || (!busy && !!S.error && !S.items.length);
+    empty.textContent = busy ? '불러오는 중…'
       : S.unreadOnly && S.items.length ? '안 읽은 의견이 없어요' : '아직 의견이 없어요';
     const m = $('more');
     m.hidden = S.nextBefore === null;
@@ -621,9 +676,12 @@ function inboxScript() {
 
   /* --- 자세히 --- */
   function select(id) {
+    if (syncToken()) return;
     const it = find(id);
     if (!it) return;
-    if (S.sel !== id) { drop(); S.sel = id; paintDetail(it); }
+    /* 좁은 화면에서 목록 → 자세히: 보던 목록 자리를 적어 두고 돌아올 때 그 자리로(back). */
+    if (narrow() && !document.body.classList.contains('show-detail')) S.listY = window.scrollY;
+    if (S.sel !== id) { drop(); S.sel = id; paintDetail(it); $('detail').scrollTop = 0; }
     if (!it.read) markRead(it);
     document.body.classList.add('show-detail');
     paint();
@@ -646,6 +704,23 @@ function inboxScript() {
     document.body.classList.remove('show-detail');
     $('detail').replaceChildren(el('p', { class: 'placeholder' }, msg || '왼쪽에서 의견을 고르세요 · j / k 로 위아래'));
     if (had) paint();
+  }
+  /* 「← 목록」 · Esc (좁은 화면) — 보던 목록 자리로, 보던 줄에 초점. */
+  function back() {
+    const id = S.sel;
+    deselect();
+    if (narrow()) window.scrollTo(0, S.listY);
+    focusRow(id);
+  }
+  /* 그 번호의 줄에 초점(없으면 목록 칸). 화면 밖이면 보이게. */
+  function focusRow(id) {
+    const b = id === null ? null : $('list').querySelector('.row[data-id="' + id + '"]');
+    if (!b) { $('list-pane').focus({ preventScroll: true }); return; }
+    b.focus({ preventScroll: true });
+    if (!narrow()) { b.scrollIntoView({ block: 'nearest' }); return; }
+    const r = b.getBoundingClientRect();
+    const top = $('inbox').querySelector('.bar').getBoundingClientRect().bottom;
+    if (r.top < top || r.bottom > window.innerHeight) b.scrollIntoView({ block: 'center' });
   }
   function paintDetail(it) {
     const gen = S.detailGen;
@@ -726,14 +801,23 @@ function inboxScript() {
     const r = await call('DELETE', '/feedback/inbox/' + id);
     /* 404 는 그사이 이미 지워진 것 — 바란 대로 없어졌으니 같은 결과입니다. */
     if (r.ok || r.status === 404) {
+      const was = visible().findIndex(i => i.id === id);
       const cur = find(id);
       if (cur) {
         if (!cur.read) S.unread = Math.max(0, S.unread - 1);
         S.items = S.items.filter(i => i.id !== id);
       }
-      if (S.sel === id) deselect('지웠어요');
+      const here = S.sel === id;
+      if (here) deselect('지웠어요');
       paint();
       toast('지웠어요');
+      /* 초점은 그 자리의 다음 줄로(마지막이었으면 앞 줄) — body 로 떨어지지 않게. */
+      if (here) {
+        if (narrow()) window.scrollTo(0, S.listY);
+        const vis = visible();
+        const next = vis[Math.min(Math.max(was, 0), vis.length - 1)];
+        focusRow(next ? next.id : null);
+      }
       return;
     }
     if (gate(r) || S.sel !== id) return;
@@ -756,12 +840,15 @@ function inboxScript() {
     $('viewer-n').textContent = many ? (i + 1) + ' / ' + S.shots.length : '';
     $('viewer-prev').hidden = $('viewer-next').hidden = !many;
     $('viewer').hidden = false;
+    /* 뒤의 페이지는 inert — Tab · 화면 읽기가 어두운 막 뒤의 단추로 새지 않게(keydown 에서 Tab 도 가둠). */
+    $('inbox').inert = true;
     $('viewer-close').focus();
   }
   function closeViewer() {
     const v = $('viewer');
     if (v.hidden) return;
     v.hidden = true;
+    $('inbox').inert = false;
     $('viewer-img').removeAttribute('src');
     const s = S.shots[S.view];
     S.view = -1;
@@ -792,7 +879,7 @@ function inboxScript() {
     $('f-all').addEventListener('click', () => setFilter(false));
     $('read-all').addEventListener('click', () => { readAll(); });
     $('refresh').addEventListener('click', () => { if (!S.loading) load(); });
-    $('retry').addEventListener('click', () => { if (!S.loading) load(); });
+    $('retry').addEventListener('click', () => { if (!S.loading && !S.loadingMore) (S.retry || load)(); });
     $('logout').addEventListener('click', () => { logout(); });
     $('more').addEventListener('click', () => { more(); });
     $('list').addEventListener('click', e => {
@@ -801,7 +888,7 @@ function inboxScript() {
     });
     $('detail').addEventListener('click', e => {
       const t = e.target;
-      if (t.closest('#back')) deselect();
+      if (t.closest('#back')) back();
       else if (t.closest('#del')) askDelete(true);
       else if (t.closest('#del-no')) askDelete(false);
       else if (t.closest('#del-yes')) doDelete();
@@ -818,7 +905,13 @@ function inboxScript() {
     document.addEventListener('keydown', e => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (!$('viewer').hidden) {
-        if (e.key === 'Escape') { e.preventDefault(); closeViewer(); }
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          const bs = ['viewer-prev', 'viewer-next', 'viewer-close'].map($).filter(b => !b.hidden);
+          const n = bs.length;
+          const i = bs.indexOf(document.activeElement);
+          bs[i < 0 ? (e.shiftKey ? n - 1 : 0) : (i + (e.shiftKey ? n - 1 : 1)) % n].focus();
+        } else if (e.key === 'Escape') { e.preventDefault(); closeViewer(); }
         else if (e.key === 'ArrowRight') { e.preventDefault(); stepViewer(1); }
         else if (e.key === 'ArrowLeft') { e.preventDefault(); stepViewer(-1); }
         return;
@@ -829,16 +922,17 @@ function inboxScript() {
       if (e.key === 'Escape') {
         const c = $('confirm');
         if (c && !c.hidden) askDelete(false);
-        else if (S.sel !== null && narrow()) deselect();
+        else if (S.sel !== null && narrow()) back();
         return;
       }
       if (e.code === 'KeyJ' || e.key === 'j') { e.preventDefault(); step(1); }
       else if (e.code === 'KeyK' || e.key === 'k') { e.preventDefault(); step(-1); }
     });
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && S.token && !$('inbox').hidden && !S.loading &&
-          Date.now() - S.lastLoad > 30000) load();
-    });
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') recheck(); });
+    window.addEventListener('pageshow', e => { if (e.persisted) recheck(); });
+    /* 다른 탭의 로그아웃 · 로그인 — localStorage 가 바뀌면(storage), 「로그아웃」 단추면(channel). */
+    window.addEventListener('storage', e => { if (e.key === KEY || e.key === null) syncToken(); });
+    if (chan) chan.addEventListener('message', e => { if (e.data === 'out' && S.token) out('로그아웃했어요', true, true); });
   }
 
   async function boot() {
@@ -847,8 +941,9 @@ function inboxScript() {
     const tok = savedToken();
     if (!tok) { showLogin(''); return; }
     S.token = tok;
+    S.stored = true;
     const me = await call('GET', '/me');
-    if (me.status === 401) { S.token = ''; forget(); showLogin(''); return; }
+    if (me.status === 401) { S.token = ''; S.stored = false; forget(tok); showLogin(''); return; }
     if (me.ok && !(me.body.user && me.body.user.isOperator === true)) { out('운영자 계정만 볼 수 있어요', true); return; }
     showInbox();
     load();
