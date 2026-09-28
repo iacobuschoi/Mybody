@@ -36,8 +36,10 @@ main{display:grid;grid-template-columns:1.4fr 1fr;grid-template-rows:minmax(0,1f
 section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px 24px;overflow:auto;min-height:0}
 h2{margin:0 0 12px;font-size:14px;letter-spacing:.08em;color:var(--dim);font-weight:600}
 #heard{font-size:30px;font-weight:600;min-height:1.5em}#reply{font-size:22px;margin-top:14px;white-space:pre-wrap;color:#c9d1d9}
-#panel{white-space:pre-wrap;font-size:17px;margin-top:18px;color:#c9d1d9;border-top:1px solid var(--line);padding-top:14px}
-#panel:empty{display:none}
+#showCard{display:none;grid-column:1;grid-row:2}#showCard h2 span{float:right;font-weight:400;letter-spacing:0}
+#panel{white-space:pre-wrap;font-size:19px;color:#c9d1d9}
+.showing main{grid-template-rows:auto minmax(0,1fr)}.showing #showCard{display:block}.showing #briefCard{display:none}
+.showing #heardCard{max-height:30vh}.showing #heard{font-size:22px}.showing #reply{font-size:18px;margin-top:6px}
 .row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px dashed var(--line)}.row:last-child{border:0}
 .todo{color:var(--warn)}.bad{color:var(--bad)}
 #log{font-size:14px;color:var(--dim);font-family:ui-monospace,Menlo,monospace;max-height:22vh;overflow:auto}
@@ -48,8 +50,9 @@ footer{color:var(--dim);font-size:15px}
 </style></head><body class="sleep">
 <header><div id="clock">--:--</div><div id="date"></div><div id="state"><span id="dot"></span><span id="stateText">대기</span></div></header>
 <main>
- <section><h2>들은 말</h2><div id="heard">—</div><div id="reply"></div><div id="panel"></div></section>
- <section><h2>지금 상태</h2><div id="brief"></div><h2 style="margin-top:20px">기록</h2><div id="log"></div></section>
+ <section id="heardCard"><h2>들은 말</h2><div id="heard">—</div><div id="reply"></div></section>
+ <section id="briefCard"><h2>지금 상태</h2><div id="brief"></div><h2 style="margin-top:20px">기록</h2><div id="log"></div></section>
+ <section id="showCard"><h2>화면에 띄운 글<span>클릭 · Esc 로 닫기</span></h2><div id="panel"></div></section>
  <section id="agentsCard"><h2>백그라운드 작업</h2><div id="agents"></div></section>
 </main>
 <footer>명령 예: "브리핑" · "조용히" · "다시 들어" · "화면 꺼" · "멈춰" · 그 밖의 말은 Claude 에게</footer>
@@ -66,9 +69,14 @@ function renderAgents(){const a=agentsNow;
  if(a===null){agents.innerHTML='<span style="color:var(--dim)">읽는 중…</span>';return}
  agents.innerHTML=a.length?a.map(x=>`<div class="row ag-${x.state}"><span class="nm">${esc(x.name)}</span><span class="st">${AG[x.state]||esc(x.state)} · ${x.started?ago(x.started):"—"}</span></div>`).join(""):'<span style="color:var(--dim)">없음</span>'}
 setInterval(renderAgents,30000);
-function render(st){
- document.body.className=st.mode||"sleep";stateText.textContent=S[st.mode]||st.mode;
- heard.textContent=st.heard||"—";reply.textContent=st.reply||"";panel.textContent=st.panel||"";
+// deskctl show 로 온 긴 글은 「지금 상태」 자리에 크게 — 클릭 · Esc 로 닫거나 15분 지나면 원래대로
+const SHOW_MS=15*60000;let shown="",closedAt=-1,last={};
+function showing(){return !!last.panel&&last.panel_at!==closedAt&&Date.now()-(last.panel_at||0)<SHOW_MS}
+function closeShow(){closedAt=last.panel_at;render(last)}
+function render(st){last=st;
+ document.body.className=(st.mode||"sleep")+(showing()?" showing":"");stateText.textContent=S[st.mode]||st.mode;
+ heard.textContent=st.heard||"—";reply.textContent=st.reply||"";
+ if(st.panel!==shown){shown=st.panel||"";panel.textContent=shown;showCard.scrollTop=0}
  const b=st.briefing||{},f=b.factory||{},l=b.lab||{};let h="";
  if(st.mic==="blocked")h+=`<div class="row bad"><span>마이크 막힘</span><span>설정 → 개인정보 보호 및 보안 → 마이크 → deskd 켜기</span></div>`;
  if(b.weather)h+=`<div class="row"><span>날씨</span><span>${esc(b.weather)}</span></div>`;
@@ -83,6 +91,8 @@ function render(st){
 }
 const BUILD="@BUILD@";   // deskd 가 다른 화면으로 바뀌어 다시 뜨면 스스로 새로고침
 function connect(){const es=new EventSource("/events");es.onmessage=e=>{const st=JSON.parse(e.data);if(st.build&&st.build!==BUILD)return location.reload();render(st)};es.onerror=()=>{es.close();setTimeout(connect,2000)}}
+showCard.onclick=closeShow;addEventListener("keydown",e=>{if(e.key==="Escape")closeShow()});
+setInterval(()=>{if(last.panel)render(last)},30000);
 connect();renderAgents();
 </script></body></html>"""
 BUILD = hashlib.sha1(PAGE.encode()).hexdigest()[:12]

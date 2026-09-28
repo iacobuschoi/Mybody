@@ -201,7 +201,7 @@ class Desk:
 
     def show(self, text: str) -> str:
         """Claude 가 긴 내용을 화면에 (deskctl show)"""
-        self.board.set(panel=text[:20000])
+        self.board.set(panel=text[:20000], panel_at=int(time.time() * 1000))   # 같은 글을 다시 띄워도 다시 보이게
         return "ok"
 
     # ── 들은 말 처리 ───────────────────────────────────────────────────────

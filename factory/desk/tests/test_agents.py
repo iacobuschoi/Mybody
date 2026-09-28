@@ -38,6 +38,11 @@ class PageBuild(unittest.TestCase):
         self.assertIn(f'const BUILD="{dashboard.BUILD}"', dashboard.PAGE)
         self.assertIn("location.reload()", dashboard.PAGE)
 
+    def test_show_text_has_its_own_card(self):
+        from desk import dashboard
+        card = dashboard.PAGE.split('id="showCard"', 1)[1].split("</section>", 1)[0]
+        self.assertIn('id="panel"', card)
+
 
 if __name__ == "__main__":
     unittest.main()
