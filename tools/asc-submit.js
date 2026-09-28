@@ -210,7 +210,12 @@ async function submitBeta(c, opts, p) {
       });
     }
   }
-  try {
+  /* 이미 심사에 들어간 빌드를 다시 내면 애플은 409 가 아니라 422 INVALID_QC_STATE 로 거절합니다
+     (9/28 — 「테스트할 내용」 만 고치려고 다시 돌렸을 때). 상태를 먼저 보고 넘어갑니다. */
+  const st = p.beta || await betaState(c, p.build.id);
+  if (['WAITING_FOR_REVIEW', 'IN_REVIEW', 'APPROVED'].includes(st.review)) {
+    log(`베타 심사: 이 빌드는 이미 ${st.review} — 다시 내지 않습니다`);
+  } else try {
     await c.call('POST', '/v1/betaAppReviewSubmissions', {
       data: { type: 'betaAppReviewSubmissions',
         relationships: { build: { data: { type: 'builds', id: p.build.id } } } },

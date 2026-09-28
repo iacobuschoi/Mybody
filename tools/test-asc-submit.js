@@ -92,7 +92,9 @@ function fake(opts = {}) {
     if (method === 'GET' && path === '/v1/betaGroups') return { data: st.groups };
     if (method === 'GET' && path === '/v1/betaAppReviewSubmissions') {
       if (opts.betaFail) err(500, '베타 조회 실패');
-      return { data: opts.betaReview ? [{ id: 'br1', attributes: { betaReviewState: opts.betaReview } }] : [] };
+      const want = (p.match(/filter\[build\]=(\w+)/) || [])[1];
+      const review = opts.betaReview || (st.betaSubs.includes(want) ? 'WAITING_FOR_REVIEW' : null);
+      return { data: review ? [{ id: 'br1', attributes: { betaReviewState: review } }] : [] };
     }
     if (method === 'GET' && /^\/v1\/builds\/\w+\/buildBetaDetail$/.test(path)) {
       if (opts.betaFail) err(500, '베타 조회 실패');
@@ -119,7 +121,7 @@ function fake(opts = {}) {
     if (method === 'POST' && path === '/v1/betaBuildLocalizations') { st.locs.push({ id: 'l1', attributes: body.data.attributes }); return { data: {} }; }
     if (method === 'POST' && path === '/v1/betaAppReviewSubmissions') {
       const b = body.data.relationships.build.data.id;
-      if (st.betaSubs.includes(b)) err(409, '이미 제출');
+      if (st.betaSubs.includes(b)) err(422, 'INVALID_QC_STATE');   // 애플은 409 가 아니라 422 로 거절(9/28)
       st.betaSubs.push(b);
       return { data: {} };
     }
@@ -196,16 +198,33 @@ const quiet = { log: () => {}, noWait: true };
     ok(!f.st.calls.some(c => c.startsWith('PATCH /v1/reviewSubmissions')), '--beta-only 는 앱스토어를 안 건드림');
   }
 
-  console.log('[7] 베타 심사가 이미 제출돼 있으면(409) 그대로 둔다');
+  console.log('[7] 베타 심사가 이미 제출돼 있으면 다시 내지 않는다(애플은 422) · 「테스트할 내용」 은 고친다');
   {
     const f = fake();
     f.st.betaSubs.push('b298');
     let threw = null;
     try {
+      await run(['--version', '0.2.15', '--build', '298', '--beta', 'friends', '--beta-only', '--submit',
+        '--whats-new', '꾹 눌러'], {}, { client: f.client, ...quiet });
+    } catch (e) { threw = e; }
+    ok(!threw, '오류 없이 끝남');
+    ok(!f.st.calls.includes('POST /v1/betaAppReviewSubmissions'), '다시 내지 않음');
+    ok(f.st.locs.some(l => l.attributes.whatsNew === '꾹 눌러'), '「테스트할 내용」 은 고침');
+  }
+  {
+    const f = fake({ betaReview: 'APPROVED' });
+    let threw = null;
+    try {
       await run(['--version', '0.2.15', '--build', '298', '--beta', 'friends', '--beta-only', '--submit'], {},
         { client: f.client, ...quiet });
     } catch (e) { threw = e; }
-    ok(!threw, '오류 없이 끝남');
+    ok(!threw && !f.st.calls.includes('POST /v1/betaAppReviewSubmissions'), '승인된 빌드도 다시 내지 않음');
+  }
+  {
+    const f = fake({ betaReview: 'REJECTED' });
+    await run(['--version', '0.2.15', '--build', '298', '--beta', 'friends', '--beta-only', '--submit'], {},
+      { client: f.client, ...quiet });
+    ok(f.st.betaSubs.includes('b298'), '거절된 빌드는 다시 냄');
   }
 
   console.log('[8] 심사 제출이 없는(취소된) 판도 번호를 바꿔 새로 낸다');
