@@ -74,14 +74,15 @@ put "$F" ASC_BETA_ISSUER_ID  "$K/asc.issuer"
 put "$F" ASC_BETA_KEY_P8     "$K/asc-beta.p8"
 put "$F" PLAY_BETA_SA_JSON   "$K/play-beta.json"
 put "$F" CLAUDE_CODE_OAUTH_TOKEN "$K/claude.token"
-put "$S" ASC_PROD_KEY_ID     "$K/asc-prod.keyid"
-put "$S" ASC_PROD_ISSUER_ID  "$K/asc.issuer"
-put "$S" ASC_PROD_KEY_P8     "$K/asc-prod.p8"
-put "$S" PLAY_PROD_SA_JSON   "$K/play-prod.json"
+# prod 열쇠는 출시 창구의 store-production 환경에만 둡니다. 저장소 시크릿으로도 넣으면 승인 없이 도는 잡
+# (배포 열쇠로 밀어 넣은 워크플로 등)도 꺼낼 수 있어 승인 버튼이 잠금이 되지 못합니다 — 예전 판이 넣은 것은 지움.
+for s in ASC_PROD_KEY_ID ASC_PROD_ISSUER_ID ASC_PROD_KEY_P8 PLAY_PROD_SA_JSON; do
+  gh secret list -R "$S" --json name -q '.[].name' | grep -x "$s" >/dev/null && gh secret delete "$s" -R "$S" >/dev/null && echo "  저장소 수준 $s 지움 (환경에만 둠)"
+done
 cat <<TXT
   파일 이름 규칙: asc-beta.keyid(키 ID 한 줄) · asc.issuer · asc-beta.p8 · asc-prod.keyid · asc-prod.p8 (App Store Connect API 키 둘:
   Developer 역할 = beta, App Manager 역할 = prod) · play-beta.json · play-prod.json (Play 서비스 계정 둘) · claude.token (claude setup-token).
-  넣은 뒤 이 스크립트를 다시 돌리면 시크릿으로 올라갑니다. 환경 시크릿(store-production)은 저장소 시크릿과 별개이므로:
+  넣은 뒤 이 스크립트를 다시 돌리면 시크릿으로 올라갑니다. prod 열쇠는 승인 환경(store-production)에만:
 TXT
 for s in ASC_PROD_KEY_ID ASC_PROD_ISSUER_ID ASC_PROD_KEY_P8 PLAY_PROD_SA_JSON; do
   f=""; case $s in ASC_PROD_KEY_ID) f="$K/asc-prod.keyid";; ASC_PROD_ISSUER_ID) f="$K/asc.issuer";; ASC_PROD_KEY_P8) f="$K/asc-prod.p8";; PLAY_PROD_SA_JSON) f="$K/play-prod.json";; esac
