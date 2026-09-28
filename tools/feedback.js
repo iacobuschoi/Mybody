@@ -14,6 +14,7 @@
  *   (server.js handleFeedbackInbox). 그 길은 운영자 한 계정에만 열려서, 그 계정의 비밀번호가
  *   새면 모든 의견과 캡처(몸 숫자가 찍혀 있을 수 있음)가 같이 샙니다. 운영자 계정의 비밀번호는
  *   다른 곳과 다르게 두세요. 이 도구의 읽음 표시 · 번호는 의견함과 같은 표를 씁니다.
+ *   컴퓨터 브라우저: <서버>/inbox — 같은 의견함을 운영자 계정으로 로그인해 봅니다(server/inbox-page.js).
  *
  * DB 는 서버와 같은 규칙으로 찾습니다
  *   환경변수 DB → ~/.mybody/config.json 의 db → server/mybody.db

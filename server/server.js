@@ -61,6 +61,7 @@ const PUSH = require('./push.js');
 const FCMLIB = require('./fcm.js');
 const APPVER = require('./appversion.js');
 const FEEDBACK = require('./feedback.js');
+const { serveInboxPage } = require('./inbox-page.js');
 
 /* --- 저장해 둔 설정을 읽어 옵니다 ------------------------------------------
  *
@@ -2053,6 +2054,8 @@ const server = http.createServer(async (req, res) => {
   try {
     if (url.pathname === '/health' || url.pathname.startsWith('/api/')) return await handleApi(req, res, url);
     if (url.pathname === '/i' || url.pathname.startsWith('/i/')) return serveInvite(req, res, url);
+    /* 컴퓨터 브라우저의 「의견함」 — 껍데기 페이지뿐, 의견은 페이지가 로그인한 채 API 로(server/inbox-page.js). */
+    if (url.pathname === '/inbox' || url.pathname === '/inbox/') return serveInboxPage(req, res, url, send);
     /* 앱 링크 파일 — 정적 파일(내보내는 폴더)이 가로채지 못하게 먼저. */
     if (Object.hasOwn(WELL_KNOWN, url.pathname)) return serveWellKnown(req, res, url.pathname);
     serveStatic(req, res, url);

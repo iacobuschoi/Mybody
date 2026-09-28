@@ -145,6 +145,9 @@ PORT=3000 DB=~/mybody.db ORIGIN=https://mybody.example.com node server/server.js
 「익명」)이 나오고, 누르면 글 전체와 화면을 크게 봅니다. 열면 읽음이 되고, 지울 수 있습니다. 새 의견 알림을
 누르면 바로 여기로 옵니다. 다른 계정의 앱에는 이 칸이 없고, 길을 직접 두드려도 403 입니다.
 
+보기 — 컴퓨터 브라우저에서: **`<서버>/inbox`** 를 열고 운영자 계정으로 로그인합니다. 넓은 화면에 목록과 자세히가
+나란히 서고, 앱과 같은 길(아래)을 씁니다 — 아래 "컴퓨터로 보는 의견함 (`/inbox`)".
+
 ```
 GET    /api/feedback/inbox?limit=30&before=<번호>   {ok, unread, items:[…], nextBefore}  새것부터 · limit 1~50
 GET    /api/feedback/inbox/<번호>/image/<n>         사진 바이트(image/png · image/jpeg) · 없으면 404
@@ -316,7 +319,8 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 전부 `/api` 아래이고, 로그인 · `/api/health` · `/api/version` · `/api/feedback` 외에는
 `Authorization: Bearer <token>` 이 필요합니다. `/api` 밖에는 친구 초대 링크 페이지(`GET /i/<코드>`)와
 그 링크를 폰이 앱으로 바로 열게 하는 앱 링크 파일 둘(`GET /.well-known/assetlinks.json` ·
-`GET /.well-known/apple-app-site-association`)이 있습니다 — 아래 "친구 초대 링크" · "앱 링크 파일".
+`GET /.well-known/apple-app-site-association`), 컴퓨터 브라우저로 보는 의견함 페이지(`GET /inbox`)가 있습니다 —
+아래 "친구 초대 링크" · "앱 링크 파일" · "컴퓨터로 보는 의견함".
 0.2.20 부터 앱은 모든 요청에 `X-Mybody-App: <판>` 머리를 붙입니다(기록 칸의 주인을 아는 판). 서버는
 지금은 막지 않고 거절 로그에만 적습니다 — 고친 판이 퍼지면 owner 없는 기록 사본을 거절하도록 켤 수 있게.
 
@@ -424,6 +428,29 @@ Links). 대답이 틀리거나 없으면 폰은 아무 말 없이 브라우저�
 예전의 `TWA_PACKAGE` · `TWA_FINGERPRINT`(웹 앱을 플레이에 감싸 올리던 길)는 없앴습니다 — 같은 패키지
 이름의 진짜 앱이 나왔고, 이 파일은 이제 설정 없이도 늘 나갑니다.
 
+## 컴퓨터로 보는 의견함 (`/inbox`)
+
+운영자 폰 앱의 설정 → 「의견함」 을 컴퓨터 브라우저에서 봅니다: `<서버>/inbox`. 서버 코드가 만들어 보내는
+페이지라(`server/inbox-page.js`) 어느 폴더를 내보내든(`STATIC=./release` 여도) 같이 나갑니다.
+
+- **로그인** — 아이디 · 비밀번호(`/api/auth/signin`). `/api/me` 의 `user.isOperator` 가 참이 아니면
+  「운영자 계정만 볼 수 있어요」 를 띄우고 방금 받은 로그인을 곧바로 끊습니다(`/api/auth/signout`). 토큰은 기본
+  이 탭에만(sessionStorage), 「이 컴퓨터에서 로그인 유지」 를 켜면 localStorage. 「로그아웃」 은 서버의 로그인도
+  끊고 둘 다 비웁니다. 로그인이 끊기면(401) 로그인 칸으로 돌아옵니다.
+- **목록 · 자세히** — 앱과 같은 길(위 "의견 보내기" 의 `/api/feedback/inbox…`). 넓으면 왼쪽 목록 · 오른쪽
+  자세히, 좁으면 한 줄. 목록 한 줄에 안 읽음 점 · 받은 시각(한국 시각) · 보낸 사람(표시 이름, 로그인 없이
+  보냈으면 「익명」) · 판 · 기종 · 보던 화면 · 사진 수 · 글 앞부분. 「안 읽은 것만 / 전체」(안 읽은 것이 더
+  있으면 다음 쪽을 저절로) · 「더 보기」 · 「모두 읽음」(받아 둔 가장 새 번호까지) · 「새로고침」(탭으로 돌아왔을
+  때 30초가 지났으면 저절로). 열면 읽음(앱과 같음). 사진은 로그인한 채로 받아 페이지 안에서만
+  보이고(blob), 누르면 크게, 다른 의견으로 가면 버립니다. 「지우기」 는 페이지 안에서 한 번 묻고.
+  키보드 `j` · `k` 로 위아래, `Esc` 로 닫기.
+- **남의 글** — 의견 글 · 이름 · 판 · 화면 이름은 로그인 없이도 보낼 수 있는 남의 글자라 전부 글자로만 놓습니다
+  (HTML 로 끼워 넣지 않음). CSP `default-src 'none'` 에 스크립트 · 스타일은 해시 하나씩(초대 페이지와 같은
+  방식 · 윈도우의 CRLF 에도 맞음), 사진은 `blob:` 만, 요청은 이 서버만(`connect-src 'self'`), 폼은 어디로도
+  못 보냄(`form-action 'none'`), 다른 페이지 안에 못 들어감(`frame-ancestors 'none'` · `X-Frame-Options: DENY`).
+  `no-store` · `Vary: *`(웹 앱의 서비스워커가 못 담음) · `noindex` · `no-referrer`. 페이지는 누구에게나 같은
+  글자이고 DB 를 보지 않습니다 — 막는 것은 API 가 요청마다(401 · 403).
+
 ## 검증
 
 ```bash
@@ -434,6 +461,8 @@ node tools/test-feedback.js      # 의견 보내기 (검사 · 한도 · 탈퇴 
 node tools/test-operator-users.js # 운영자의 「가입자 목록」 (운영자만 · 비밀 칸 없음 · 새 가입부터 · 1000명 상한)
 node tools/test-sync-owner.js    # 다른 계정의 기록 사본 · 주간 요약은 409 (행 안 바뀜 · owner 없는 옛 앱은 받음)
 node tools/test-find-mixed.js    # 섞인 계정 찾기 도구 (믿을 수 있는 id 만 · 씨앗 · scan-h 제외 · DB 에 안 씀)
+node tools/test-inbox-page.js    # 컴퓨터로 보는 의견함 /inbox (머리 · CSP 해시 · CRLF · 남의 글이 글자 그대로 ·
+                                 #   로그인 · 읽음 · 지우기 — 진짜 브라우저로. playwright 가 없으면 그 부분만 건너뜀)
 node tools/test-appversion.js    # 앱 안 업데이트 안내 · 시험판 참여 링크 · 시험 기간
 node tools/test-invite.js        # 친구 초대 링크 페이지 (기종별 앱 열기 · 설치 안내 · 새지 않음 · CSP ·
                                  #   앱 링크 파일 · 스크립트를 가짜 브라우저에서 돌려 봄)
