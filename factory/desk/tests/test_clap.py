@@ -80,6 +80,10 @@ class ClapTest(unittest.TestCase):
     def test_quieter_claps_across_room(self):
         self.assertEqual(run(seq(clap(amp=0.12), silence(0.35), clap(amp=0.12))), [2])
 
+    def test_mic_dc_offset_does_not_hide_weak_claps(self):
+        # Brio 100 은 +0.008 쯤 직류가 섞여 나옴 — 빼지 않으면 바닥이 부풀어 침대에서 친 약한 박수를 놓침
+        self.assertEqual(run(seq(clap(amp=0.08), silence(0.3), clap(amp=0.06)) + 0.008), [2])
+
     def test_speech_is_not_clap(self):
         self.assertEqual(run(seq(speech(10))), [])
 

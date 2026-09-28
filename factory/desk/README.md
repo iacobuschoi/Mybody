@@ -75,8 +75,9 @@ cd ~/lab/desk && .venv/bin/python -m desk calibrate   # 박수를 쳐 보고 ★
 
 | 증상 | 바꿀 것 |
 |---|---|
-| 박수를 쳐도 안 켜짐 (특히 침대에서) | `[clap] abs_min = 0.01` · `rise_db = 14` |
+| 박수를 쳐도 안 켜짐 (특히 침대에서) | `[clap] abs_min = 0.01` · `rise_db = 14` · 둔한 박수면 `min_centroid_hz = 1300` (첫 방: 이걸로 5쌍 중 5쌍) |
 | 문 두드림 · 물건 소리에 켜짐 | `[clap] min_centroid_hz = 2200` · `rise_db = 22` |
+| 침대에서 한 말을 못 알아들음 | `[listen] energy_db = 4` (말 안 했는데 받아쓰면 8) |
 | 박수 간격이 느린 편 | `[clap] max_gap_s = 1.0` |
 | 받아쓰기가 느림 | `[stt] model = "mlx-community/whisper-small-mlx"` |
 | 말이 끝나기 전에 잘림 | `[listen] end_silence_s = 1.2` |

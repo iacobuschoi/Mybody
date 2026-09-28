@@ -41,7 +41,7 @@ class Desk:
         self.clap = ClapDetector(ccfg)
         li = cfg["listen"]
         self.seg = Segmenter(sr=sr, level=li["vad_level"], end_silence_s=li["end_silence_s"],
-                             min_utt_s=li["min_utt_s"], max_utt_s=li["max_utt_s"])
+                             min_utt_s=li["min_utt_s"], max_utt_s=li["max_utt_s"], energy_db=li["energy_db"])
         st = cfg["stt"]
         self.stt = WhisperSTT(st["model"], st["language"], st.get("prompt", ""))
         self.voice = mac.Voice(cfg["tts"]["voice"], cfg["tts"]["rate"], device=cfg["tts"].get("device", ""))

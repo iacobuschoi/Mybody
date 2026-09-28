@@ -74,6 +74,23 @@ class SegmenterTest(unittest.TestCase):
         self.assertEqual(len(outs), 1)
         self.assertGreater(len(outs[0]) / sr, 1.0)
 
+    def test_weak_voice_under_dc_and_hum(self):
+        # Brio 100 · 침대(2.5m): 직류 +0.008 과 58Hz 험이 바닥을 채우고 말은 그보다 작음 — 전체 크기로는 1.1배
+        sr = 16000
+        rng = np.random.default_rng(2)
+        t = np.arange(int(sr * 4.7)) / sr
+        sig = 0.008 + 0.004 * np.sin(2 * np.pi * 58 * t) + rng.standard_normal(len(t)) * 0.0007
+        tv = t[: int(sr * 1.2)]
+        voice = sum(np.sin(2 * np.pi * 180 * k * tv) / k for k in range(1, 8)) * 0.006 * (0.6 + 0.4 * np.sin(2 * np.pi * 3 * tv))
+        sig[int(sr * 2.0): int(sr * 2.0) + len(voice)] += voice
+        sig = sig.astype(np.float32)
+        seg = Segmenter(sr=sr)
+        outs = []
+        for i in range(0, len(sig), 480):
+            outs += seg.feed(sig[i:i + 480])
+        self.assertEqual(len(outs), 1)
+        self.assertGreater(len(outs[0]) / sr, 1.0)
+
     def test_paused_hears_nothing(self):
         seg = Segmenter()
         seg._vad = None

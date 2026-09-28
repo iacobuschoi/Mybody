@@ -9,6 +9,9 @@
 묶음: 박수 사이 간격이 min_gap_s ~ max_gap_s 이면 같은 묶음. 마지막 박수 뒤 burst_end_s 동안 조용하면
 묶음이 끝나고 박수 수를 돌려준다. 몇 번이 "켜기" 인지는 부르는 쪽(데몬)이 정한다(밤에는 3번 등).
 
+크기는 칸마다 평균(직류, DC)을 빼고 잽니다. Brio 100 은 +0.008 쯤 섞여 나와, 안 빼면 바닥 소음이 두 배로
+부풀어 침대에서 치는 약한 두 번째 박수가 문턱에 못 미칩니다.
+
 숫자는 방마다 다릅니다 — `python -m desk calibrate` 로 실제 박수의 값을 보고 config 에서 조정합니다.
 """
 from __future__ import annotations
@@ -79,6 +82,7 @@ class ClapDetector:
 
     def _step(self, frame: np.ndarray) -> int:
         c, t = self.cfg, self._t
+        frame = frame - frame.mean()                       # 직류(DC) 빼기
         rms = float(np.sqrt(np.mean(frame.astype(np.float64) ** 2))) + 1e-9
         floor = max(float(np.median(self._hist)) if self._hist else rms, 1e-4)
         thr = max(floor * 10 ** (c.rise_db / 20), c.abs_min)

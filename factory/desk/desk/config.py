@@ -15,7 +15,9 @@ DEFAULTS: dict = {
         "clap_when_awake": "none",  # none · sleep (깨어 있을 때 박수로 끄기)
     },
     "clap": {},                     # ClapConfig 값 덮어쓰기 (rise_db · min_centroid_hz · max_gap_s …)
-    "listen": {"end_silence_s": 0.8, "min_utt_s": 0.4, "max_utt_s": 20.0, "vad_level": 2},
+    "listen": {"end_silence_s": 0.8, "min_utt_s": 0.4, "max_utt_s": 20.0,
+               "vad_level": -1,             # webrtcvad 0~3, -1 = 끔(말소리 대역 크기로만 — desk/vad.py)
+               "energy_db": 6.0},           # 말소리 대역이 바닥 소음보다 이만큼 커야 말
     "stt": {"model": "mlx-community/whisper-large-v3-turbo", "language": "ko",
             "prompt": "앱 공장, 상황판, 브리핑, 클로드, 깃허브, 맥 미니, 아이폰, 안드로이드, 워크플로, 출시"},
     "idle_minutes": 15,             # 이만큼 아무 말 없으면 화면 끄고 박수 대기로
