@@ -19,7 +19,7 @@ say_() { printf '\n\033[1m== %s\033[0m\n' "$*"; }
 [ "$(uname -m)" = arm64 ] || echo "※ 애플 실리콘이 아니면 mlx-whisper 가 안 돕니다 — config 의 stt 를 바꿔야 합니다"
 
 say_ "코드 복사 → $DESK"
-mkdir -p "$DESK" "$ASSIST" "$HOME/.config/desk" "$HOME/Library/Logs" "$HOME/.local/bin"
+mkdir -p "$DESK" "$ASSIST" "$HOME/.config/desk" "$HOME/Library/Logs" "$HOME/Library/LaunchAgents" "$HOME/.local/bin"
 rsync -a --delete --exclude .venv "$HERE/" "$DESK/"
 [ -f "$HOME/.config/desk/config.toml" ] || cp "$HERE/config.example.toml" "$HOME/.config/desk/config.toml"
 if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
@@ -29,7 +29,7 @@ fi
 
 say_ "파이썬 환경"
 PY=$(command -v python3.12 || command -v python3.13 || command -v python3.11 || true)
-[ -n "$PY" ] || { brew install -q python@3.12; PY=$(command -v python3.12); }
+[ -n "$PY" ] || { HOMEBREW_NO_ASK=1 brew install -q python@3.12; PY=$(command -v python3.12); }
 [ -d "$VENV" ] || "$PY" -m venv "$VENV"
 "$VENV/bin/pip" install -q --upgrade pip
 "$VENV/bin/pip" install -q numpy sounddevice webrtcvad-wheels mlx-whisper pyobjc-framework-Quartz

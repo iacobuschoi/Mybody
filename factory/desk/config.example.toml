@@ -1,6 +1,7 @@
 # ~/.config/desk/config.toml — 없으면 기본값(desk/config.py). 바꾼 뒤: launchctl kickstart -k gui/$(id -u)/lab.deskd
 
 owner = ""                        # 인사할 때 부를 이름
+idle_minutes = 15                 # 아무 말 없이 이만큼 지나면 화면 끄고 박수 대기 ([표] 아래에 두면 그 표 안의 값이 됨)
 
 [audio]
 device = ""                       # 입력 장치 이름 일부("Brio"). 비우면 시스템 기본 입력 — install.sh 가 Brio 를 찾으면 채움
@@ -28,8 +29,6 @@ vad_level = 2                     # 0~3, 높을수록 잡음에 엄격
 model = "mlx-community/whisper-large-v3-turbo"   # 느리면 "mlx-community/whisper-small-mlx"
 language = "ko"
 prompt = "앱 공장, 상황판, 브리핑, 클로드, 깃허브, 맥 미니, 아이폰, 안드로이드, 워크플로, 출시"
-
-idle_minutes = 15                 # 아무 말 없이 이만큼 지나면 화면 끄고 박수 대기
 
 [tts]
 voice = "Yuna"                    # 설정 → 손쉬운 사용 → 읽기 및 말하기 → 시스템 음성에서 "Yuna (프리미엄)" 권장

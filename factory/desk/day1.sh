@@ -28,7 +28,7 @@ eval "$(/opt/homebrew/bin/brew shellenv)"
 grep -q 'brew shellenv' "$HOME/.zprofile" 2>/dev/null || echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> "$HOME/.zprofile"
 
 step "2/5 git · gh · 파이썬 3.12"
-brew install -q git gh python@3.12 jq
+HOMEBREW_NO_ASK=1 brew install -q git gh python@3.12 jq   # Homebrew 7 부터는 설치 전에 [y/n] 을 물음
 
 step "3/5 저장소 → ~/lab/Mybody"
 mkdir -p "$HOME/lab"
