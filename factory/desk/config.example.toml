@@ -49,3 +49,13 @@ ship_repo = ""                    # "<주인>/app-factory-ship"
 [dashboard]
 port = 7070
 open_cmd = ""                     # 비우면 크롬 앱 창 전체 화면. 예: "open -a Safari {url}"
+
+[face]                            # 박수로 깨울 때 얼굴 인증 — 등록: deskctl enroll (등록 전엔 박수만으로 켜짐)
+enabled = true                    # false 면 예전처럼 박수만으로
+camera = "Brio"                   # 카메라 이름 일부. 아이폰 연속성 카메라 말고 이것
+name = ""                         # 환영 인사에 부를 이름 (비우면 owner). 예: "최민종"
+prompt = "얼굴 인증해 주세요."
+welcome = "{name}님, 환영합니다."
+fail = "얼굴을 확인하지 못했어요."
+on_error = "stay"                 # 카메라 · 인식이 고장일 때: "stay" 안 켬(키보드 · deskctl wake 로는 켜짐) · "wake" 얼굴 없이 켬
+threshold = 0.40                  # 주인인데 자꾸 실패하면 0.36, 남이 통과하면 0.45
