@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>lab.deskd</string>
+  <key>CFBundleName</key><string>deskd</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>NSMicrophoneUsageDescription</key><string>박수 소리와 말을 듣고 명령으로 씁니다. 받아쓰기는 이 맥 안에서만 합니다.</string>
+  <key>NSCameraUsageDescription</key><string>손 제스처를 봅니다.</string>
+</dict></plist>

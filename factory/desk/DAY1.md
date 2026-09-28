@@ -51,9 +51,10 @@ TV: 리모컨으로 해당 HDMI 입력 선택 → **입력을 "PC"로 · 게임 
 bash <(curl -fsSL https://raw.githubusercontent.com/iacobuschoi/Mybody/claude/app-dev-automation-workflow-h4d88r/factory/desk/day1.sh)
 ```
 
-암호를 물으면 맥 로그인 암호(입력해도 화면에 안 보이는 게 정상). 끝나면 남은 것 다섯 줄이 나옵니다.
+맨 처음에 **맥 로그인 암호를 한 번** 묻습니다(입력해도 화면에 안 보이는 게 정상). 그 뒤로는 기다리기만.
+Homebrew 가 개발자 도구를 받는 동안 몇 분씩 조용할 수 있습니다. 끝나면 남은 것 다섯 줄이 나옵니다.
 
-- 도중에 **「python 이(가) 마이크에 접근하려고 합니다」** 가 뜨면 **허용**.
+- 끝 무렵 **「deskd 이(가) 마이크에 접근하려고 합니다」** 가 뜨면 **허용** — 박수를 듣는 상주 프로그램입니다.
 - 「개발자 도구를 설치하시겠습니까?」 가 뜨면 **설치** (Homebrew 가 필요로 함).
 
 ## 5. 로그인 · 시험 (10분)
@@ -61,7 +62,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/iacobuschoi/Mybody/claude/ap
 ```
 claude                       # 뜨면 /login → 브라우저에서 claude.ai 로그인 → 돌아와서 /exit
 cd ~/lab/desk
-.venv/bin/python -m desk selftest     # 마이크 · 말하기 · 받아쓰기 · Claude · 브리핑 — 전부 OK 인지
+.venv/bin/python -m desk selftest     # 마이크 · 말하기 · 받아쓰기 · Claude · 브리핑 · deskd 마이크 — 전부 OK 인지
+                                      # (「터미널 이(가) 마이크에…」 가 뜨면 허용 — 시험용 권한은 따로입니다)
 .venv/bin/python -m desk calibrate    # 침대 쪽에서 박수 두 번 → ★ 묶음 끝: 박수 2번 이 뜨는지. Ctrl+C 로 끝
 deskctl sleep                         # 화면이 꺼짐
 ```
@@ -79,6 +81,10 @@ deskctl sleep                         # 화면이 꺼짐
   **TV 브랜드 · 연식을 알려 주면** 박수 → TV 켜기를 붙입니다(LG webOS · 삼성 타이젠은 와이파이로 켜고 끌 수 있음).
 - 맥 내장 스피커는 작습니다. 침대에서 안 들리면 `소리 키워` 라고 말하거나 config 의 `rate` 를 낮춰 천천히.
 - Brio 마이크로 침대에서 말이 잘 안 먹히면 그때 스피커폰을 삽니다 — 그 판단이 오늘 시험의 목적입니다.
+- **마이크 권한은 둘입니다.** 터미널(selftest · calibrate 용)과 deskd(상주, 박수 듣기용). selftest 가 둘 다 봅니다.
+  deskd 가 막혀 있으면 맥 스피커로 "마이크 권한이 없어서…" 라고 한 번 말하고 상태판에 빨갛게 뜹니다 →
+  설정 → 개인정보 보호 및 보안 → 마이크 → **deskd** 켜기(20초 안에 알아서 다시 듣습니다).
+- 목소리는 **Yuna (프리미엄)** 을 받아 두면 알아서 그걸 씁니다(selftest 의 「말하기」 줄에 어떤 목소리인지 나옴).
 - 로그: `tail -f ~/Library/Logs/deskd.log` · 다시 띄우기: `launchctl kickstart -k gui/$(id -u)/lab.deskd`
 
 ## 막히면

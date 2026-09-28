@@ -91,6 +91,26 @@ def selftest() -> None:
         voices = subprocess.run(["say", "-v", "?"], capture_output=True, text=True).stdout
         if cfg["tts"]["voice"] not in voices:
             raise RuntimeError(f"음성 {cfg['tts']['voice']} 없음 — 설정 → 손쉬운 사용 → 읽기 및 말하기에서 내려받기")
+        where = cfg["tts"].get("device") or "기본 출력"
+        if "(" not in v.voice:
+            return f"{v.voice} · {where} — 프리미엄을 받으면 더 자연스러움"
+        return f"{v.voice} · {where}"
+
+    def daemon_mic():
+        # 시험(터미널)이 들린다고 상주 프로그램도 들리는 게 아닙니다 — 권한 주인이 다릅니다(터미널 vs deskd)
+        import json
+        port = cfg["dashboard"]["port"]
+        try:
+            st = json.loads(urllib.request.urlopen(f"http://127.0.0.1:{port}/state", timeout=3).read())
+        except Exception:
+            raise RuntimeError("deskd 가 안 떠 있음 — launchctl kickstart -k gui/$(id -u)/lab.deskd, "
+                               "로그: tail ~/Library/Logs/deskd.log") from None
+        if st.get("mic") == "blocked":
+            raise RuntimeError("deskd 마이크 막힘 — 설정 → 개인정보 보호 및 보안 → 마이크 → deskd 켜기. "
+                               "목록에 없으면: tccutil reset Microphone 뒤 launchctl kickstart -k gui/$(id -u)/lab.deskd")
+        if st.get("mic") != "ok":
+            raise RuntimeError("deskd 가 아직 소리를 못 받음 — 권한 창이 떠 있으면 허용 뒤 20초 기다렸다 다시")
+        return f"지금 {st.get('mode')}"
 
     def stt():
         from .stt import WhisperSTT
@@ -117,6 +137,7 @@ def selftest() -> None:
     step("받아쓰기 모델", stt)
     step("Claude", claude)
     step("브리핑", brief)
+    step("상주 프로그램(deskd) 마이크", daemon_mic)
     print("전부 OK" if ok else "실패한 것을 고친 뒤 다시: python -m desk selftest")
     sys.exit(0 if ok else 1)
 

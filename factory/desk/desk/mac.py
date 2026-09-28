@@ -80,6 +80,21 @@ def speakable(text: str, max_sentences: int = 3) -> str:
     return " ".join(parts[:max_sentences]) if parts else t
 
 
+def best_voice(name: str) -> str:
+    """음성 이름 "Yuna" → 받아 둔 것 중 가장 좋은 것("Yuna (Premium)" > "Yuna (Enhanced)" > "Yuna").
+    괄호까지 적었으면 그대로. `say -v ?` 한 줄: 「이름   언어_지역   # 예문」."""
+    if not name or "(" in name:
+        return name
+    names = [m.group(1).strip() for m in
+             (re.match(r"^(.+?)\s+[a-z]{2,3}_[A-Z]{2,}\s+#", ln) for ln in _run(["say", "-v", "?"]).splitlines()) if m]
+    mine = [n for n in names if n == name or n.startswith(name + " (")]
+    for words in (("Premium", "프리미엄"), ("Enhanced", "향상")):
+        for n in mine:
+            if any(w in n for w in words):
+                return n
+    return name
+
+
 class Voice:
     """`say` 로 말하기. 말하는 동안 busy — 데몬이 그동안 귀를 닫습니다(제 목소리를 명령으로 안 듣게)."""
 
@@ -94,6 +109,8 @@ class Voice:
         self.last_text = ""
         if not shutil.which("say"):
             self.voice = ""
+        else:
+            self.voice = best_voice(voice)
 
     def busy(self) -> bool:
         with self._lock:

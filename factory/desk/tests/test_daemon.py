@@ -146,6 +146,22 @@ class DaemonFlow(unittest.TestCase):
         self.assertEqual(d.mode, "sleep")
         DISPLAY["asleep"] = None
 
+    def test_mic_blocked_when_only_zeros(self):
+        # 권한이 없으면 macOS 는 정확히 0 만 보냄 → 6초 뒤 막힘으로 보고 한 번만 말함, 소리가 오면 풀림
+        d = make()
+        t0 = d._mic_heard
+        zeros = np.zeros(480, dtype=np.float32)
+        self.assertFalse(d._mic_check(zeros, t0 + 3))
+        self.assertFalse(d.mic_blocked)
+        self.assertTrue(d._mic_check(zeros, t0 + 7))
+        self.assertTrue(d.mic_blocked)
+        self.assertEqual(d.board.get()["mic"], "blocked")
+        self.assertFalse(d._mic_check(None, t0 + 30))            # 이미 알림 — 또 말하지 않음
+        self.assertEqual(sum("마이크 권한" in s for s in d.voice.said), 1)
+        d._mic_check(silence(0.03), t0 + 31)                     # 조용한 방도 0 은 아님
+        self.assertFalse(d.mic_blocked)
+        self.assertEqual(d.board.get()["mic"], "ok")
+
 
 if __name__ == "__main__":
     unittest.main()

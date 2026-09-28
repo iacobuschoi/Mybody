@@ -7,7 +7,7 @@
 # 하는 일: 파이썬 환경 · 받아쓰기 모델 내려받기 · 전원 설정(맥은 안 자고 화면만 꺼짐) · 비서 폴더 ·
 #         deskctl 명령 · 로그인 시 자동 실행(launchd) · 점검.
 # 한 번은 사람이 해야 하는 것(스크립트가 끝에 다시 알려 줌):
-#   · 첫 실행 때 뜨는 「마이크 접근 허용」 창 — 한 번 클릭
+#   · 「deskd 이(가) 마이크에 접근하려고 합니다」 창 — 허용 (시험 때는 「터미널」 도 한 번)
 #   · 시스템 음성 Yuna (프리미엄) 내려받기 — 설정 → 손쉬운 사용 → 읽기 및 말하기
 #   · 화면이 꺼졌다 켜질 때 암호 안 묻게 — 설정 → 잠금 화면 → 「화면 보호기 시작 또는 디스플레이가 꺼진 후 암호 요구」 → 안 함
 # =============================================================================
@@ -80,6 +80,25 @@ SH
 chmod +x "$HOME/.local/bin/deskctl"
 grep -q '.local/bin' "$HOME/.zprofile" 2>/dev/null || echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$HOME/.zprofile"
 
+say_ "마이크 권한 받을 실행 파일 (deskd)"
+# launchd 가 파이썬을 바로 띄우면 권한 창이 안 뜨고 소리가 0 만 들어옵니다(Python.app 에 마이크 사용 이유가 없음).
+# 사용 이유를 품은 작은 실행 파일이 파이썬을 띄우게 합니다. 소스가 그대로면 다시 만들지 않습니다 —
+# 다시 만들면 macOS 가 새 프로그램으로 보고 권한을 또 묻습니다.
+LAUNCHER="$HOME/.local/libexec/deskd"; mkdir -p "$(dirname "$LAUNCHER")"
+SRC_SUM=$(cat "$HERE/launcher/deskd.c" "$HERE/launcher/Info.plist" | shasum | cut -c1-16)
+if [ ! -x "$LAUNCHER" ] || [ "$(cat "$LAUNCHER.sum" 2>/dev/null)" != "$SRC_SUM" ]; then
+  if xcrun clang -O2 -o "$LAUNCHER" "$HERE/launcher/deskd.c" -sectcreate __TEXT __info_plist "$HERE/launcher/Info.plist" \
+     && codesign -s - -f -i lab.deskd "$LAUNCHER" >/dev/null 2>&1; then
+    echo "$SRC_SUM" > "$LAUNCHER.sum"; echo "  만듦: $LAUNCHER"
+  else
+    rm -f "$LAUNCHER"; echo "  ※ 못 만듦(개발자 도구 없음?) — 파이썬을 바로 띄웁니다. 마이크가 0 이면: xcode-select --install 뒤 다시"
+  fi
+else
+  echo "  그대로 씀: $LAUNCHER"
+fi
+RUN_ARGS="<string>$VENV/bin/python</string><string>-m</string><string>desk</string><string>run</string>"
+[ -x "$LAUNCHER" ] && RUN_ARGS="<string>$LAUNCHER</string>$RUN_ARGS"
+
 say_ "로그인할 때 자동 실행 (launchd)"
 PL="$HOME/Library/LaunchAgents/lab.deskd.plist"
 cat > "$PL" <<PLIST
@@ -87,7 +106,7 @@ cat > "$PL" <<PLIST
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>Label</key><string>lab.deskd</string>
-  <key>ProgramArguments</key><array><string>$VENV/bin/python</string><string>-m</string><string>desk</string><string>run</string></array>
+  <key>ProgramArguments</key><array>$RUN_ARGS</array>
   <key>WorkingDirectory</key><string>$DESK</string>
   <key>EnvironmentVariables</key><dict>
     <key>PATH</key><string>$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
@@ -103,14 +122,15 @@ PLIST
 launchctl bootout "gui/$(id -u)/lab.deskd" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$PL"
 echo "  시작됨 — 로그: tail -f ~/Library/Logs/deskd.log"
+echo "  → 곧 「deskd 이(가) 마이크에 접근하려고 합니다」 창이 뜨면 【허용】"
 
 say_ "점검"
 ( cd "$DESK" && "$VENV/bin/python" -m unittest discover -s tests -t . -q ) && echo "  시험 통과"
 cat <<TXT
 
 남은 것 (한 번만, 사람이):
-  1. 화면에 「python 이(가) 마이크에 접근하려고 합니다」가 뜨면 허용.
-     안 뜨고 로그에 소리가 0 이면: 설정 → 개인정보 보호 및 보안 → 마이크 에서 python 켜기.
+  1. 「deskd」 · 「터미널」 이 마이크를 쓰겠다고 하면 허용.
+     놓쳤으면: 설정 → 개인정보 보호 및 보안 → 마이크 → deskd 켜기 (selftest 가 막혔는지 알려 줌).
   2. 설정 → 손쉬운 사용 → 읽기 및 말하기 → 시스템 음성 → 한국어 Yuna (프리미엄) 내려받기.
   3. 설정 → 잠금 화면 → 디스플레이가 꺼진 후 암호 요구 → 안 함.  (키보드 없이 쓰려면 필요)
   4. 방에서:  cd $DESK && $VENV/bin/python -m desk calibrate   → 박수 몇 번 쳐서 ★ 가 뜨는지.

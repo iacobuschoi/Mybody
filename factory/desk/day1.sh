@@ -5,7 +5,7 @@
 #   bash <(curl -fsSL https://raw.githubusercontent.com/iacobuschoi/Mybody/claude/app-dev-automation-workflow-h4d88r/factory/desk/day1.sh)
 #
 # Homebrew · git · gh · 파이썬 · Claude Code 를 깔고, 저장소를 ~/lab/Mybody 로 받고, 책상 시스템을 설치합니다.
-# 중간에 맥 로그인 암호를 두세 번 묻습니다(Homebrew · 전원 설정). 다시 돌려도 안전합니다.
+# 맨 처음에 맥 로그인 암호를 한 번 묻습니다. 다시 돌려도 안전합니다.
 # =============================================================================
 set -euo pipefail
 BRANCH="claude/app-dev-automation-workflow-h4d88r"
@@ -14,7 +14,13 @@ step() { printf '\n\033[1;36m▶ %s\033[0m\n' "$*"; }
 
 [ "$(uname)" = Darwin ] || { echo "맥에서 돌리세요"; exit 1; }
 
-step "1/5 Homebrew (처음이면 5~10분 · 암호를 물으면 맥 로그인 암호)"
+# 암호는 처음 한 번만. Homebrew 를 묻지 않고(NONINTERACTIVE) 깔려면 sudo 가 미리 풀려 있어야 하고,
+# 도구 설치가 5분을 넘기면 sudo 가 다시 잠기므로 끝날 때까지 살려 둡니다.
+echo "맥 로그인 암호를 한 번 입력하세요 (입력해도 화면에 안 보이는 게 정상):"
+sudo -v
+( while kill -0 "$$" 2>/dev/null; do sudo -n true 2>/dev/null || true; sleep 50; done ) &
+
+step "1/5 Homebrew (처음이면 5~15분 — 개발자 도구까지 받느라 조용해도 기다리세요)"
 if ! command -v brew >/dev/null && [ ! -x /opt/homebrew/bin/brew ]; then
   NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 fi

@@ -56,6 +56,9 @@ class Desk:
         self._stop = threading.Event()
         self._dash_opened = False
         self._changed_at = 0.0                        # 우리가 화면을 켜고/끈 시각 — 화면 감시가 헷갈리지 않게
+        self.mic_blocked = False
+        self._mic_heard = time.time()                 # 마지막으로 0 이 아닌 소리가 들어온 시각
+        self._mic_warned = False
 
     # ── 상태 바꾸기 ────────────────────────────────────────────────────────
     def _show(self, sub: str | None = None) -> None:
@@ -196,6 +199,30 @@ class Desk:
             self.last_activity = time.time()
             self._show()
 
+    # ── 마이크 권한 ────────────────────────────────────────────────────────
+    def _mic_check(self, x: np.ndarray | None, now: float | None = None) -> bool:
+        """권한이 없으면 macOS 는 마이크 대신 정확히 0 만 보냅니다. 진짜 마이크는 조용한 방에서도 0 이 아닙니다.
+        막혔다고 처음 알게 되면 True (호출한 쪽이 스트림을 다시 열 때 씀)."""
+        now = time.time() if now is None else now
+        if x is not None and np.any(x):
+            self._mic_heard = now
+            if self.mic_blocked:
+                self.mic_blocked = False
+                log.info("마이크 들림")
+                self.board.log("mic", "마이크 들림")
+            self.board.set(mic="ok")
+            return False
+        if self.mic_blocked or now - self._mic_heard < 6:
+            return False
+        self.mic_blocked = True
+        log.warning("마이크에서 0 만 들어옴 — 권한 없음? 설정 → 개인정보 보호 및 보안 → 마이크 → deskd")
+        self.board.set(mic="blocked")
+        self.board.log("error", "마이크 막힘 — 설정 → 개인정보 보호 및 보안 → 마이크 → deskd 켜기")
+        if not self._mic_warned:                      # 화면이 꺼져 있어도 들리게 한 번은 말로
+            self._mic_warned = True
+            self.voice.say("마이크 권한이 없어서 박수를 못 들어요. 시스템 설정, 개인정보 보호 및 보안, 마이크에서 deskd를 켜 주세요.")
+        return True
+
     # ── 소리 흐름 ──────────────────────────────────────────────────────────
     def _required_claps(self) -> int:
         w = self.cfg["wake"]
@@ -254,22 +281,30 @@ class Desk:
         dev = self.cfg["audio"].get("device") or None
         log.info("deskd 시작 · 마이크 %s · 박수 %d번(밤 %d번)", dev or "기본", self.cfg["wake"]["claps"],
                  self.cfg["wake"]["night_claps"])
-        with sd.InputStream(samplerate=self.sr, channels=1, dtype="float32", blocksize=int(self.sr * 0.03),
-                            device=dev, callback=cb):
-            self._show()
-            last_show = last_display = 0.0
-            while not self._stop.is_set():
-                try:
-                    x = self.audio_q.get(timeout=1)
-                except queue.Empty:
-                    continue
-                self._on_audio(x)
-                if time.time() - last_show > 0.5:        # 말하기가 끝났는지 등 — 상태판을 따라가게
-                    self._show()
-                    last_show = time.time()
-                if time.time() - last_display > 2:       # 키보드로 켠 화면 · 저절로 꺼진 화면 따라가기
-                    self._watch_display()
-                    last_display = time.time()
+        self._show()
+        last_show = last_display = 0.0
+        while not self._stop.is_set():
+            opened = self._mic_heard = time.time()
+            # 권한을 나중에 허용하면 이미 열린 스트림엔 계속 0 이 옵니다 — 막혀 있는 동안은 20초마다 다시 엽니다
+            with sd.InputStream(samplerate=self.sr, channels=1, dtype="float32", blocksize=int(self.sr * 0.03),
+                                device=dev, callback=cb):
+                while not self._stop.is_set():
+                    try:
+                        x = self.audio_q.get(timeout=1)
+                    except queue.Empty:
+                        x = None
+                    self._mic_check(x)
+                    if self.mic_blocked and time.time() - opened > 20:
+                        break
+                    if x is None:
+                        continue
+                    self._on_audio(x)
+                    if time.time() - last_show > 0.5:        # 말하기가 끝났는지 등 — 상태판을 따라가게
+                        self._show()
+                        last_show = time.time()
+                    if time.time() - last_display > 2:       # 키보드로 켠 화면 · 저절로 꺼진 화면 따라가기
+                        self._watch_display()
+                        last_display = time.time()
 
     def _watch_display(self) -> None:
         """박수 말고 다른 걸로 화면이 켜지거나 꺼졌을 때 상태를 맞춥니다.

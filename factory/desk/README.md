@@ -50,7 +50,9 @@ bash factory/desk/install.sh
 ```
 파이썬 환경 · 받아쓰기 모델(맥 안에서 도는 whisper) · 전원 설정(맥은 안 자고 화면만 꺼짐) · 비서 폴더 · `deskctl` ·
 로그인 시 자동 실행까지. 끝에 **사람이 한 번 해야 하는 세 가지**를 알려 줍니다:
-1. 마이크 접근 허용 창 — 한 번 클릭
+1. 마이크 접근 허용 창 — **deskd**(상주 · 박수 듣기)와 **터미널**(selftest · calibrate) 각각 한 번.
+   launchd 가 파이썬을 바로 띄우면 권한 창이 안 뜨고 0 만 들어와서, 마이크 사용 이유를 품은 작은 실행 파일
+   (`launcher/deskd.c` → `~/.local/libexec/deskd`)이 파이썬을 띄웁니다. 0 만 들어오면 데몬이 말로 알리고 20초마다 다시 엽니다
 2. 한국어 음성 **Yuna (프리미엄)** 내려받기 — 설정 → 손쉬운 사용 → 읽기 및 말하기
 3. 디스플레이가 꺼진 뒤 암호 요구 → **안 함** (키보드 없이 쓰려면 필수. 대신 방 밖에서 이 맥을 만질 사람이 없어야 합니다)
 
@@ -110,11 +112,12 @@ desk/brain.py      claude -p · 하루 단위로 대화 이어 가기 · 권한 
 desk/briefing.py   gh · adb · xcrun · 날씨 → 틀에 넣은 문장 (Claude 안 거침: 빠르고 숫자를 지어내지 않음)
 desk/mac.py        화면 켜기/끄기 · 말하기(say) · 음량 · 시스템 안 재우기
 desk/dashboard.py  상태판(127.0.0.1:7070) · deskctl 이 부르는 /api
-desk/daemon.py     상태 기계 — 자는 중 · 듣는 중 · 조용히
+desk/daemon.py     상태 기계 — 자는 중 · 듣는 중 · 조용히 · 마이크가 0 만 주면(권한 없음) 알리고 다시 열기
+launcher/deskd.c   마이크 권한을 받는 작은 실행 파일(Info.plist 내장) — launchd → deskd → 파이썬
 assistant/CLAUDE.md  비서의 규칙: 한두 문장 · 나한테 한 말 아니면 <IGNORE> · 긴 일은 백그라운드 세션으로
 ```
 
-시험: `python -m unittest discover -s tests -t .` — 박수 · 명령 · 받아쓰기 거르기 · 브리핑 · 전체 흐름(가짜 마이크/화면/Claude) 30개.
+시험: `python -m unittest discover -s tests -t .` — 박수 · 명령 · 받아쓰기 거르기 · 브리핑 · 전체 흐름(가짜 마이크/화면/Claude) · 마이크 막힘 32개.
 실제 마이크 · 스피커 · 모니터로는 **아직 돌려 보지 않았습니다** — calibrate 와 selftest 가 첫 확인입니다.
 
 ## 다음 단계

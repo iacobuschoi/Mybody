@@ -53,6 +53,7 @@ function render(st){
  document.body.className=st.mode||"sleep";stateText.textContent=S[st.mode]||st.mode;
  heard.textContent=st.heard||"—";reply.textContent=st.reply||"";panel.textContent=st.panel||"";
  const b=st.briefing||{},f=b.factory||{},l=b.lab||{};let h="";
+ if(st.mic==="blocked")h+=`<div class="row bad"><span>마이크 막힘</span><span>설정 → 개인정보 보호 및 보안 → 마이크 → deskd 켜기</span></div>`;
  if(b.weather)h+=`<div class="row"><span>날씨</span><span>${esc(b.weather)}</span></div>`;
  (f.apps||[]).forEach(a=>h+=`<div class="row"><span>${esc(a.name)}</span><span>${esc(a.stage)}</span></div>`);
  if(f.waiting_approvals)h+=`<div class="row todo"><span>출시 승인 대기</span><span>${f.waiting_approvals}건</span></div>`;
@@ -71,7 +72,7 @@ class Board:
     """상태판에 보일 것 — 데몬이 고치면 열린 화면으로 바로 갑니다."""
 
     def __init__(self):
-        self._st = {"mode": "sleep", "heard": "", "reply": "", "panel": "", "briefing": {}, "log": []}
+        self._st = {"mode": "sleep", "mic": "", "heard": "", "reply": "", "panel": "", "briefing": {}, "log": []}
         self._cv = threading.Condition()
         self._ver = 0
 
