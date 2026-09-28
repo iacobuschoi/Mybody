@@ -24,7 +24,7 @@ import numpy as np
 from . import briefing, config, mac
 from .brain import Brain
 from .clap import ClapConfig, ClapDetector
-from .dashboard import Board, serve
+from .dashboard import Board, serve, watch_agents
 from .router import route
 from .stt import WhisperSTT
 from .vad import Segmenter
@@ -270,6 +270,7 @@ class Desk:
                            "unmute": self.unmute, "stop": self.stop,
                            "say": lambda t: (self.voice.say(t), "ok")[1], "show": self.show},
               port=self.cfg["dashboard"]["port"])
+        watch_agents(self.board)
         threading.Thread(target=self._stt_worker, daemon=True).start()
         threading.Thread(target=self._brain_worker, daemon=True).start()
         threading.Thread(target=self._warmup, daemon=True).start()

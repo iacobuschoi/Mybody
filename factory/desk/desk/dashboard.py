@@ -3,10 +3,15 @@
 /          상태판 (전체 화면 크롬 앱 창)
 /events    상태가 바뀔 때마다 보내는 스트림(SSE)
 /api/<명령> deskctl 이 부르는 곳: wake · sleep · brief · mute · unmute · stop · say · show
+
+옆 칸의 「백그라운드 작업」 은 `claude agents --json` 을 몇 초마다 읽어 채웁니다(watch_agents).
 """
 from __future__ import annotations
 
 import json
+import os
+import shutil
+import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -25,7 +30,7 @@ header{display:flex;align-items:baseline;gap:24px;flex-wrap:wrap}
 .listening #dot{background:var(--acc);box-shadow:0 0 0 0 var(--acc);animation:p 1.6s infinite}
 .thinking #dot{background:var(--warn)}.speaking #dot{background:#7aa2f7}.muted #dot{background:var(--bad)}
 @keyframes p{0%{box-shadow:0 0 0 0 rgba(86,212,193,.6)}70%{box-shadow:0 0 0 18px rgba(86,212,193,0)}100%{box-shadow:0 0 0 0 rgba(86,212,193,0)}}
-main{display:grid;grid-template-columns:1.2fr 1fr;gap:24px;min-height:0}
+main{display:grid;grid-template-columns:1.2fr 1fr .8fr;gap:24px;min-height:0}
 section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px 24px;overflow:auto;min-height:0}
 h2{margin:0 0 12px;font-size:14px;letter-spacing:.08em;color:var(--dim);font-weight:600}
 #heard{font-size:30px;font-weight:600;min-height:1.5em}#reply{font-size:22px;margin-top:14px;white-space:pre-wrap;color:#c9d1d9}
@@ -36,11 +41,14 @@ h2{margin:0 0 12px;font-size:14px;letter-spacing:.08em;color:var(--dim);font-wei
 #log{font-size:14px;color:var(--dim);font-family:ui-monospace,Menlo,monospace;max-height:22vh;overflow:auto}
 #log div.ig{opacity:.5}
 footer{color:var(--dim);font-size:15px}
+#agents .row{font-size:16px;flex-wrap:wrap;row-gap:0}#agents .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+#agents .st{margin-left:auto;white-space:nowrap;font-variant-numeric:tabular-nums}.ag-working{color:var(--acc)}.ag-waiting{color:var(--warn)}.ag-done{color:var(--dim)}
 </style></head><body class="sleep">
 <header><div id="clock">--:--</div><div id="date"></div><div id="state"><span id="dot"></span><span id="stateText">대기</span></div></header>
 <main>
  <section><h2>들은 말</h2><div id="heard">—</div><div id="reply"></div><div id="panel"></div></section>
  <section><h2>지금 상태</h2><div id="brief"></div><h2 style="margin-top:20px">기록</h2><div id="log"></div></section>
+ <section><h2>백그라운드 작업</h2><div id="agents"></div></section>
 </main>
 <footer>명령 예: "브리핑" · "조용히" · "다시 들어" · "화면 꺼" · "멈춰" · 그 밖의 말은 Claude 에게</footer>
 <script>
@@ -49,6 +57,13 @@ const W="일월화수목금토";
 function tick(){const d=new Date();clock.textContent=d.toTimeString().slice(0,5);date.textContent=`${d.getMonth()+1}월 ${d.getDate()}일 ${W[d.getDay()]}요일`}
 setInterval(tick,1000);tick();
 function esc(s){return String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}
+const AG={working:"작업 중",done:"완료",waiting:"대기"};
+function ago(ms){const m=Math.max(0,Math.floor((Date.now()-ms)/60000));return m<60?`${m}분`:m<1440?`${Math.floor(m/60)}시간 ${m%60}분`:`${Math.floor(m/1440)}일`}
+let agentsNow=null;
+function renderAgents(){const a=agentsNow;
+ if(a===null){agents.innerHTML='<span style="color:var(--dim)">읽는 중…</span>';return}
+ agents.innerHTML=a.length?a.map(x=>`<div class="row ag-${x.state}"><span class="nm">${esc(x.name)}</span><span class="st">${AG[x.state]||esc(x.state)} · ${x.started?ago(x.started):"—"}</span></div>`).join(""):'<span style="color:var(--dim)">없음</span>'}
+setInterval(renderAgents,30000);
 function render(st){
  document.body.className=st.mode||"sleep";stateText.textContent=S[st.mode]||st.mode;
  heard.textContent=st.heard||"—";reply.textContent=st.reply||"";panel.textContent=st.panel||"";
@@ -61,10 +76,11 @@ function render(st){
  if(f.red_main)h+=`<div class="row bad"><span>실패한 빌드</span><span>${f.red_main}</span></div>`;
  if(l.runner!==undefined)h+=`<div class="row"><span>실험실</span><span>러너 ${l.runner?"켜짐":"꺼짐"} · 아이폰 ${l.iphone?"연결":"없음"} · 안드로이드 ${l.android||0} · 디스크 ${esc(l.disk_free||"")}</span></div>`;
  brief.innerHTML=h||'<span style="color:var(--dim)">박수 두 번이면 브리핑합니다</span>';
+ if(st.agents!==undefined&&JSON.stringify(st.agents)!==JSON.stringify(agentsNow)){agentsNow=st.agents;renderAgents()}
  log.innerHTML=(st.log||[]).slice().reverse().map(x=>`<div class="${x.kind==='ignore'?'ig':''}">${esc(x.t)} ${esc(x.kind)} · ${esc(x.text)}</div>`).join("");
 }
 function connect(){const es=new EventSource("/events");es.onmessage=e=>render(JSON.parse(e.data));es.onerror=()=>{es.close();setTimeout(connect,2000)}}
-connect();
+connect();renderAgents();
 </script></body></html>"""
 
 
@@ -98,6 +114,44 @@ class Board:
         with self._cv:
             self._cv.wait_for(lambda: self._ver != ver, timeout=timeout)
             return self._ver
+
+
+def read_agents(run=subprocess.run) -> list[dict] | None:
+    """`claude agents --json` 에서 kind 가 background 인 것만 — 이름 · 상태(working/done/waiting) · 시작 시각(ms).
+    못 읽으면 None(화면은 직전 목록을 그대로 둠)."""
+    exe = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
+    try:
+        out = run([exe, "agents", "--json"], capture_output=True, text=True, timeout=10).stdout
+        items = json.loads(out)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    if not isinstance(items, list):
+        return None
+    rows = []
+    for a in items:
+        if not isinstance(a, dict) or a.get("kind") != "background":
+            continue
+        st = a.get("state") or a.get("status") or ""
+        state = ("done" if st in ("done", "idle") else
+                 "working" if st in ("working", "busy") else "waiting")   # blocked · waiting · 그 밖
+        rows.append({"name": a.get("name") or a.get("id") or str(a.get("pid", "")), "state": state,
+                     "started": a.get("startedAt") or 0})
+    order = {"working": 0, "waiting": 1, "done": 2}
+    rows.sort(key=lambda r: (order[r["state"]], -r["started"]))
+    return rows
+
+
+def watch_agents(board: Board, every_s: float = 5) -> threading.Thread:
+    """몇 초마다 백그라운드 작업 목록을 읽어 상태판에 — 바뀐 게 없으면 Board.set 이 화면에 안 보냅니다."""
+    def loop():
+        while True:
+            rows = read_agents()
+            if rows is not None:
+                board.set(agents=rows)
+            time.sleep(every_s)
+    t = threading.Thread(target=loop, daemon=True, name="agents")
+    t.start()
+    return t
 
 
 def serve(board: Board, commands: dict, host: str = "127.0.0.1", port: int = 7070) -> ThreadingHTTPServer:
