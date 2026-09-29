@@ -35,12 +35,54 @@
  *     자리입니다. 손 크기 · 화면은 폰마다 다르니 동기화하는 settings 에 넣지 않습니다.
  *     옛 판의 {쪽, 높이 비율}은 처음 읽을 때 그 화면에서 **같은 높이**가 되게 옮겨 적습니다.
  *
- * 처음 자리 — 홈 「인바디」 단추 바로 위
- *   오른쪽 가장자리, 동그라미 아래 끝이 「인바디」 단추(확장 FAB) 위 끝보다 12px 위.
- *   탭바(80) + 단추 여백(16) + 단추(56) + 틈(12) + 아래 안전 영역에서 셉니다 — 단추와 같은
- *   16px 가장자리라 오른쪽 끝이 단추와 나란합니다. 엄지가 이미 가 있는 자리이고, 「인바디」
- *   를 누르려는 손이 말풍선을 누르지 않게 틈을 둡니다. 밀어 올린 화면에는 탭바가 없지만
- *   맨 아래 큰 단추(저장 · 다음)가 대개 그 높이라 같은 자리가 맞습니다.
+ * 처음 자리 — 오른쪽 가장자리, 앱바 밑 ~ 탭바 위의 한가운데
+ *   오른쪽 가장자리(「인바디」 단추와 같은 16px 안쪽 — 오른쪽 끝이 단추와 한 세로줄), 높이는
+ *   앱바 아래 끝(위 안전 영역 + 56)과 탭바 위 끝(아래 안전 영역 위 80) 사이의 **가운데**.
+ *   다만 옛 자리(「인바디」 단추 위 끝에서 12px 위)보다 아래로는 안 내려갑니다 — 세로 화면에서는
+ *   가운데가 늘 그보다 위라 걸리지 않고, 낮은 가로 창(안전 영역을 뺀 높이 344 밑)에서 가운데가
+ *   단추를 덮지 않게 막습니다. 그러고 가장자리 네모([feedbackBubbleTrack]) 안으로 당깁니다.
+ *   예전엔 「인바디」 단추 바로 위(피드백 42 의 "디폴트 위치를 인바디 사진올리기 버튼 바로위로")
+ *   였는데, 시험판 의견 — 첫 설정 3/3 「시작하기 전에」 에서 "채팅이랑 체크박스가 같은위치에
+ *   있어 누르기 불편합니다" — 과 주인의 말("의견박스 디폴트위치 수정하고")로 옮겼습니다.
+ *   맨 아래에 큰 단추를 박아 둔 화면(첫 설정의 「다음」 · 「시작하기」)이나 목록 끝에 저장 단추가
+ *   오는 화면(목표 · 검수)을 끝까지 내리면(또는 다 들어가면) 마지막 줄들이 **옛 자리** 에 섭니다.
+ *   Material 은 줄 끝의 체크박스 · 스위치(CheckboxListTile · SwitchListTile 의 기본 자리)와
+ *   친구 목록의 종 · 꺾쇠를 오른쪽 끝에 두어서 말풍선이 그것을 덮었습니다(첫 설정 3/3 은
+ *   360×640 · 390×844 둘 다 — feedback_bubble_test 가 대조로 봅니다). 굴러가는 목록의 맨 끝
+ *   줄(고정 단추 바로 위)과 맨 위 줄은 더 굴려도 말풍선 밑에서 못 빠져나오지만, **가운데 줄은
+ *   굴리면 언제든 비켜 납니다.** 굴릴 것이 없는 짧은 화면은 예외입니다 — 로그인 화면의
+ *   「로그인」(360×800 · 390×844 등 요즘 폰 대부분)과 첫 설정 1/3 의 「나이」 칸(「세」 글자)처럼
+ *   가로로 꽉 찬 것은 오른쪽 끝이 말풍선 밑에 듭니다(옛 자리에서는 「로그인 없이 쓰기」 였습니다).
+ *   둘 다 넓어서 가운데 · 글자 · 입력 자리는 비어 있습니다(feedback_bubble_test 가 봅니다). 화면마다
+ *   높이를 달리하지 않고 하나의 규칙으로 두되, 누를 곳이 끝에만 있는 좁은 것(체크박스 · 스위치)을
+ *   비키는 쪽을 골랐습니다. 오른쪽은
+ *   그대로 — 주인이 전에 고른 엄지 닿는 쪽이고, 왼쪽에서 시작하는 스낵바 글자를 덮지 않습니다.
+ *   세로 화면에서는 위의 띠(MaterialBanner, shell.dart — 앱바 바로 밑)보다도 아래라 「로그인」 ·
+ *   「요청」 을 덮지 않습니다(360×640 · 글자 1.3배까지, invite_deferred_test). 가로 창에서는
+ *   앱바와 탭바 사이가 200px 안팎이라 띠가 말풍선 높이까지 내려올 수 있습니다 — 띠는 화면을 밀지
+ *   않고 얹히고 저절로 걷혀서 그대로 둡니다. 옮긴 적 없는 사람은 적힌 자리가 없어(처음 자리는
+ *   적지 않음) 새 자리로 가고, 옮긴 사람은 옮긴 자리 그대로입니다.
+ *
+ * 한 번 알림 — 「꾹 눌러 옮길 수 있어요」
+ *   주인의 말: "의견박스 꾹누르면 움직일수있는거 알려줘". 말풍선 옆(화면 가운데 쪽)에 작은
+ *   알약 한 줄 — **이 기기에서 한 번**(SharedPreferences [kFeedbackBubbleHintKey]).
+ *   · 이번 실행에서 말풍선이 처음 보이고 1.2초 뒤, 맨 위가 **화면**(PageRoute)이고 앱이 앞에
+ *     있을 때(resumed)만 — 다이얼로그 · 시트(테스터 인사 등)가 위에 있거나 시스템 창(「알림을
+ *     허용할까요?」)이 덮었거나 앱이 뒤로 갔으면 1초마다 다시 봅니다(말풍선이 보이는 동안).
+ *     알림은 그 뒤의 화면이 아니라 말풍선에 붙은 말인데, 다이얼로그를 읽는 눈을 뺏으면 안 되고,
+ *     아무도 못 보는 때 떠서 본 것으로 적히면 안 됩니다.
+ *   · **뜨는 순간** 본 것으로 적습니다 — 떠 있는 동안 앱이 꺼져도 두 번 뜨지 않습니다.
+ *   · 4초 머물고 흐려지며 걷힙니다. 말풍선을 들거나(꾹 누르기 시작) · 말풍선이 숨거나(키보드 ·
+ *     의견 시트 · 치우기) 하면 곧바로 걷히고, 다시 뜨지 않습니다.
+ *   · 꾹 눌러 옮겨 둔 자리가 있으면 이미 아는 사람이라 띄우지 않고 본 것으로 적습니다. 뜨기 전에
+ *     스스로 꾹 눌러 든 사람도 그렇습니다. 옛 판(0.2.17 — 그냥 끌면 움직였음)의 자리에서 옮겨
+ *     적는 사람에게는 띄웁니다 — 아는 것이 "끌기" 인데 이제 끌면 아무 일도 없습니다
+ *     ([loadFeedbackBubbleMovedByLongPress]).
+ *   · 반대색(inverseSurface) 알약 · bodySmall. 말풍선이 오른쪽 반이면 그 왼쪽에, 왼쪽 반이면
+ *     오른쪽에 — 동그라미 끝에서 8px, 높이는 동그라미 가운데. 폭은 화면 가장자리(16px)까지
+ *     남은 만큼만이라 글자가 커도 화면 밖으로 안 나갑니다.
+ *   · 누름은 받지 않고(IgnorePointer) 스크린리더에도 알리지 않습니다 — X 처럼 손가락용 안내이고,
+ *     말풍선과 같은 층이라 캡처 경계 밖입니다(찍히지 않음).
  *
  * 크기 · 색
  *   동그라미 40px(누르는 칸은 48px). 표면색을 조금 비치게(0.9) · 가는 테두리 · 옅은 그림자 —
@@ -103,18 +145,26 @@ import 'feedback.dart';
 const double _dot = 40; // 보이는 동그라미
 const double _hit = 48; // 누르는 칸
 /* 가장자리에서 동그라미까지 — 「인바디」 단추의 여백(kFloatingActionButtonMargin)과 같게.
-   그래야 처음 자리의 오른쪽 끝이 단추와 나란합니다. */
+   그래야 오른쪽 가장자리의 말풍선이 단추와 한 세로줄(오른쪽 끝 나란히)에 섭니다. */
 const double _inset = 16;
-const double _navBar = 80; // 탭바(Material 3 NavigationBar)
-const double _fabMargin = 16; // 탭바와 「인바디」 단추 사이
-const double _fab = 56; // 「인바디」 단추 높이
-const double _fabGap = 12; // 단추 위 끝과 말풍선 아래 끝 사이
+/* 처음 자리의 높이를 재는 두 끝 — 앱바(kToolbarHeight, 위 안전 영역 밑)와 탭바(Material 3
+   NavigationBar, 아래 안전 영역 위). 탭바 없는 밀어 올린 화면에서도 같은 자리 — 거기 맨 아래
+   고정 단추(56 ~ 80)도 이 높이 안입니다. */
+const double _navBar = 80;
+/* 처음 자리의 아래 한계 — 홈 「인바디」 단추(확장 FAB): 탭바 위 여백 16 · 높이 56, 그 위 끝에서
+   동그라미 아래 끝까지 틈 12(옛 처음 자리 그대로). 세로 화면에서는 가운데가 늘 이보다 위라
+   걸리지 않고, 낮은 가로 창(위아래 안전 영역을 뺀 높이 344 밑 — 안드로이드는 돌아가고 창 나누기도
+   됩니다)에서만 가운데가 단추 위로 내려앉지 않게 막습니다. */
+const double _fabMargin = 16;
+const double _fab = 56;
+const double _fabGap = 12;
 const double _bin = 56; // X 동그라미
 const double _binLift = 24; // 아래 안전 영역에서 X 아래 끝까지
 const double _binReach = 64; // 말풍선 가운데가 이 안이면 "X 위"
 /* 아래 가장자리에 붙을 때 X 가운데에서 가로로 이만큼은 비킵니다 — X 위(64)도, X 와 겹치는
    자리도 아니게. */
 const double _binClear = _binReach + 8;
+const double _hintGap = 8; // 동그라미 끝과 알림 알약 사이
 
 /// 말풍선이 붙는 가장자리.
 enum FeedbackEdge { left, right, top, bottom }
@@ -160,10 +210,15 @@ Rect feedbackBubbleTrack(Size size, EdgeInsets pad) {
   return Rect.fromLTRB(l, t, r, b);
 }
 
-/// 처음 자리 — 오른쪽 가장자리, 「인바디」 단추 바로 위(머리 주석).
+/// 처음 자리 — 오른쪽 가장자리, 앱바 아래 끝과 탭바 위 끝의 한가운데(머리 주석).
+/// 가운데 = ((위 안전 영역 + 56) + (높이 − 아래 안전 영역 − 80)) / 2. 다만 「인바디」 단추 위
+/// 12px(탭바 위 16 + 56 + 12 + 반지름 20)보다 아래로는 안 내려가고 — 낮은 가로 창 — 가장자리
+/// 네모 안으로 당깁니다.
 Offset feedbackBubbleHome(Size size, EdgeInsets pad) {
   final r = feedbackBubbleTrack(size, pad);
-  final y = size.height - pad.bottom - _navBar - _fabMargin - _fab - _fabGap - _dot / 2;
+  final top = pad.top + kToolbarHeight, bottom = size.height - pad.bottom - _navBar;
+  final aboveFab = bottom - _fabMargin - _fab - _fabGap - _dot / 2;
+  final y = math.min((top + bottom) / 2, aboveFab);
   return Offset(r.right, y.clamp(r.top, r.bottom).toDouble());
 }
 
@@ -296,6 +351,42 @@ Future<void> _savePos(FeedbackBubblePos p) async {
   }
 }
 
+/// 「꾹 눌러 옮길 수 있어요」 를 이 기기에서 이미 띄웠나(또는 알 사람인가) — true 면 다시 안 띄웁니다.
+/// 자리처럼 이 기기에만 둡니다 — 기기마다 처음 한 번.
+const String kFeedbackBubbleHintKey = 'mybody.feedbackBubble.hint.v1';
+
+/// 꾹 눌러 옮긴 자리(새 칸 [kFeedbackBubblePosKey])가 **읽기 전부터** 있나 — 있으면 꾹 누르기를
+/// 아는 사람입니다. [loadFeedbackBubblePos] 보다 먼저 부릅니다: 그것이 옛 칸({쪽, 높이})에서 방금
+/// 옮겨 적은 자리는 세지 않습니다. 옛 칸은 그냥 끌면 움직이던 판(0.2.17)이 적었고 — 스크롤하던
+/// 엄지에 끌려간 자리도 있습니다 — 그 사람들이 아는 "끌기" 는 이제 아무 일도 안 합니다. 알림이
+/// 바로 그 사람들 몫입니다. 0.2.18 ~ 0.2.20 이 이미 새 칸으로 옮겨 적은 옛 자리는 가려낼 수
+/// 없어 아는 사람으로 칩니다. 못 읽으면 없는 것으로(알림이 한 번 뜰 뿐).
+Future<bool> loadFeedbackBubbleMovedByLongPress() async {
+  try {
+    final raw = (await SharedPreferences.getInstance()).getString(kFeedbackBubblePosKey);
+    return raw != null && FeedbackBubblePos.fromJson(jsonDecode(raw)) != null;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// 알림을 이미 봤나. 못 읽으면 본 것으로 칩니다 — 매번 뜨는 것보다 한 번도 안 뜨는 쪽이 낫습니다.
+Future<bool> loadFeedbackBubbleHintSeen() async {
+  try {
+    return (await SharedPreferences.getInstance()).getBool(kFeedbackBubbleHintKey) ?? false;
+  } catch (_) {
+    return true;
+  }
+}
+
+Future<void> _markHintSeen() async {
+  try {
+    await (await SharedPreferences.getInstance()).setBool(kFeedbackBubbleHintKey, true);
+  } catch (_) {
+    // 못 적으면 다음 실행에 한 번 더 뜰 뿐입니다.
+  }
+}
+
 /* --- Navigator 지켜보기 ---------------------------------------------------------- */
 
 /// 앱의 Navigator 에 쌓인 경로를 지켜봅니다 — 말풍선이 "지금 맨 위 화면" 을 알려고.
@@ -409,6 +500,20 @@ const Duration kBubbleLongPress = Duration(milliseconds: 350);
 const Duration _fade = Duration(milliseconds: 180);
 const Duration _quick = Duration(milliseconds: 120);
 
+/// 한 번 알림(머리 주석) — 말풍선이 보이고 이만큼 뒤에 뜹니다. 곧바로 뜨면 화면이 막 바뀌는
+/// 중이라 눈이 거기 있고, 너무 늦으면 이미 다른 데를 누르고 있습니다.
+const Duration kBubbleHintDelay = Duration(milliseconds: 1200);
+
+/// 한 번 알림이 머무는 시간 — 짧은 한 줄을 읽기에 넉넉하되 화면을 오래 가리지 않게.
+const Duration kBubbleHintStay = Duration(seconds: 4);
+
+/// 맨 위가 다이얼로그 · 시트라 못 띄웠으면 이만큼 뒤에 다시 봅니다.
+const Duration _hintRetry = Duration(seconds: 1);
+
+/* 한 번 알림의 차례 — 없음(이미 봤거나 끝남, 트리에 없음) · 기다림(투명하게 트리에, 1.2초
+   시계) · 떠 있음 · 걷히는 중(흐려짐이 끝나면 없음). */
+enum _Hint { none, waiting, up, fading }
+
 class _Bubble extends StatefulWidget {
   const _Bubble({required this.routes});
   final FeedbackRoutes routes;
@@ -422,7 +527,7 @@ class _BubbleState extends State<_Bubble> with SingleTickerProviderStateMixin {
   /// 한 번씩 번쩍이면 안 됩니다.
   bool _ready = false;
 
-  /// 붙어 있는 자리. null 이면 처음 자리(「인바디」 단추 위).
+  /// 붙어 있는 자리. null 이면 처음 자리(오른쪽 가장자리 가운데).
   FeedbackBubblePos? _pos;
 
   /// 들렸을 때의 가운데(화면 좌표) — 손가락이 움직인 만큼 여기서 옮깁니다. 놓으면 비웁니다.
@@ -445,6 +550,15 @@ class _BubbleState extends State<_Bubble> with SingleTickerProviderStateMixin {
   /// 듣고 있는 새 판 확인기(Scope.update) — 시험 기간이 바뀌면 곧바로 다시 그립니다.
   UpdateCheck? _update;
 
+  /// 「꾹 눌러 옮길 수 있어요」 의 차례(머리 주석). 저장된 값을 읽기 전에는 없음.
+  _Hint _hint = _Hint.none;
+
+  /// 알림을 띄울 시계(1.2초 · 다시 보기 1초)와 걷을 시계(4초 · 흐려짐이 끝날 때).
+  Timer? _hintWait, _hintEnd;
+
+  /// 지난 그리기에서 말풍선이 보였나(들린 동안은 아님) — 띄울 시계가 울릴 때 봅니다.
+  bool _visible = false;
+
   @override
   void initState() {
     super.initState();
@@ -459,12 +573,18 @@ class _BubbleState extends State<_Bubble> with SingleTickerProviderStateMixin {
     if (!mounted) return;
     /* 옛 모양의 자리를 옮기려면 화면 크기가 있어야 합니다 — 첫 프레임은 이미 그려졌습니다. */
     final mq = MediaQuery.maybeOf(context);
+    /* 꾹 눌러 옮겨 둔 자리가 있으면 옮길 줄 아는 사람 — 알림은 띄우지 않고 본 것으로 적습니다.
+       옛 칸에서 옮겨 적힐 자리(그냥 끌던 판)는 아닙니다 — 그래서 자리를 읽기 **전에** 봅니다. */
+    final knows = await loadFeedbackBubbleMovedByLongPress();
     final pos = await loadFeedbackBubblePos(
         size: mq?.size ?? Size.zero, padding: mq?.viewPadding ?? EdgeInsets.zero);
+    final seen = await loadFeedbackBubbleHintSeen();
+    if (!seen && knows) unawaited(_markHintSeen());
     if (!mounted) return;
     setState(() {
       _pos = pos;
       _ready = true;
+      if (!seen && !knows) _hint = _Hint.waiting;
     });
   }
 
@@ -485,8 +605,76 @@ class _BubbleState extends State<_Bubble> with SingleTickerProviderStateMixin {
     feedbackBubbleOn.removeListener(_changed);
     feedbackBusy.removeListener(_changed);
     _update?.removeListener(_changed);
+    _hintWait?.cancel();
+    _hintEnd?.cancel();
     _snap.dispose();
     super.dispose();
+  }
+
+  /* --- 한 번 알림 --- */
+
+  /* 그릴 때마다 — 말풍선이 보이면 1.2초 시계를 걸고(걸려 있으면 그대로), 숨으면 풀어서 다시
+     보일 때 처음부터 셉니다. 떠 있는 알림은 말풍선이 숨거나 들리면 곧바로 걷습니다. 그리는
+     중에 부르므로 setState 없이 값만 바꿉니다(바뀐 값으로 바로 그립니다). */
+  void _hintWatch(bool visible) {
+    _visible = visible;
+    switch (_hint) {
+      case _Hint.waiting:
+        if (visible) {
+          _hintWait ??= Timer(kBubbleHintDelay, _hintTry);
+        } else {
+          _hintWait?.cancel();
+          _hintWait = null;
+        }
+      case _Hint.up:
+        if (!visible) _hintOff();
+      case _Hint.none:
+      case _Hint.fading:
+        break;
+    }
+  }
+
+  /* 띄울 시계가 울림 — 아직 보이고 맨 위가 화면(PageRoute)이면 띄우고, 다이얼로그 · 시트가
+     위면(또는 시트를 여는 중이면) 1초 뒤 다시 봅니다. 앱이 앞에 없어도(resumed 가 아님) 다시
+     봅니다 — 새로 깐 안드로이드 13+ 의 첫 실행은 말풍선이 뜨고 곧 「알림을 허용할까요?」
+     (nudge.dart, 시스템 창이라 경로가 아님)가 가운데를 덮고 앱은 inactive 입니다. 그 뒤에서
+     띄우면 아무도 못 본 채 본 것으로 적힙니다. 뒤로 보낸 동안에도 시계는 웁니다. */
+  void _hintTry() {
+    _hintWait = null;
+    if (!mounted || _hint != _Hint.waiting || !_visible) return;
+    final life = WidgetsBinding.instance.lifecycleState;
+    if (_opening ||
+        (life != null && life != AppLifecycleState.resumed) ||
+        widget.routes.top is! PageRoute) {
+      _hintWait = Timer(_hintRetry, _hintTry);
+      return;
+    }
+    /* 뜨는 순간 적습니다 — 떠 있는 동안 앱이 꺼져도 두 번 뜨지 않습니다. */
+    unawaited(_markHintSeen());
+    setState(() => _hint = _Hint.up);
+    _hintEnd = Timer(kBubbleHintStay, () {
+      if (mounted) setState(_hintOff);
+    });
+  }
+
+  /* 걷기 — 떠 있었으면 흐려지고(흐려짐이 끝나면 트리에서 뺌), 아직 기다리던 중이면 곧바로
+     끝. 어느 쪽이든 이번 실행에서 다시 뜨지 않습니다. setState 는 부르는 쪽이 합니다.
+     이미 없거나 걷히는 중이면 손대지 않습니다 — 걷히는 중의 시계는 「없음」 으로 가는 시계라,
+     그것을 끄면 투명한 알약이 이번 실행 내내 트리에 남습니다(흐려지는 0.36초 사이에 들 때). */
+  void _hintOff() {
+    if (_hint == _Hint.none || _hint == _Hint.fading) return;
+    _hintWait?.cancel();
+    _hintWait = null;
+    _hintEnd?.cancel();
+    _hintEnd = null;
+    if (_hint == _Hint.up) {
+      _hint = _Hint.fading;
+      _hintEnd = Timer(_fade * 2, () {
+        if (mounted) setState(() => _hint = _Hint.none);
+      });
+    } else if (_hint == _Hint.waiting) {
+      _hint = _Hint.none;
+    }
   }
 
   Offset _now(MediaQueryData mq) {
@@ -502,7 +690,10 @@ class _BubbleState extends State<_Bubble> with SingleTickerProviderStateMixin {
     final at = _now(MediaQuery.of(context));
     _snap.stop();
     unawaited(HapticFeedback.mediumImpact());
+    /* 스스로 든 사람은 옮길 줄 압니다 — 알림은 걷고(뜨기 전이었으면 본 것으로 적고) 다시 안 띄웁니다. */
+    if (_hint == _Hint.waiting) unawaited(_markHintSeen());
     setState(() {
+      _hintOff();
       _liftedAt = at;
       _drag = at;
       _hot = false;
@@ -527,7 +718,7 @@ class _BubbleState extends State<_Bubble> with SingleTickerProviderStateMixin {
 
   /* 놓으면 — X 위면 치우거나(시험 기간이면 안내하고 제자리로), 아니면 가장 가까운 가장자리로.
      거의 안 움직였거나 손가락이 취소되면(전화가 옴 등) 들기 전 자리로 돌아갑니다 — 그때
-     자리를 새로 적으면 처음 자리(「인바디」 위)가 비율로 굳습니다. */
+     자리를 새로 적으면 처음 자리(오른쪽 가장자리 가운데)가 비율로 굳습니다. */
   void _drop({bool cancelled = false}) {
     final at = _drag, from = _liftedAt;
     if (at == null) return;
@@ -602,6 +793,7 @@ class _BubbleState extends State<_Bubble> with SingleTickerProviderStateMixin {
         !feedbackBusy.value &&
         mq.viewInsets.bottom <= 0;
     final lifted = _drag != null;
+    _hintWatch(shown && !lifted);
     final c = _now(mq);
     final dark = t.brightness == Brightness.dark;
     final bin = feedbackBubbleBinCenter(mq.size, mq.viewPadding);
@@ -652,6 +844,49 @@ class _BubbleState extends State<_Bubble> with SingleTickerProviderStateMixin {
               ),
             ),
           ),
+          /* 한 번 알림 — 말풍선 옆(화면 가운데 쪽) 알약. 누름 · 스크린리더 모두 받지 않습니다(머리 주석).
+             기다리는 동안 투명하게 트리에 두어야 뜰 때 흐려지며 나타납니다. **열쇠(key)가 있어야
+             합니다** — 없으면 이 칸이 들고 날 때 뒤의 말풍선 칸이 한 칸 밀려 알림 칸의 요소를
+             물려받고, 꾹 누르는 중이던 손가락의 인식기가 새로 만들어져 들린 말풍선이 멈춥니다. */
+          if (_hint != _Hint.none)
+            Positioned.fill(
+              key: const ValueKey('feedback-bubble-hint-slot'),
+              child: IgnorePointer(
+                child: ExcludeSemantics(
+                  child: CustomSingleChildLayout(
+                    delegate: _HintSpot(c, mq.viewPadding),
+                    child: AnimatedOpacity(
+                      opacity: _hint == _Hint.up ? 1 : 0,
+                      duration: _fade,
+                      child: DecoratedBox(
+                        key: const Key('feedback-bubble-hint'),
+                        decoration: BoxDecoration(
+                          color: scheme.inverseSurface,
+                          borderRadius: BorderRadius.circular(16),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: dark ? 0.35 : 0.12),
+                              blurRadius: 8,
+                              offset: const Offset(0, 2),
+                            ),
+                          ],
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          /* 말풍선 층은 Navigator 위라 Material 밑이 아닙니다 — 글자 모양을 직접 줍니다
+                             (안 주면 MaterialApp 의 "Material 없음" 표시 글꼴이 붙습니다). */
+                          child: DefaultTextStyle(
+                            style: (t.textTheme.bodySmall ?? const TextStyle(fontSize: 12))
+                                .copyWith(color: scheme.onInverseSurface),
+                            child: const Text('꾹 눌러 옮길 수 있어요'),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           Positioned(
             left: c.dx - _hit / 2,
             top: c.dy - _hit / 2,
@@ -733,4 +968,36 @@ class _BubbleState extends State<_Bubble> with SingleTickerProviderStateMixin {
       ),
     );
   }
+}
+
+/* 한 번 알림 알약의 자리 — 동그라미([c] 가 가운데) 옆, 화면 가운데 쪽으로 8px 떼고 높이는
+   동그라미 가운데. 폭은 그쪽 가장자리(안전 영역 안 16px)까지 남은 만큼만이라 글자가 커도 화면
+   밖으로 안 나가고(넘치면 줄을 바꿈), 위아래는 안전 영역 안으로 당깁니다. */
+class _HintSpot extends SingleChildLayoutDelegate {
+  const _HintSpot(this.c, this.pad);
+  final Offset c;
+  final EdgeInsets pad;
+
+  /// 말풍선이 오른쪽 반(한가운데 포함)이면 알약은 그 왼쪽, 아니면 오른쪽.
+  bool _toLeft(double width) => c.dx >= width / 2;
+
+  @override
+  BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
+    final w = constraints.maxWidth;
+    final room = _toLeft(w)
+        ? c.dx - _dot / 2 - _hintGap - (pad.left + _inset)
+        : (w - pad.right - _inset) - (c.dx + _dot / 2 + _hintGap);
+    return BoxConstraints(
+        maxWidth: math.max(0.0, room), maxHeight: math.max(0.0, constraints.maxHeight - pad.vertical));
+  }
+
+  @override
+  Offset getPositionForChild(Size size, Size childSize) {
+    final x = _toLeft(size.width) ? c.dx - _dot / 2 - _hintGap - childSize.width : c.dx + _dot / 2 + _hintGap;
+    final lo = pad.top, hi = math.max(lo, size.height - pad.bottom - childSize.height);
+    return Offset(x, (c.dy - childSize.height / 2).clamp(lo, hi).toDouble());
+  }
+
+  @override
+  bool shouldRelayout(_HintSpot oldDelegate) => oldDelegate.c != c || oldDelegate.pad != pad;
 }

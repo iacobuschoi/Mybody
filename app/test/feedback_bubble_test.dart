@@ -10,9 +10,17 @@
  *   · 어디에나   탭 화면 · 밀어 올린 화면(설정) · 로그인 · 첫 설정 화면 모두에 뜬다.
  *                진짜 앱(main.dart)에서도 — 켜는 중(Scope 없음)에는 안 보이고, 준비되면 뜬다.
  *                Navigator 바깥(위)에 있다.
- *   · 처음 자리   오른쪽 가장자리, 홈 「인바디」 단추 바로 위(12px 틈 · 오른쪽 끝 나란히) —
- *                360×640 · 390×844 · 430×932(안전 영역 있음 · 없음)의 진짜 홈에서, 단추 ·
- *                탭바와 겹치지 않는다.
+ *   · 처음 자리   오른쪽 가장자리, 앱바 아래 끝과 탭바 위 끝의 한가운데(예전의 「인바디」 단추
+ *                바로 위에서 옮김 — 시험판 의견 "채팅이랑 체크박스가 같은위치에 있어 누르기
+ *                불편합니다" · 주인 "의견박스 디폴트위치 수정하고") — 360×640 · 390×844 ·
+ *                430×932(안전 영역 있음 · 없음)의 진짜 홈에서 단추 · 탭바 · 앱바와 겹치지 않고,
+ *                첫 설정 3/3 을 끝까지 내려도 체크박스 · 스위치를 덮지 않는다. 낮은 가로 창에서는
+ *                「인바디」 단추 위 12px 에서 멈춘다. 굴릴 것 없는 짧은 화면(로그인 · 첫 설정 1/3)
+ *                에서는 넓은 것의 오른쪽 끝만 덮고 가운데 · 글자 · 입력 자리는 비운다.
+ *   · 한 번 알림  주인 "의견박스 꾹누르면 움직일수있는거 알려줘" — 「꾹 눌러 옮길 수 있어요」 가
+ *                말풍선이 보이고 1.2초 뒤 옆에 한 번, 4초 뒤 걷힘. 뜨는 순간 적고 다시 켜도 안
+ *                뜬다. 꾹 눌러 옮겨 둔 자리가 있으면 · 다이얼로그가 위면 · 앱이 앞에 없으면 안 뜨고
+ *                (옛 판 — 그냥 끌던 때 — 의 자리면 뜬다), 들면 · 숨으면 걷힌다.
  *   · 숨는 때    키보드가 올라와 있을 때 · 의견 시트가 떠 있을 때(찍는 중부터). 흐려지며.
  *   · 누르면     지금 화면을 찍어 붙인 시트, 화면 이름은 홈 · 식단 · 설정(밀어 올린 화면)
  *                · 다이얼로그 위에서는 그 밑의 화면.
@@ -76,6 +84,8 @@ final _thumbs = find.byWidgetPredicate(
     (w) => w.key is ValueKey<String> && (w.key as ValueKey<String>).value.startsWith('feedback-thumb-'));
 final _switch = find.byKey(const Key('settings-feedback-bubble'));
 final _fab = find.byType(FloatingActionButton);
+final _hint = find.byKey(const Key('feedback-bubble-hint'));
+const _hintText = '꾹 눌러 옮길 수 있어요';
 
 /// 이번 시험의 서버 · 캡처 흉내.
 class _Env {
@@ -205,6 +215,23 @@ bool _hidden(WidgetTester t) => _opacity(t) == 0.0 && _bubble.hitTestable().eval
 
 /// X 가 떠 있나.
 bool _binUp(WidgetTester t) => _opacityOf(t, _bin) == 1.0;
+
+/// 한 번 알림이 떠 있나(트리에 있고 불투명 쪽으로).
+bool _hintUp(WidgetTester t) => _hint.evaluate().isNotEmpty && _opacityOf(t, _hint) == 1.0;
+
+/// 이 기기에 「알림을 봤다」 가 적혔나(안 적혔으면 null).
+Future<bool?> _hintSeen() async => (await SharedPreferences.getInstance()).getBool(kFeedbackBubbleHintKey);
+
+/// 곧바로, 그리고 6초 동안 0.5초마다 — 알림이 트리에 한 번도 없나(기다리는 투명한 알약도 트리에
+/// 있으니 "뜰 차례" 도 잡힙니다). 한 번에 6초를 넘기면 1.2초 · 4초 · 흐려짐이 그 안에 다 지나가서
+/// 떴다 걷힌 알림을 못 봅니다.
+Future<void> _neverHint(WidgetTester t, String when) async {
+  expect(_hint, findsNothing, reason: '$when — 곧바로');
+  for (var i = 1; i <= 12; i++) {
+    await t.pump(const Duration(milliseconds: 500));
+    expect(_hint, findsNothing, reason: '$when — ${i * 500}ms');
+  }
+}
 
 /// 말풍선을 눌러 시트를 띄웁니다(찍기 → 시트).
 Future<void> _tapBubble(WidgetTester t) async {
@@ -383,9 +410,11 @@ void main() {
     });
   });
 
-  /* 주인의 말: "디폴트 위치를 인바디 사진올리기 버튼 바로위로". 진짜 홈(셸 · 측정 있음)에서
-     「인바디」 단추를 찾아 그 위 12px · 오른쪽 끝 나란히 — 단추도 탭바도 덮지 않습니다. */
-  group('처음 자리 — 「인바디」 단추 바로 위', () {
+  /* 시험판 의견(첫 설정 3/3 「시작하기 전에」: "채팅이랑 체크박스가 같은위치에 있어 누르기
+     불편합니다")과 주인의 말("의견박스 디폴트위치 수정하고") — 처음 자리는 오른쪽 가장자리,
+     앱바 아래 끝과 탭바 위 끝의 한가운데. 진짜 홈(셸 · 측정 있음)의 진짜 앱바 · 탭바로 재고,
+     「인바디」 단추 · 탭바 · 앱바 어느 것도 덮지 않습니다. 오른쪽 끝은 여전히 단추와 한 세로줄. */
+  group('처음 자리 — 오른쪽 가장자리, 앱바와 탭바 사이 한가운데', () {
     for (final (size, pad) in const [
       (Size(360, 640), EdgeInsets.zero),
       (Size(390, 844), EdgeInsets.zero),
@@ -401,30 +430,426 @@ void main() {
         expect(_fab, findsOneWidget, reason: '측정이 있으면 홈에 「인바디」 단추');
         expect(find.descendant(of: _fab, matching: find.text('인바디')), findsOneWidget);
         final fab = t.getRect(_fab), nav = t.getRect(find.byType(NavigationBar));
+        final bar = t.getRect(find.byType(AppBar));
         final dot = t.getRect(_dot), hit = t.getRect(_bubble);
-        expect(dot.bottom, closeTo(fab.top - 12, 0.5), reason: '단추 위 끝보다 12px 위: 말풍선 $dot · 단추 $fab');
-        expect(dot.right, closeTo(fab.right, 0.5), reason: '오른쪽 끝이 단추와 나란히');
-        expect(dot.left, greaterThanOrEqualTo(fab.left), reason: '단추 바로 위(단추 폭 안)');
-        for (final (name, r) in [('「인바디」', fab), ('탭바', nav), ('앱바', t.getRect(find.byType(AppBar)))]) {
+        expect(dot.center.dy, closeTo((bar.bottom + nav.top) / 2, 0.5),
+            reason: '앱바 아래 끝과 탭바 위 끝의 가운데: 앱바 $bar · 탭바 $nav · 말풍선 $dot');
+        expect(dot.right, closeTo(size.width - pad.right - 16, 0.5), reason: '오른쪽 가장자리 16px');
+        expect(dot.right, closeTo(fab.right, 0.5), reason: '「인바디」 단추와 한 세로줄');
+        for (final (name, r) in [('「인바디」', fab), ('탭바', nav), ('앱바', bar)]) {
           expect(hit.overlaps(r), isFalse, reason: '$name 와 겹침: 말풍선 $hit · $name $r');
         }
         expect(hit.top, greaterThanOrEqualTo(pad.top));
         expect(hit.right, lessThanOrEqualTo(size.width));
-        expect(await _saved(), isNull, reason: '처음 자리는 적어 두지 않습니다 — 화면마다 단추 위로 셉니다');
+        expect(await _saved(), isNull, reason: '처음 자리는 적어 두지 않습니다 — 화면마다 가운데로 셉니다');
         expect(t.takeException(), isNull);
       });
     }
 
-    test('계산 — 오른쪽 가장자리 16px, 아래에서 탭바 80 + 여백 16 + 단추 56 + 틈 12 + 반지름 20', () {
-      expect(feedbackBubbleHome(const Size(390, 844), EdgeInsets.zero), const Offset(390 - 36, 844 - 184));
+    /* 낮은 가로 창(안드로이드는 돌아가고 창 나누기도 됩니다) — 안전 영역을 뺀 높이가 344 밑이면
+       가운데가 「인바디」 단추 위로 내려앉습니다. 옛 자리(단추 위 끝에서 12px 위)가 아래 한계. */
+    for (final (size, pad) in const [
+      (Size(800, 360), EdgeInsets.only(top: 24, bottom: 24)),
+      (Size(800, 360), EdgeInsets.only(top: 24, bottom: 16)),
+      (Size(640, 300), EdgeInsets.zero),
+    ]) {
+      testWidgets(
+          '가로 ${size.width.toInt()}×${size.height.toInt()} 안전 영역 ${pad.top.toInt()}/${pad.bottom.toInt()} '
+          '— 「인바디」 단추 위 12px 에서 멈춘다', (t) async {
+        await _boot(t, size: size, pad: pad);
+        expect(_shown(t), isTrue);
+        expect(_fab, findsOneWidget);
+        final fab = t.getRect(_fab), nav = t.getRect(find.byType(NavigationBar));
+        final bar = t.getRect(find.byType(AppBar));
+        final dot = t.getRect(_dot), hit = t.getRect(_bubble);
+        expect((bar.bottom + nav.top) / 2 + 20 + 12, greaterThan(fab.top),
+            reason: '대조 — 가운데였다면 단추에 닿는 창: 앱바 $bar · 탭바 $nav · 단추 $fab');
+        expect(dot.bottom, closeTo(fab.top - 12, 0.5), reason: '단추 위 끝보다 12px 위: 말풍선 $dot · 단추 $fab');
+        expect(dot.right, closeTo(fab.right, 0.5), reason: '「인바디」 단추와 한 세로줄');
+        for (final (name, r) in [('「인바디」', fab), ('탭바', nav), ('앱바', bar)]) {
+          expect(hit.overlaps(r), isFalse, reason: '$name 와 겹침: 말풍선 $hit · $name $r');
+        }
+        expect(t.takeException(), isNull);
+      });
+    }
+
+    test('계산 — 오른쪽 가장자리 16px, 높이는 (위 안전 영역 + 앱바 56)과 (아래 안전 영역 위 탭바 80)의 가운데', () {
+      expect(feedbackBubbleHome(const Size(390, 844), EdgeInsets.zero), const Offset(390 - 36, (56 + 844 - 80) / 2));
+      expect(feedbackBubbleHome(const Size(360, 640), EdgeInsets.zero), const Offset(360 - 36, (56 + 640 - 80) / 2));
       expect(feedbackBubbleHome(const Size(430, 932), const EdgeInsets.only(top: 47, bottom: 34)),
-          const Offset(430 - 36, 932 - 34 - 184));
+          const Offset(430 - 36, (47 + 56 + 932 - 34 - 80) / 2));
       expect(feedbackBubbleCenter(null, const Size(360, 640), EdgeInsets.zero),
           feedbackBubbleHome(const Size(360, 640), EdgeInsets.zero), reason: '저장된 자리가 없으면 처음 자리');
-      /* 아주 낮은 화면(가로)에서도 안전 영역 안으로 당겨집니다. */
-      final low = feedbackBubbleHome(const Size(640, 200), EdgeInsets.zero);
+      /* 낮은 가로 창 — 가운데((56 + 800 − 24 − 24 − 80) / 2 쯤)가 「인바디」 단추 위 12px(아래에서
+         안전 영역 + 탭바 80 + 여백 16 + 단추 56 + 틈 12 + 반지름 20 = 184)보다 낮으면 거기서 멈춤. */
+      expect(feedbackBubbleHome(const Size(800, 360), const EdgeInsets.only(top: 24, bottom: 24)),
+          const Offset(800 - 36, 360 - 24 - 184));
+      /* 세로 화면에서는 늘 가운데가 더 위라 한계가 안 걸립니다(위아래 안전 영역을 뺀 높이 344 부터). */
+      expect(feedbackBubbleHome(const Size(390, 344), EdgeInsets.zero), const Offset(390 - 36, 344 - 184));
+      expect(feedbackBubbleHome(const Size(390, 344), EdgeInsets.zero).dy, (56 + 344 - 80) / 2);
+      /* 더 낮으면 한계에서도 가장자리 네모(36 ~ 높이 − 36) 안으로. */
+      expect(feedbackBubbleHome(const Size(640, 200), EdgeInsets.zero), const Offset(640 - 36, 36));
+      /* 앱바 · 탭바가 거의 다인 아주 낮은 화면이면 가장자리 네모 안으로 당겨집니다. */
+      final low = feedbackBubbleHome(const Size(640, 90), EdgeInsets.zero);
       expect(low.dy, greaterThanOrEqualTo(36));
+      expect(low.dy, lessThanOrEqualTo(90 - 36));
     });
+  });
+
+  /* 그 시험판 의견의 화면 그대로 — 첫 설정 3/3 「시작하기 전에」 는 맨 아래에 「시작하기」 를 박아
+     두고(bottomNavigationBar), 끝까지 내리면 마지막 줄(동의 체크박스 · 동기화 스위치)이 그 위,
+     오른쪽 끝에 섭니다. 말풍선은 그 둘과 같은 세로줄이라 높이만이 가릅니다. 대조: 옛 자리
+     (「인바디」 단추 위 — 아래에서 184)는 360×640 · 390×844 에서 둘 중 하나를 덮었어야 이
+     시험이 헛돌지 않습니다. */
+  group('첫 설정 3/3 — 끝까지 내려도 체크박스 · 스위치를 덮지 않는다', () {
+    for (final size in const [Size(360, 640), Size(390, 844), Size(430, 932)]) {
+      testWidgets('${size.width.toInt()}×${size.height.toInt()}', (t) async {
+        await _boot(t, size: size, onboarded: false, scans: false);
+        expect(find.byType(OnboardingScreen), findsOneWidget);
+        await t.enterText(find.widgetWithText(TextField, '키'), '175');
+        await t.enterText(find.widgetWithText(TextField, '나이'), '30');
+        await t.pump();   // 넣은 값으로 「다음」 이 열리게
+        for (var i = 0; i < 2; i++) {
+          await t.tap(find.widgetWithText(FilledButton, '다음'));
+          await _settle(t);
+        }
+        expect(find.text('3/3 · 시작하기 전에'), findsOneWidget);
+        await t.drag(find.byType(ListView), const Offset(0, -3000));
+        await _settle(t);
+        expect(_shown(t), isTrue);
+
+        final hit = t.getRect(_bubble);
+        final go = t.getRect(find.widgetWithText(FilledButton, '시작하기'));
+        final box = t.getRect(find.byType(Checkbox)), sw = t.getRect(find.byType(Switch));
+        final last = t.getRect(find.byType(SwitchListTile));
+        /* 360×640 은 넘쳐서 굴립니다 — 끝까지 내리면 마지막 줄이 「시작하기」 바로 위. 390×844 ·
+           430×932 는 다 들어가 굴릴 것이 없습니다 — 390×844 에서는 그대로 체크박스가 옛 자리였고
+           (시험판 의견 그대로), 430×932 에서는 줄이 옛 자리보다 위라 덮지 않기만 봅니다. */
+        final scrolls = t
+                .state<ScrollableState>(
+                    find.descendant(of: find.byType(ListView), matching: find.byType(Scrollable)).first)
+                .position
+                .maxScrollExtent >
+            0;
+        if (size.height <= 640) expect(scrolls, isTrue, reason: '작은 화면은 넘칩니다');
+        expect(last.bottom, lessThanOrEqualTo(go.top), reason: '마지막 줄이 「시작하기」 위');
+        if (scrolls) {
+          expect(go.top - last.bottom, lessThan(48), reason: '끝까지 내림 — 마지막 줄이 「시작하기」 바로 위');
+        }
+        for (final (name, r) in [('체크박스', box), ('스위치', sw)]) {
+          expect(r.left < hit.right && r.right > hit.left, isTrue,
+              reason: '$name 는 말풍선과 같은 세로줄(오른쪽 끝) — 높이만이 가릅니다: $name $r · 말풍선 $hit');
+          expect(hit.overlaps(r), isFalse, reason: '$name 를 덮음: 말풍선 $hit · $name $r');
+        }
+        for (final (name, f) in [('동의 줄', find.byType(CheckboxListTile)), ('동기화 줄', find.byType(SwitchListTile))]) {
+          expect(hit.overlaps(t.getRect(f)), isFalse, reason: '$name 의 어디를 눌러도 말풍선이 아닙니다');
+        }
+        expect(hit.overlaps(go), isFalse, reason: '「시작하기」');
+        if (size.height < 900) {
+          final old = Rect.fromCenter(center: Offset(size.width - 36, size.height - 184), width: 48, height: 48);
+          expect(old.overlaps(box) || old.overlaps(sw), isTrue,
+              reason: '대조 — 옛 자리 $old 는 체크박스 $box · 스위치 $sw 중 하나를 덮었습니다');
+        }
+        expect(t.takeException(), isNull);
+      });
+    }
+  });
+
+  /* 가운데 줄은 굴리면 비켜 나지만, 굴릴 것이 없는 짧은 화면은 그렇지 못합니다(머리 주석의 예외).
+     로그인 화면의 「로그인」 과 첫 설정 1/3 의 「나이」 칸은 가로로 꽉 차서 오른쪽 끝이 말풍선 밑에
+     듭니다 — 그 대가를 적어 두고, 누르는 가운데 · 글자 · 입력 자리는 비어 있는지 봅니다. */
+  group('굴릴 것 없는 짧은 화면 — 넓은 것의 오른쪽 끝만 말풍선 밑', () {
+    double scrollOf(WidgetTester t) => t
+        .state<ScrollableState>(
+            find.descendant(of: find.byType(ListView).first, matching: find.byType(Scrollable)).first)
+        .position
+        .maxScrollExtent;
+
+    for (final (size, pad, covers) in const [
+      (Size(360, 640), EdgeInsets.zero, false),
+      (Size(360, 800), EdgeInsets.only(top: 24, bottom: 48), true),
+      (Size(390, 844), EdgeInsets.only(top: 47, bottom: 34), true),
+    ]) {
+      testWidgets('${size.width.toInt()}×${size.height.toInt()} 안전 영역 ${pad.top.toInt()}/${pad.bottom.toInt()}',
+          (t) async {
+        /* 로그인 화면(처음 켠 기기 — 로그인 모드). */
+        await _boot(t, size: size, pad: pad, guest: false, onboarded: false, scans: false);
+        expect(find.byType(SignInScreen), findsOneWidget);
+        expect(_shown(t), isTrue);
+        expect(scrollOf(t), 0, reason: '굴릴 것이 없는 화면 — 말풍선 밑에서 빼낼 수 없습니다');
+        var hit = t.getRect(_bubble);
+        final login = find.widgetWithText(FilledButton, '로그인');
+        final box = t.getRect(login);
+        final label = t.getRect(find.descendant(of: login, matching: find.text('로그인')));
+        expect(hit.overlaps(box), covers,
+            reason: '기록 — 요즘 폰에서는 「로그인」 의 오른쪽 끝이 말풍선 밑(머리 주석). 바뀌었으면 머리 주석도: '
+                '말풍선 $hit · 「로그인」 $box');
+        expect(hit.overlaps(label), isFalse, reason: '글자는 비어 있음');
+        expect(hit.left, greaterThan(box.center.dx), reason: '누르는 가운데는 비어 있음 — 오른쪽 끝만');
+        expect(hit.overlaps(t.getRect(find.widgetWithText(OutlinedButton, '로그인 없이 쓰기'))), isFalse);
+
+        /* 첫 설정 1/3 — 「나이」 칸의 오른쪽 끝(「세」 글자)이 말풍선 밑. */
+        await _boot(t, size: size, pad: pad, onboarded: false, scans: false);
+        expect(find.byType(OnboardingScreen), findsOneWidget);
+        expect(scrollOf(t), 0, reason: '굴릴 것이 없는 화면');
+        hit = t.getRect(_bubble);
+        final age = find.widgetWithText(TextField, '나이');
+        final field = t.getRect(age);
+        final typing = t.getRect(find.descendant(of: age, matching: find.byType(EditableText)));
+        expect(hit.overlaps(field), isTrue, reason: '기록 — 「나이」 칸의 오른쪽 끝이 말풍선 밑: 말풍선 $hit · 칸 $field');
+        expect(hit.overlaps(typing), isFalse, reason: '입력 자리는 비어 있음: 말풍선 $hit · 입력 $typing');
+        expect(hit.left, greaterThan(field.center.dx), reason: '오른쪽 끝만');
+        expect(hit.overlaps(t.getRect(find.widgetWithText(TextField, '키'))), isFalse);
+        expect(t.takeException(), isNull);
+      });
+    }
+  });
+
+  /* 주인의 말: "의견박스 꾹누르면 움직일수있는거 알려줘". 이 기기에서 한 번 — 말풍선이 보이고
+     1.2초 뒤 옆에 「꾹 눌러 옮길 수 있어요」, 4초 머물고 걷힘. */
+  group('한 번 알림 — 「꾹 눌러 옮길 수 있어요」', () {
+    testWidgets('보이고 1.2초 뒤 말풍선 옆(가운데 쪽)에 한 번 — 뜨는 순간 적고, 4초 뒤 걷히고, 이번 실행엔 다시 안 뜬다',
+        (t) async {
+      final sem = t.ensureSemantics();
+      await _boot(t);   // 첫 프레임부터 0.6초
+      expect(_shown(t), isTrue);
+      expect(_hintUp(t), isFalse, reason: '곧바로는 아닙니다');
+      await t.pump(const Duration(milliseconds: 400));   // 1.0초
+      expect(_hintUp(t), isFalse, reason: '1.2초가 되기 전');
+      expect(await _hintSeen(), isNull);
+      await t.pump(const Duration(milliseconds: 300));   // 1.3초
+      await t.pump(const Duration(milliseconds: 200));   // 흐려지며 나타나기
+      expect(_hintUp(t), isTrue);
+      expect(find.text(_hintText), findsOneWidget);
+      expect(await _hintSeen(), isTrue, reason: '뜨는 순간 적습니다 — 떠 있는 동안 꺼져도 두 번 안 뜸');
+
+      /* 자리 — 말풍선(오른쪽)의 왼쪽 8px, 높이는 동그라미 가운데, 화면 안. */
+      final dot = t.getRect(_dot), pill = t.getRect(_hint);
+      expect(pill.right, closeTo(dot.left - 8, 0.5), reason: '알약 $pill · 말풍선 $dot');
+      expect(pill.center.dy, closeTo(dot.center.dy, 0.5));
+      expect(pill.left, greaterThanOrEqualTo(16));
+      expect(pill.height, lessThan(40), reason: '한 줄');
+
+      /* 모양 — 반대색 알약 · bodySmall. */
+      final scheme = Theme.of(t.element(_hint)).colorScheme;
+      final deco = t.widget<DecoratedBox>(_hint).decoration as BoxDecoration;
+      expect(deco.color, scheme.inverseSurface);
+      expect(deco.borderRadius, BorderRadius.circular(16));
+      final style = t.widget<DefaultTextStyle>(
+          find.ancestor(of: find.text(_hintText), matching: find.byType(DefaultTextStyle)).first).style;
+      expect(style.color, scheme.onInverseSurface);
+      expect(style.fontSize, Theme.of(t.element(_hint)).textTheme.bodySmall!.fontSize);
+
+      /* 누름 · 스크린리더는 받지 않습니다 — 말풍선은 그대로 눌립니다. */
+      expect(_hint.hitTestable(), findsNothing);
+      expect(_bubble.hitTestable(), findsOneWidget);
+      expect(find.semantics.byLabel(_hintText), findsNothing);
+      expect(find.semantics.byLabel('의견 보내기'), findsOne);
+
+      /* 4초 머물고 걷힙니다. */
+      await t.pump(const Duration(seconds: 3));
+      expect(_hintUp(t), isTrue, reason: '아직 4초가 안 됨');
+      await t.pump(const Duration(milliseconds: 1000));
+      await t.pump(const Duration(milliseconds: 100));
+      expect(_hintUp(t), isFalse, reason: '4초 뒤 흐려지며 걷힘');
+      await _settle(t);
+      expect(_hint, findsNothing, reason: '흐려짐이 끝나면 트리에서 빠집니다');
+
+      /* 이번 실행에서 다시 안 뜹니다 — 다른 화면에서도. */
+      await _openSettings(t);
+      await t.pump(const Duration(seconds: 3));
+      expect(_hint, findsNothing);
+      expect(_shown(t), isTrue);
+      expect(t.takeException(), isNull);
+      sem.dispose();
+    });
+
+    testWidgets('다시 켜도(같은 기기) 안 뜬다 — 떠 있는 동안 앱이 꺼졌어도', (t) async {
+      await _boot(t);
+      await t.pump(const Duration(seconds: 1));
+      expect(_hintUp(t), isTrue);
+      await t.pumpWidget(const SizedBox());   // 떠 있는 동안 꺼짐
+      await _boot(t, keepPrefs: true);
+      expect(_shown(t), isTrue);
+      await _neverHint(t, '다시 켠 뒤');
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('꾹 눌러 옮겨 둔 자리가 있으면 안 뜨고, 곧바로 본 것으로 적는다', (t) async {
+      await _boot(t, prefs: {
+        kFeedbackBubblePosKey: jsonEncode(const FeedbackBubblePos(FeedbackEdge.left, 0.4).toJson()),
+      });
+      expect(t.getRect(_dot).left, 16, reason: '옮겨 둔 자리(왼쪽)');
+      expect(await _hintSeen(), isTrue, reason: '이미 아는 사람 — 뜰 때(1.2초)가 되기 전에 적음');
+      await _neverHint(t, '옮겨 둔 자리');
+      expect(t.takeException(), isNull);
+    });
+
+    /* 옛 칸({쪽, 높이})은 그냥 끌면 움직이던 판(0.2.17)이 적었습니다 — 그 사람이 아는 "끌기" 는
+       이제 아무 일도 안 해서, 알림이 바로 그 사람 몫입니다. 말풍선이 왼쪽이면 알약은 오른쪽. */
+    testWidgets('옛 판(그냥 끌던 때)의 자리에서 옮겨 적는 사람에게는 뜬다 — 왼쪽 말풍선이면 그 오른쪽에', (t) async {
+      await _boot(t, prefs: {kFeedbackBubbleSideKey: 'left', kFeedbackBubbleYKey: 0.3});
+      expect(await _saved(), isNotNull, reason: '새 칸으로 옮겨 적음');
+      final dot = t.getRect(_dot);
+      expect(dot.left, 16, reason: '옛 자리(왼쪽) 그대로');
+      expect(await _hintSeen(), isNull, reason: '아직 안 뜸 — 끌기만 아는 사람');
+      await t.pump(const Duration(seconds: 1));
+      expect(_hintUp(t), isTrue);
+      expect(await _hintSeen(), isTrue);
+      final pill = t.getRect(_hint);
+      expect(pill.left, closeTo(dot.right + 8, 0.5), reason: '알약 $pill · 말풍선 $dot');
+      expect(pill.center.dy, closeTo(dot.center.dy, 0.5));
+      expect(pill.right, lessThanOrEqualTo(390 - 16));
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('떠 있을 때 꾹 눌러 들면 곧바로 걷히고, 놓아도 다시 안 뜬다', (t) async {
+      await _boot(t);
+      await t.pump(const Duration(seconds: 1));
+      expect(_hintUp(t), isTrue);
+      final g = await t.startGesture(t.getCenter(_bubble));
+      await t.pump(kBubbleLongPress + const Duration(milliseconds: 20));
+      expect(_binUp(t), isTrue, reason: '들림');
+      expect(_hintUp(t), isFalse, reason: '드는 순간 걷힘');
+      await t.pump(const Duration(milliseconds: 500));
+      expect(_hint, findsNothing, reason: '들린 채 흐려짐이 끝남 — 놓기 전에 트리에서 빠짐');
+      await g.up();
+      await _settle(t);
+      await _neverHint(t, '놓은 뒤');
+      expect(t.takeException(), isNull);
+    });
+
+    /* 4초가 끝나 흐려지는 0.36초 사이에 들면 — 걷는 시계를 다시 끄지 않고 그대로 트리에서 빠져야
+       합니다(끄면 투명한 알약이 이번 실행 내내 남아 끌 때마다 다시 배치됩니다). */
+    testWidgets('흐려지는 사이에 들어도 알약은 트리에서 빠진다', (t) async {
+      await _boot(t);
+      for (var i = 0; i < 200 && !_hintUp(t); i++) {
+        await t.pump(const Duration(milliseconds: 10));
+      }
+      expect(_hintUp(t), isTrue, reason: '지난 10ms 안에 떴음');
+      await t.pump(kBubbleHintStay - const Duration(milliseconds: 200));
+      expect(_hintUp(t), isTrue, reason: '아직 머무는 중');
+      final g = await t.startGesture(t.getCenter(_bubble));
+      await t.pump(kBubbleLongPress + const Duration(milliseconds: 20));   // 머묾이 끝나고 150ms 쯤에 들림
+      expect(_binUp(t), isTrue, reason: '들림');
+      expect(_hintUp(t), isFalse);
+      expect(_hint, findsOneWidget, reason: '흐려지는 중 — 아직 트리에(이 시험이 그 사이를 짚었나)');
+      await t.pump(const Duration(milliseconds: 400));   // 들린 채 흐려짐이 끝남
+      expect(_hint, findsNothing, reason: '흐려짐이 끝나면 들린 동안에도 빠집니다');
+      await g.up();
+      await _settle(t);
+      expect(_hint, findsNothing);
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('뜨기 전에 스스로 꾹 눌러 든 사람 — 안 뜨고 본 것으로 적는다', (t) async {
+      await _boot(t);
+      expect(_hintUp(t), isFalse);
+      expect(_hint, findsOneWidget, reason: '기다리는 중(투명하게 트리에)');
+      final h = await _lift(t);
+      expect(await _hintSeen(), isTrue, reason: '옮길 줄 압니다');
+      expect(_hint, findsNothing, reason: '드는 순간 기다림도 끝');
+      await h.to(t, const Offset(60, 300));
+      await h.up(t);
+      await _neverHint(t, '옮겨 놓은 뒤');
+      expect(t.takeException(), isNull);
+    });
+
+    /* 새로 깐 안드로이드 13+ 의 첫 실행 — 말풍선이 뜨고 곧 「알림을 허용할까요?」(시스템 창 —
+       경로가 아님)가 덮고 앱은 inactive. 그 뒤에서 떠서 본 것으로 적히면 아무도 못 봅니다.
+       뒤로 보낸 동안(paused)도 같습니다. */
+    for (final life in const [AppLifecycleState.inactive, AppLifecycleState.paused]) {
+      testWidgets('앱이 앞에 없으면(${life.name}) 기다렸다가(적지도 않음), 돌아오면 뜬다', (t) async {
+        addTearDown(() => t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed));
+        await _boot(t);
+        t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+        if (life == AppLifecycleState.paused) {
+          t.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+          t.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+        }
+        for (var i = 0; i < 8; i++) {
+          await t.pump(const Duration(milliseconds: 500));
+          expect(_hintUp(t), isFalse, reason: '${life.name} — ${(i + 1) * 500}ms');
+        }
+        expect(await _hintSeen(), isNull, reason: '안 띄웠으니 본 것이 아닙니다');
+        if (life == AppLifecycleState.paused) {
+          t.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+          t.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+        }
+        t.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+        await t.pump(const Duration(seconds: 1));   // 1초마다 다시 봄
+        await t.pump(const Duration(milliseconds: 200));
+        expect(_hintUp(t), isTrue, reason: '돌아오면 뜹니다');
+        expect(await _hintSeen(), isTrue);
+        expect(t.takeException(), isNull);
+      });
+    }
+
+    /* 테스터 인사처럼 다이얼로그 · 시트가 위에 있으면 그것을 읽는 눈을 뺏지 않습니다 — 닫히면 뜹니다. */
+    testWidgets('다이얼로그가 위에 있으면 기다렸다가(적지도 않음), 닫히면 뜬다', (t) async {
+      await _boot(t);
+      unawaited(showDialog<void>(
+          context: feedbackRoutes.navigator!.context,
+          builder: (_) => const AlertDialog(content: Text('확인할까요?'))));
+      await _settle(t);
+      expect(find.text('확인할까요?'), findsOneWidget);
+      expect(_shown(t), isTrue, reason: '말풍선은 다이얼로그 위에서도 떠 있습니다');
+      await t.pump(const Duration(seconds: 4));
+      expect(_hintUp(t), isFalse, reason: '다이얼로그가 위');
+      expect(await _hintSeen(), isNull, reason: '안 띄웠으니 본 것이 아닙니다');
+
+      feedbackRoutes.navigator!.pop();
+      await _settle(t);
+      await t.pump(const Duration(seconds: 1));   // 1초마다 다시 봄
+      expect(find.text('확인할까요?'), findsNothing);
+      expect(_hintUp(t), isTrue, reason: '닫히면 뜹니다');
+      expect(await _hintSeen(), isTrue);
+      expect(t.takeException(), isNull);
+    });
+
+    testWidgets('키보드가 올라오거나 의견 시트가 뜨면 곧바로 걷힌다', (t) async {
+      await _boot(t);
+      await t.pump(const Duration(seconds: 1));
+      expect(_hintUp(t), isTrue);
+      t.view.viewInsets = const FakeViewPadding(bottom: 300);
+      await t.pump();
+      expect(_hintUp(t), isFalse, reason: '키보드 — 말풍선과 함께');
+      t.view.viewInsets = FakeViewPadding.zero;
+      await _settle(t);
+      await t.pump(const Duration(seconds: 3));
+      expect(_shown(t), isTrue);
+      expect(_hint, findsNothing, reason: '한 번 뜬 것은 다시 안 뜹니다');
+
+      /* 의견 시트 — 새로 켜서, 떠 있을 때 말풍선을 누름. */
+      await t.pumpWidget(const SizedBox());
+      await _boot(t);
+      await t.pump(const Duration(seconds: 1));
+      expect(_hintUp(t), isTrue);
+      await _tapBubble(t);
+      expect(_hintUp(t), isFalse, reason: '의견 시트 — 말풍선과 함께');
+      await _sendAndClose(t);
+      await _settle(t);
+      await t.pump(const Duration(seconds: 3));
+      expect(_hint, findsNothing);
+      expect(t.takeException(), isNull);
+    });
+
+    for (final (name, theme) in [('밝게', mbLight), ('어둡게', mbDark)]) {
+      testWidgets('360×640 · 글자 1.3배 · $name — 알약은 화면 안, 말풍선과 겹치지 않는다', (t) async {
+        await _boot(t, size: const Size(360, 640), text: 1.3, theme: theme());
+        await t.pump(const Duration(seconds: 1));
+        expect(_hintUp(t), isTrue);
+        final pill = t.getRect(_hint), dot = t.getRect(_dot);
+        expect(pill.left, greaterThanOrEqualTo(16));
+        expect(pill.right, lessThanOrEqualTo(dot.left - 8 + 0.01));
+        expect(pill.top, greaterThanOrEqualTo(0));
+        expect(pill.bottom, lessThanOrEqualTo(640));
+        expect(pill.overlaps(t.getRect(_bubble)), isFalse);
+        final scheme = Theme.of(t.element(_hint)).colorScheme;
+        expect((t.widget<DecoratedBox>(_hint).decoration as BoxDecoration).color, scheme.inverseSurface);
+        expect(t.takeException(), isNull);
+      });
+    }
   });
 
   group('숨는 때', () {
