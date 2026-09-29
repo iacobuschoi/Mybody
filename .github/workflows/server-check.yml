@@ -42,5 +42,8 @@ jobs:
           LOC=$(curl -s -m 15 -o /dev/null -A "$IOS" -w '%{http_code} %{redirect_url}' "$BASE/get")
           echo "get(아이폰): ${LOC%% *} → $(echo "${LOC#* }" | sed -E 's#^https?://([^/]+).*#\1#')"
           echo "get(안드로이드): $(code -A "$AND" "$BASE/get")"
+          IG="$AND Instagram 350.0.0.0.0 Android"
+          IGP=$(curl -s -m 15 -A "$IG" "$BASE/get")
+          echo "get(안드로이드 인스타 앱 안): 크롬 단추 $(printf '%s' "$IGP" | grep -c '크롬으로 열기') · intent $(printf '%s' "$IGP" | grep -c 'intent://')"
           echo "inbox: $(code "$BASE/inbox")"
           [ "$H" = "200" ] || { echo "::error::서버가 응답하지 않습니다(health $H)"; exit 1; }
