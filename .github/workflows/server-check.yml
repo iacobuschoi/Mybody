@@ -1,0 +1,46 @@
+# 서버 살아 있나 — 바깥(GitHub)에서 노트북 서버를 한 번 두드려 봅니다.
+#
+# 왜 있나
+#   클라우드 Claude 는 Tailscale Funnel 주소에 직접 못 닿고, 노트북 Claude 가 꺼져 있으면
+#   "서버 켜졌나?" 에 답할 길이 없습니다. GitHub 러너는 바깥 인터넷이라 테스터 폰과 같은 길로 봅니다.
+#
+# 하는 일(읽기만 · 아무것도 바꾸지 않음)
+#   /api/health · /api/version(최신판 칸만) · /get(아이폰 · 안드로이드 UA) · /inbox 상태 코드.
+#   /get 의 Location 은 **호스트만** 찍습니다 — 로그가 공개라 참여 링크 주소는 남기지 않습니다.
+name: 서버 살아 있나
+
+on:
+  workflow_dispatch:
+    inputs:
+      base:
+        description: '서버 주소 (비우면 기본 Funnel 주소)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 두드려 보기
+        env:
+          IN_BASE: ${{ inputs.base }}
+        run: |
+          set +e
+          BASE="${IN_BASE:-https://desktop-il9c3if.tail0a8f8f.ts.net}"
+          case "$BASE" in https://*) ;; *) echo "::error::https 주소만 받습니다"; exit 1 ;; esac
+          IOS='Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
+          AND='Mozilla/5.0 (Linux; Android 14; SM-S921N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36'
+          code() { curl -s -m 15 -o /dev/null -w '%{http_code}' "$@"; }
+          echo "시각(KST): $(TZ=Asia/Seoul date '+%m-%d %H:%M:%S')"
+          H=$(code "$BASE/api/health"); echo "health: $H"
+          V=$(curl -s -m 15 "$BASE/api/version" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{try{const j=JSON.parse(s);const l=j.latest||{};console.log("latest appstore="+JSON.stringify(l.appstore||"")+" testflight="+JSON.stringify(l.testflight||"")+" play="+JSON.stringify(l.play||"")+" testing="+(j.testing!==false))}catch(e){console.log("(읽지 못함)")}})')
+          echo "version: $V"
+          LOC=$(curl -s -m 15 -o /dev/null -A "$IOS" -w '%{http_code} %{redirect_url}' "$BASE/get")
+          echo "get(아이폰): ${LOC%% *} → $(echo "${LOC#* }" | sed -E 's#^https?://([^/]+).*#\1#')"
+          echo "get(안드로이드): $(code -A "$AND" "$BASE/get")"
+          echo "inbox: $(code "$BASE/inbox")"
+          [ "$H" = "200" ] || { echo "::error::서버가 응답하지 않습니다(health $H)"; exit 1; }
