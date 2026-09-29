@@ -1093,3 +1093,20 @@ versionCode 347 · 아이폰 347 TestFlight 업로드 성공.
 3. 앱스토어 0.2.20 은 아직 심사 대기 — 승인돼도 「출시」 는 누르지 않음(38 덧붙임 그대로).
 
 보고: "39 끝" + 바꾼 시각 · 바깥 `/api/version` 의 latest 네 칸.
+
+## 40. 서버 업데이트 — 설치 링크 `GET /get` (9/29 · 테스터 메일용 · 주인 요청)
+
+주인: 테스터 메일의 「받는 방법」을 친구 추가 링크처럼 **링크 하나**로. `/get` 은 코드가 없어 **친구가 되지 않고**,
+아이폰은 TestFlight 공개 링크로 · 안드로이드는 ① 구글 그룹 ② 테스트 참여 ③ 플레이 단추 페이지로 보냅니다(e5bd17c).
+
+1. `git pull` → 「Mybody 서버」 끝냈다 다시 실행 → `node tools/test-get-page.js` · `node tools/test-invite.js`.
+   **test-selfhost 는 돌리지 않음.**
+2. 바깥 확인(Funnel 주소로):
+   - `curl -sI -A "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1" <서버>/get`
+     → **302** · `Location` 이 TestFlight 공개 링크(주소는 보고에 적지 말고 "TestFlight 공개 링크" 로만).
+   - `curl -s -A "Mozilla/5.0 (Linux; Android 14; SM-S921N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Mobile Safari/537.36" <서버>/get`
+     → **200** · 「① 구글 그룹 가입」 「② 테스트 참여」 「③ Google Play 에서 설치」 가 있고 「친구」 는 없음.
+   - 컴퓨터 브라우저로 `<서버>/get` → 「Mybody 받기」 · 안드로이드 · 아이폰 안내 둘 다.
+3. 메일은 보내지 않음(초안은 주인이 봄). 앱스토어 0.2.20 심사 · 공개 링크는 건드리지 않음.
+
+보고: "40 끝" + 서버 재시작 시각 · 시험 결과 · 바깥 확인 세 줄(상태 코드 · 단추 유무만).
