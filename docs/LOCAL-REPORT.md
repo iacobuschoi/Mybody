@@ -818,3 +818,17 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
   바깥 `/api/version` 의 latest 네 칸: **appstore "" · testflight 0.2.20 · play 0.2.20 · apk 0.2.8**. min "" · testing true · 참여 링크 셋 그대로.
 - **2.** TestFlight 공개 링크는 안 건드림(닫힌 채). 참고: 서버의 `join.ios` 는 그 링크 주소(`…/join/ekNds9xJ`)를 그대로 내보냅니다 — 지시대로 안 바꿈.
 - **3.** 앱스토어 0.2.20 심사 안 건드림 · 「출시」 안 누름. 서버 코드는 38 뒤로 안 바뀌어 재시작 없음(a07e33d 는 앱 · 1b0504f 는 asc-submit).
+
+---
+
+# 40 끝 (2026-09-29 10:19 KST) — 설치 링크 /get: 서버 10:18 · 시험 2개 통과 · 바깥 확인 셋
+
+- **1. 서버**: `git pull`(70a0823) → **10:18 재시작**(launch.js · serve.js · funnel · server.js 10:18:11~16). 로그 「켜짐」 3줄(앱 알림 FCM · 의견 알림 · 의견함).
+  `test-get-page` **125 통과 · 0 실패** · `test-invite` **221 통과 · 0 실패**(둘 다 5초 안). test-selfhost 는 안 돌림.
+- **2. 바깥 확인**(Funnel 주소):
+  - 아이폰 UA `curl -sI …/get` → **302** · Location = **TestFlight 공개 링크**(서버 join.ios 와 같음) · no-store · no-referrer.
+  - 안드로이드 UA `curl -s …/get` → **200** · 「① 구글 그룹 가입」 「② 테스트 참여」 「③ Google Play 에서 설치」 **있음** · 「친구」 **없음**(HTML 전체에도 없음).
+  - 컴퓨터 브라우저(노트북 크롬) `…/get` → 「Mybody 받기」 · 안드로이드(①②③) · 아이폰(「TestFlight 에서 받기」) **둘 다** · 「친구」 없음.
+  - 노트북의 curl 은 테일넷으로 가서, check-host 5곳으로도 봄: `/get` **200 (5/5)**.
+- **참고**: 39 대로 TestFlight 공개 링크는 닫혀 있어(9/28 19:30), 지금 아이폰으로 /get 을 열면 닫힌 베타 화면으로 갑니다 — 테스터 메일 전에 링크를 다시 열지 주인이 정할 일.
+- **3.** 메일 안 보냄. 앱스토어 0.2.20 심사 · 공개 링크 안 건드림.
