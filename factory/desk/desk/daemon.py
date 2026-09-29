@@ -24,7 +24,7 @@ import numpy as np
 
 from . import briefing, config, mac, model_settings, voice_settings
 from .face import Gate
-from .bargein import Listener, has_stop_word, is_stop_utterance
+from .bargein import Listener, has_stop_word, is_stop_utterance, only_stop_words
 from .brain import Brain
 from .clap import ClapConfig, ClapDetector
 from .dashboard import Board, serve, watch_agents
@@ -60,12 +60,14 @@ class Desk:
         self.barge = Listener(sr=sr, margin_db=bi.get("margin_db", 3.0), min_s=bi.get("min_s", 0.15),
                               grace_s=bi.get("grace_s", 0.3))
         self._barged_at = 0.0                        # 멈춤 말로 말하기를 끊은 시각
+        self._turn = 0                               # 멈출 때마다 +1 — 그 전에 받은 말의 답 · 밀린 말하기는 버림
+        self._asking: int | None = None               # 지금 Claude 가 답하는 말의 _turn(없으면 None)
         self._stt_lock = threading.Lock()            # 받아쓰기 모델은 한 번에 하나만
         self.mode = "sleep"                          # sleep · awake · muted
         self.last_activity = time.time()
         self.audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=400)
         self.utt_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=8)
-        self.brain_q: queue.Queue[str] = queue.Queue(maxsize=8)
+        self.brain_q: queue.Queue[tuple[str, int]] = queue.Queue(maxsize=8)   # (들은 말, 받은 때의 _turn)
         self._stop = threading.Event()
         self._dash_opened = False
         self._changed_at = 0.0                        # 우리가 화면을 켜고/끈 시각 — 화면 감시가 헷갈리지 않게
@@ -164,12 +166,14 @@ class Desk:
         return json.dumps(self.face.check(), ensure_ascii=False)
 
     def say_brief(self, _: str = "") -> str:
+        turn = self._turn
         data = briefing.gather(self.cfg)
         text = briefing.compose(data, owner=self.cfg.get("owner", ""))
         self.board.set(briefing=data, reply=text)
-        while self.voice.busy():
+        while self.voice.busy() and self._turn == turn:
             time.sleep(0.1)
-        self.voice.say(text)
+        if self._turn == turn:                     # 기다리는 동안 "멈춰" 했으면 말하지 않음(화면에만)
+            self.voice.say(text)
         return text
 
     def sleep(self, why: str = "voice") -> str:
@@ -204,9 +208,31 @@ class Desk:
         return "ok"
 
     def stop(self, _: str = "") -> str:
+        cancelled, dropped = self._hush()
+        self.board.log("stop", "Claude 작업 취소" if cancelled else (f"밀린 말 {dropped}개 버림" if dropped else ""))
+        return "ok"
+
+    def _hush(self) -> tuple[bool, int]:
+        """멈춤 — 말하기 · 지금 Claude 가 만드는 답 · 밀린 말(아직 답하지 않은 것)을 모두 버림. (취소했나, 버린 수)"""
+        self._turn += 1
+        if self.voice.busy():
+            self._barged_at = time.time()
         self.voice.stop()
-        cancelled = self.brain.cancel()
-        self.board.log("stop", "Claude 작업 취소" if cancelled else "")
+        dropped = 0
+        while True:
+            try:
+                self.brain_q.get_nowait()
+                dropped += 1
+            except queue.Empty:
+                break
+        return self.brain.cancel(), dropped
+
+    def remote_say(self, text: str) -> str:
+        """deskctl say — 멈춘 뒤 아직 끝나지 않은 Claude 턴이 부르는 말하기는 버림"""
+        if self._asking is not None and self._asking != self._turn:
+            log.info("멈춘 턴의 말하기 버림: %s", text[:40])
+            return "dropped"
+        self.voice.say(text)
         return "ok"
 
     # ── 목소리 설정 창 (상태판) ───────────────────────────────────────────
@@ -298,28 +324,31 @@ class Desk:
         elif k == "claude":
             mac.sound("Tink")                       # 들었다는 표시 — 말로 "잠시만요" 하면 매번 귀찮습니다
             try:
-                self.brain_q.put_nowait(text)
+                self.brain_q.put_nowait((text, self._turn))
             except queue.Full:
                 self.voice.say("밀린 일이 많아요. 잠시 뒤에 다시 말해 주세요.")
         self._show()
 
     # ── 끼어들기 (desk/bargein.py) ─────────────────────────────────────────
     def _speech_stop(self, text: str) -> bool:
-        """말하는 중(또는 막 끊은 뒤)에 들은 "멈춰" · "그만" 류 — 말하기만 멈추고, 명령으로는 넘기지 않음"""
-        speaking = self.voice.busy()
-        if not (speaking or time.time() - self._barged_at < 4) or not is_stop_utterance(text, self.stop_words):
+        """"잠깐" · "멈춰" · "그만" 만 한 말 — 멈출 게 있으면 멈추고, 없어도 Claude 로는 넘기지 않음(새 답 없음).
+        말하는 중 · Claude 가 답하는 중 · 막 끊은 뒤엔 "많이 멈춰" 처럼 멈춤 말이 든 짧은 말도 멈춤으로 봄"""
+        active = self.voice.busy() or self.brain.busy() or not self.brain_q.empty() or self._asking is not None
+        loose = active or time.time() - self._barged_at < 4
+        if not (is_stop_utterance(text, self.stop_words) if loose else only_stop_words(text, self.stop_words)):
             return False
-        if speaking:
+        if active:
             self._cut(text)
         else:
+            self._hush()                             # 멈출 게 안 보여도 — 막 넘어간 말이 있을 수 있어서
             self.board.log("barge", f"(이미 멈춤) {text}")
         return True
 
     def _cut(self, heard: str) -> None:
-        """스피커 말하기만 멈춤 — Claude 호출 · 명령 · 백그라운드 작업은 그대로"""
-        self._barged_at = time.time()
-        self.voice.stop()
-        log.info("끼어들기: 말하기 멈춤 (%s)", heard)
+        """끼어들기 — 말하기와 그 차례의 남은 답 · 밀린 말을 모두 버림. 백그라운드 세션은 그대로"""
+        cancelled, dropped = self._hush()
+        log.info("끼어들기: 말하기 멈춤 (%s)%s%s", heard, " · Claude 답 취소" if cancelled else "",
+                 f" · 밀린 말 {dropped}개 버림" if dropped else "")
         self.board.log("barge", heard)
         self._show()
 
@@ -354,10 +383,19 @@ class Desk:
 
     def _brain_worker(self) -> None:
         while not self._stop.is_set():
-            text = self.brain_q.get()
+            text, turn = self.brain_q.get()
+            if turn != self._turn:                   # 받은 뒤에 "멈춰" — 답하지 않음
+                continue
+            self._asking = turn
             self._show("thinking")
-            spoken, full = self.brain.ask(text)
-            if spoken is None:
+            try:
+                spoken, full = self.brain.ask(text)
+            finally:
+                self._asking = None
+            if turn != self._turn:
+                log.info("멈춘 뒤 온 답 버림: %s", text[:40])
+                self.board.log("barge", f"(멈춘 뒤 온 답 버림) {text}")
+            elif spoken is None:
                 self.board.log("ignore", f"(Claude: 나한테 한 말 아님) {text}")
             else:
                 self.board.set(reply=full)
@@ -438,7 +476,7 @@ class Desk:
         mac.keep_system_awake()
         serve(self.board, {"wake": self.wake, "sleep": self.sleep, "brief": self.say_brief, "mute": self.mute,
                            "unmute": self.unmute, "stop": self.stop,
-                           "say": lambda t: (self.voice.say(t), "ok")[1], "show": self.show,
+                           "say": self.remote_say, "show": self.show,
                            "enroll": self.enroll, "face": self.face_test,
                            "tts": self.tts_view, "tts_test": self.tts_test, "tts_save": self.tts_save,
                            "model": self.model_set},

@@ -1,7 +1,8 @@
-"""끼어들기 — 비서가 말하는 도중에 주인이 "잠깐" · "멈춰" · "그만" 하면 말하기만 멈춥니다.
+"""끼어들기 — 비서가 말하는 도중에 주인이 "잠깐" · "멈춰" · "그만" 하면 멈춥니다.
 
 아무 말에나 멈추지는 않습니다 — 옆 사람과 이야기할 수 있으니 **멈춤 말**(설정 [bargein] stop_words)만 봅니다.
-멈추는 건 스피커 말하기뿐입니다. 진행 중인 Claude 호출 · 명령 · 백그라운드 작업은 그대로 둡니다.
+멈추면 그 차례의 남은 답을 모두 버립니다: 스피커 말하기, 지금 Claude 가 만드는 답(취소), 아직 답하지 않은 밀린 말,
+기다리던 브리핑. 멈춤 말만 한 말에는 새 답을 만들지 않습니다. 백그라운드 세션은 그대로 둡니다.
 
 스피커 소리가 마이크로 되돌아오므로(에코) 그냥 받아쓰면 제 목소리를 듣습니다. 그래서 두 겹으로 거릅니다.
   1. 크기: 말하는 동안 마이크에 들어오는 말소리 대역(150~4000Hz) 크기의 상위 10%(= 되먹임 기준)를 계속 배우고,
@@ -17,6 +18,7 @@
 """
 from __future__ import annotations
 
+import re
 from collections import deque
 
 import numpy as np
@@ -38,6 +40,20 @@ def is_stop_utterance(text: str, words: list[str]) -> bool:
     if not n or len(n) > LOCAL_MAX_CHARS or not has_stop_word(text, words):
         return False
     return route(text).kind not in ("mute", "sleep", "unmute")
+
+
+_FILLER = re.compile(r"^(만|해|요|봐|라|야|아|어|좀|일단|제발|이제|자|거기|저기|잠시)*$")
+
+
+def only_stop_words(text: str, words: list[str]) -> bool:
+    """멈춤 말 말고는 아무것도 없는 말("잠깐만요", "멈춰 멈춰", "그만해") — 멈출 게 없어도 Claude 로 보내지 않을 말.
+    "잠깐 이것 좀 찾아 줘" 처럼 다른 말이 붙으면 아님."""
+    n = normalize(text)
+    if not n or not has_stop_word(text, words):
+        return False
+    for w in sorted((normalize(w) for w in words if w), key=len, reverse=True):
+        n = n.replace(w, "")
+    return bool(_FILLER.match(n))
 
 
 class Listener:

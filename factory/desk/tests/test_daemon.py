@@ -95,7 +95,7 @@ class DaemonFlow(unittest.TestCase):
         self.assertRegex(d.voice.said[-1], r"(오전|오후) \d+시 \d+분이에요")
 
         d.handle("가계부 앱 실기기 시험 돌려 줘")
-        self.assertEqual(d.brain_q.get_nowait(), "가계부 앱 실기기 시험 돌려 줘")
+        self.assertEqual(d.brain_q.get_nowait()[0], "가계부 앱 실기기 시험 돌려 줘")
 
         d.handle("조용히 해")
         self.assertEqual(d.mode, "muted")

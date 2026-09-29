@@ -48,7 +48,7 @@ DEFAULTS: dict = {
         "min_face_px": 40,          # 이보다 작은 얼굴은 안 봄
         "timeout_s": 15,
     },
-    "bargein": {                    # 말하는 도중 멈춤 말을 들으면 말하기만 멈춤 (desk/bargein.py)
+    "bargein": {                    # 말하는 도중 멈춤 말을 들으면 말하기 · 남은 답 · 밀린 말을 버림 (desk/bargein.py)
         "enabled": True,
         "stop_words": ["잠깐", "멈춰", "그만", "스톱", "스탑"],
         "margin_db": 3.0,           # 민감도: 스피커 되먹임보다 이만큼 커야 받아써 봄. 못 알아들으면 낮추고(0), 헛멈추면 올림(6)
