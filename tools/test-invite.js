@@ -23,7 +23,8 @@
  *   [4] 틀린 코드 → 같은 모양의 404 · 받은 글자를 다시 찍지 않음
  *   [5] 기종별 "앱에서 열기" — 안드로이드 intent · 아이폰 mybody:// · 컴퓨터는 없음
  *   [6] 설치 안내 — 참여 링크가 없으면 "곧 열려요 — 코드 <코드>", 있으면 단추(도구로 적은
- *       그대로 · 안드로이드는 ① 그룹 ② 참여 ③ 추천인 붙은 플레이) · 시험 기간을 끄면 가게 주소
+ *       그대로 · 안드로이드는 ① 그룹 ② 참여 ③ 추천인 붙은 플레이) · 시험 기간을 끄면 가게 주소 ·
+ *       시험 중이어도 앱스토어 판(--appstore)을 적으면 아이폰만 App Store(안드로이드는 글자 그대로)
  *   [7] ?noapp=1 — 설치 안내를 앞세움
  *   [8] 새지 않는다 — 이름 · 아이디가 안 나오고, 있는 코드 = 없는 코드 · 로그에 코드 없음 ·
  *       초대 페이지 코드는 DB 를 부르지 않음
@@ -38,7 +39,8 @@
  *       환경변수가 먼저 · 내보내는 폴더의 같은 이름 파일이 못 가로챔
  *  [13] 스크립트 (가짜 브라우저에서 실제로 실행) — 카카오톡은 기본 브라우저로 · 안드로이드는
  *       intent(fallback: 시험 중 ?noapp=1 · 뒤 추천인 플레이) · 아이폰은 1.5초 뒤 설치 페이지
- *       (?stay=1 · 누름 · 가려짐이면 안 감) · 설치 단추는 초대 글을 담고 감 · 한 탭에 한 번
+ *       (?stay=1 · 누름 · 가려짐이면 안 감 · 앱스토어 판이 적혀 있으면 시험 중이어도 App Store) ·
+ *       설치 단추는 초대 글을 담고 감 · 한 탭에 한 번
  *  [14] 스크립트가 꺼져 있어도 — 단추는 전부 진짜 주소 · "설치 페이지로 가요…" 는 숨김
  *  [15] 윈도우 줄바꿈 — server.js 를 CRLF 로 읽어도(git 의 core.autocrlf) 스크립트는 LF 로 나가고,
  *       브라우저가 줄바꿈을 맞춘 뒤에 재는 해시가 CSP 와 맞는다
@@ -425,6 +427,75 @@ async function main() {
      hrefs(d4.body).some(x => x.href === APPSTORE) && ![JA, JG, JI].some(u => d4.body.includes(u)));
   const on = tool(['--testing=on']);
   ok('다시 켜면 참여 링크로', on.code === 0 && (await page('/i/' + CODE, { ua: UA.android })).body.includes(JA));
+
+  /* 아이폰만 먼저 App Store — 애플 심사를 지나 App Store 에 나갔는데 안드로이드는 아직 플레이 비공개
+     테스트(프로덕션 없음)인 때. 주인은 시험 기간을 켠 채 도구로 앱스토어 판만 적습니다(--appstore).
+     아이폰은 App Store 로, 안드로이드는 참여 단계 그대로(글자 하나 다르지 않게)여야 합니다. */
+  tool(['--join-android-group=' + JG, '--join-ios=' + JI]);
+  const asAnB = await page('/i/' + CODE, { ua: UA.android, headers: fwd });
+  const asNaB = await page('/i/' + CODE + '?noapp=1', { ua: UA.android, headers: fwd });
+  const asSet = tool(['--appstore=0.2.20']);
+  const asV = await api('GET', '/version');
+  ok('도구로 앱스토어 판을 적는다 (--appstore=0.2.20 · 시험 기간은 켠 채)', asSet.code === 0 &&
+     asV.json.latest && asV.json.latest.appstore === '0.2.20' && asV.json.testing === true,
+     [asSet.code, asV.json.latest, asV.json.testing, asSet.out.slice(-300)]);
+  const asIo = await page('/i/' + CODE, { ua: UA.ios, headers: fwd });
+  const asIoL = hrefs(asIo.body);
+  ok('아이폰: "App Store 에서 받기" (' + APPSTORE + ') · 설치 단추(data-install) · TestFlight 는 없다',
+     asIoL.some(x => x.label === 'App Store 에서 받기' && x.href === APPSTORE && /\sdata-install[\s>]/.test(x.tag)) &&
+     !asIo.body.includes('TestFlight') && !asIo.body.includes(JI) && !asIo.body.includes('곧 열려요'),
+     asIoL.map(x => x.label + ' ' + x.href));
+  ok('아이폰: 저절로 갈 곳(data-later)도 App Store · "앱에서 열기" 는 그대로 mybody://invite/<코드>',
+     bodyData(asIo.body)['data-later'] === APPSTORE && (openBtn(asIo.body) || {}).href === 'mybody://invite/' + CODE &&
+     asIo.body.includes('설치한 뒤 돌아와서 「앱에서 열기」'), bodyData(asIo.body));
+  const asNi = hrefs((await page('/i/' + CODE + '?noapp=1', { ua: UA.ios })).body);
+  ok('아이폰 noapp: App Store 단추 뒤에 "앱에서 열기"', asNi.findIndex(x => x.href === APPSTORE) >= 0 &&
+     asNi.findIndex(x => x.label === '앱에서 열기') > asNi.findIndex(x => x.href === APPSTORE), asNi.map(x => x.label));
+  const asD = (await page('/i/' + CODE, { ua: UA.desktop })).body;
+  const asDi = asD.slice(asD.indexOf('<h3>아이폰</h3>'), asD.indexOf('</section>', asD.indexOf('<h3>아이폰</h3>')));
+  const asDa = asD.slice(asD.indexOf('<h3>안드로이드</h3>'), asD.indexOf('<h3>아이폰</h3>'));
+  ok('컴퓨터: 아이폰 칸은 App Store 하나 · 안드로이드 칸은 ① 구글 그룹 ② 테스트 참여 ③ 플레이(추천인) 그대로',
+     hrefs(asDi).map(x => x.label + ' ' + x.href).join('|') === 'App Store 에서 받기 ' + APPSTORE &&
+     hrefs(asDa).map(x => x.href).join(' ') === [JG, JA, playOf(CODE)].join(' ') && !asD.includes(JI),
+     [hrefs(asDi).map(x => x.label), hrefs(asDa).map(x => x.label)]);
+  ok('안드로이드: 페이지 · ?noapp=1 이 앱스토어 판이 없을 때와 글자 하나 다르지 않다 (fallback 도 ?noapp=1 그대로)',
+     (await page('/i/' + CODE, { ua: UA.android, headers: fwd })).body === asAnB.body &&
+     (await page('/i/' + CODE + '?noapp=1', { ua: UA.android, headers: fwd })).body === asNaB.body &&
+     asAnB.body.includes(JA) && asAnB.body.includes(encodeURIComponent('?noapp=1')));
+  tool(['--join-ios=none']);
+  const asNo = await page('/i/' + CODE, { ua: UA.ios });
+  ok('TestFlight 링크를 지워도 아이폰은 App Store ("곧 열려요" 아님) · "설치한 뒤 돌아와서" 도 그대로',
+     hrefs(asNo.body).some(x => x.href === APPSTORE) && !asNo.body.includes('곧 열려요') &&
+     bodyData(asNo.body)['data-later'] === APPSTORE && asNo.body.includes('설치한 뒤 돌아와서 「앱에서 열기」'),
+     hrefs(asNo.body).map(x => x.label));
+  /* App Store 에서 깐 친구가 돌아와 누를 단추 — 참여 링크가 없어도 설치할 곳(App Store)이 있으니 있어야 합니다. */
+  const asNoNa = await page('/i/' + CODE + '?noapp=1', { ua: UA.ios });
+  const asNoNaL = hrefs(asNoNa.body);
+  ok('TestFlight 링크가 없어도 아이폰 noapp: App Store 단추 뒤에 "설치했으면 이 단추로" · "앱에서 열기"',
+     asNoNa.body.includes('설치했으면 이 단추로') && asNoNaL.findIndex(x => x.href === APPSTORE) >= 0 &&
+     asNoNaL.findIndex(x => x.label === '앱에서 열기') > asNoNaL.findIndex(x => x.href === APPSTORE),
+     asNoNaL.map(x => x.label));
+  const asClr = tool(['--appstore=none', '--join-ios=' + JI]);
+  const asBack = await page('/i/' + CODE, { ua: UA.ios });
+  ok('앱스토어 판을 지우면 아이폰은 다시 TestFlight', asClr.code === 0 &&
+     hrefs(asBack.body).some(x => x.label === 'TestFlight 에서 받기' && x.href === JI) && !asBack.body.includes(APPSTORE) &&
+     bodyData(asBack.body)['data-later'] === JI, hrefs(asBack.body).map(x => x.label));
+  /* 안드로이드 참여 링크가 없을 때도 — 위는 참여 링크가 있어 testing 과 상관없이 설치 안내가 붙는 모양이라,
+     아이폰 규칙(앱스토어 판)이 안드로이드로 새는지는 여기서만 보입니다. 새면 "곧 열려요" 옆에
+     "설치한 뒤 돌아와서" · noapp 의 「앱에서 열기」 가 붙습니다(아직 없는 가게를 전제로). */
+  tool(['--join-android=none']);
+  const anNoB = await page('/i/' + CODE, { ua: UA.android, headers: fwd });
+  const anNoNaB = await page('/i/' + CODE + '?noapp=1', { ua: UA.android, headers: fwd });
+  const asOn2 = tool(['--appstore=0.2.20']);
+  const anNoA = await page('/i/' + CODE, { ua: UA.android, headers: fwd });
+  const anNoNaA = await page('/i/' + CODE + '?noapp=1', { ua: UA.android, headers: fwd });
+  ok('안드로이드 참여 링크가 없을 때: 앱스토어 판을 적어도 페이지 · ?noapp=1 이 글자 하나 다르지 않다 ("곧 열려요" 그대로)',
+     asOn2.code === 0 && anNoA.body === anNoB.body && anNoNaA.body === anNoNaB.body &&
+     anNoB.body.includes('안드로이드는 곧 열려요 — 코드 ' + CODE + ' 를 적어 두세요'), asOn2.out.slice(-300));
+  ok('  그리고 "설치한 뒤 돌아와서" · "설치했으면 이 단추로" 가 붙지 않는다',
+     ![anNoA, anNoNaA].some(x => x.body.includes('설치한 뒤 돌아와서') || x.body.includes('설치했으면 이 단추로')));
+  tool(['--appstore=none', '--join-android=' + JA]);
+  tool(['--join-android-group=none', '--join-ios=none']);
 
   console.log('\n[7] ?noapp=1 — 앱이 없어서 돌아온 경우');
   tool(['--join-android-group=' + JG, '--join-ios=' + JI]);
@@ -872,6 +943,26 @@ async function scriptBehaviour(CODE) {
   ok('아이폰(시험 중 · 링크 없음): 저절로 안 감 · "곧 열려요 — 코드 <코드> 를 적어 두세요"',
      !('data-later' in bodyData(i2.body)) && r3.nav.length === 0 && i2.body.includes('아이폰은 곧 열려요 — 코드 ' + CODE + ' 를 적어 두세요'),
      r3.nav);
+
+  /* 아이폰만 먼저 App Store (시험 기간은 켠 채 앱스토어 판) — 아이폰은 1.5초 뒤 App Store,
+     안드로이드는 시험 중 그대로(fallback 은 ?noapp=1 — 아직 없는 플레이 가게로 보내지 않음). */
+  writeCfg({ appJoinAndroid: JA, appJoinAndroidGroup: JG, appJoinIos: JI, appLatestAppStore: '0.2.20' });
+  const i4 = await pg('', UA.ios);
+  const r6 = runScript(i4.body);
+  r6.tick(1500);
+  ok('아이폰(시험 중 · 앱스토어 판): data-later = App Store · 1.5초 뒤 App Store (' + APPSTORE + ')',
+     bodyData(i4.body)['data-later'] === APPSTORE && r6.nav.length === 1 && r6.nav[0][0] === 'href' &&
+     r6.nav[0][1] === APPSTORE, r6.nav);
+  ok('안드로이드(시험 중 · 앱스토어 판): 페이지가 글자 하나 다르지 않다 — intent 의 fallback 은 이 페이지 + ?noapp=1',
+     (await pg('', UA.android)).body === a1.body);
+  const dk2 = await pg('', UA.desktop);
+  const rc2 = runScript(dk2.body);
+  const asBtn = rc2.anchors.find(a => a.href === APPSTORE);
+  ok('컴퓨터(시험 중 · 앱스토어 판): App Store 도 설치 단추 — 누르면 초대 글을 담고 감 · TestFlight 단추는 없음',
+     !!asBtn && rc2.click(asBtn) && rc2.clip[0] === COPY && !rc2.anchors.some(a => a.href === JI) &&
+     rc2.anchors.some(a => a.href === playOf(CODE)), rc2.anchors.map(a => a.label));
+  await settle();
+  ok('담기가 끝나면 App Store 로', rc2.nav.length === 1 && rc2.nav[0][1] === APPSTORE, rc2.nav);
 
   /* 정식 출시 뒤 (testing 꺼짐) */
   writeCfg({ appJoinAndroid: JA, appJoinAndroidGroup: JG, appJoinIos: JI, appTesting: false });

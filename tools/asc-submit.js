@@ -7,6 +7,8 @@
  *
  *   node tools/asc-submit.js --link-only --beta friends [--submit] [--link-off]
  *
+ *   node tools/asc-submit.js --release --version 0.2.20 [--submit]
+ *
  *   --submit 이 없으면 **읽기만** 합니다(지금 상태와 할 일을 찍음). 있을 때만 바꿉니다.
  *   환경변수: ASC_KEY_ID · ASC_ISSUER_ID · ASC_KEY_P8 또는 ASC_KEY_P8_BASE64 (tools/asc.js 와 같음)
  *            ASC_BUNDLE_ID (기본 io.github.iacobuschoi.mybody)
@@ -35,12 +37,29 @@
  *   승인된 빌드가 있어야 실제로 깔립니다(베타 심사 통과 뒤).
  *   --link-off 를 더하면 반대로 닫습니다(--submit 일 때만 바꿈).
  *
+ * 무엇을 하는가 (--release --version 판번호)
+ *   주인 결정(9/29): "애플 심사 통과하면 배포" — 0.2.20 은 「수동 출시」 로 냈으니 승인되면
+ *   PENDING_DEVELOPER_RELEASE 에서 멈춰 기다립니다. 그 판이 그 상태일 때만(두 칸 모두) --submit 으로
+ *   출시 요청(appStoreVersionReleaseRequests)을 보냅니다. 이미 출시 중 · 출시됐으면 「이미 출시됨」 으로
+ *   끝나고, 아직 심사 중이면(두 칸이 잠깐 다를 때도) 아무것도 안 하고 **성공(0)으로** 끝납니다 — 한
+ *   시간마다 돌려도 빨간 불이 쌓이지 않게. 심사에서 빠졌으면(거절 · 철회 · 제출 전으로 돌아감 — DEAD)
+ *   실패(1)입니다: 기다려도 승인되지 않으니 고쳐서 다시 내야 하고, 그걸 초록 「기다리는 중」 으로 덮으면
+ *   아무도 모릅니다. 판 번호를 못 찾거나 애플이 출시 요청을 거절해도 실패(1)입니다(사람이 봐야 함).
+ *   심사 제출 · 베타 그룹 · 공개 링크는 읽지도 바꾸지도 않습니다(--beta 등을 줘도 무시).
+ *
+ * 앱스토어 페이지 (읽기만 · 기본 모드의 --submit 없는 읽기와 --release)
+ *   상태 줄 뒤에 iTunes lookup(로그인 없음)으로 「앱스토어 페이지: 공개됨 (판 …)」 / 「아직 안 보임」 을
+ *   찍습니다. 출시 요청 뒤에도 페이지가 뜨기까지 시간이 걸립니다 — 설치 링크(/get)를 앱스토어로 돌리거나
+ *   app-version.js --appstore 를 적는 신호는 「출시 요청 보냄」 이 아니라 이 줄입니다(docs/DEPLOY.md
+ *   「가게에 실제로 올라가기 전에는 올리지 마세요」). 못 읽어도 실행은 멈추지 않습니다.
+ *
  * 멈추는 자리
  *   빌드가 없거나 처리 중이면(processingState ≠ VALID) 아무것도 바꾸지 않고 멈춥니다. 취소한 뒤 판이
  *   고칠 수 있는 상태로 안 바뀌면(시간 초과) 새 제출을 만들지 않고 멈춥니다 — 반쯤 된 상태로 두지 않으려고
  *   **바꾸기 전에 확인할 수 있는 것은 전부 먼저 확인**합니다.
  * ========================================================================== */
 'use strict';
+const https = require('https');
 const asc = require('./asc.js');
 
 const OPEN_REVIEW = ['WAITING_FOR_REVIEW', 'IN_REVIEW', 'UNRESOLVED_ISSUES', 'READY_FOR_REVIEW'];
@@ -50,6 +69,18 @@ const EDITABLE = ['PREPARE_FOR_SUBMISSION', 'DEVELOPER_REJECTED', 'REJECTED', 'M
 const RELEASED = ['READY_FOR_SALE', 'READY_FOR_DISTRIBUTION', 'PROCESSING_FOR_DISTRIBUTION',
   'PENDING_APPLE_RELEASE', 'PENDING_DEVELOPER_RELEASE', 'REPLACED_WITH_NEW_VERSION', 'REMOVED_FROM_SALE',
   'DEVELOPER_REMOVED_FROM_SALE'];
+/* --release: 출시 요청을 받는 상태는 이것 하나(「수동 출시」 로 낸 판이 승인되면 여기서 기다림). */
+const RELEASABLE = 'PENDING_DEVELOPER_RELEASE';
+/* 이미 출시가 시작됐거나 끝난 상태 — 옛 칸(…_APP_STORE · …_SALE)과 새 칸(…_DISTRIBUTION) 둘 다. */
+const LIVE = ['PROCESSING_FOR_APP_STORE', 'PROCESSING_FOR_DISTRIBUTION', 'READY_FOR_SALE', 'READY_FOR_DISTRIBUTION'];
+/* 심사에서 빠진 상태 — 기다려도 PENDING_DEVELOPER_RELEASE 가 오지 않습니다(고쳐서 다시 제출해야 함).
+   「아직 승인 전」 으로 0 을 내면 한 시간마다 도는 호출이 초록 불로 끝없이 기다립니다. */
+const DEAD = ['REJECTED', 'METADATA_REJECTED', 'INVALID_BINARY', 'DEVELOPER_REJECTED', 'PREPARE_FOR_SUBMISSION'];
+/* 심사는 지났지만 우리가 출시 요청을 낼 자리가 아닌 상태 — 「승인 전」 이라고 찍으면 틀린 말이 됩니다. */
+const PAST_REVIEW = ['PENDING_APPLE_RELEASE', 'ACCEPTED', 'PREORDER_READY_FOR_SALE', 'REPLACED_WITH_NEW_VERSION',
+  'REMOVED_FROM_SALE', 'DEVELOPER_REMOVED_FROM_SALE'];
+const LOOKUP = 'https://itunes.apple.com/lookup';
+const LOOKUP_MS = 8000;
 
 function arg(argv, k, d) {
   const i = argv.indexOf(k);
@@ -61,6 +92,12 @@ const has = (argv, k) => argv.includes(k);
 function stateOf(v) {
   const a = (v && v.attributes) || {};
   return String(a.appStoreState || a.appVersionState || '');
+}
+/** 두 칸을 다 — 애플이 두 칸을 따로 갱신해 잠깐 다를 때가 있습니다. 「이미 출시됨」 은 둘 중 하나라도로,
+ *  「출시 요청을 보내도 됨」 은 두 칸 모두로 봅니다(releaseVersion). */
+function statesOf(v) {
+  const a = (v && v.attributes) || {};
+  return [...new Set([a.appStoreState, a.appVersionState].filter(Boolean).map(String))];
 }
 
 async function findApp(c, bundleId) {
@@ -312,6 +349,128 @@ async function publicLink(c, opts) {
   return { enabled: !!a.publicLinkEnabled, link: a.publicLink || null };
 }
 
+/** GET 한 번 → JSON. 전체 시간 제한(ms)이 있습니다 — 소켓 idle 제한만 걸면 느리게 조금씩 오는 응답에
+ *  끝없이 매달립니다. agent:false 는 keep-alive 소켓이 남아 CLI 가 늦게 끝나는 일을 막으려고.
+ *  get 은 시험이 가짜 전송(조금씩 오는 응답 · 403 등)을 넣는 자리입니다 — 평소에는 https.get. */
+function getJson(url, ms, get = https.get) {
+  return new Promise((resolve, reject) => {
+    let done = false, t = null;
+    const finish = (e, v) => {
+      if (done) return;
+      done = true; clearTimeout(t);
+      if (e) reject(e); else resolve(v);
+    };
+    const req = get(url, { agent: false, headers: { accept: 'application/json' } }, res => {
+      if (res.statusCode !== 200) { res.resume(); finish(new Error(`HTTP ${res.statusCode}`)); return; }
+      let buf = '';
+      res.setEncoding('utf8');
+      res.on('data', d => { buf += d; });
+      res.on('error', finish);
+      res.on('end', () => {
+        let j;
+        try { j = JSON.parse(buf); } catch (e) { finish(new Error('JSON 이 아닌 응답')); return; }
+        finish(null, j);
+      });
+    });
+    t = setTimeout(() => { finish(new Error(`${ms / 1000}초 안에 응답 없음`)); req.destroy(); }, ms);
+    req.on('error', finish);
+  });
+}
+
+/** 앱스토어 페이지가 바깥(로그인 없는 사람)에게 보이는지 — iTunes lookup, 읽기만. 무슨 일이 있어도
+ *  던지지 않습니다: 이 줄은 참고용이고, 이것 때문에 출시 요청이나 읽기가 멈추면 안 됩니다. */
+async function storeCheck(appId, opts, deps) {
+  const log = opts.log;
+  const get = deps.lookup || getJson;
+  let j;
+  try {
+    j = await get(`${LOOKUP}?id=${encodeURIComponent(appId)}&country=kr`, LOOKUP_MS);
+    if (!j || typeof j !== 'object' || typeof j.resultCount !== 'number') throw new Error('resultCount 없는 응답');
+  } catch (e) {
+    const why = String((e && (e.code || e.message)) || e).replace(/\s+/g, ' ').slice(0, 120);
+    log(`앱스토어 페이지: 확인 못 함(${why})`);
+    return { visible: null, error: why };
+  }
+  if (j.resultCount >= 1) {
+    const r = (Array.isArray(j.results) && j.results[0]) || {};
+    const version = r.version ? String(r.version) : '?';
+    log(`앱스토어 페이지: 공개됨 (판 ${version})`);
+    return { visible: true, version };
+  }
+  log('앱스토어 페이지: 아직 안 보임');
+  return { visible: false };
+}
+
+/** --release: 심사 통과(PENDING_DEVELOPER_RELEASE)한 판을 출시합니다. 판 하나만 읽고 그 판에만
+ *  출시 요청을 보냅니다 — 심사 제출 · 베타 · 공개 링크 쪽 주소는 부르지도 않습니다. */
+async function releaseVersion(c, opts, deps) {
+  const log = opts.log;
+  const app = await findApp(c, opts.bundleId);
+  const ver = (await versionsOf(c, app.id)).find(v => v.attributes && v.attributes.versionString === opts.version);
+  if (!ver) throw new Error(`앱스토어에 판 ${opts.version} 이 없습니다 — 판 번호를 확인하세요`);
+  const ss = statesOf(ver);
+  const shown = ss.join(' / ') || '모름';
+  log(`앱: ${app.attributes.name} (${app.id})`);
+  log(`판 ${opts.version} — ${shown}`);
+  const store = await storeCheck(app.id, opts, deps);
+  const out = (action, extra) => ({ release: Object.assign({ versionId: ver.id, state: shown, action }, extra), store });
+
+  /* 이미 출시가 시작됐으면 다시 보내지 않습니다 — 두 번 보내면 애플이 409 로 거절하고, 한 시간마다
+     도는 호출이 빨간 불이 됩니다. 두 칸이 잠깐 다를 때(한쪽만 PROCESSING…)도 출시된 쪽을 믿습니다. */
+  if (ss.some(s => LIVE.includes(s))) {
+    log('이미 출시됨 — 출시 요청을 다시 보내지 않습니다');
+    return out('already');
+  }
+  /* 한 칸만 PENDING_DEVELOPER_RELEASE 이고 다른 칸이 다른 말을 하면(웹에서 판을 뺐는데 한 칸이 아직
+     안 따라왔을 때 등) 보내지 않습니다 — 두 칸 모두 같은 이름이라 맞을 때까지 기다려도 잃는 것이 없습니다. */
+  if (ss.includes(RELEASABLE) && ss.length > 1) {
+    log(`두 칸이 다름(${shown}) — 출시하지 않고 다음 실행에 다시 봅니다`);
+    return out('waiting');
+  }
+  /* 심사에서 빠졌으면 기다려도 오지 않습니다 — 사람이 고쳐서 다시 내야 하니 실패(1)로 알립니다. */
+  if (ss.some(s => DEAD.includes(s))) {
+    const m = `심사에서 빠짐(${shown}) — 출시하지 않음. 고쳐서 다시 제출해야 합니다`;
+    log(m);
+    throw new Error(m);
+  }
+  /* 승인 전은 실패가 아니라 「아직」 입니다 — 0 으로 끝나서 반복 호출이 무해하게. */
+  if (!ss.includes(RELEASABLE)) {
+    log(ss.some(s => PAST_REVIEW.includes(s))
+      ? `출시 요청을 받는 상태가 아님(${shown}) — 출시하지 않음`
+      : `아직 승인 전(${shown}) — 출시하지 않음`);
+    return out('waiting');
+  }
+  if (!opts.submit) {
+    log(`심사 통과 — --submit 이면 판 ${opts.version} 출시 요청을 보냅니다`);
+    log('읽기만 했습니다(--submit 없음).');
+    return out('ready');
+  }
+  try {
+    await c.call('POST', '/v1/appStoreVersionReleaseRequests', {
+      data: { type: 'appStoreVersionReleaseRequests',
+        relationships: { appStoreVersion: { data: { type: 'appStoreVersions', id: ver.id } } } },
+    });
+  } catch (e) {
+    if (e.status !== 409 && e.status !== 422) throw e;
+    /* 거절이면 판을 다시 읽습니다 — 읽은 뒤 · 보내기 전 사이에 (웹에서 누르는 등) 출시가 시작됐으면
+       바라던 결과이니 성공입니다. 아니면 사람이 봐야 하니 멈춥니다(계약 · 세금 미비 등). */
+    let now = [];
+    try { now = statesOf((await c.call('GET', `/v1/appStoreVersions/${ver.id}`)).data); } catch (e2) { /* 모름 */ }
+    if (now.some(s => LIVE.includes(s))) {
+      log(`이미 출시됨 — 출시 요청은 ${e.status} 로 거절됐지만 판이 ${now.join(' / ')} 입니다`);
+      return out('already', { state: now.join(' / ') });
+    }
+    const detail = (e.errors || []).map(x => [x.code, x.detail || x.title].filter(Boolean).join(': '))
+      .filter(Boolean).join(' | ').replace(/\s+/g, ' ').slice(0, 200);
+    const msg = `출시 요청을 애플이 받지 않았습니다(${e.status}${detail ? ' ' + detail : ''}) — ` +
+      `판 ${opts.version} 은 ${now.join(' / ') || '상태 모름'} 그대로입니다. App Store Connect 에서 확인하세요`;
+    log(msg);
+    throw new Error(msg);
+  }
+  log(`출시 요청 보냄: 판 ${opts.version} — 앱스토어 페이지가 뜨기까지 몇 시간 걸릴 수 있습니다`);
+  return out('requested');
+}
+
 async function run(argv, env, deps = {}) {
   const log = deps.log || (s => console.log(s));
   const opts = {
@@ -330,6 +489,12 @@ async function run(argv, env, deps = {}) {
     keyId: String(env.ASC_KEY_ID || '').trim(), issuerId: String(env.ASC_ISSUER_ID || '').trim(),
     pem: asc.loadKeyPem(env),
   });
+  /* --release 는 따로 갑니다(--link-only 처럼 여기서 끝남) — 아래의 취소 · 재제출 · 베타 길을 절대 안 탐. */
+  if (has(argv, '--release')) {
+    if (has(argv, '--link-only')) throw new Error('--release 와 --link-only 는 함께 쓸 수 없습니다');
+    if (!/^\d+\.\d+\.\d+$/.test(opts.version || '')) throw new Error('--release 에는 --version 0.2.20 같은 판 번호가 필요합니다');
+    return releaseVersion(client(), opts, deps);
+  }
   if (has(argv, '--link-only')) {
     if (!opts.beta) throw new Error('--link-only 에는 --beta 그룹이름이 필요합니다');
     return { link: await publicLink(client(), opts) };
@@ -347,6 +512,9 @@ async function run(argv, env, deps = {}) {
     log(`베타 심사: ${beta.review || '모름'} · 외부 테스트 빌드 상태: ${beta.external || '모름'}`);
   }
   if (!opts.submit) {
+    /* 앱스토어 페이지가 바깥에 보이는지 — 읽기만 · 못 읽어도 멈추지 않습니다(머리말 「앱스토어 페이지」).
+       --submit 길(취소 · 재제출)에는 넣지 않습니다 — 그 길은 바깥 요청 하나 없이 전과 같게. */
+    p.store = await storeCheck(p.app.id, opts, deps);
     log('읽기만 했습니다(--submit 없음).');
     return { plan: p, submitted: false };
   }
@@ -363,4 +531,5 @@ if (require.main === module) {
   });
 }
 
-module.exports = { run, plan, publicLink, betaState, stateOf, EDITABLE, OPEN_REVIEW };
+module.exports = { run, plan, publicLink, betaState, stateOf, statesOf, storeCheck, getJson, releaseVersion,
+  EDITABLE, OPEN_REVIEW, RELEASABLE, LIVE, DEAD };

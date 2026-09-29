@@ -1438,9 +1438,10 @@ function serveStatic(req, res, url) {
  *   · 안드로이드 — 열리자마자 intent 로 앱을 부릅니다(없으면 위 fallback). 크롬이 누름 없이는
  *     막을 수 있어서 "앱에서 열기" 단추는 그대로 둡니다.
  *   · 아이폰 — 여기까지 왔으면 앱 링크가 앱을 못 연 것입니다(앱이 없을 가능성이 큼). 1.5초 뒤
- *     설치 페이지(시험 기간: TestFlight · 뒤: App Store)로 갑니다 — 그 사이에 뭔가 눌렀거나
- *     다른 화면으로 갔으면 안 갑니다. "여기 있기"(?stay=1)로 멈춥니다. mybody:// 를 저절로
- *     부르지는 않습니다: 앱이 없는 아이폰에서는 "주소가 유효하지 않음" 창부터 뜹니다.
+ *     설치 페이지(시험 기간: TestFlight · App Store 에 나간 뒤(iosOnStore): App Store)로 갑니다
+ *     — 그 사이에 뭔가 눌렀거나 다른 화면으로 갔으면 안 갑니다. "여기 있기"(?stay=1)로 멈춥니다.
+ *     mybody:// 를 저절로 부르지는 않습니다: 앱이 없는 아이폰에서는 "주소가 유효하지 않음" 창부터
+ *     뜹니다.
  *   · 한 탭에서 한 번씩만(sessionStorage) — 뒤로 가기로 돌아왔을 때 다시 튕기지 않게.
  *
  * 설치한 뒤에도 초대가 이어지게 (앱이 읽는 길은 app/lib/src/invite_link.dart · install_referrer.dart)
@@ -1478,6 +1479,8 @@ function serveStatic(req, res, url) {
  *   시험 기간(testing)   아이폰 TestFlight 공개 링크(join.ios) · 안드로이드 ① 구글 그룹
  *                        (join.androidGroup) ② 테스트 참여(join.android) ③ 플레이(추천인)
  *   정식 출시 뒤         아이폰 App Store · 안드로이드 플레이(추천인)
+ *   아이폰만 먼저 가게에  시험 기간이어도 앱스토어 판(latest.appstore)이 적혀 있으면 아이폰은
+ *                        App Store 입니다(iosOnStore). 안드로이드는 testing 그대로 — 아래 참고.
  *   필요한 링크가 안 적혀 있으면 "곧 열려요 — 코드 <코드> 를 적어 두세요".
  *   가게 주소는 설정의 urls(앱 안 업데이트 단추용 appUrl…)가 아니라 앱과 약속한 고정 주소입니다
  *   (APPSTORE_URL · PLAY_URL) — 플레이 쪽은 코드마다 추천인을 붙여야 해서입니다.
@@ -1749,23 +1752,32 @@ function playWithReferrer(code) {
   return PLAY_URL + '&referrer=' + encodeURIComponent('invite=' + code);
 }
 
-/** "앱이 없나요?" 의 한 기종 몫. testing 이 켜져 있으면 참여 링크, 꺼져 있으면 가게.
- *  받을 곳이 없으면 "곧 열려요" 한 줄 — 그때는 "설치한 뒤 돌아와서" 도 붙이지 않습니다(offers).
- *  가게 주소는 설정(urls)이 아니라 앱과 약속한 주소입니다(APPSTORE_URL · playWithReferrer). */
+/** 아이폰을 App Store 로 보낼 때인가. 시험 기간이 끝났거나(testing 꺼짐), 시험 중이어도
+ *  앱스토어 판(latest.appstore — 「앱스토어 심사를 지나 배포가 시작된 판」, 노트북에서
+ *  tools/app-version.js --appstore=<판>)이 적혀 있으면 참입니다.
+ *  두 기종이 가게에 오르는 때가 다릅니다 — 아이폰은 심사를 지나 App Store 에 나갔는데 안드로이드는
+ *  아직 플레이 비공개 테스트(프로덕션 없음)일 수 있습니다. testing 을 끄면 안드로이드까지 아직
+ *  없는 플레이 가게 페이지로 가니, 아이폰은 "App Store 에 판이 있다" 는 이 값으로 따로 넘깁니다.
+ *  안드로이드 쪽은 testing 을 그대로 봅니다. */
+function iosOnStore(info) {
+  return !info.testing || !!(info.latest && info.latest.appstore);
+}
+/** "앱이 없나요?" 의 한 기종 몫. testing 이 켜져 있으면 참여 링크, 꺼져 있으면 가게 — 아이폰은
+ *  iosOnStore 면 가게. 받을 곳이 없으면 "곧 열려요" 한 줄 — 그때는 "설치한 뒤 돌아와서" 도 붙이지
+ *  않습니다(offers). 가게 주소는 설정(urls)이 아니라 앱과 약속한 주소입니다(APPSTORE_URL · playWithReferrer). */
 function offersInstall(os, info) {
-  return !info.testing || !!(info.join || {})[os === 'android' ? 'android' : 'ios'];
+  if (os === 'android') return !info.testing || !!(info.join || {}).android;
+  return iosOnStore(info) || !!(info.join || {}).ios;
 }
 /** 아이폰이 저절로 갈 설치 페이지. 없으면 ''(그때는 안 갑니다). */
 function iosInstallTarget(info) {
-  return info.testing ? ((info.join || {}).ios || '') : APPSTORE_URL;
+  return iosOnStore(info) ? APPSTORE_URL : ((info.join || {}).ios || '');
 }
 function installFor(os, info, code) {
   const join = info.join || {};
   const play = playWithReferrer(code);
-  if (!info.testing) {
-    return os === 'android' ? installBtn(play, 'Google Play 에서 받기')
-                            : installBtn(APPSTORE_URL, 'App Store 에서 받기');
-  }
+  if (os !== 'android' && iosOnStore(info)) return installBtn(APPSTORE_URL, 'App Store 에서 받기');
+  if (os === 'android' && !info.testing) return installBtn(play, 'Google Play 에서 받기');
   if (os === 'android') {
     if (!join.android) return soonLine('안드로이드는', code);
     /* 비공개 테스트는 구글 그룹에 먼저 들어가야 참여 주소가 열립니다. 그룹이 없는 테스트면
@@ -1897,7 +1909,8 @@ function serveInvite(req, res, url) {
  * 기종별 (설정은 초대 페이지와 같은 것을 부를 때마다 읽습니다)
  *   아이폰      시험 기간: TestFlight 공개 링크로 302 — 애플의 그 페이지가 "TestFlight 받기 →
  *               테스트 시작" 을 안내합니다. 링크가 아직 없으면 "곧 열려요" 페이지.
- *               출시 뒤: App Store 로 302.
+ *               출시 뒤: App Store 로 302. 시험 기간이어도 앱스토어 판(latest.appstore)이 적히면
+ *               App Store 로 — 초대 페이지와 같은 iosOnStore 입니다(안드로이드는 testing 그대로).
  *   안드로이드  시험 기간: ① 구글 그룹(있으면) ② 테스트 참여 ③ Google Play 단추를 차례로 — 구글
  *               로그인이 끼는 단계라 한 번에 보낼 곳이 없습니다. 출시 뒤: 플레이로 302.
  *   그 밖       두 기종 안내를 다 보이고 "폰에서 열면 더 쉬워요".
@@ -1934,7 +1947,7 @@ function getSteps(os, info) {
       (join.androidGroup ? '<p class="hint">그룹 · 플레이 모두 같은 구글 계정으로</p>\n' : '') +
       steps.map((s, i) => inviteBtn(s[0], '①②③'[i] + ' ' + s[1])).join('');
   }
-  if (!info.testing) return inviteBtn(APPSTORE_URL, 'App Store 에서 받기');
+  if (iosOnStore(info)) return inviteBtn(APPSTORE_URL, 'App Store 에서 받기');
   if (!join.ios) return soon('아이폰은');
   return inviteBtn(join.ios, 'TestFlight 에서 받기') +
     '<p class="hint">TestFlight 앱이 있어야 열려요 · <a href="' + escHtml(TESTFLIGHT_APP_URL) +

@@ -68,6 +68,9 @@
  *   중이고, 모르는 값을 "출시됐다" 로 읽으면 아직 없는 가게로 사람을 보냅니다. 켜져
  *   있으면 초대 링크 페이지(/i/<코드>)가 위 참여 링크로, 끄면 가게 주소로 안내합니다.
  *   가게에 정식으로 올라간 **뒤에** 끕니다. on · off 말고는 받지 않습니다(참/거짓으로 저장).
+ *   시험 중이어도 --appstore 를 적으면 아이폰은 App Store 로 안내합니다 — 초대 페이지와
+ *   설치 링크(/get) 모두(안드로이드는 testing 그대로). 두 기종이 가게에 오르는 때가 달라서입니다.
+ *   되돌리기는 --appstore=none. 적은 뒤 이 컴퓨터의 서버가 정말 그렇게 보내는지도 봅니다(verify).
  * ========================================================================== */
 'use strict';
 const fs = require('node:fs');
@@ -248,10 +251,46 @@ function show(cfg, changed) {
   /* 참/거짓이 아닌 값은 서버가 켜짐으로 읽습니다(분명히 끈 것만 꺼짐). 그 사실을 말합니다. */
   const todd = tset && typeof traw !== 'boolean' ? '   ← 참/거짓이 아니라 ' + (info.testing ? '켜짐' : '꺼짐') +
     '으로 읽습니다: ' + JSON.stringify(traw) : '';
-  console.log('  시험 기간  ' + (info.testing ? '켜짐' + (tset ? '' : ' (기본값)') + ' — 초대 링크는 참여 링크로 안내'
+  /* 앱스토어 판이 적혀 있으면 시험 중이어도 아이폰은 App Store 로 갑니다(서버의 iosOnStore) —
+     「참여 링크로 안내」 만 찍으면 방금 한 --appstore 가 한 일과 어긋납니다. */
+  const tOn = !info.latest.appstore ? ' — 초대 링크는 참여 링크로 안내'
+    : ' — 초대 · 설치 링크: 아이폰은 App Store(앱스토어 판 ' + info.latest.appstore + '), 안드로이드는 참여 링크로 안내';
+  console.log('  시험 기간  ' + (info.testing ? '켜짐' + (tset ? '' : ' (기본값)') + tOn
                                                : '꺼짐 — 정식 출시 · 초대 링크는 가게 주소로 안내') +
               mark(tk) + todd);
   console.log('');
+}
+
+/* 아이폰 설치 링크(/get · 메일로 보낸 링크)가 정말 App Store 로 가는지 — 시험 중 + 앱스토어 판일 때만.
+ *
+ * /api/version 은 옛 서버 코드도 latest.appstore 를 그대로 내보내서 "확인했습니다" 가 나오지만,
+ * 시험 중에 아이폰을 App Store 로 넘기는 규칙(server.js 의 iosOnStore)은 새 서버 코드에만 있습니다.
+ * 서버를 올리고 다시 띄우기 전에 --appstore 를 적으면 /get 은 아이폰을 여전히 TestFlight 로 보냅니다 —
+ * 그걸 "확인했습니다" 로 덮지 않습니다. 시험이 끝났거나(testing 꺼짐) 앱스토어 판이 없으면 옛 코드 ·
+ * 새 코드가 같은 곳으로 보내니 묻지 않습니다. 확인일 뿐이라 저장 · 끝나는 코드는 그대로입니다. */
+const IPHONE_SAFARI = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 ' +
+  '(KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+async function verifyGet(port, want) {
+  if (!want.testing || !(want.latest || {}).appstore) return;
+  const url = 'http://127.0.0.1:' + port + '/get';
+  let r;
+  try {
+    r = await fetch(url, { redirect: 'manual', headers: { 'User-Agent': IPHONE_SAFARI },
+                           signal: AbortSignal.timeout(2500) });
+  } catch (e) {
+    console.log('  ! 아이폰 설치 링크(' + url + ')를 확인하지 못했습니다 — 아이폰에서 한 번 열어 보세요.');
+    return;
+  }
+  const loc = r.headers.get('location') || '';
+  try { if (r.body) await r.body.cancel(); } catch (e) {}
+  /* 가게 주소는 server.js 의 APPSTORE_URL(https://apps.apple.com/app/id…) — 앞머리만 봅니다. */
+  if (r.status === 302 && /^https:\/\/apps\.apple\.com\//.test(loc)) {
+    console.log('  아이폰 설치 링크(/get)도 App Store 로 가는 것을 확인했습니다.');
+    return;
+  }
+  console.log('  ! 서버(' + port + ' 포트)가 옛 코드라 아이폰 설치 링크(/get)가 아직 App Store 로 안 갑니다 (' +
+              r.status + (loc ? ' → ' + loc : '') + ').');
+  console.log('    서버를 지금 코드로 올리고 한 번 다시 띄우세요 (docs/DEPLOY.md 9절) — 초대 페이지(/i/…)의 아이폰도 같습니다.');
 }
 
 /* 이 컴퓨터에서 도는 서버가 **정말로** 이 값을 내보내는지 물어봅니다.
@@ -299,6 +338,7 @@ async function verify(want) {
   if (same('latest') && same('min') && same('urls') && testingOk && j.join === undefined) {
     if (!Object.keys(want.join || {}).length) {
       console.log('  서버(' + port + ' 포트)가 이 값을 내보내는 것을 확인했습니다.');
+      await verifyGet(port, want);
     } else {
       console.log('  ! 서버(' + port + ' 포트)가 참여 링크(join)를 모르는 옛 서버 코드입니다.');
       console.log('    서버를 지금 코드로 올리고 한 번 다시 띄워야 참여 링크가 나갑니다 (docs/DEPLOY.md 9절).');
@@ -307,6 +347,7 @@ async function verify(want) {
   }
   if (same('latest') && same('min') && same('urls') && same('join') && testingOk) {
     console.log('  서버(' + port + ' 포트)가 이 값을 내보내는 것을 확인했습니다.');
+    await verifyGet(port, want);
     return;
   }
   const line = v => APPVER.CHANNELS.map(ch => NAME[ch] + ' ' + ((v.latest || {})[ch] || '없음')).join(' · ') +

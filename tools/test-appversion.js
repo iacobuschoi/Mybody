@@ -23,6 +23,9 @@
  *      거짓). 도구의 --testing=on|off 는 참/거짓으로 저장하고, none 이면 키를 빼서
  *      기본값(켜짐)으로, 그 밖의 값은 거절한다. 끄기로 했는데 서버가 testing 을
  *      모르는 옛 코드면 "다시 띄워야" 를 말한다.
+ *   9. 시험 중에 앱스토어 판(--appstore)을 적으면 도구가 아이폰 설치 링크(/get)도 App Store 로
+ *      가는지 서버에 묻는다 — /api/version 은 같아도 옛 서버 코드면 아이폰은 아직 TestFlight 라서,
+ *      "확인했습니다" 로 덮지 않고 "다시 띄우세요" 를 말한다. 상태 줄도 "아이폰은 App Store" 로.
  * ========================================================================== */
 'use strict';
 require('./testenv');
@@ -435,6 +438,51 @@ async function main() {
   ok('켜짐이면 옛 서버로도 충분 (앱은 없으면 켜짐) → "확인했습니다"', ot2.code === 0 &&
      /확인했습니다/.test(ot2.out) && !/옛 서버/.test(ot2.out), ot2.out.slice(-400));
   tool(['--testing=none'], home2);
+
+  console.log('\n[9] 도구 — 시험 중 앱스토어 판(--appstore)이면 아이폰 설치 링크(/get)도 확인');
+  const TF = 'https://testflight.apple.com/join/AbCdEf12';
+  const as1 = tool(['--join-ios=' + TF, '--appstore=0.2.20'], null, PORT);
+  ok('지금 서버 코드: "확인했습니다" + 아이폰 설치 링크도 App Store 로 간다고 말한다', as1.code === 0 &&
+     /이 값을 내보내는 것을 확인했습니다/.test(as1.out) &&
+     /아이폰 설치 링크\(\/get\)도 App Store 로 가는 것을 확인했습니다/.test(as1.out) && !/옛 코드/.test(as1.out),
+     as1.out.slice(-500));
+  ok('상태 줄: 시험 중이어도 아이폰은 App Store(앱스토어 판) · 안드로이드는 참여 링크',
+     /시험 기간\s+켜짐 \(기본값\) — 초대 · 설치 링크: 아이폰은 App Store\(앱스토어 판 0\.2\.20\), 안드로이드는 참여 링크로 안내/.test(as1.out) &&
+     !/초대 링크는 참여 링크로 안내/.test(as1.out), as1.out.slice(-800));
+  const asGet = await fetch(`http://127.0.0.1:${PORT}/get`, { redirect: 'manual', headers: { 'User-Agent':
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1' } });
+  ok('(그 서버의 /get 은 정말 App Store 로 302)', asGet.status === 302 &&
+     /^https:\/\/apps\.apple\.com\//.test(asGet.headers.get('location') || ''), [asGet.status, asGet.headers.get('location')]);
+  const as2 = tool(['--appstore=none', '--join-ios=none'], null, PORT);
+  ok('앱스토어 판을 지우면 /get 은 묻지 않고, 상태 줄은 다시 "참여 링크로 안내"', as2.code === 0 &&
+     /확인했습니다/.test(as2.out) && !/설치 링크\(\/get\)/.test(as2.out) &&
+     /시험 기간\s+켜짐 \(기본값\) — 초대 링크는 참여 링크로 안내/.test(as2.out), as2.out.slice(-500));
+  /* 옛 서버 코드 — /api/version 은 적은 값을 그대로 내보내지만(latest.appstore 포함), /get 은 시험 중이라고
+     아이폰을 TestFlight 로 보냅니다. 부른 /get 수를 셉니다. */
+  let getHits = 0;
+  const oldGet = http.createServer((q, s) => {
+    if (q.url.startsWith('/get')) {
+      getHits++;
+      s.writeHead(302, { Location: TF, 'Content-Type': 'text/plain; charset=utf-8' });
+      return s.end('');
+    }
+    s.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    s.end(JSON.stringify(APPVER.versionInfo(Object.assign({}, readCfg(cfg2)))));
+  });
+  await new Promise(r => oldGet.listen(0, '127.0.0.1', r));
+  const og = await toolAsync(['--join-ios=' + TF, '--appstore=0.2.20'], home2, oldGet.address().port);
+  ok('옛 서버 코드면 "확인했습니다" 로 덮지 않고 아이폰 설치 링크가 아직 App Store 가 아니라고 말한다 (exit 0)',
+     og.code === 0 && getHits === 1 &&
+     /옛 코드라 아이폰 설치 링크\(\/get\)가 아직 App Store 로 안 갑니다 \(302 → https:\/\/testflight\.apple\.com\/join\/AbCdEf12\)/.test(og.out) &&
+     /다시 띄우세요 \(docs\/DEPLOY\.md 9절\)/.test(og.out) && !/App Store 로 가는 것을 확인했습니다/.test(og.out) &&
+     readCfg(cfg2).appLatestAppStore === '0.2.20', [getHits, og.out.slice(-500)]);
+  const og2 = await toolAsync(['--testing=off'], home2, oldGet.address().port);
+  const og3 = await toolAsync(['--testing=none', '--appstore=none'], home2, oldGet.address().port);
+  oldGet.close();
+  ok('시험이 끝났거나(testing 꺼짐) 앱스토어 판이 없으면 /get 은 묻지 않는다 (옛 · 새 코드가 같게 보냄)',
+     og2.code === 0 && og3.code === 0 && getHits === 1 && /확인했습니다/.test(og2.out) && /확인했습니다/.test(og3.out),
+     [getHits, og2.out.slice(-300), og3.out.slice(-300)]);
+  tool(['--join-ios=none'], home2);
 
   const broken = '{ "pairSecret": "keep", 망가짐';
   writeCfg(cfg2, broken);

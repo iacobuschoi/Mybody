@@ -391,6 +391,9 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
   | 시험 기간(`testing`, 기본) | TestFlight 공개 링크(`--join-ios`) | ① 구글 그룹(`--join-android-group`, 있으면) ② 테스트 참여(`--join-android`) ③ Google Play(추천인) |
   | 출시 뒤(`--testing=off`) | `https://apps.apple.com/app/id6815144446` | Google Play(추천인) |
 
+  아이폰만 먼저 — 앱스토어 판(`--appstore=<판>`, `/api/version` 의 `latest.appstore`)이 적혀 있으면 시험 기간이어도
+  아이폰은 App Store(단추 · 1.5초 뒤 저절로 가는 곳 모두), 안드로이드는 `testing` 그대로 참여 단계입니다.
+
   필요한 링크가 없으면 "곧 열려요 — 코드 <코드> 를 적어 두세요". Google Play 주소는
   `https://play.google.com/store/apps/details?id=io.github.iacobuschoi.mybody&referrer=invite%3D<코드>` —
   앱이 첫 실행에 설치 추천인으로 초대를 읽습니다. 설치 단추를 누르면 `Mybody 초대 <코드> <이 페이지 주소>` 를
@@ -425,6 +428,9 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 | 안드로이드 | 페이지: 단추 위에 "위에서부터 하나씩 — 끝나면 이 페이지로 돌아와 다음 단추를 눌러 주세요" + (그룹이 있으면) "그룹 · 플레이 모두 같은 구글 계정으로", 그 아래 ① 구글 그룹 가입(`--join-android-group`, 있으면) ② 테스트 참여(`--join-android`) ③ Google Play 에서 설치(추천인 없음). 참여 링크가 없으면 "곧 열려요" | Google Play 로 **302** |
 | 컴퓨터 · 그 밖 | 두 기종 안내를 다 + "폰에서 이 링크를 열면 더 쉬워요 · 그 폰에 맞는 안내만 나와요" | 두 가게 단추 |
 
+- **아이폰만 먼저 App Store** — 앱스토어 판(`--appstore=<판>`, `latest.appstore`)이 적혀 있으면 시험 기간이어도 아이폰은
+  App Store 로 **302**(앱 안 브라우저 · 컴퓨터의 아이폰 칸은 「App Store 에서 받기」). 안드로이드는 `testing` 그대로 —
+  애플 심사를 지나 배포가 시작된 **뒤에** 적습니다(초대 페이지와 같은 규칙).
 - **앱 안 브라우저**(카카오톡 · 인스타그램 · 페이스북 · 라인 · 네이버, 그리고 메일 · 메신저 앱이 자기 안에서 여는
   창 — 안드로이드는 User-Agent 에 `; wv)` 가 있으면, 아이폰은 `Safari/` 가 없으면. 이 넓힘은 `/get` 에만)에서는
   302 하지 않고 그 기종의 페이지를 냅니다 — 구글은 앱 안 브라우저의 로그인을 막아 그룹 가입 · 테스트 참여가

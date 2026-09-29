@@ -307,7 +307,7 @@ Profiles 에서 App Store 프로파일 내려받기. `base64 -i 파일 | pbcopy`
 |---|---|
 | GitHub Release 에 APK 가 올라간 직후 | `node tools/app-version.js --apk=0.2.8` |
 | 플레이 **비공개 테스트**(나중엔 프로덕션) 트랙에 게시된 뒤 | `node tools/app-version.js --play=0.2.8` |
-| 앱스토어 심사를 지나 배포가 시작된 뒤 | `node tools/app-version.js --appstore=0.2.8` |
+| 앱스토어 심사를 지나 배포가 시작된 뒤 — 아이폰 설치 · 초대 링크도 이때 App Store 로(아래) | `node tools/app-version.js --appstore=0.2.8` |
 | TestFlight **friends(공개 링크) 그룹 베타 심사가 승인**된 뒤 | `node tools/app-version.js --testflight=0.2.10` |
 | 지금 값 보기 | `node tools/app-version.js` |
 
@@ -325,6 +325,12 @@ Profiles 에서 App Store 프로파일 내려받기. `base64 -i 파일 | pbcopy`
 페이지를 엽니다. 아직 그 판이 없으면 눌러도 옛 판 그대로이고, 안내는 계속 뜹니다.
 심사 중인 판을 먼저 적으면 심사가 끝날 때까지 아이폰 쓰는 사람 모두가 그 상태입니다.
 그래서 가게마다 따로 적습니다. 잘못 올렸으면 `--appstore=none` 처럼 지우면 됩니다.
+
+**`--appstore` 는 아이폰 설치 안내도 바꿉니다.** 적은 때부터 설치 링크(`/get` — 테스터 메일의 링크) ·
+초대 페이지(`/i/<코드>`)의 아이폰도 TestFlight 가 아니라 App Store 로 갑니다 — 시험 기간(`testing`)이
+켜져 있어도. 안드로이드는 `testing` 그대로 참여 단계입니다. 되돌리기는 `--appstore=none`. 이 규칙은
+새 서버 코드에만 있어서, 서버를 올리고 다시 띄우기 전에 적으면 도구가 「옛 코드라 아이폰 설치
+링크(/get)가 아직 App Store 로 안 갑니다」 라고 말합니다 — 위 명령으로 서버를 올린 뒤 다시 돌려 보세요.
 
 TestFlight 로 받은 사람은 `--testflight` 값을 봅니다(0.2.10 부터). TestFlight 도 알아서
 알리지만, 앱 안의 같은 자리에서 보게 하려는 것입니다. 앱스토어 값과는 상관없습니다 —

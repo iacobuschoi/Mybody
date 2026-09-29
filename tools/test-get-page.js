@@ -6,8 +6,8 @@
  * 왜 이 시험이 있나
  *   시험해 줄 사람에게 보내는 링크 하나입니다. 주인의 말: "친구 추가 링크처럼 누르면 바로 —
  *   그런데 친구가 되면 안 된다". 그래서 지킬 것이 둘입니다.
- *     · 기종에 맞는 곳으로 — 아이폰은 TestFlight(출시 뒤 App Store)로 곧장(302), 안드로이드는
- *       ① 그룹 ② 참여 ③ 플레이 단추(출시 뒤 플레이로 곧장), 컴퓨터는 둘 다.
+ *     · 기종에 맞는 곳으로 — 아이폰은 TestFlight(App Store 에 나간 뒤 App Store)로 곧장(302),
+ *       안드로이드는 ① 그룹 ② 참여 ③ 플레이 단추(출시 뒤 플레이로 곧장), 컴퓨터는 둘 다.
  *     · 친구가 되는 길이 하나도 없다 — 코드 · 앱 열기(mybody:// · intent) · 클립보드 담기 ·
  *       플레이 추천인이 페이지에 없고, 앱 링크 파일이 /get 을 앱의 것이라고 하지 않는다.
  *   그리고 초대 페이지와 같은 머리글(CSP · noindex · no-referrer)이고 받은 것을 안 찍는지.
@@ -17,6 +17,9 @@
  *   [2] 안드로이드 — ①②③ 차례 · 추천인 없는 플레이 · 그룹이 없으면 그 단계 뺌 · 참여 링크가 없으면
  *       "곧 열려요" · 출시 뒤 플레이로 302
  *   [3] 컴퓨터 — 두 기종 다 · "폰에서 열면 더 쉬워요"
+ *   [3-2] 아이폰만 먼저 App Store — 시험 중이어도 앱스토어 판(appLatestAppStore)이 적혀 있으면 아이폰은
+ *       App Store 로 302(앱 안 브라우저 · 컴퓨터 칸은 "App Store 에서 받기"), 안드로이드는 ①②③ 그대로
+ *       (앱스토어 판이 없을 때와 글자 하나 다르지 않음) · 틀린 모양의 판은 없는 것으로
  *   [4] 앱 안 브라우저 — 302 대신 그 기종만의 페이지 · 카카오톡은 기본 브라우저로 넘김(가짜 브라우저에서
  *       실행) · 그 밖(이름 없는 메일 앱의 WebView · WKWebView 도)은 "다른 브라우저로 열기" 한 줄 ·
  *       삼성 인터넷 · 아이폰 크롬은 보통 브라우저
@@ -250,6 +253,57 @@ async function main() {
      d2.status === 200 && labels(d2.body).join('|') === 'Google Play 에서 받기|App Store 에서 받기' &&
      hrefs(d2.body)[0].href === PLAY && hrefs(d2.body)[1].href === APPSTORE && ![JA, JG, JI].some(u => d2.body.includes(u)),
      hrefs(d2.body).map(x => x.label + ' ' + x.href));
+
+  console.log('\n[3-2] 아이폰만 먼저 App Store — 시험 중이어도 앱스토어 판이 적혀 있으면');
+  /* 아이폰은 심사를 지나 App Store 에 나갔는데 안드로이드는 아직 플레이 비공개 테스트인 때. 주인은
+     testing 을 켠 채 --appstore=<판> 만 적습니다 — 아이폰만 App Store 로, 안드로이드는 ①②③ 그대로. */
+  const AS = { appLatestAppStore: '0.2.20' };
+  writeCfg(ALL);
+  const andBefore = await page('/get', { ua: UA.android }), deskBefore = await page('/get', { ua: UA.desktop });
+  const wvBefore = await page('/get', { ua: UA.wvAndroid });
+  writeCfg(Object.assign({}, AS, ALL));
+  const as1 = await page('/get', { ua: UA.ios });
+  ok('아이폰 → 302 App Store (' + APPSTORE + ') — TestFlight 링크가 적혀 있어도', is302(as1, APPSTORE), [as1.status, as1.headers.location]);
+  ok('아이패드 · 아이폰 크롬도 App Store 로', is302(await page('/get', { ua: UA.ipad }), APPSTORE) &&
+     is302(await page('/get', { ua: UA.criOs }), APPSTORE));
+  const ash = await page('/get', { method: 'HEAD', ua: UA.ios });
+  ok('HEAD (아이폰) → 302 같은 App Store', ash.status === 302 && ash.headers.location === APPSTORE, ash.headers.location);
+  for (const [nm, ua] of [['메일 앱 WKWebView(아이폰)', UA.wkIos], ['인스타그램(아이폰)', UA.instaIos],
+                          ['카카오톡(아이폰)', UA.kakaoIos]]) {
+    const w = keep(nm + ' · 앱스토어 판', await page('/get', { ua }));
+    ok(nm + ': 200 (302 아님) · "App Store 에서 받기" 단추 하나만 · TestFlight · 안드로이드 · 컴퓨터 줄 없음',
+       w.status === 200 && !w.headers.location && labels(w.body).join('|') === 'App Store 에서 받기' &&
+       hrefs(w.body)[0].href === APPSTORE && !w.body.includes('TestFlight') && !w.body.includes(JI) &&
+       NOT_IOS.every(t => !w.body.includes(t)), [w.status, hrefs(w.body).map(x => x.label + ' ' + x.href)]);
+  }
+  const ask = await page('/get', { ua: UA.kakaoIos });
+  const ark = runScript(ask.body, 'https://mybody-get.example.ts.net/get');
+  ok('카카오톡(아이폰): 여전히 기본 브라우저로 넘김 (거기서 App Store 로 302)', /<body data-inapp="kakao">/.test(ask.body) &&
+     !ark.error && ark.nav.length === 1 && ark.nav[0][0] === 'replace' && /^kakaotalk:\/\/web\/openExternal\?url=/.test(ark.nav[0][1]),
+     ark.nav);
+  const asd = keep('컴퓨터 · 앱스토어 판', await page('/get', { ua: UA.desktop }));
+  const iosCard = (/<h2>아이폰<\/h2>([\s\S]*?)<\/section>/.exec(asd.body) || [])[1] || '';
+  const andCard = (/<h2>안드로이드<\/h2>([\s\S]*?)<\/section>/.exec(asd.body) || [])[1] || '';
+  ok('컴퓨터: 아이폰 칸은 "App Store 에서 받기" 하나 (TestFlight 없음)', asd.status === 200 &&
+     labels(iosCard).join('|') === 'App Store 에서 받기' && hrefs(iosCard)[0].href === APPSTORE &&
+     !iosCard.includes('TestFlight') && !asd.body.includes(JI), hrefs(iosCard).map(x => x.label + ' ' + x.href));
+  ok('컴퓨터: 안드로이드 칸은 그대로 ① 구글 그룹 가입 → ② 테스트 참여 → ③ Google Play 에서 설치',
+     labels(andCard).join('|') === '① 구글 그룹 가입|② 테스트 참여|③ Google Play 에서 설치' &&
+     hrefs(andCard).map(x => x.href).join(' ') === [JG, JA, PLAY].join(' ') && andCard.includes(STEP_TOP),
+     labels(andCard));
+  ok('컴퓨터: 아이폰 칸 말고는 앱스토어 판이 없을 때와 글자 하나 다르지 않다',
+     asd.body.replace(iosCard, '#') === deskBefore.body.replace(/<h2>아이폰<\/h2>([\s\S]*?)<\/section>/, '<h2>아이폰</h2>#</section>'));
+  const asa = keep('안드로이드 · 앱스토어 판', await page('/get', { ua: UA.android }));
+  ok('안드로이드: 302 하지 않고 ①②③ 페이지 — 앱스토어 판이 없을 때와 글자 하나 다르지 않다',
+     asa.status === 200 && !asa.headers.location && asa.body === andBefore.body && labels(asa.body).length === 3, labels(asa.body));
+  ok('안드로이드 메일 앱 WebView 도 그대로', (await page('/get', { ua: UA.wvAndroid })).body === wvBefore.body);
+  writeCfg(Object.assign({}, AS, { appJoinAndroid: JA, appJoinAndroidGroup: JG }));
+  ok('TestFlight 링크가 없어도 아이폰은 App Store 로 ("곧 열려요" 아님)', is302(await page('/get', { ua: UA.ios }), APPSTORE));
+  writeCfg(Object.assign({ appLatestAppStore: '0.2' }, ALL));
+  ok('모양이 틀린 판("0.2")은 없는 것으로 — 아이폰은 그대로 TestFlight', is302(await page('/get', { ua: UA.ios }), JI));
+  writeCfg(Object.assign({ appTesting: false }, AS, ALL));
+  ok('출시 뒤(testing 꺼짐)에는 두 기종 다 가게로 — 아이폰 App Store · 안드로이드 플레이',
+     is302(await page('/get', { ua: UA.ios }), APPSTORE) && is302(await page('/get', { ua: UA.android }), PLAY));
 
   console.log('\n[4] 앱 안 브라우저 — 302 대신 페이지');
   writeCfg(ALL);
