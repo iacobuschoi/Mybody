@@ -318,9 +318,9 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 
 전부 `/api` 아래이고, 로그인 · `/api/health` · `/api/version` · `/api/feedback` 외에는
 `Authorization: Bearer <token>` 이 필요합니다. `/api` 밖에는 친구 초대 링크 페이지(`GET /i/<코드>`)와
-그 링크를 폰이 앱으로 바로 열게 하는 앱 링크 파일 둘(`GET /.well-known/assetlinks.json` ·
+설치 링크(`GET /get`), 초대 링크를 폰이 앱으로 바로 열게 하는 앱 링크 파일 둘(`GET /.well-known/assetlinks.json` ·
 `GET /.well-known/apple-app-site-association`), 컴퓨터 브라우저로 보는 의견함 페이지(`GET /inbox`)가 있습니다 —
-아래 "친구 초대 링크" · "앱 링크 파일" · "컴퓨터로 보는 의견함".
+아래 "친구 초대 링크" · "설치 링크" · "앱 링크 파일" · "컴퓨터로 보는 의견함".
 0.2.20 부터 앱은 모든 요청에 `X-Mybody-App: <판>` 머리를 붙입니다(기록 칸의 주인을 아는 판). 서버는
 지금은 막지 않고 거절 로그에만 적습니다 — 고친 판이 퍼지면 owner 없는 기록 사본을 거절하도록 켤 수 있게.
 
@@ -412,6 +412,29 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 - `Vary: *` — 이 서버의 웹 앱을 연 적 있는 브라우저의 서비스워커가 페이지를 캐시에 담지 못하게
   (담기면 `?noapp=1` 이 캐시의 보통 페이지로 나옵니다).
 
+## 설치 링크 (`/get`)
+
+시험해 줄 사람에게 보내는 링크 하나: `<서버 주소>/get` (`/get/` 도 같음). 초대 링크처럼 누르면 기종에 맞는
+받는 곳으로 가지만 **친구는 되지 않습니다** — 코드 · 앱 열기(`mybody://` · `intent://`) · 클립보드 담기 ·
+플레이 추천인이 없습니다. 앱 링크 파일은 `/i/*` 만 앱의 것이라고 하므로 앱이 깔린 폰에서도 브라우저로
+열립니다. 설정은 초대 페이지와 같은 것(`tools/app-version.js`)을 부를 때마다 읽습니다.
+
+| | 시험 기간(`testing`, 기본) | 출시 뒤(`--testing=off`) |
+|---|---|---|
+| 아이폰 | TestFlight 공개 링크(`--join-ios`)로 **302** — 애플의 그 페이지가 "TestFlight 받기 → 테스트 시작" 을 안내. 링크가 없으면 "아이폰은 곧 열려요 — 조금 뒤에 이 링크를 다시 눌러 주세요" 페이지 | App Store 로 **302** |
+| 안드로이드 | 페이지: 단추 위에 "위에서부터 하나씩 — 끝나면 이 페이지로 돌아와 다음 단추를 눌러 주세요" + (그룹이 있으면) "그룹 · 플레이 모두 같은 구글 계정으로", 그 아래 ① 구글 그룹 가입(`--join-android-group`, 있으면) ② 테스트 참여(`--join-android`) ③ Google Play 에서 설치(추천인 없음). 참여 링크가 없으면 "곧 열려요" | Google Play 로 **302** |
+| 컴퓨터 · 그 밖 | 두 기종 안내를 다 + "폰에서 이 링크를 열면 더 쉬워요 · 그 폰에 맞는 안내만 나와요" | 두 가게 단추 |
+
+- **앱 안 브라우저**(카카오톡 · 인스타그램 · 페이스북 · 라인 · 네이버, 그리고 메일 · 메신저 앱이 자기 안에서 여는
+  창 — 안드로이드는 User-Agent 에 `; wv)` 가 있으면, 아이폰은 `Safari/` 가 없으면. 이 넓힘은 `/get` 에만)에서는
+  302 하지 않고 그 기종의 페이지를 냅니다 — 구글은 앱 안 브라우저의 로그인을 막아 그룹 가입 · 테스트 참여가
+  안 되고, TestFlight · App Store 로 넘기는 것도 사파리가 확실합니다. 카카오톡은 초대 페이지와 같은 스크립트로 곧바로 기본 브라우저에 넘기고
+  (거기서 이 주소가 다시 열려 302), 나머지는 "오른쪽 위 ⋯ → 다른 브라우저로 열기" 한 줄. 단추는 전부 진짜
+  링크라 넘기기가 안 돼도 누르면 됩니다.
+- 머리글은 초대 페이지와 같습니다(CSP · `noindex` · `no-referrer` · `DENY` · `no-store` · `Vary: *`). 스크립트는
+  카카오톡 페이지에만 붙습니다(같은 해시). 302 도 `no-referrer` · `noindex`. 쿼리 · User-Agent 는 페이지에도
+  `Location` 에도 싣지 않습니다. GET · HEAD 말고는 405.
+
 ## 앱 링크 파일 (`/.well-known/…`)
 
 폰이 `https://<서버>/i/…` 를 **앱의 것**으로 확인하는 파일입니다(안드로이드 App Links · 아이폰 Universal
@@ -468,6 +491,8 @@ node tools/test-inbox-page.js    # 컴퓨터로 보는 의견함 /inbox (머리 
 node tools/test-appversion.js    # 앱 안 업데이트 안내 · 시험판 참여 링크 · 시험 기간
 node tools/test-invite.js        # 친구 초대 링크 페이지 (기종별 앱 열기 · 설치 안내 · 새지 않음 · CSP ·
                                  #   앱 링크 파일 · 스크립트를 가짜 브라우저에서 돌려 봄)
+node tools/test-get-page.js      # 설치 링크 /get (기종별 302 · 단추 차례 · 앱 안 브라우저 · 머리글 ·
+                                 #   친구가 되는 길이 없음 · 받은 것을 안 찍음)
 node tools/test-crosscheck.js    # 결과지 검산
 node tools/validate.js           # 엔진 예측 대 실제 논문 (게이트)
 USERS=100 YEARS=3 node tools/simulate.js

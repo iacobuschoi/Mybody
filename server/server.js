@@ -19,8 +19,10 @@
  * 서버가 가립니다(handleFeedbackInbox). 같은 운영자만 「가입자 목록」(/api/operator/users —
  * 아이디 · 표시 이름 · 가입일)도 봅니다(handleOperator).
  *
- * /api 밖에서 로그인 없이 여는 페이지가 정적 파일 말고 하나 더 있습니다 — 친구 초대
- * 링크(GET /i/<코드>). DB 를 보지 않고 코드 모양만 봅니다(아래 serveInvite). 그 링크를
+ * /api 밖에서 로그인 없이 여는 페이지가 정적 파일 말고 더 있습니다 — 친구 초대
+ * 링크(GET /i/<코드>)와, 친구 없이 설치로만 보내는 설치 링크(GET /get). 둘 다 DB 를 보지
+ * 않습니다 — 초대는 코드 모양만 보고(아래 serveInvite), 설치 링크는 코드가 없습니다(아래
+ * serveGet). 초대 링크를
  * 폰이 앱으로 바로 열게 하는 파일 둘(/.well-known/assetlinks.json ·
  * /.well-known/apple-app-site-association)도 로그인 없이 나갑니다(아래 "앱 링크 파일").
  * ========================================================================== */
@@ -1710,8 +1712,9 @@ const INVITE_HEADERS = {
  *  viewport-fit=cover 는 두지 않습니다 — 노치 · 홈 막대 여백(safe-area)을 따로 안 주므로,
  *  기본값이 글자를 가려지지 않는 곳에 둡니다.
  *  bodyAttrs(이미 이스케이프된 data-… 조각)를 주면 스크립트(INVITE_JS)를 끝에 붙입니다 —
- *  404 에는 할 일이 없어서 안 붙입니다(머리글 · CSP 는 같습니다). */
-function invitePage(head, body, bodyAttrs) {
+ *  404 · 설치 링크(/get, 카카오톡 밖)에는 할 일이 없어서 안 붙입니다(머리글 · CSP 는 같습니다).
+ *  title 은 맨 위 제목(<h1>) — 안 주면 초대 페이지의 "Mybody 친구 초대". */
+function invitePage(head, body, bodyAttrs, title) {
   const icon = inviteIcon(['icon-192.png', 'apple-touch-icon.png']);
   const fav = inviteIcon(['favicon-32.png']);
   const withJs = typeof bodyAttrs === 'string';
@@ -1722,7 +1725,7 @@ function invitePage(head, body, bodyAttrs) {
     (fav ? '<link rel="icon" type="image/png" href="' + escHtml(fav) + '">\n' : '') +
     head + '<style>' + INVITE_CSS + '</style>\n</head>\n<body' + (withJs ? bodyAttrs : '') + '>\n<main>\n' +
     '<header class="top">' + (icon ? '<img class="icon" src="' + escHtml(icon) + '" alt="" width="56" height="56">' : '') +
-    '<h1>Mybody 친구 초대</h1></header>\n' + body + '</main>\n' +
+    '<h1>' + escHtml(title || 'Mybody 친구 초대') + '</h1></header>\n' + body + '</main>\n' +
     (withJs ? '<script>' + INVITE_JS + '</script>\n' : '') + '</body>\n</html>\n';
 }
 
@@ -1881,6 +1884,104 @@ function serveInvite(req, res, url) {
     codeCard +
     '<section class="card' + (noapp ? ' card--em' : '') + '"><h2>앱이 없나요?</h2>\n' + install + '</section>\n';
   return send(res, 200, invitePage(head, body, bodyAttrs), INVITE_HEADERS);
+}
+
+/* --- 설치 링크 (GET /get) ----------------------------------------------------
+ *
+ * 왜 있나
+ *   시험해 줄 사람에게 보내는 링크 하나. 초대 링크처럼 누르면 기종에 맞는 받는 곳으로 가지만
+ *   **친구는 되지 않습니다** — 코드가 없고, 앱을 부르지 않고(mybody:// · intent 없음), 클립보드에
+ *   아무것도 안 담고, 플레이 주소에 추천인도 안 붙입니다. 앱 링크 파일은 /i/* 만 앱의 것이라고
+ *   하므로(아래) 앱이 깔린 폰에서도 이 주소는 브라우저로 열립니다.
+ *
+ * 기종별 (설정은 초대 페이지와 같은 것을 부를 때마다 읽습니다)
+ *   아이폰      시험 기간: TestFlight 공개 링크로 302 — 애플의 그 페이지가 "TestFlight 받기 →
+ *               테스트 시작" 을 안내합니다. 링크가 아직 없으면 "곧 열려요" 페이지.
+ *               출시 뒤: App Store 로 302.
+ *   안드로이드  시험 기간: ① 구글 그룹(있으면) ② 테스트 참여 ③ Google Play 단추를 차례로 — 구글
+ *               로그인이 끼는 단계라 한 번에 보낼 곳이 없습니다. 출시 뒤: 플레이로 302.
+ *   그 밖       두 기종 안내를 다 보이고 "폰에서 열면 더 쉬워요".
+ *
+ * 앱 안 브라우저(카카오톡 · 인스타그램 …)에서는 302 하지 않고 페이지를 냅니다 — 초대 페이지가
+ *   앱 안 브라우저에서는 저절로 가게로 가지 않는 것과 같은 규칙입니다. 구글은 앱 안 브라우저의
+ *   로그인을 막아서 그룹 가입 · 테스트 참여가 거기서는 안 되고, TestFlight · App Store 로 넘기는
+ *   것도 사파리가 확실합니다. 카카오톡은 초대 페이지와 같은 스크립트(INVITE_JS — 해시도 그대로)로
+ *   기본 브라우저에 넘기고(거기서 이 주소가 다시 열려 302 가 됩니다), 나머지는 "다른 브라우저로
+ *   열기" 한 줄. 단추는 어디서나 진짜 링크라 넘기기가 안 돼도 누르면 됩니다.
+ *   이 링크는 메일로 가서, 이름을 아는 다섯 앱(inAppOf) 말고도 메일 · 메신저 앱이 자기 안에서
+ *   여는 일이 많습니다. 그래서 여기서만 더 넓게 봅니다(초대 페이지는 그대로):
+ *     안드로이드  "; wv)" — 모든 WebView 의 표시. 크롬 · 크롬 커스텀 탭(지메일) · 삼성 인터넷엔 없습니다.
+ *     아이폰      "Safari/" 가 없음 — 앱이 띄운 WKWebView. 사파리 · 사파리 뷰(SFSafariViewController) ·
+ *                 크롬 · 파이어폭스 · 엣지 · 구글 앱엔 다 있습니다. 그런 곳에서 TestFlight 로 302 하면
+ *                 애플 페이지의 단추(itms-beta:)가 안 눌리는 막다른 길이 됩니다.
+ *
+ * 머리글은 초대 페이지와 같습니다(INVITE_HEADERS). 받은 것(쿼리 · User-Agent)은 페이지에도
+ *   Location 에도 싣지 않습니다 — 미리보기 그림 주소만 publicBase(Host 모양을 본 것)로 짓습니다.
+ * -------------------------------------------------------------------------- */
+/** 한 기종 몫의 단추들. inviteBtn 이라 data-install 이 없고, 스크립트가 있어도 누를 때 아무것도
+ *  담지 않습니다. 받을 곳이 아직 없으면 "곧 열려요" — 설정에 링크를 적으면 같은 링크가 그리로 갑니다. */
+function getSteps(os, info) {
+  const join = info.join || {};
+  const soon = who => '<p class="soon">' + who + ' 곧 열려요 — 조금 뒤에 이 링크를 다시 눌러 주세요</p>\n';
+  if (os === 'android') {
+    if (!info.testing) return inviteBtn(PLAY_URL, 'Google Play 에서 받기');
+    if (!join.android) return soon('안드로이드는');
+    /* 초대 페이지의 installFor 와 같은 차례 — 그룹이 없는 테스트면 그 단계를 빼고 번호를 당깁니다. */
+    const steps = [[join.androidGroup, '구글 그룹 가입'], [join.android, '테스트 참여'],
+                   [PLAY_URL, 'Google Play 에서 설치']].filter(s => s[0]);
+    /* ① 은 구글 그룹 페이지로 가서 돌아오는 링크가 없고, 계정은 ① 에서 이미 정해지므로 — 할 말은 단추 위에. */
+    return '<p class="soon">위에서부터 하나씩 — 끝나면 이 페이지로 돌아와 다음 단추를 눌러 주세요</p>\n' +
+      (join.androidGroup ? '<p class="hint">그룹 · 플레이 모두 같은 구글 계정으로</p>\n' : '') +
+      steps.map((s, i) => inviteBtn(s[0], '①②③'[i] + ' ' + s[1])).join('');
+  }
+  if (!info.testing) return inviteBtn(APPSTORE_URL, 'App Store 에서 받기');
+  if (!join.ios) return soon('아이폰은');
+  return inviteBtn(join.ios, 'TestFlight 에서 받기') +
+    '<p class="hint">TestFlight 앱이 있어야 열려요 · <a href="' + escHtml(TESTFLIGHT_APP_URL) +
+    '" rel="noreferrer">TestFlight 받기</a></p>\n';
+}
+
+function serveGet(req, res) {
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    return send(res, 405, { ok: false, reason: '그런 방법으로는 열 수 없습니다' }, { Allow: 'GET, HEAD' });
+  }
+  let saved = {};
+  try { saved = require('../tools/config.js').readFileStrict(); } catch (e) { saved = {}; }
+  const info = APPVER.versionInfo(saved);
+  const ua = req.headers['user-agent'];
+  const os = platformOf(ua);
+  /* 이름 있는 앱이 먼저(카카오톡은 넘기는 스크립트가 있습니다) — 그 밖의 앱 안 창은 'other'. */
+  const s = str(ua);
+  const inapp = inAppOf(ua) ||
+    ((os === 'android' && /; wv\)/.test(s)) || (os === 'ios' && !/Safari\//.test(s)) ? 'other' : '');
+
+  /* 보통 브라우저의 폰이고 갈 곳이 하나면 바로 보냅니다 — 애플 · 구글의 https 주소라 어느
+     브라우저든 엽니다. 아이폰은 초대 페이지가 저절로 가는 곳과 같습니다(iosInstallTarget). */
+  const go = inapp ? '' : os === 'ios' ? iosInstallTarget(info) : os === 'android' && !info.testing ? PLAY_URL : '';
+  if (go) {
+    return send(res, 302, '', { Location: go, 'Content-Type': 'text/plain; charset=utf-8',
+                                'Referrer-Policy': 'no-referrer', 'X-Robots-Tag': 'noindex' });
+  }
+
+  const base = publicBase(req);
+  const image = inviteIcon(['icon-512.png', 'icon-192.png', 'apple-touch-icon.png']);
+  const desc = '누르면 폰에 맞는 설치 페이지로 가요';
+  const head = '<title>Mybody 받기</title>\n' +
+    '<meta name="description" content="' + escHtml(desc) + '">\n' +
+    '<meta property="og:type" content="website">\n<meta property="og:site_name" content="Mybody">\n' +
+    '<meta property="og:title" content="Mybody 받기">\n' +
+    '<meta property="og:description" content="' + escHtml(desc) + '">\n' +
+    (base && image ? '<meta property="og:image" content="' + escHtml(base + image) + '">\n' : '') +
+    '<meta name="twitter:card" content="summary">\n';
+  const card = (name, which) => '<section class="card"><h2>' + name + '</h2>\n' + getSteps(which, info) + '</section>\n';
+  const body = (inapp === 'other' ? '<p class="flag">여기서는 설치가 잘 안 돼요 · 오른쪽 위 ⋯ → 다른 브라우저로 열기</p>\n' : '') +
+    (os === 'other'
+      ? '<p class="hint">폰에서 이 링크를 열면 더 쉬워요 · 그 폰에 맞는 안내만 나와요</p>\n' +
+        card('안드로이드', 'android') + card('아이폰', 'ios')
+      : card(os === 'android' ? '안드로이드' : '아이폰', os));
+  /* 카카오톡만 스크립트를 붙여 기본 브라우저로 넘깁니다. 그 밖에는 할 일이 없어서 스크립트 없이. */
+  return send(res, 200, invitePage(head, body, inapp === 'kakao' ? ' data-inapp="kakao"' : null, 'Mybody 받기'),
+              INVITE_HEADERS);
 }
 
 /* --- 앱 링크 파일 (GET /.well-known/assetlinks.json · /.well-known/apple-app-site-association) ---
@@ -2054,6 +2155,8 @@ const server = http.createServer(async (req, res) => {
   try {
     if (url.pathname === '/health' || url.pathname.startsWith('/api/')) return await handleApi(req, res, url);
     if (url.pathname === '/i' || url.pathname.startsWith('/i/')) return serveInvite(req, res, url);
+    /* 설치 링크 — 시험해 줄 사람에게 보내는 링크 하나(친구는 안 됨). 위 "설치 링크". */
+    if (url.pathname === '/get' || url.pathname === '/get/') return serveGet(req, res);
     /* 컴퓨터 브라우저의 「의견함」 — 껍데기 페이지뿐, 의견은 페이지가 로그인한 채 API 로(server/inbox-page.js). */
     if (url.pathname === '/inbox' || url.pathname === '/inbox/') return serveInboxPage(req, res, url, send);
     /* 앱 링크 파일 — 정적 파일(내보내는 폴더)이 가로채지 못하게 먼저. */

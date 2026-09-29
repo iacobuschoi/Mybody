@@ -57,6 +57,8 @@ const CHECKS = [
     why: '"안 했다" 가 알림으로 흐르면 그건 독려가 아니라 망신입니다' },
   { id: '운동 일정·스트릭', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-schedule.js'],
     why: '스트릭이 틀리면 화면이 조용히 거짓말합니다 — 아무도 12일째를 검산하지 않습니다' },
+  { id: '설치 링크', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-get-page.js'],
+    why: '시험해 줄 사람이 제일 먼저 누르는 링크입니다 — 엉뚱한 곳으로 가면 못 깔고, 친구가 되는 길이 섞이면 받은 사람 모두가 모르는 사이에 누군가의 친구가 됩니다' },
   { id: '고유번호', level: 'BLOCK', slow: false, cmd: ['node', 'tools/uid-registry.js'],
     why: '번호가 겹치면 남겨둔 피드백 메모가 엉뚱한 곳에 붙습니다' },
   { id: '장기 시뮬레이션', level: 'BLOCK', slow: false, cmd: ['node', 'tools/simulate.js'],
