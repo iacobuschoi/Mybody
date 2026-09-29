@@ -633,7 +633,8 @@ extension ApiSocial on Api {
   Future<ApiResult> applyShareDefaults({Map<String, bool>? expect}) =>
       send('POST', '/share-defaults/apply', expect == null ? null : {'expect': expect});
 
-  /// 운동 독촉 — 친구에게 "오늘 운동 어때요" 한 번(하루 한 번).
+  /// 운동 독촉 — 친구에게 "오늘 운동 어때요". 한 사람에게 1초에 한 번 · 1분에 10번이면 30분 쉼
+  /// (429 · limited · until — server/db.js poke).
   Future<ApiResult> poke(String userId) => _send('POST', '/pokes', {'userId': userId, 'kind': 'workout'});
   /// 나에게 온 독촉. 가져가면 서버는 전달됐다고 표시합니다.
   Future<ApiResult> pullPokes() => _send('GET', '/pokes');

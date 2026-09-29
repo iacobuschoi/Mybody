@@ -73,6 +73,11 @@ void main() {
       }
       if (p.endsWith('/pokes') && req.method == 'POST') {
         posts.add(jsonDecode(req.body) as Map<String, dynamic>);
+        /* 두 번째는 서버가 "1분에 10번째 — 이제 30분 쉼" 이라고 답하는 셈(server/db.js poke). */
+        if (posts.length >= 2) {
+          final until = DateTime.now().toUtc().add(const Duration(minutes: 30)).toIso8601String();
+          return http.Response(jsonEncode({'ok': true, 'id': posts.length, 'limited': true, 'until': until}), 200);
+        }
         return http.Response('{"ok":true,"id":1}', 200);
       }
       if (p.endsWith('/pokes')) return http.Response('{"ok":true,"pokes":[]}', 200);
@@ -88,7 +93,17 @@ void main() {
     await t.pumpAndSettle();
     expect(posts, hasLength(1));
     expect(posts.first['userId'], 'lazy');
-    expect(find.byTooltip('오늘 보냄'), findsOneWidget);
     expect(find.textContaining('운동 독촉을 보냈습니다', findRichText: true), findsOneWidget);
+    /* 하루 한 번이 아닙니다 — 보낸 뒤에도 단추는 그대로 눌립니다(주인: "1초에 한번으로"). */
+    expect(find.byTooltip('운동 독촉'), findsOneWidget, reason: '보낸 뒤에도 켜져 있다');
+    await t.tap(find.byTooltip('운동 독촉'));
+    await t.pumpAndSettle();
+    expect(posts, hasLength(2));
+    /* 서버가 쉬라고 하면(limited · until) 그때까지 꺼지고, 누르면 아무것도 안 갑니다. */
+    expect(find.byTooltip('잠시 쉬는 중'), findsOneWidget);
+    expect(find.textContaining('이제 30분 쉬어요', findRichText: true), findsOneWidget);
+    await t.tap(find.byTooltip('잠시 쉬는 중'));
+    await t.pumpAndSettle();
+    expect(posts, hasLength(2), reason: '쉬는 동안은 보내지 않는다');
   });
 }

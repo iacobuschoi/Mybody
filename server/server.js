@@ -1250,7 +1250,8 @@ async function handleApi(req, res, url) {
         onDelivered: () => api.markPokePushed(pokeId)
       }).catch(() => {});
     }
-    return send(res, r.ok ? 200 : 400, r);
+    /* 너무 잦음(1초 · 30분 쉼)은 429 — 앱은 본문의 reason · until 을 읽습니다(db.js poke). */
+    return send(res, r.ok ? 200 : (r.limited || r.tooFast ? 429 : 400), r);
   }
   if (p === '/pokes' && method === 'GET') {
     return send(res, 200, api.pullPokes(me));

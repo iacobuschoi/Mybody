@@ -110,7 +110,7 @@ function open(file) {
       payload TEXT NOT NULL,
       PRIMARY KEY (user_id, kind, id)
     );
-    -- 운동 독촉. 친구가 친구에게 "오늘 운동 어때요" 한 번. 하루 한 번만.
+    -- 운동 독촉. 친구가 친구에게 "오늘 운동 어때요". 한 사람에게 1초에 한 번, 1분에 10번이면 30분 쉼.
     CREATE TABLE IF NOT EXISTS pokes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       from_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -120,6 +120,7 @@ function open(file) {
       delivered_at TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_pokes_to ON pokes(to_id, delivered_at);
+    CREATE INDEX IF NOT EXISTS idx_pokes_pair ON pokes(from_id, to_id, created_at);
     CREATE TABLE IF NOT EXISTS push_subs (
       endpoint TEXT PRIMARY KEY,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -551,7 +552,7 @@ function makeApi(db) {
       'ORDER BY updated_at, kind, id LIMIT ?'),
     countRecords: db.prepare('SELECT COUNT(*) c FROM records WHERE user_id=?'),
     insertPoke: db.prepare('INSERT INTO pokes (from_id,to_id,kind,created_at) VALUES (?,?,?,?)'),
-    lastPoke: db.prepare('SELECT created_at FROM pokes WHERE from_id=? AND to_id=? ORDER BY id DESC LIMIT 1'),
+    recentPokes: db.prepare('SELECT created_at FROM pokes WHERE from_id=? AND to_id=? AND created_at >= ? ORDER BY id'),
     undeliveredPokes: db.prepare(
       'SELECT p.id, p.from_id, p.kind, p.created_at, p.pushed_at, u.display_name FROM pokes p ' +
       'JOIN users u ON u.id = p.from_id WHERE p.to_id=? AND p.delivered_at IS NULL ORDER BY p.id'),
@@ -1673,21 +1674,60 @@ function makeApi(db) {
     PUSH_MAX: 1000,
 
     /* --- 운동 독촉 --------------------------------------------------------
-     * 친구에게 "오늘 운동 어때요" 한 번. 앱 알림(FCM)이 켜져 있으면 바로 가고,
+     * 친구에게 "오늘 운동 어때요". 앱 알림(FCM)이 켜져 있으면 바로 가고,
      * 받는 쪽 앱은 켜질 때도 가져갑니다. 앱으로 이미 닿은 것은 pushed 로
      * 표시해서 앱이 같은 알림을 또 띄우지 않게 합니다.
-     * 하루 한 번만 — 두 번째부터는 독촉이 아니라 성가심입니다. */
-    poke(me, toId, kind = 'workout') {
+     *
+     * 얼마나 자주 — 주인의 말: "하루한번가능>1초에 한번으로 고치고 · '1분에 한사람에게 10번
+     * 이상이면 30분 제한'으로 · 사람마다 카운팅". 모두 **보내는 사람 → 받는 사람** 한 쌍마다
+     * 셉니다(A 에게 막혀도 B 에게는 보냅니다). 보낸 것만 셉니다 — 막힌 시도는 안 셉니다.
+     *   · 같은 사람에게 1초 안에 또 → 거절(tooFast). 연타 한 번이 두 번 가지 않게.
+     *   · 1분 안에 10번째를 보내면 그 10번째는 가고, 그때부터 30분 동안 그 사람에게는 거절
+     *     (limited · until). 10번째의 답에도 limited · until 을 실어 앱이 바로 단추를 쉬게 합니다.
+     * 따로 적는 칸 없이 독촉 기록(pokes)에서 셉니다 — 서버를 다시 켜도 그대로입니다.
+     * 옛 앱(0.2.20)은 already 가 참이면 단추를 끕니다 — 30분 쉼에만 붙입니다. */
+    POKE_GAP_MS: 1000,
+    POKE_BURST: 10,
+    POKE_WINDOW_MS: 60 * 1000,
+    POKE_REST_MS: 30 * 60 * 1000,
+
+    /** 보낸 시각들(ms, 오름차순) [times] 로 본 쉼의 끝(ms). 없으면 0.
+        1분 안에 10번이 된 때마다 그 10번째 + 30분 — 그중 가장 늦은 것. */
+    pokeRestUntil(times) {
+      let until = 0;
+      for (let i = this.POKE_BURST - 1; i < times.length; i++) {
+        if (times[i] - times[i - this.POKE_BURST + 1] < this.POKE_WINDOW_MS) {
+          until = Math.max(until, times[i] + this.POKE_REST_MS);
+        }
+      }
+      return until;
+    },
+
+    poke(me, toId, kind = 'workout', now = Date.now()) {
       if (!this.exists(me) || !this.exists(toId)) return { ok: false, reason: '없는 계정입니다' };
       if (me === toId) return { ok: false, reason: '자기 자신에게는 보낼 수 없습니다' };
       if (!this.areFriends(me, toId)) return { ok: false, reason: '친구가 아닙니다' };
-      const last = q.lastPoke.get(me, toId);
-      if (last && Date.now() - Date.parse(last.created_at) < 24 * 3600 * 1000) {
-        return { ok: false, reason: '오늘은 이미 보냈습니다 — 하루 한 번만', already: true };
+      /* 쉼(30분)을 가릴 만큼만 — 쉼이 시작된 10번째는 늦어도 30분 전이고, 그 앞 9번은 그 1분 안. */
+      const since = new Date(now - this.POKE_REST_MS - this.POKE_WINDOW_MS).toISOString();
+      const times = q.recentPokes.all(me, toId, since)
+        .map(r => Date.parse(r.created_at)).filter(Number.isFinite).sort((a, b) => a - b);
+      const rest = (until) => ({ limited: true, until: new Date(until).toISOString(),
+                                 retryAfter: Math.max(1, Math.ceil((until - now) / 1000)) });
+      const until = this.pokeRestUntil(times);
+      if (until > now) {
+        const min = Math.max(1, Math.ceil((until - now) / 60000));
+        return { ok: false, already: true, ...rest(until),
+                 reason: '너무 많이 보냈어요 — ' + min + '분 뒤에 다시 보낼 수 있어요' };
       }
-      const r = q.insertPoke.run(me, toId, str(kind) || 'workout', nowISO());
+      const last = times.length ? times[times.length - 1] : null;
+      /* 시계가 뒤로 가서(now < last) 음수면 막지 않습니다 — 그만큼 영영 못 보내면 안 됩니다. */
+      if (last != null && now - last >= 0 && now - last < this.POKE_GAP_MS) {
+        return { ok: false, tooFast: true, retryAfter: 1, reason: '1초에 한 번만 보낼 수 있어요' };
+      }
+      const r = q.insertPoke.run(me, toId, str(kind) || 'workout', new Date(now).toISOString());
       try { q.prunePokes.run(); } catch {}
-      return { ok: true, id: Number(r.lastInsertRowid) };
+      const after = this.pokeRestUntil([...times, now]);
+      return { ok: true, id: Number(r.lastInsertRowid), ...(after > now ? rest(after) : {}) };
     },
     pullPokes(me) {
       if (!this.exists(me)) return { ok: false, reason: '없는 계정입니다', pokes: [] };

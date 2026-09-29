@@ -199,9 +199,13 @@ async function main() {
      Object.keys(row).filter(k => /^(plan|kept|missed|open)/.test(k)).sort().join() ===
        'keptDays,missedDays,openDays,plannedDays', Object.keys(row));
 
-  console.log('\n[3a] 운동 독촉 — 친구에게만, 하루 한 번, 받는 쪽이 켜질 때 가져간다');
+  console.log('\n[3a] 운동 독촉 — 친구에게만, 1초에 한 번, 받는 쪽이 켜질 때 가져간다');
   ok('친구에게 독촉을 보낸다', (await call('POST', '/pokes', { userId: meB.id }, ta)).json.ok === true);
-  ok('같은 날 두 번은 안 된다', (await call('POST', '/pokes', { userId: meB.id }, ta)).json.already === true);
+  {
+    const again = await call('POST', '/pokes', { userId: meB.id }, ta);
+    ok('1초 안에 또 보내면 429 · tooFast (하루 한 번이 아님 — already 없음)',
+       again.status === 429 && again.json.tooFast === true && !again.json.already, again);
+  }
   ok('자기 자신에게는 안 된다', (await call('POST', '/pokes', { userId: meA.id }, ta)).json.ok === false);
   {
     const got = (await call('GET', '/pokes', null, tb)).json;

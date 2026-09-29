@@ -57,6 +57,8 @@ const CHECKS = [
     why: '"안 했다" 가 알림으로 흐르면 그건 독려가 아니라 망신입니다' },
   { id: '운동 일정·스트릭', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-schedule.js'],
     why: '스트릭이 틀리면 화면이 조용히 거짓말합니다 — 아무도 12일째를 검산하지 않습니다' },
+  { id: '독촉 한도', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-poke-limit.js'],
+    why: '한 사람에게 1초에 한 번 · 1분에 10번이면 30분 쉼 — 풀리면 받는 폰이 알림으로 도배되고, 잘못 막히면 친구를 못 부릅니다' },
   { id: '설치 링크', level: 'BLOCK', slow: false, cmd: ['node', 'tools/test-get-page.js'],
     why: '시험해 줄 사람이 제일 먼저 누르는 링크입니다 — 엉뚱한 곳으로 가면 못 깔고, 친구가 되는 길이 섞이면 받은 사람 모두가 모르는 사이에 누군가의 친구가 됩니다' },
   { id: '고유번호', level: 'BLOCK', slow: false, cmd: ['node', 'tools/uid-registry.js'],

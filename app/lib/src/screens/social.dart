@@ -1088,7 +1088,10 @@ class _PokeBanner extends StatelessWidget {
   }
 }
 
-/* 독촉 버튼 — 목록에선 아이콘만, 상세에선 글자와 함께. 보내면 하루 동안 "보냄". */
+/* 독촉 버튼 — 목록에선 아이콘만, 상세에선 글자와 함께.
+   주인의 말: "하루한번가능>1초에 한번으로 · '1분에 한사람에게 10번 이상이면 30분 제한'으로 ·
+   사람마다 카운팅". 세는 것은 서버입니다(server/db.js poke) — 여기서는 보내고 나서도 단추를
+   그대로 두고, 서버가 쉬라고 하면(limited · until) 그때까지만 끕니다. 친구마다 따로입니다. */
 class _PokeButton extends StatefulWidget {
   const _PokeButton({required this.person, this.compact = false});
   final Map<String, dynamic> person;
@@ -1099,19 +1102,46 @@ class _PokeButton extends StatefulWidget {
 }
 
 class _PokeButtonState extends State<_PokeButton> {
-  bool _sent = false;
   bool _busy = false;
+  DateTime? _restUntil;
+  Timer? _restTimer;
+
+  bool get _resting => _restUntil != null && DateTime.now().isBefore(_restUntil!);
+
+  @override
+  void dispose() {
+    _restTimer?.cancel();
+    super.dispose();
+  }
+
+  /* 서버가 쉬라고 했으면 그때까지 단추를 끄고, 끝나면 저절로 다시 켭니다. until 을 못 읽으면
+     30분(서버 규칙과 같게). */
+  void _restFrom(ApiResult r) {
+    if (r.body['limited'] != true) return;
+    final until = DateTime.tryParse('${r.body['until'] ?? ''}')?.toLocal() ??
+        DateTime.now().add(const Duration(minutes: 30));
+    final left = until.difference(DateTime.now());
+    if (left <= Duration.zero) return;
+    _restUntil = until;
+    _restTimer?.cancel();
+    _restTimer = Timer(left, () {
+      if (mounted) setState(() => _restUntil = null);
+    });
+  }
 
   Future<void> _send() async {
-    if (_busy) return;
+    if (_busy || _resting) return;
     setState(() => _busy = true);
     final api = Scope.apiOf(context);
     final name = '${widget.person['displayName']}';
     final r = await api.poke('${widget.person['id']}');
     if (!mounted) return;
-    setState(() { _busy = false; _sent = r.ok || r.body['already'] == true; });
+    setState(() {
+      _busy = false;
+      _restFrom(r);
+    });
     if (r.ok) {
-      toast(context, '$name님에게 운동 독촉을 보냈습니다');
+      toast(context, _resting ? '$name님에게 보냈어요 — 이제 30분 쉬어요' : '$name님에게 운동 독촉을 보냈습니다');
     } else {
       toast(context, r.reason);
     }
@@ -1120,19 +1150,20 @@ class _PokeButtonState extends State<_PokeButton> {
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
+    final off = _resting;
     if (widget.compact) {
       return IconButton(
-        tooltip: _sent ? '오늘 보냄' : '운동 독촉',
+        tooltip: off ? '잠시 쉬는 중' : '운동 독촉',
         visualDensity: VisualDensity.compact,
-        onPressed: _sent ? null : _send,
+        onPressed: off ? null : _send,
         icon: Icon(LucideIcons.bellRing, size: 20,
-            color: _sent ? t.hintColor : t.colorScheme.primary),
+            color: off ? t.hintColor : t.colorScheme.primary),
       );
     }
     return OutlinedButton.icon(
-      onPressed: _sent ? null : _send,
+      onPressed: off ? null : _send,
       icon: const Icon(LucideIcons.bellRing, size: 18),
-      label: Text(_sent ? '오늘 독촉 보냄' : '운동 독촉하기'),
+      label: Text(off ? '잠시 쉬는 중' : '운동 독촉하기'),
     );
   }
 }
