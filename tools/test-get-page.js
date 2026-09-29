@@ -23,6 +23,13 @@
  *   [4] 앱 안 브라우저 — 302 대신 그 기종만의 페이지 · 카카오톡은 기본 브라우저로 넘김(가짜 브라우저에서
  *       실행) · 그 밖(이름 없는 메일 앱의 WebView · WKWebView 도)은 "다른 브라우저로 열기" 한 줄 ·
  *       삼성 인터넷 · 아이폰 크롬은 보통 브라우저
+ *   [4-2] 크롬 · 사파리로 넘기기 — 카카오톡 밖의 앱 안 브라우저를 https 로 연 주소에서. 안드로이드(인스타그램
+ *       · 페이스북 · 라인 · 네이버 · 이름 없는 WebView)는 맨 위 「크롬으로 열기」 단추(크롬 intent — 같은 /get ·
+ *       package=com.android.chrome · fallback 도 같은 주소) + 한 줄(까닭 · 안 열리면 ⋯ → 다른 브라우저로 열기),
+ *       ①②③ 은 그 밑에 그대로. 저절로 한 번은 이름 있는 네 앱만(가짜 브라우저 · 같은 탭에서 다시 열면 ·
+ *       sessionStorage 를 못 쓰면 안 감 — 두 번 열어도 0번). 이름 없는 WebView 는 단추만. 아이폰(인스타그램 · WKWebView)은
+ *       저절로 없이 「Safari 로 열기」(x-safari-https://) + 예전 한 줄. 카카오톡 · 보통 브라우저 · 컴퓨터는
+ *       그대로 · http 주소 · 이상한 Host 면 넘기지 않고 예전 한 줄 · 쿼리를 안 실음 · 초대 페이지에는 없음
  *   [5] 경로 · 방법 — /get/ · HEAD(GET 과 같은 머리글) · POST 405 · /get/x 는 이 페이지가 아님
  *   [6] 머리글 — 초대 페이지와 같은 CSP(스타일 · 스크립트 해시가 페이지와 맞음) · noindex ·
  *       no-referrer · DENY · Vary: * · nosniff · no-store · 302 도 no-referrer
@@ -72,7 +79,11 @@ const UA = {
   kakaoIos: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 KAKAOTALK 10.8.0',
   kakaoAndroid: 'Mozilla/5.0 (Linux; Android 13; SM-S911N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Mobile Safari/537.36 KAKAOTALK 10.4.5',
   instaIos: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Instagram 339.0.0.37.93',
-  lineAndroid: 'Mozilla/5.0 (Linux; Android 14; Pixel 8; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0 Mobile Safari/537.36 Line/14.10.1'
+  lineAndroid: 'Mozilla/5.0 (Linux; Android 14; Pixel 8; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0 Mobile Safari/537.36 Line/14.10.1',
+  /* 실제로 난 곳 — 삼성 폰의 인스타그램 안 창. 페이스북 · 네이버 앱도 같은 WebView 에 자기 이름을 붙입니다. */
+  instaAndroid: 'Mozilla/5.0 (Linux; Android 14; SM-S921N Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.6478.71 Mobile Safari/537.36 Instagram 339.0.0.37.93 Android (34/14; 450dpi; 1080x2340; samsung; SM-S921N; e1q; qcom; ko_KR; 614389434)',
+  fbAndroid: 'Mozilla/5.0 (Linux; Android 14; SM-S921N Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.6478.71 Mobile Safari/537.36 [FB_IAB/FB4A;FBAV/470.0.0.43.108;]',
+  naverAndroid: 'Mozilla/5.0 (Linux; Android 14; SM-S921N Build/UP1A.231005.007; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/126.0.6478.71 Mobile Safari/537.36 NAVER(inapp; search; 2000; 12.6.3)'
 };
 const PKG = 'io.github.iacobuschoi.mybody';
 /* 앱과 약속한 가게 주소 — 설치 링크의 플레이 주소에는 추천인이 **없습니다.** */
@@ -153,13 +164,16 @@ const labels = html => hrefs(html).map(x => x.label);
 const is302 = (r, to) => r.status === 302 && r.headers.location === to && r.body === '' &&
   /^text\/plain/.test(r.headers['content-type'] || '');
 
-/** 가짜 브라우저 — 카카오톡 페이지의 스크립트를 그대로 돌려 어디로 가는지 · 무엇을 담는지 봅니다. */
-function runScript(html, href) {
+/** 가짜 브라우저 — 카카오톡 · 크롬으로 넘기는 페이지의 스크립트를 그대로 돌려 어디로 가는지 · 무엇을
+ *  담는지 봅니다. opt: session(이미 있는 sessionStorage — 같은 탭에서 다시 열기) · storage(sessionStorage 를
+ *  이것으로 바꿈 — null · 던지는 것 · 안 남는 것) */
+function runScript(html, href, opt) {
+  const o = opt || {};
   const nav = [], clip = [], timers = [];
   const attrs = {};
   const tag = (/<body\b([^>]*)>/.exec(html) || [])[1] || '';
   for (const m of tag.matchAll(/\s(data-[a-z-]+)="([^"]*)"/g)) attrs[m[1]] = unesc(m[2]);
-  const store = {};
+  const store = Object.assign({}, o.session || {});
   const ctx = {
     document: {
       body: { getAttribute: k => (Object.hasOwn(attrs, k) ? attrs[k] : null) },
@@ -167,12 +181,13 @@ function runScript(html, href) {
     },
     location: { get href() { return href; }, set href(v) { nav.push(['href', v]); }, replace(v) { nav.push(['replace', v]); } },
     navigator: { clipboard: { writeText(t) { clip.push(t); return Promise.resolve(); } } },
-    sessionStorage: { getItem: k => (Object.hasOwn(store, k) ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } },
+    sessionStorage: Object.hasOwn(o, 'storage') ? o.storage
+      : { getItem: k => (Object.hasOwn(store, k) ? store[k] : null), setItem: (k, v) => { store[k] = String(v); } },
     setTimeout: (f, ms) => { timers.push(ms); return timers.length; }
   };
   let error = null;
   try { vm.runInNewContext(scriptOf(html), ctx, { timeout: 1000 }); } catch (e) { error = e; }
-  return { nav, clip, timers, error };
+  return { nav, clip, timers, error, store };
 }
 
 /* 모든 200 페이지를 모아 [6] · [8] 에서 한꺼번에 봅니다. */
@@ -348,6 +363,146 @@ async function main() {
     ok(nm + ' 보통 브라우저에는 그 한 줄이 없다', !(await page('/get', { ua })).body.includes(TIP));
   }
 
+  console.log('\n[4-2] 크롬 · 사파리로 넘기기 — 카카오톡 밖의 앱 안 브라우저 (https 로 연 주소)');
+  /* 실제로 있었던 일: 삼성 폰의 인스타그램 안에서 ① 그룹 가입 ② 테스트 참여를 마치고(앱 안 창의 따로 된
+     구글 로그인으로) ③ 플레이 앱에서 "항목을 찾을 수 없습니다". 위 [4] 의 한 줄을 지나쳤습니다. */
+  writeCfg(ALL);
+  const HTTPS = { 'X-Forwarded-Proto': 'https', 'X-Forwarded-Host': HOST };
+  const CHROME = 'intent://' + HOST + '/get#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=' +
+                 encodeURIComponent(HREF) + ';end';
+  const SAFARI = 'x-safari-https://' + HOST + '/get';
+  const WHY = '<p class="hint">앱 안에서는 구글 로그인이 따로라 설치가 막혀요 · 안 열리면 ' + TIP + '</p>';
+  const FLAG = '<p class="flag">여기서는 설치가 잘 안 돼요 · ' + TIP + '</p>';
+  const bodyTag = html => (/<body\b[^>]*>/.exec(html) || [])[0] || '';
+  const cardOf = html => (/<section class="card">[\s\S]*?<\/section>/.exec(html) || [])[0] || '';
+  const inviteJs = scriptOf((await page('/i/ABCD2345', { ua: UA.android })).body);
+  ok('크롬 intent 는 이 서버의 /get 을 크롬(com.android.chrome)으로 — fallback 도 같은 https 주소 · 우리 앱 · mybody:// 아님',
+     /^intent:\/\/mybody-get\.example\.ts\.net\/get#Intent;/.test(CHROME) && CHROME.includes(';scheme=https;') &&
+     CHROME.includes(';package=com.android.chrome;') &&
+     decodeURIComponent((/;S\.browser_fallback_url=([^;]*);end$/.exec(CHROME) || [])[1] || '') === HREF &&
+     !CHROME.includes(PKG) && !/mybody:/.test(CHROME), CHROME);
+  const chromeRef = await page('/get', { ua: UA.android, headers: HTTPS });
+  /* 저절로는 이름을 아는 네 앱만 — 이름 없는 WebView(메일 앱 …)는 intent 를 못 받아 오류 화면부터 보는 일이 많아
+     단추만 둡니다. */
+  for (const [nm, ua, auto] of [['인스타그램(안드로이드 · 삼성)', UA.instaAndroid, true], ['페이스북(안드로이드)', UA.fbAndroid, true],
+                                ['라인(안드로이드)', UA.lineAndroid, true], ['네이버 앱(안드로이드)', UA.naverAndroid, true],
+                                ['메일 앱 WebView(안드로이드, "; wv)")', UA.wvAndroid, false]]) {
+    const r = keep(nm + ' → 크롬', await page('/get', { ua, headers: HTTPS }));
+    const L = hrefs(r.body);
+    ok(nm + ': 맨 위 큰 단추 「크롬으로 열기」 (btn--primary · 같은 intent · noreferrer) 바로 밑에 한 줄(까닭 · 손으로 나가는 길)',
+       r.status === 200 && !r.headers.location &&
+       L.length > 0 && L[0].label === '크롬으로 열기' && L[0].href === CHROME && /class="btn btn--primary"/.test(L[0].tag) &&
+       /rel="noreferrer"/.test(L[0].tag) && r.body.includes(L[0].tag + '\n' + WHY + '\n<section class="card">'),
+       L.map(x => x.label + ' ' + x.href));
+    ok(nm + ': 주황 상자는 없다 (단추가 대신)', !r.body.includes('class="flag"'));
+    ok(nm + ': ①②③ 은 그 밑에 그대로 — 보통 크롬의 안드로이드 칸과 글자 하나 다르지 않음',
+       cardOf(r.body) === cardOf(chromeRef.body) && cardOf(r.body).length > 100 &&
+       labels(r.body).slice(1).join('|') === '① 구글 그룹 가입|② 테스트 참여|③ Google Play 에서 설치', labels(r.body));
+    if (!auto) {
+      ok(nm + ': 저절로는 안 넘긴다 — <body> 에 data-… 없음 · 스크립트 없음 (단추만)',
+         bodyTag(r.body) === '<body>' && !/<script/i.test(r.body) && !r.body.includes('data-chrome'), bodyTag(r.body));
+      continue;
+    }
+    ok(nm + ': <body data-chrome="<크롬 intent>"> 하나만 (다른 data-… 없음)',
+       bodyTag(r.body) === '<body data-chrome="' + CHROME + '">', bodyTag(r.body));
+    ok(nm + ': 스크립트는 초대 페이지의 것 그대로 · CSP 해시가 맞음', scriptOf(r.body) === inviteJs && inviteJs.length > 500 &&
+       (r.headers['content-security-policy'] || '').split('; ').includes('script-src ' + shaOf(inviteJs)));
+    const s = runScript(r.body, HREF);
+    ok(nm + ': 스크립트가 곧바로 한 번 크롬 intent 로 (location.href — replace 아님) · 담기 · 타이머 없음',
+       !s.error && s.nav.length === 1 && s.nav[0][0] === 'href' && s.nav[0][1] === CHROME && s.clip.length === 0 &&
+       s.timers.length === 0, [s.error && String(s.error), s.nav]);
+    ok(nm + ': 같은 탭에서 다시 열면(뒤로 가기 · 크롬이 없어 fallback) 또 넘기지 않는다 — 돌지 않음',
+       runScript(r.body, HREF, { session: s.store }).nav.length === 0, s.store);
+  }
+  /* sessionStorage 를 못 쓰는 창(안드로이드 WebView 는 앱이 켜지 않으면 null · 막혀서 throw · 적어도 안 남음) —
+     "한 번" 을 셀 수 없으니 저절로는 **안** 갑니다. 갔다면 no-store 라 뒤로 가기마다 · 크롬이 꺼져 fallback(이
+     페이지)으로 올 때마다 또 튕겨 돕니다. 단추는 그대로 있습니다. 두 번 열어 모두 0번인지 봅니다. */
+  const instaBody = (await page('/get', { ua: UA.instaAndroid, headers: HTTPS })).body;
+  const deny = () => { throw new Error('SecurityError'); };
+  for (const [nm, storage] of [['null (DOM storage 꺼짐)', null], ['throw (막힘)', { getItem: deny, setItem: deny }],
+                               ['적어도 안 남음', { getItem: () => null, setItem: () => {} }]]) {
+    const n1 = runScript(instaBody, HREF, { storage }), n2 = runScript(instaBody, HREF, { storage });
+    ok('sessionStorage 가 ' + nm + ' 이면 저절로 안 넘긴다 — 두 번 열어도 0번 (돌지 않음 · 단추만)',
+       !n1.error && !n2.error && n1.nav.length + n2.nav.length === 0 && instaBody.includes('>크롬으로 열기<'),
+       [n1.error && String(n1.error), n1.nav, n2.nav]);
+  }
+  /* 카카오톡의 넘기기는 그대로 — 못 쓰면 그냥 합니다(kakaotalk:// 는 이 페이지로 돌아오지 않습니다). */
+  const kns = runScript((await page('/get', { ua: UA.kakaoAndroid, headers: HTTPS })).body, HREF, { storage: null });
+  ok('카카오톡은 sessionStorage 가 없어도 예전처럼 한 번 넘긴다', !kns.error && kns.nav.length === 1 &&
+     kns.nav[0][0] === 'replace' && kns.nav[0][1] === KAKAO, kns.nav);
+  writeCfg(Object.assign({ appTesting: false }, ALL));
+  const rel = keep('인스타그램(안드로이드) 출시 뒤', await page('/get', { ua: UA.instaAndroid, headers: HTTPS }));
+  ok('출시 뒤에도 인스타그램(안드로이드)은 302 없이 「크롬으로 열기」 → 「Google Play 에서 받기」',
+     rel.status === 200 && !rel.headers.location && labels(rel.body).join('|') === '크롬으로 열기|Google Play 에서 받기' &&
+     hrefs(rel.body)[0].href === CHROME && hrefs(rel.body)[1].href === PLAY && bodyTag(rel.body) === '<body data-chrome="' + CHROME + '">',
+     labels(rel.body));
+  writeCfg(ALL);
+
+  for (const [nm, ua] of [['인스타그램(아이폰)', UA.instaIos], ['메일 앱 WKWebView(아이폰)', UA.wkIos]]) {
+    const r = keep(nm + ' → 사파리 단추', await page('/get', { ua, headers: HTTPS }));
+    const plain = await page('/get', { ua });
+    const L = hrefs(r.body);
+    ok(nm + ': 200 · 맨 위 「Safari 로 열기」 (btn--primary · x-safari-https://<이 주소>/get)', r.status === 200 &&
+       !r.headers.location && L.length > 0 && L[0].label === 'Safari 로 열기' && L[0].href === SAFARI &&
+       /class="btn btn--primary"/.test(L[0].tag) && /rel="noreferrer"/.test(L[0].tag), L.map(x => x.label + ' ' + x.href));
+    ok(nm + ': 그 밑에 예전 한 줄 글자 그대로(안 될 때) — 주황 상자 대신 hint',
+       r.body.includes(L[0].tag + '\n' + FLAG.replace('class="flag"', 'class="hint"') + '\n<section class="card">') &&
+       !r.body.includes('class="flag"'));
+    ok(nm + ': 저절로는 안 부른다 — 스크립트 · data-… 없음', !/<script/i.test(r.body) && bodyTag(r.body) === '<body>');
+    ok(nm + ': TestFlight 칸은 그대로 (http 로 연 페이지와 같은 칸)', cardOf(r.body) === cardOf(plain.body) &&
+       labels(r.body).slice(1).join('|') === 'TestFlight 에서 받기|TestFlight 받기' && hrefs(r.body)[1].href === JI,
+       labels(r.body));
+  }
+
+  /* 그대로인 곳 — 카카오톡(자기 넘기기) · 보통 브라우저 · 컴퓨터. */
+  const HAND = /com\.android\.chrome|x-safari-|크롬으로 열기|Safari 로 열기|data-chrome/;
+  const ka = keep('카카오톡(안드로이드) https', await page('/get', { ua: UA.kakaoAndroid, headers: HTTPS }));
+  const kar = runScript(ka.body, HREF);
+  ok('카카오톡(안드로이드): 크롬 intent 없음 · <body data-inapp="kakao"> 만 · 여전히 kakaotalk:// 로 넘김',
+     ka.status === 200 && !HAND.test(ka.body.replace(/<script>[\s\S]*?<\/script>/, '')) &&
+     bodyTag(ka.body) === '<body data-inapp="kakao">' &&
+     kar.nav.length === 1 && kar.nav[0][0] === 'replace' && kar.nav[0][1] === KAKAO, [bodyTag(ka.body), kar.nav]);
+  const ki = keep('카카오톡(아이폰) https', await page('/get', { ua: UA.kakaoIos, headers: HTTPS }));
+  ok('카카오톡(아이폰): 사파리 단추 없음 · <body data-inapp="kakao"> 만', ki.status === 200 &&
+     !HAND.test(ki.body.replace(/<script>[\s\S]*?<\/script>/, '')) && bodyTag(ki.body) === '<body data-inapp="kakao">');
+  for (const [nm, ua] of [['크롬(안드로이드)', UA.android], ['삼성 인터넷', UA.samsung], ['컴퓨터', UA.desktop]]) {
+    const r = keep(nm + ' https', await page('/get', { ua, headers: HTTPS }));
+    ok(nm + ': 그대로 — 넘기는 단추 · intent · 스크립트 · 한 줄 없음', r.status === 200 && !HAND.test(r.body) &&
+       !/intent:/.test(r.body) && !/<script/i.test(r.body) && bodyTag(r.body) === '<body>' && !r.body.includes(TIP),
+       labels(r.body));
+  }
+  for (const [nm, ua] of [['사파리', UA.ios], ['아이폰 크롬', UA.criOs]]) {
+    ok(nm + ': 그대로 TestFlight 로 302', is302(await page('/get', { ua, headers: HTTPS }), JI));
+  }
+
+  /* 넘길 주소는 publicBase 가 https 로 정한 것만. */
+  for (const [nm, ua] of [['인스타그램(안드로이드)', UA.instaAndroid], ['인스타그램(아이폰)', UA.instaIos]]) {
+    const hp = await page('/get', { ua });
+    ok(nm + ' · http 로 연 주소(터널 없이): 넘기지 않고 예전 주황 한 줄 · 스크립트 없음', hp.status === 200 &&
+       hp.body.includes(FLAG) && !HAND.test(hp.body) && !/<script/i.test(hp.body) && bodyTag(hp.body) === '<body>',
+       labels(hp.body));
+    const ev = await page('/get', { ua, headers: { Host: 'evil.example"><b>', 'X-Forwarded-Proto': 'https',
+                                                   'X-Forwarded-Host': 'x" onload="' + HOST } });
+    ok(nm + ' · 이상한 Host · X-Forwarded-Host (publicBase 가 거절): 단추 · 넘기기 없이 예전 한 줄 · 받은 글자 안 찍음',
+       ev.status === 200 && ev.body.includes(FLAG) && !HAND.test(ev.body) && !/<script/i.test(ev.body) &&
+       !/evil\.example|onload/.test(ev.body) && !ev.body.includes(HOST), ev.body.slice(-600));
+  }
+  const qMark = 'zq' + crypto.randomBytes(4).toString('hex');
+  const qq = '?next=https%3A%2F%2Fevil.example%2F' + qMark + '&host=evil.example&' + qMark + '=1';
+  for (const [nm, ua] of [['인스타그램(안드로이드)', UA.instaAndroid], ['인스타그램(아이폰)', UA.instaIos]]) {
+    const r = await page('/get' + qq, { ua, headers: HTTPS });
+    const plain = await page('/get', { ua, headers: HTTPS });
+    ok(nm + ': 쿼리를 intent · fallback · 사파리 주소에 안 싣는다 (쿼리 없는 페이지와 글자 하나 다르지 않음)',
+       r.status === 200 && r.body === plain.body && !r.body.includes(qMark) && !r.body.includes('evil.example') &&
+       (r.body.includes(CHROME) || r.body.includes(SAFARI)));
+  }
+  for (const [nm, ua] of [['인스타그램(안드로이드)', UA.instaAndroid], ['인스타그램(아이폰)', UA.instaIos]]) {
+    const inv = await page('/i/ABCD2345', { ua, headers: HTTPS });
+    ok('초대 페이지(/i/)는 ' + nm + '에서도 넘기지 않는다 — data-chrome · 크롬 · 사파리 없음', inv.status === 200 &&
+       !/data-chrome|com\.android\.chrome|x-safari-|크롬으로 열기|Safari 로 열기/.test(inv.body.replace(/<script>[\s\S]*?<\/script>/, '')),
+       bodyTag(inv.body));
+  }
+
   console.log('\n[5] 경로 · 방법');
   ok('/get/ 도 같은 곳으로 (아이폰 302)', is302(await page('/get/', { ua: UA.ios }), JI));
   const s1 = await page('/get', { ua: UA.desktop }), s2 = keep('/get/', await page('/get/', { ua: UA.desktop }));
@@ -391,16 +546,18 @@ async function main() {
     const styles = [...r.body.matchAll(/<style>([\s\S]*?)<\/style>/g)].map(m => m[1]);
     const scripts = [...r.body.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
     const pcsp = r.headers['content-security-policy'] || '';
-    ok(nm + ': 같은 머리글 · <style> 하나가 CSP 해시와 맞음 · 스크립트는 카카오톡만(해시 맞음)',
+    ok(nm + ': 같은 머리글 · <style> 하나가 CSP 해시와 맞음 · 스크립트는 넘기는 페이지(카카오톡 · 크롬)만(해시 맞음)',
        pcsp === inviteCsp && r.headers['x-robots-tag'] === 'noindex' && r.headers['referrer-policy'] === 'no-referrer' &&
        r.headers.vary === '*' && styles.length === 1 && pcsp.includes('style-src ' + shaOf(styles[0])) &&
-       (/data-inapp="kakao"/.test(r.body)
+       (/<body data-(inapp="kakao"|chrome=")/.test(r.body)
          ? scripts.length === 1 && scripts[0][1] === '' && pcsp.split('; ').includes('script-src ' + shaOf(scripts[0][2]))
          : scripts.length === 0), [nm, styles.length, scripts.length]);
     const html = r.body.replace(/<script>[\s\S]*?<\/script>/, '');
+    /* 링크는 https 뿐 — 앱 안 창에서 넘기는 두 주소(크롬 intent · x-safari-https, 위 [4-2])만 빼고. */
     ok(nm + ': on…= 핸들러 · javascript: · style="…" 없음 · 밖으로 가는 링크는 전부 rel="noreferrer"',
        !/\son[a-z]+\s*=/i.test(html) && !/javascript:/i.test(r.body) && !/\sstyle=/i.test(html) &&
-       hrefs(r.body).every(x => /^https:\/\//.test(x.href) && /rel="noreferrer"/.test(x.tag)), hrefs(r.body).map(x => x.tag));
+       hrefs(r.body).every(x => (/^https:\/\//.test(x.href) || x.href === CHROME || x.href === SAFARI) &&
+                                /rel="noreferrer"/.test(x.tag)), hrefs(r.body).map(x => x.tag));
   }
 
   console.log('\n[7] 받은 것을 안 찍는다');
@@ -436,10 +593,12 @@ async function main() {
     /* 카카오톡 페이지의 스크립트는 초대 페이지와 같은 글자라 'a[data-install]' 같은 이름이 들어 있습니다 —
        HTML 쪽(스크립트 밖)에서 봅니다. 스크립트가 그 이름들로 할 일은 HTML 에 그 속성이 있어야 생깁니다. */
     const html = b.replace(/<script>[\s\S]*?<\/script>/, '');
-    ok(nm + ': 제목 · h1 "Mybody 받기" · "친구" · "초대" · 코드 · 앱 열기 · 담기 · 추천인 없음',
+    /* intent: 는 크롬으로 넘기는 것([4-2] — package=com.android.chrome) 하나만 있을 수 있습니다. 그것을 뺀
+       나머지에 앱을 부르는 길(mybody:// · 다른 intent:)이 없어야 합니다. */
+    ok(nm + ': 제목 · h1 "Mybody 받기" · "친구" · "초대" · 코드 · 앱 열기(intent 는 크롬 것만) · 담기 · 추천인 없음',
        b.includes('<title>Mybody 받기</title>') && b.includes('<h1>Mybody 받기</h1>') &&
        !b.includes('친구') && !b.includes('초대') && !/class="code"/.test(b) && !/\/i\//.test(b) &&
-       !/mybody:\/\/|intent:/i.test(b) && !/data-(copy|install|code|intent|later)\b/.test(html) &&
+       !/mybody:\/\/|intent:/i.test(b.split(CHROME).join('')) && !/data-(copy|install|code|intent|later)\b/.test(html) &&
        !/referrer=|invite%3D/.test(b), nm);
   }
   const aa = await page('/.well-known/apple-app-site-association');

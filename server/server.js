@@ -1618,6 +1618,15 @@ const INVITE_CSS = [
  *                 (최대 0.8초) 갑니다. 클립보드가 없는 브라우저 · 새 탭으로 열기(⌘ · Ctrl
  *                 누른 채)는 막지 않고 원래대로 둡니다.
  *   data-inapp    'kakao' → 기본 브라우저로 넘김(openExternal 에 지금 주소를 인코딩해 실음).
+ *   data-chrome   설치 링크(/get)만 — 이름을 아는 안드로이드 앱 안 브라우저(인스타그램 …)에서 열리자마자
+ *                 이 크롬 intent 로 한 번. location.href 로 갑니다(replace 아님): intent 를 못 다루는 창은
+ *                 "알 수 없는 주소" 오류 화면을 띄우는데, replace 면 이 페이지가 그 화면으로 **바뀌어**
+ *                 뒤로 가도 돌아올 곳이 없습니다. href 면 뒤로 가기가 「크롬으로 열기」 단추로 돌아옵니다.
+ *                 "한 번" 의 표시를 sessionStorage 에 **적고 다시 읽혀야만** 갑니다(firstTime(…, true)) —
+ *                 못 쓰면(안드로이드 WebView 는 앱이 켜지 않으면 null) 저절로는 안 가고 단추만 남깁니다.
+ *                 그러지 않으면 no-store 라 뒤로 가기가 이 페이지를 다시 읽을 때마다, 또 크롬이 꺼져
+ *                 fallback(이 페이지)으로 돌아올 때마다 또 튕겨 빠져나갈 수 없습니다. 초대 페이지(/i/)는
+ *                 이 속성을 안 냅니다.
  *   data-intent   안드로이드 — 열리자마자 이 intent 로(location.replace: 앱이 없어서 fallback 으로
  *                 가도 뒤로 가기가 이 페이지로 돌아와 다시 튕기지 않게).
  *   data-later    아이폰 — 1.5초 뒤 이 설치 페이지로. 그 사이에 누르거나(pointerdown ·
@@ -1626,7 +1635,8 @@ const INVITE_CSS = [
  *                 1.5초가 지나면 가든 안 가든 "설치 페이지로 가요…" 줄을 숨깁니다 — App Store ·
  *                 TestFlight 는 다른 앱으로 열려 이 페이지가 남는데, 돌아왔을 때 이미 지난 예고가
  *                 떠 있으면 거짓말이 됩니다.
- *   data-code     "한 탭에서 한 번" 을 코드마다 셉니다(sessionStorage — 못 쓰면 그냥 합니다).
+ *   data-code     "한 탭에서 한 번" 을 코드마다 셉니다(sessionStorage — 못 쓰면 그냥 합니다. data-chrome 만
+ *                 거꾸로 안 합니다, 위).
  */
 function inviteScript() {
   var body = document.body;
@@ -1636,12 +1646,13 @@ function inviteScript() {
   var copy = function () {
     try { return copyText ? navigator.clipboard.writeText(copyText) : null; } catch (e) { return null; }
   };
-  var firstTime = function (what) {
+  var firstTime = function (what, strict) {
     try {
       var key = 'mybody-invite-' + what + '-' + data('code');
       if (sessionStorage.getItem(key)) return false;
       sessionStorage.setItem(key, '1');
-    } catch (e) {}
+      if (strict) return sessionStorage.getItem(key) === '1';
+    } catch (e) { return !strict; }
     return true;
   };
   var buttons = document.querySelectorAll('a[data-install]');
@@ -1662,6 +1673,11 @@ function inviteScript() {
     if (firstTime('kakao')) {
       location.replace('kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href));
     }
+    return;
+  }
+  var chrome = data('chrome');
+  if (chrome) {
+    if (firstTime('chrome', true)) location.href = chrome;
     return;
   }
   var intent = data('intent');
@@ -1715,7 +1731,8 @@ const INVITE_HEADERS = {
  *  viewport-fit=cover 는 두지 않습니다 — 노치 · 홈 막대 여백(safe-area)을 따로 안 주므로,
  *  기본값이 글자를 가려지지 않는 곳에 둡니다.
  *  bodyAttrs(이미 이스케이프된 data-… 조각)를 주면 스크립트(INVITE_JS)를 끝에 붙입니다 —
- *  404 · 설치 링크(/get, 카카오톡 밖)에는 할 일이 없어서 안 붙입니다(머리글 · CSP 는 같습니다).
+ *  404 · 설치 링크(/get — 카카오톡 · 크롬으로 넘길 때 밖)에는 할 일이 없어서 안 붙입니다(머리글 · CSP 는
+ *  같습니다).
  *  title 은 맨 위 제목(<h1>) — 안 주면 초대 페이지의 "Mybody 친구 초대". */
 function invitePage(head, body, bodyAttrs, title) {
   const icon = inviteIcon(['icon-192.png', 'apple-touch-icon.png']);
@@ -1902,7 +1919,7 @@ function serveInvite(req, res, url) {
  *
  * 왜 있나
  *   시험해 줄 사람에게 보내는 링크 하나. 초대 링크처럼 누르면 기종에 맞는 받는 곳으로 가지만
- *   **친구는 되지 않습니다** — 코드가 없고, 앱을 부르지 않고(mybody:// · intent 없음), 클립보드에
+ *   **친구는 되지 않습니다** — 코드가 없고, 앱을 부르지 않고(mybody:// · 앱 intent 없음 — intent 는 크롬으로 넘기는 것뿐, 아래), 클립보드에
  *   아무것도 안 담고, 플레이 주소에 추천인도 안 붙입니다. 앱 링크 파일은 /i/* 만 앱의 것이라고
  *   하므로(아래) 앱이 깔린 폰에서도 이 주소는 브라우저로 열립니다.
  *
@@ -1918,9 +1935,9 @@ function serveInvite(req, res, url) {
  * 앱 안 브라우저(카카오톡 · 인스타그램 …)에서는 302 하지 않고 페이지를 냅니다 — 초대 페이지가
  *   앱 안 브라우저에서는 저절로 가게로 가지 않는 것과 같은 규칙입니다. 구글은 앱 안 브라우저의
  *   로그인을 막아서 그룹 가입 · 테스트 참여가 거기서는 안 되고, TestFlight · App Store 로 넘기는
- *   것도 사파리가 확실합니다. 카카오톡은 초대 페이지와 같은 스크립트(INVITE_JS — 해시도 그대로)로
- *   기본 브라우저에 넘기고(거기서 이 주소가 다시 열려 302 가 됩니다), 나머지는 "다른 브라우저로
- *   열기" 한 줄. 단추는 어디서나 진짜 링크라 넘기기가 안 돼도 누르면 됩니다.
+ *   것도 사파리가 확실합니다. 카카오톡은 초대 페이지와 같은 스크립트(INVITE_JS — 해시도 같은 것)로
+ *   기본 브라우저에 넘기고(거기서 이 주소가 다시 열려 302 가 됩니다), 나머지는 아래 "크롬 · 사파리로
+ *   넘기기". 단추는 어디서나 진짜 링크라 넘기기가 안 돼도 누르면 됩니다.
  *   이 링크는 메일로 가서, 이름을 아는 다섯 앱(inAppOf) 말고도 메일 · 메신저 앱이 자기 안에서
  *   여는 일이 많습니다. 그래서 여기서만 더 넓게 봅니다(초대 페이지는 그대로):
  *     안드로이드  "; wv)" — 모든 WebView 의 표시. 크롬 · 크롬 커스텀 탭(지메일) · 삼성 인터넷엔 없습니다.
@@ -1928,9 +1945,39 @@ function serveInvite(req, res, url) {
  *                 크롬 · 파이어폭스 · 엣지 · 구글 앱엔 다 있습니다. 그런 곳에서 TestFlight 로 302 하면
  *                 애플 페이지의 단추(itms-beta:)가 안 눌리는 막다른 길이 됩니다.
  *
+ * 크롬 · 사파리로 넘기기 (카카오톡 밖의 앱 안 브라우저)
+ *   실제로 있었던 일: 삼성 폰의 시험자가 인스타그램 안에서 이 링크를 열고, 맨 위의 "다른 브라우저로
+ *   열기" 한 줄을 지나쳐 ① 그룹 가입 ② 테스트 참여를 **인스타그램 안에서** 구글에 로그인해 마쳤습니다.
+ *   앱 안 브라우저는 쿠키가 따로라 그 로그인은 폰의 플레이 계정과 다른 계정일 수 있고, ③ 에서 연
+ *   플레이 앱은 "항목을 찾을 수 없습니다" 였습니다. 글 한 줄로는 안 멈춥니다 — 그래서 주인의 말대로
+ *   저절로 넘기고, 큰 단추를 남깁니다.
+ *     안드로이드  크롬 intent — 같은 주소의 /get 을 크롬으로:
+ *                   intent://<이 주소>/get#Intent;scheme=https;package=com.android.chrome;
+ *                   S.browser_fallback_url=<https://이 주소/get>;end
+ *                 인스타그램 · 페이스북 · 라인 · 네이버의 창은 이걸 받아 크롬을 띄우고, 크롬에서는 폰의
+ *                 구글 계정 그대로 이 주소가 다시 열립니다(보통 브라우저 → ①②③). 페이지에는 주황 한 줄
+ *                 대신 맨 위에 「크롬으로 열기」 단추 + 한 줄(까닭 · 안 열리면 ⋯ → 다른 브라우저로 열기 —
+ *                 크롬이 꺼진 삼성 폰 · intent 를 막는 앱에서는 그 길만 남습니다).
+ *                 저절로 한 번(data-chrome — 스크립트는 초대 페이지와 같은 INVITE_JS)은 **이름을 아는 네
+ *                 앱만**(inAppOf) 합니다. 이름 없는 "; wv)" 창(메일 앱 …)은 intent 를 못 받는 일이 많아
+ *                 페이지 대신 "알 수 없는 주소" 오류부터 보게 되고, 뒤로 가기가 창을 닫는 앱이면 다시 열
+ *                 때마다 그 오류입니다 — 그래서 단추만(누르면 됩니다). sessionStorage 를 못 쓰는 창도
+ *                 저절로는 안 갑니다(inviteScript 의 data-chrome) — 크롬이 꺼져 fallback 으로 이 페이지가
+ *                 다시 열리거나 뒤로 가기로 다시 읽혀도 돌지 않습니다.
+ *     아이폰      저절로는 안 부릅니다 — 받지 못하는 곳(iOS 16 이하 · 막는 앱)에서는 "주소가 유효하지
+ *                 않음" 창부터 뜹니다(초대 페이지가 mybody:// 를 저절로 안 부르는 것과 같은 까닭). 맨 위에
+ *                 「Safari 로 열기」 단추(x-safari-https://<이 주소>/get — iOS 17 부터)만 두고, 안 될 때를
+ *                 위해 "다른 브라우저로 열기" 줄을 그 밑에 그대로(글자 같음) 둡니다.
+ *   주소는 publicBase 가 **https** 로 정한 것만 씁니다 — 쿼리 · User-Agent 는 싣지 않습니다. Host 가
+ *   이상한 모양이라 publicBase 가 '' 이거나, http(터널 없이 집 안에서 연 주소)면 넘기지 않고 예전의
+ *   한 줄만 냅니다: 크롬을 https 로 부르면 없는 주소가 되고, x-safari- 는 https 만 받습니다.
+ *
  * 머리글은 초대 페이지와 같습니다(INVITE_HEADERS). 받은 것(쿼리 · User-Agent)은 페이지에도
- *   Location 에도 싣지 않습니다 — 미리보기 그림 주소만 publicBase(Host 모양을 본 것)로 짓습니다.
+ *   Location 에도 싣지 않습니다 — 미리보기 그림 · 크롬 · 사파리 주소만 publicBase(Host 모양을 본 것)로
+ *   짓습니다.
  * -------------------------------------------------------------------------- */
+/* 크롬의 안드로이드 패키지 — 앱 안 브라우저에서 넘길 곳(위 "크롬 · 사파리로 넘기기"). */
+const CHROME_PACKAGE = 'com.android.chrome';
 /** 한 기종 몫의 단추들. inviteBtn 이라 data-install 이 없고, 스크립트가 있어도 누를 때 아무것도
  *  담지 않습니다. 받을 곳이 아직 없으면 "곧 열려요" — 설정에 링크를 적으면 같은 링크가 그리로 갑니다. */
 function getSteps(os, info) {
@@ -1987,14 +2034,30 @@ function serveGet(req, res) {
     (base && image ? '<meta property="og:image" content="' + escHtml(base + image) + '">\n' : '') +
     '<meta name="twitter:card" content="summary">\n';
   const card = (name, which) => '<section class="card"><h2>' + name + '</h2>\n' + getSteps(which, info) + '</section>\n';
-  const body = (inapp === 'other' ? '<p class="flag">여기서는 설치가 잘 안 돼요 · 오른쪽 위 ⋯ → 다른 브라우저로 열기</p>\n' : '') +
+  /* 크롬 · 사파리로 넘기기(위) — https 로 정한 이 서버의 /get 만. 받은 쿼리는 싣지 않습니다. */
+  const here = inapp === 'other' && /^https:\/\//.test(base) ? base + '/get' : '';
+  const chrome = here && os === 'android'
+    ? 'intent://' + here.slice('https://'.length) + '#Intent;scheme=https;package=' + CHROME_PACKAGE +
+      ';S.browser_fallback_url=' + encodeURIComponent(here) + ';end'
+    : '';
+  const safari = here && os === 'ios' ? 'x-safari-' + here : '';
+  /* 손으로 나가는 길 — 넘기기가 안 되는 곳(크롬이 꺼짐 · intent 를 막는 앱)에서는 이것만 남으니 늘 싣습니다. */
+  const away = '오른쪽 위 ⋯ → 다른 브라우저로 열기';
+  const tip = '여기서는 설치가 잘 안 돼요 · ' + away;
+  const top = chrome ? inviteBtn(chrome, '크롬으로 열기', true) +
+                       '<p class="hint">앱 안에서는 구글 로그인이 따로라 설치가 막혀요 · 안 열리면 ' + away + '</p>\n'
+    : safari ? inviteBtn(safari, 'Safari 로 열기', true) + '<p class="hint">' + tip + '</p>\n'
+    : inapp === 'other' ? '<p class="flag">' + tip + '</p>\n' : '';
+  const body = top +
     (os === 'other'
       ? '<p class="hint">폰에서 이 링크를 열면 더 쉬워요 · 그 폰에 맞는 안내만 나와요</p>\n' +
         card('안드로이드', 'android') + card('아이폰', 'ios')
       : card(os === 'android' ? '안드로이드' : '아이폰', os));
-  /* 카카오톡만 스크립트를 붙여 기본 브라우저로 넘깁니다. 그 밖에는 할 일이 없어서 스크립트 없이. */
-  return send(res, 200, invitePage(head, body, inapp === 'kakao' ? ' data-inapp="kakao"' : null, 'Mybody 받기'),
-              INVITE_HEADERS);
+  /* 스크립트는 저절로 넘길 때만 붙입니다 — 카카오톡은 기본 브라우저로, 이름을 아는 안드로이드 앱 안 창은
+     크롬으로(이름 없는 WebView 는 단추만 — 위). 그 밖에는 할 일이 없어서 스크립트 없이. */
+  const bodyAttrs = inapp === 'kakao' ? ' data-inapp="kakao"'
+    : chrome && inAppOf(ua) === 'other' ? ' data-chrome="' + escHtml(chrome) + '"' : null;
+  return send(res, 200, invitePage(head, body, bodyAttrs, 'Mybody 받기'), INVITE_HEADERS);
 }
 
 /* --- 앱 링크 파일 (GET /.well-known/assetlinks.json · /.well-known/apple-app-site-association) ---

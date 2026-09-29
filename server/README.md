@@ -418,7 +418,7 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 ## 설치 링크 (`/get`)
 
 시험해 줄 사람에게 보내는 링크 하나: `<서버 주소>/get` (`/get/` 도 같음). 초대 링크처럼 누르면 기종에 맞는
-받는 곳으로 가지만 **친구는 되지 않습니다** — 코드 · 앱 열기(`mybody://` · `intent://`) · 클립보드 담기 ·
+받는 곳으로 가지만 **친구는 되지 않습니다** — 코드 · 앱 열기(`mybody://` · 앱 `intent://` — 크롬으로 넘기는 intent 뿐) · 클립보드 담기 ·
 플레이 추천인이 없습니다. 앱 링크 파일은 `/i/*` 만 앱의 것이라고 하므로 앱이 깔린 폰에서도 브라우저로
 열립니다. 설정은 초대 페이지와 같은 것(`tools/app-version.js`)을 부를 때마다 읽습니다.
 
@@ -437,8 +437,12 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
   안 되고, TestFlight · App Store 로 넘기는 것도 사파리가 확실합니다. 카카오톡은 초대 페이지와 같은 스크립트로 곧바로 기본 브라우저에 넘기고
   (거기서 이 주소가 다시 열려 302), 나머지는 "오른쪽 위 ⋯ → 다른 브라우저로 열기" 한 줄. 단추는 전부 진짜
   링크라 넘기기가 안 돼도 누르면 됩니다.
+- **크롬 · 사파리로 넘기기**(카카오톡 밖의 앱 안 창 · https 주소일 때 — 인스타그램 안에서 ①② 를 하면 구글 로그인이 따로라 ③ 이
+  "항목을 찾을 수 없음"): 안드로이드는 맨 위에 「크롬으로 열기」 단추(크롬 intent — `package=com.android.chrome`, 같은 `/get`) +
+  "안 열리면 ⋯ → 다른 브라우저로 열기" 한 줄, 이름 있는 앱(인스타그램 · 페이스북 · 라인 · 네이버)에서는 열리자마자 한 번 저절로도
+  (sessionStorage 를 못 쓰면 안 함 — 돌지 않게). 아이폰은 「Safari 로 열기」(`x-safari-https://`, iOS 17+) 단추만. http · 이상한 Host 면 예전 한 줄.
 - 머리글은 초대 페이지와 같습니다(CSP · `noindex` · `no-referrer` · `DENY` · `no-store` · `Vary: *`). 스크립트는
-  카카오톡 페이지에만 붙습니다(같은 해시). 302 도 `no-referrer` · `noindex`. 쿼리 · User-Agent 는 페이지에도
+  넘기는 페이지(카카오톡 · 크롬)에만 붙습니다(같은 해시). 302 도 `no-referrer` · `noindex`. 쿼리 · User-Agent 는 페이지에도
   `Location` 에도 싣지 않습니다. GET · HEAD 말고는 405.
 
 ## 앱 링크 파일 (`/.well-known/…`)
@@ -497,7 +501,7 @@ node tools/test-inbox-page.js    # 컴퓨터로 보는 의견함 /inbox (머리 
 node tools/test-appversion.js    # 앱 안 업데이트 안내 · 시험판 참여 링크 · 시험 기간
 node tools/test-invite.js        # 친구 초대 링크 페이지 (기종별 앱 열기 · 설치 안내 · 새지 않음 · CSP ·
                                  #   앱 링크 파일 · 스크립트를 가짜 브라우저에서 돌려 봄)
-node tools/test-get-page.js      # 설치 링크 /get (기종별 302 · 단추 차례 · 앱 안 브라우저 · 머리글 ·
+node tools/test-get-page.js      # 설치 링크 /get (기종별 302 · 단추 차례 · 앱 안 브라우저 · 크롬 · 사파리로 넘기기 · 머리글 ·
                                  #   친구가 되는 길이 없음 · 받은 것을 안 찍음)
 node tools/test-crosscheck.js    # 결과지 검산
 node tools/validate.js           # 엔진 예측 대 실제 논문 (게이트)
