@@ -1170,9 +1170,11 @@ function hostGet(port, p2, host) {
        데이터 문제라, 검사로 못 박아 둡니다. */
     const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'mb-ts-'));
     const NAME = 'mypc.tail9f2c.ts.net';
+    /* 진짜 `tailscale status --json` 처럼 BackendState 를 같이 냅니다 —
+       launch.js 는 Running 일 때만 준비됨으로 봅니다. */
     fs.writeFileSync(path.join(bin, 'tailscale'),
       '#!/bin/sh\n' +
-      'if [ "$1" = "status" ]; then echo \'{"Self":{"DNSName":"' + NAME + '."}}\'; exit 0; fi\n' +
+      'if [ "$1" = "status" ]; then echo \'{"BackendState":"Running","Self":{"DNSName":"' + NAME + '."}}\'; exit 0; fi\n' +
       'if [ "$1" = "funnel" ]; then echo "Available on the internet:"; ' +
       'echo "https://' + NAME + '/"; sleep 60; fi\n');
     fs.chmodSync(path.join(bin, 'tailscale'), 0o755);
@@ -1242,9 +1244,22 @@ function hostGet(port, p2, host) {
     /* tailscale 이 있는데 **로그인이 안 된** 경우. 주인이 실제로 여기서
        막혔습니다 — 깔았고 주소까지 받았는데 launch 는 조용히 cloudflared
        로 갔고, 왜 그런지 아무 데도 안 적혀 있었습니다. */
+    /* 진짜 CLI 는 --json 이면 로그아웃이어도 0 으로 끝나고 BackendState 로
+       말합니다. 옛 네트워크 지도가 남아 기기 이름(DNSName)은 그대로 있습니다 —
+       이름만 보고 "준비됨" 이라 하면 안 되는 모양 그대로입니다. */
     fs.writeFileSync(path.join(bin, 'tailscale'),
-      '#!/bin/sh\nif [ "$1" = "status" ]; then >&2 echo "Logged out."; exit 1; fi\n');
+      '#!/bin/sh\nif [ "$1" = "status" ]; then echo \'{"BackendState":"NeedsLogin","Self":{"DNSName":"' +
+      NAME + '."}}\'; exit 0; fi\n');
     fs.chmodSync(path.join(bin, 'tailscale'), 0o755);
+    /* 여기는 **아직 ts.net 주소에 안 묶인** 컴퓨터입니다. 위에서 origin 이
+       ts.net 으로 적혔으면 launch.js 는 Cloudflare 로 안 넘어가고 기다립니다
+       (그쪽은 test-launch-wait.js 가 봅니다). 앞 절의 순서에 기대지 않게 비웁니다.
+       tailscaleOrigin 도 — 위에서 Tailscale 로 열 때 적힌 "묶임" 표시입니다. */
+    {
+      const c = JSON.parse(fs.readFileSync(path.join(home, '.mybody', 'config.json'), 'utf8'));
+      c.origin = ''; c.trustProxy = false; delete c.tailscaleOrigin;
+      fs.writeFileSync(path.join(home, '.mybody', 'config.json'), JSON.stringify(c), { mode: 0o600 });
+    }
     const child3 = spawn(process.execPath, [path.join(ROOT, 'tools', 'launch.js')], {
       cwd: ROOT,
       env: Object.assign({}, baseEnv(), {
@@ -1271,7 +1286,7 @@ function hostGet(port, p2, host) {
        안 되고, tailscale 이 한 말을 그대로 보여 줘야 합니다. */
     fs.writeFileSync(path.join(bin, 'tailscale'),
       '#!/bin/sh\n' +
-      'if [ "$1" = "status" ]; then echo \'{"Self":{"DNSName":"' + NAME + '."}}\'; exit 0; fi\n' +
+      'if [ "$1" = "status" ]; then echo \'{"BackendState":"Running","Self":{"DNSName":"' + NAME + '."}}\'; exit 0; fi\n' +
       'if [ "$1" = "funnel" ] && [ "$2" = "status" ]; then echo "Funnel off"; exit 0; fi\n' +
       'if [ "$1" = "funnel" ]; then >&2 echo "Funnel is not enabled on your tailnet."; ' +
       '>&2 echo "To enable: https://login.tailscale.com/f/funnel?node=abc"; exit 1; fi\n');

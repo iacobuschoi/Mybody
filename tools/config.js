@@ -60,6 +60,12 @@ const DEFAULTS = {
   anthropicModel: '',
   origin: '',
   trustProxy: false,
+  /* 이 컴퓨터가 Tailscale 로 연 공개 주소(https://….ts.net). tools/launch.js 가
+     적고, 서버는 안 읽습니다. origin 은 마지막 터널 주소라 --cloudflare 로 한 번
+     띄우면 덮이는데, 이 값은 안 덮입니다 — launch.js 는 이게 있으면 Tailscale 이
+     늦어도 Cloudflare 로 넘어가지 않고 기다립니다(주소가 바뀌면 친구들 앱이 못
+     찾습니다). Tailscale 을 정말 그만 쓸 때만 지우세요. */
+  tailscaleOrigin: '',
   db: '',
   /* 앱 안 업데이트 안내(GET /api/version) — tools/app-version.js 로 고칩니다.
      가게마다 따로 둡니다. 같은 판이라도 올라가는 날이 다릅니다 — APK 는

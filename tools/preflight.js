@@ -78,6 +78,11 @@ const CHECKS = [
     why: '두 사람이 실제 서버로 주고받는 경로' },
   { id: '띄우기', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-selfhost.js'],
     why: '앱이 멀쩡해도 서버를 못 띄우면 아무도 못 씁니다' },
+  { id: '서버 자동 시작 · 터널 다시 붙기', level: 'BLOCK', slow: false,
+    cmd: ['node', 'tools/test-launch-wait.js'],
+    why: '부팅 직후 Tailscale 이 늦거나 funnel 이 죽었을 때 스스로 다시 붙지 못하면, 서버는 200 인데 ' +
+         '공개 주소는 사람이 올 때까지 죽어 있습니다(노트북 보고 48). Cloudflare 로 조용히 넘어가면 ' +
+         '더 나쁩니다 — 아무도 모르는 새 주소가 생기고 친구들 폰의 기록이 안 보입니다' },
   { id: '주간 일정 화면', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-weekplan-ui.js'],
     why: '매일 누르는 칸입니다 — 한 번 안 눌리면 그 날 기록이 통째로 비어 버립니다' },
   { id: '앱 받기 화면', level: 'BLOCK', slow: true, cmd: ['node', 'tools/test-gate-ui.js'],

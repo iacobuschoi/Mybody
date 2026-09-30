@@ -233,6 +233,8 @@ curl -fsSL https://tailscale.com/install.sh | sh && sudo tailscale up
 30초~1분 걸립니다 — 화면이 기다리면서 그렇다고 적어 줍니다.
 
 일부러 Cloudflare 로 가려면 `node tools/launch.js --cloudflare`.
+이미 `ts.net` 주소로 쓰는 컴퓨터(설정의 origin · tailscaleOrigin — `--cloudflare` 로 한 번 띄워도 안 지워집니다)는 Tailscale 이 늦어도 Cloudflare 로 **넘어가지 않고**, 서버부터
+띄운 뒤 준비될 때까지 기다렸다가(처음 2분은 5초마다, 그 뒤 30초마다) 주소를 엽니다. funnel 이 도중에 끊기면 5초 → 60초 간격으로 저절로 다시 붙고, 붙으면 중계를 한 번 다시 잡습니다(`tailscale debug rebind` · `restun`).
 둘 다 없으면 **어떻게 까는지 운영체제에 맞게** 알려주고 멈춥니다.
 같은 와이파이에서만 써 볼 거면 `node tools/launch.js --no-tunnel`
 (그 주소는 https 가 아니라 앱 설치·알림·오프라인이 안 됩니다).
