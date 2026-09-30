@@ -958,3 +958,21 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
   절전 · 재부팅 · 서버 죽음은 아님. 이번엔 rebind 만으로 안 돌아와 작업 재시작 + rebind 가 필요했음.
 - **전원**: 16:11 충전기 빠짐 → 16:32 다시 꽂힘 → 지금 **충전 중 94%**.
 - 참고(클라우드가 launch.js 고칠 때): 망이 바뀐 뒤 funnel 이 죽은 채 남는 경우도 있으니, 바깥이 안 되면 funnel 을 스스로 다시 띄우는 것도 같이 보면 좋겠습니다.
+
+---
+
+# 50 끝 (2026-09-30 17:05 KST) — 새 launch.js 적용 17:02 · 터널 끊김 5초 만에 스스로 다시 붙음 · 바깥 12/12
+
+- **적용**: `git pull`(18f7fc1 · launch.js 9bad7a1) → **17:02:16 「Mybody 서버」 재시작**(launch.js · serve.js · server.js · funnel 17:02:16~18). 안 `/api/health` 200.
+- **로그 세 줄**(`%USERPROFILE%\mybody.log`):
+  1. 「Tailscale 로 엽니다 — 주소가 안 바뀝니다.」
+  2. funnel 줄 — 「Available on the internet: https://desktop-il9c3if.tail0a8f8f.ts.net/ · |-- proxy http://127.0.0.1:8080」
+  3. 「Tailscale 중계를 한 번 다시 잡습니다 (debug rebind · restun) — 재시작 뒤 바깥에서 안 열리던 일 때문입니다.」
+- **바깥**: 재시작 직후 17:03:08 check-host `/api/health` **200 (12/12)**, 중계 .153 · .217 둘 다 — 이번엔 손으로 rebind 할 필요 없었음.
+  인스타 UA `/get` → 200 · 「크롬으로 열기」 · `intent://` 있음 / 안드로이드 크롬 UA → 200 · ①②③ 그대로.
+- **3. 실제 끊김 시험**: 명령줄이 `funnel 8080` 인 `tailscale.exe` 하나만 17:03:42.270 에 끝냄(tailscaled · 트레이 앱은 안 건드림) →
+  로그 「터널이 끊겼습니다 (종료 코드 4294967295). 위 주소는 이제 안 됩니다.」 · 「5초 뒤 다시 붙여 봅니다 …」 →
+  새 funnel 17:03:47.394 = **5.1초 뒤** → 로그 「터널 다시 붙음 — https://desktop-il9c3if.tail0a8f8f.ts.net (5초 끊겼음)」 →
+  17:04:36 check-host **200 (12/12)**.
+- **4. 설정**: `config.json` 의 `tailscaleOrigin` 이 이 기기의 ts.net 주소(funnel 주소와 같음)로 적혀 있음 — 값은 여기 안 적음.
+- test-selfhost 안 돌림 · 실제 DB 안 건드림. (로그의 한글이 이중 인코딩으로 일부 깨져 보여서, 세 줄은 launch.js 원문과 맞춰 적었습니다.)
