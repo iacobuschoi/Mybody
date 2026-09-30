@@ -18,6 +18,7 @@ DEFAULTS: dict = {
     },
     "clap": {},                     # ClapConfig 값 덮어쓰기 (rise_db · min_centroid_hz · max_gap_s …)
     "listen": {"end_silence_s": 0.8, "min_utt_s": 0.4, "max_utt_s": 20.0,
+               "hold_silence_s": 2.5,       # 받아쓴 끝이 조사 · 접속사("…이랑", "그리고")면 이만큼까지 더 기다림. 0 = 끔
                "vad_level": -1,             # webrtcvad 0~3, -1 = 끔(말소리 대역 크기로만 — desk/vad.py)
                "energy_db": 6.0},           # 말소리 대역이 바닥 소음보다 이만큼 커야 말
     "stt": {"model": "mlx-community/whisper-large-v3-turbo", "language": "ko",

@@ -93,7 +93,7 @@ cd ~/lab/desk && .venv/bin/python -m desk calibrate   # 박수를 쳐 보고 ★
 | 박수 간격이 느린 편 | `[clap] max_gap_s = 1.0` |
 | 받아쓰기가 느림 | `[stt] model = "mlx-community/whisper-small-mlx"` |
 | Claude 답이 느림 | 상태판 위쪽 토글에서 Sonnet 5 · Haiku 4.5, 또는 말로 "빠른 모드" · "제일 빠른 모드"(되돌리기: "정확한 모드"). 다시 켤 필요 없음 |
-| 말이 끝나기 전에 잘림 | `[listen] end_silence_s = 1.2` |
+| 말이 끝나기 전에 잘림 | 조사 · 접속사로 끝난 뜸이면 `[listen] hold_silence_s = 3.0`, 아무 데서나 잘리면 `end_silence_s = 1.2` |
 | 금방 꺼짐 / 안 꺼짐 | `idle_minutes` |
 
 바꾼 뒤: `launchctl kickstart -k gui/$(id -u)/lab.deskd`. 로그: `tail -f ~/Library/Logs/deskd.log`.

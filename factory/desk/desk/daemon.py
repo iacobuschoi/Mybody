@@ -30,7 +30,8 @@ from .clap import ClapConfig, ClapDetector
 from .dashboard import Board, serve, watch_agents
 from .router import route
 from .stt import WhisperSTT
-from .vad import Segmenter
+from .endpoint import looks_unfinished
+from .vad import Cut, Segmenter
 
 log = logging.getLogger("deskd")
 
@@ -44,7 +45,10 @@ class Desk:
         self.clap = ClapDetector(ccfg)
         li = cfg["listen"]
         self.seg = Segmenter(sr=sr, level=li["vad_level"], end_silence_s=li["end_silence_s"],
-                             min_utt_s=li["min_utt_s"], max_utt_s=li["max_utt_s"], energy_db=li["energy_db"])
+                             min_utt_s=li["min_utt_s"], max_utt_s=li["max_utt_s"], energy_db=li["energy_db"],
+                             hold_silence_s=li.get("hold_silence_s", 0.0))
+        self._finals: set[int] = set()               # 확정 조각이 받아쓰기 줄에 들어간 구간(seq)
+        self._taken: dict[int, int] = {}             # 잠정 조각으로 이미 답한 구간 → 그 칸 수
         st = cfg["stt"]
         self.stt = WhisperSTT(st["model"], st["language"], st.get("prompt", ""))
         self.voice = mac.make_voice(cfg["tts"])
@@ -66,7 +70,7 @@ class Desk:
         self.mode = "sleep"                          # sleep · awake · muted
         self.last_activity = time.time()
         self.audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=400)
-        self.utt_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=8)
+        self.utt_q: queue.Queue[Cut] = queue.Queue(maxsize=8)
         self.brain_q: queue.Queue[tuple[str, int]] = queue.Queue(maxsize=8)   # (들은 말, 받은 때의 _turn)
         self._stop = threading.Event()
         self._dash_opened = False
@@ -377,17 +381,43 @@ class Desk:
     # ── 일꾼 스레드 ────────────────────────────────────────────────────────
     def _stt_worker(self) -> None:
         while not self._stop.is_set():
-            audio = self.utt_q.get()
-            try:
-                with self._stt_lock:
-                    text = self.stt.transcribe(audio)
-            except Exception as e:  # noqa: BLE001
-                log.exception("받아쓰기 실패")
-                self.board.log("error", f"받아쓰기: {e}")
-                continue
+            cut = self.utt_q.get()
+            if isinstance(cut, np.ndarray):
+                cut = Cut(cut, True, -1, 0)
+            text = self._hear_cut(cut)
             if text:
                 log.info("들음: %s", text)
                 self.handle(text)
+
+    def _hear_cut(self, cut: Cut) -> str:
+        """조각을 받아씀. 잠정 조각은 끝난 말로 보일 때만 글을 돌려주고 구간을 닫음(말 끝 기다리기, desk/endpoint.py)"""
+        audio = cut.audio
+        if cut.final:
+            self._finals.discard(cut.seq)
+            took = self._taken.pop(cut.seq, 0)
+            if took:                                   # 앞부분은 잠정 조각으로 이미 답함 — 뒤에 붙은 말만
+                audio = audio[took * self.seg.n:]
+                if len(audio) / self.sr - self.seg.hold_silence_s < self.seg.min_utt_s:
+                    return ""
+        elif cut.seq in self._finals:                  # 확정 조각이 벌써 줄에 있음 — 그걸로 받아씀
+            return ""
+        try:
+            with self._stt_lock:
+                text = self.stt.transcribe(audio)
+        except Exception as e:  # noqa: BLE001
+            log.exception("받아쓰기 실패")
+            self.board.log("error", f"받아쓰기: {e}")
+            return ""
+        if cut.final or not text:
+            return text
+        if looks_unfinished(text):
+            log.info("말이 이어질 듯 — 더 기다림: %s", text)
+            return ""
+        self.seg.commit(cut.seq, cut.frames)
+        if len(self._taken) > 32:
+            self._taken.clear()
+        self._taken[cut.seq] = cut.frames
+        return text
 
     def _brain_worker(self) -> None:
         while not self._stop.is_set():
@@ -469,11 +499,13 @@ class Desk:
                 self.seg.pause()                     # 스피커에서 나가는 제 목소리를 듣지 않게(멈춤 말은 위에서 따로)
                 return
             self.seg.resume()
-            for utt in self.seg.feed(x):
+            for cut in self.seg.feed_cuts(x):
+                if cut.final:
+                    self._finals.add(cut.seq)
                 try:
-                    self.utt_q.put_nowait(utt)
+                    self.utt_q.put_nowait(cut)
                 except queue.Full:
-                    pass
+                    self._finals.discard(cut.seq)
         if self.mode == "awake" and time.time() - self.last_activity > self.cfg["idle_minutes"] * 60 \
                 and not self.voice.busy() and not self.brain.busy() and not self.seg.in_speech:
             threading.Thread(target=self.sleep, args=("idle",), daemon=True).start()
