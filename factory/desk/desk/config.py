@@ -23,6 +23,7 @@ DEFAULTS: dict = {
     "stt": {"model": "mlx-community/whisper-large-v3-turbo", "language": "ko",
             "prompt": "앱 공장, 상황판, 브리핑, 클로드, 깃허브, 맥 미니, 아이폰, 안드로이드, 워크플로, 출시"},
     "idle_minutes": 15,             # 이만큼 아무 말 없으면 화면 끄고 박수 대기로
+    "lock_on_sleep": True,          # 화면을 끌 때(어느 길로든) 맥도 잠금 — 박수로 켜면 잠금 화면, 암호를 넣어야 들어옴
     "camera_off": ["~/.local/bin/hand-mouse off"],   # 화면을 끌 때(어느 길로든) 돌려 카메라를 끄는 명령들
     "tts": {"voice": "Yuna", "rate": 190, "device": "",   # device: 소리 낼 장치 이름(비우면 기본 출력)
             "engine": "say",                                # say · supertonic(신경망, desk/tts.py — 못 쓰면 say)

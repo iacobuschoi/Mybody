@@ -3,6 +3,7 @@
 
 owner = ""                        # 인사할 때 부를 이름
 idle_minutes = 15                 # 아무 말 없이 이만큼 지나면 화면 끄고 박수 대기 ([표] 아래에 두면 그 표 안의 값이 됨)
+lock_on_sleep = true              # 화면을 끌 때(어느 길로든) 맥도 잠금 — 박수로 켜면 잠금 화면이 뜨고 로그인 암호를 넣어야 들어옴
 camera_off = ["~/.local/bin/hand-mouse off"]   # 화면을 끌 때(deskctl sleep · "화면 꺼" · 조용히 지남 · 손으로 끔) 카메라 쓰는 것 끄기
 
 [audio]

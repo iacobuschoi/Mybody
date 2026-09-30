@@ -26,6 +26,17 @@ def display_off() -> None:
     subprocess.Popen(["pmset", "displaysleepnow"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def lock_screen() -> None:
+    """맥을 잠급니다 — 메뉴의 '화면 잠금'(⌃⌘Q)과 같은 호출. 다시 켜면 로그인 암호를 넣어야 들어옵니다.
+    시스템 설정('화면 끈 뒤 암호 요구')을 바꾸지 않고, 손쉬운 사용 권한도 필요 없습니다.
+    잠겨도 로그인 세션은 그대로라 deskd 는 마이크 · 스피커 · 카메라를 계속 씁니다."""
+    try:
+        import ctypes
+        ctypes.CDLL("/System/Library/PrivateFrameworks/login.framework/Versions/Current/login").SACLockScreenImmediate()
+    except Exception:
+        pass
+
+
 def cameras_off(cmds: list[str]) -> None:
     """화면을 끌 때 카메라 쓰는 것들을 끕니다(hand-mouse off 등). 뒤에서 돌아 잠들기를 막지 않습니다."""
     import os
