@@ -1226,3 +1226,17 @@ versionCode 347 · 아이폰 347 TestFlight 업로드 성공.
 **test-selfhost 는 돌리지 않음.** 실제 DB 안 건드림.
 
 보고: "48 끝" + 다시 켠 시각 · health · 꺼졌던 까닭 한 줄.
+
+## 49. ★급함 — 서버가 또 바깥에서 안 열림 (9/30 16:46 · 주인 "서버 상태 검사해 · 꺼져있으면 켜놔")
+
+16:46 KST 바깥 확인(「서버 살아 있나」): health · /api/version · /get · /inbox 모두 **000**. 노트북 세션은 연결돼 있음(노트북은 켜져 있음).
+
+1. 안에서 먼저: `http://127.0.0.1:8080/api/health` → 200 인지. `tailscale status` · `tailscale funnel status` · `%USERPROFILE%\mybody.log` 끝 40줄.
+2. 살리기:
+   - 안은 200 인데 바깥만 안 되면 → `tailscale debug rebind` · `tailscale debug restun` → 1분 뒤 check-host 로 바깥 확인. 그래도 안 되면 「Mybody 서버」 끝냈다 다시 실행.
+   - 안도 안 되면 → `git pull` 없이 그대로 「Mybody 서버」 실행(이미 돌면 끝냈다 다시). **지금 클라우드가 launch.js 를 고치는 중이라 pull 하지 말 것** — 고친 판은 따로 과제로 보냄.
+3. 바깥 확인: check-host `/api/health` 200 · 인스타 UA `/get` 에 「크롬으로 열기」.
+4. 까닭 한 줄: 절전 · 재부팅 · 와이파이 바뀜 · 테일스케일 재연결 · 서버 죽음(로그의 마지막 오류) 중 무엇인지. 전원 상태(충전기 · 배터리 %)도.
+**test-selfhost 는 돌리지 않음.** 실제 DB 안 건드림.
+
+보고: "49 끝" + 다시 켠 시각 · 안/바깥 health · 까닭 한 줄 · 전원.
