@@ -1240,3 +1240,18 @@ versionCode 347 · 아이폰 347 TestFlight 업로드 성공.
 **test-selfhost 는 돌리지 않음.** 실제 DB 안 건드림.
 
 보고: "49 끝" + 다시 켠 시각 · 안/바깥 health · 까닭 한 줄 · 전원.
+
+## 50. 서버 켜는 스크립트 업데이트 — 터널이 스스로 다시 붙게 (9/30 · 48 · 49 재발 막기)
+
+오늘 두 번(재부팅 뒤 테일스케일 늦음 · 와이파이 망 바뀜) 바깥이 끊긴 것을 launch.js 가 스스로 복구하게 고쳤습니다(커밋 9bad7a1).
+테일스케일이 준비될 때까지 기다렸다 funnel 을 붙이고, funnel 이 죽으면 다시 붙이며, 붙을 때마다 `tailscale debug rebind` · `restun` 을 스스로 합니다.
+이 기기는 설정의 origin 이 ts.net 이라 **cloudflared 로 절대 안 넘어갑니다.**
+
+1. `git pull` → 「Mybody 서버」 끝냈다 다시 실행 → `%USERPROFILE%\mybody.log` 끝에서 「Tailscale 로 엽니다」 · funnel 줄 · rebind/restun 한 줄 확인.
+   (윈도우는 test-launch-wait 가 건너뛰므로 여기서 실제로 봅니다.) **test-selfhost 는 돌리지 않음.**
+2. 바깥 확인: check-host `/api/health` 200 · 인스타 UA `/get` 에 「크롬으로 열기」.
+3. 다시 붙기 실제 확인(끊김 10초 안팎): 작업 관리자에서 **`tailscale.exe` 중 명령줄이 `funnel 8080` 인 것 하나만** 끝내기 → 로그에 「터널이 끊겼습니다 … 다시 붙습니다」 →
+   5~15초 뒤 「터널 다시 붙음」 → check-host 200. (tailscaled 서비스나 트레이 앱은 건드리지 말 것.)
+4. `%USERPROFILE%\.mybody\config.json` 에 `tailscaleOrigin` 이 ts.net 주소로 적혔는지(값만 확인, 저장소에 적지 않음).
+
+보고: "50 끝" + 재시작 시각 · 로그 세 줄 · 3번의 끊김 초 · 바깥 health.
