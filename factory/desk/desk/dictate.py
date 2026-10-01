@@ -14,19 +14,20 @@
     빌리는 동안 "잠깐 쓰는 값"(org.nspasteboard.TransientType · ConcealedType) 표시를 달아 클립보드 기록 앱이 남기지 않게.
 ⌘V 를 보내려면 deskd 에 손쉬운 사용 권한(시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용)이 있어야 합니다.
 
-지우기: 주먹을 쥔 채 "지워"(· "취소" · "방금 거 지워")만 말하면 방금 넣은 덩어리를, "다 지워" 면 이어 넣은 덩어리를 모두
-지웁니다 — 넣은 글자 수만큼 백스페이스(⌘Z 아님). 말로 하는 이유: 같은 주먹 상태에서 말만 바꾸면 되고, 손 동작(손등 뒤집기 등)은
-hand-mouse 의 멈춤 동작(stop-by flip)과 겹치고 말하는 중 손이 흔들려 잘못 잡히기 쉽습니다. 백스페이스인 이유: ⌘Z 는 앱이
-붙여넣기를 직접 친 글과 한 단계로 묶기도 해서 얼마나 되돌릴지 모르지만, 글자 수는 우리가 넣은 만큼 정확합니다
-(붙여넣은 한글은 완성형이라 한 글자 = 백스페이스 한 번). 넣은 뒤 erase_window_s(2분)가 지났거나 앞 앱이 바뀌었으면
-커서가 옮겨졌을 수 있어 지우지 않고 "툭" 소리만 냅니다.
+지우기 다이얼: 다른 손(왼손)으로 엄지 · 검지를 집은 채 반시계로 돌리면 넣은 글을 **한 단어씩** 지우고, 시계로 돌리면
+지운 걸 되살립니다(hand-mouse 가 25도마다 한 칸씩 POST /api/dial 로 보냄).
+  · 단위가 단어(띄어쓰기 덩어리)인 이유: 받아쓰기는 보통 단어째 틀리고, 손목을 편하게 돌리는 범위(±90도)에 서너 칸이라
+    글자 단위면 한 문장을 지우는 데 손을 여러 번 고쳐 쥐어야 합니다. 단어 앞 띄어쓰기도 같이 지워 깔끔하게 남습니다.
+  · 회전 → 자리(속도 아님): 돌린 만큼 정확히 지우고 되돌리면 그만큼 돌아와, 지나쳐도 바로 고칩니다.
+  · 지우기는 백스페이스(우리가 넣은 글자 수만큼 정확, ⌘Z 는 앱이 직접 친 글과 묶기도 함), 되살리기는 그 부분을 다시 붙여넣기.
+  · 넣은 지 erase_window_s(2분)가 지났거나 앞 앱이 바뀌었으면 커서가 옮겨졌을 수 있어 아무것도 안 합니다.
+  · 지운 뒤 새로 받아쓰면 지운 부분은 버려지고(되살리기 끝) 남은 글 뒤에 이어 붙습니다.
 """
 from __future__ import annotations
 
 import json
 import logging
 import os
-import re
 import subprocess
 import threading
 import time
@@ -37,15 +38,7 @@ CLAUDE_APP = "com.anthropic.claudefordesktop"
 TRANSIENT = ("org.nspasteboard.TransientType", "org.nspasteboard.ConcealedType")
 V_KEY = 9                                      # ⌘V 의 v (ANSI 자판 자리 — 입력 소스와 상관없음)
 DELETE_KEY = 51                                # 백스페이스
-ERASE_ONE = {"지워", "지워줘", "지워봐", "지우기", "지우자", "취소", "취소해", "취소해줘",
-             "방금거지워", "방금거지워줘", "그거지워", "그거지워줘", "방금거취소", "빼줘"}
-ERASE_ALL = {"다지워", "다지워줘", "전부지워", "전부지워줘", "모두지워", "모두지워줘", "싹지워", "싹다지워"}
 
-
-def erase_kind(text: str) -> str:
-    """지우기 말이면 "one" · "all", 아니면 "" — 그 말만 했을 때만(받아쓰기 문장 속 "지워"는 글로 넣음)"""
-    n = re.sub(r"[\s\.,!?~·…'\"“”‘’\-]+", "", text or "")
-    return "all" if n in ERASE_ALL else "one" if n in ERASE_ONE else ""
 
 
 # ── 주먹 상태 (hand-mouse 가 적는 파일) ─────────────────────────────────────
@@ -190,9 +183,11 @@ class Dictation:
         self.join_s = float(cfg.get("join_s", 60.0))
         self.erase_window_s = float(cfg.get("erase_window_s", 120.0))
         self._front, self._put, self._fist, self._back = front, put, fist, back
-        self._last_at = 0.0                    # 마지막으로 넣은 때 — 이어 말하면 앞에 띄어쓰기
-        self._chunks: list[int] = []           # 넣은 덩어리마다 글자 수(띄어쓰기 포함) — 지우기용
-        self._chunks_app = ""                  # 그 덩어리를 넣은 앱
+        self._last_at = 0.0                    # 마지막으로 넣거나 지운 때 — 이어 말하면 앞에 띄어쓰기
+        self.text = ""                         # 이번에 이어 넣은 글 전부(지운 부분 포함 — 되살리기용)
+        self.kept = 0                          # 그중 지금 입력창에 남아 있는 글자 수
+        self._app = ""                         # 그 글을 넣은 앱
+        self._lock = threading.Lock()          # 다이얼(HTTP 스레드)과 받아쓰기가 겹치지 않게
         self.warned = False                    # 권한 없음 알림은 한 번만
 
     def wants(self, t0: float, t1: float) -> bool:
@@ -207,29 +202,42 @@ class Dictation:
         text = text.strip()
         if not text:
             return False
-        now = time.time()
-        sep = " " if now - self._last_at < self.join_s else ""
-        ok = self._put(sep + text)
-        if ok:
+        with self._lock:
+            now = time.time()
             app = self._front()
-            if not sep or app != self._chunks_app:
-                self._chunks = []
-            self._chunks.append(len(sep + text))
-            self._chunks_app = app
-            self._last_at = now
-        return ok
+            fresh = now - self._last_at >= self.join_s or app != self._app
+            if fresh:
+                self.text, self.kept = "", 0
+            sep = " " if self.kept else ""
+            ok = self._put(sep + text)
+            if ok:
+                self.text = self.text[:self.kept] + sep + text   # 지운 부분은 버림(되살리기 끝)
+                self.kept = len(self.text)
+                self._app, self._last_at = app, now
+            return ok
 
-    def erase(self, everything: bool = False) -> int:
-        """방금 넣은 덩어리(everything 이면 이어 넣은 것 모두)를 백스페이스로 지움. 지운 글자 수, 못 지우면 0"""
-        if not self._chunks or time.time() - self._last_at > self.erase_window_s \
-                or self._front() != self._chunks_app:
-            self._chunks = []
-            return 0
-        take = self._chunks if everything else self._chunks[-1:]
-        n = sum(take)
-        if not self._back(n):
-            return 0
-        self._chunks = [] if everything else self._chunks[:-1]
-        if not self._chunks:
-            self._last_at = 0.0                # 다 지웠으면 다음 말은 띄어쓰기 없이
-        return n
+    def stops(self) -> list[int]:
+        """다이얼 칸 자리: 0 과 단어 끝(뒤가 띄어쓰기거나 글 끝)"""
+        t = self.text
+        return [0] + [i for i in range(1, len(t) + 1) if t[i - 1] != " " and (i == len(t) or t[i] == " ")]
+
+    def dial(self, steps: int) -> str:
+        """다이얼 steps 칸(- 지우기 · + 되살리기). 한 일을 짧게 돌려줌"""
+        with self._lock:
+            if not steps or not self.text:
+                return "없음"
+            if time.time() - self._last_at > self.erase_window_s or self._front() != self._app:
+                return "안 함(시간이 지났거나 앞 앱이 바뀜)"
+            stops = self.stops()
+            at = max(i for i, p in enumerate(stops) if p <= self.kept)
+            to = stops[min(max(at + steps, 0), len(stops) - 1)]
+            if to == self.kept:
+                return "끝"
+            if to < self.kept:
+                ok, did = self._back(self.kept - to), f"지움 {self.kept - to}글자"
+            else:
+                ok, did = self._put(self.text[self.kept:to]), f"되살림 {to - self.kept}글자"
+            if not ok:
+                return "못 함(손쉬운 사용 권한)"
+            self.kept, self._last_at = to, time.time()
+            return did

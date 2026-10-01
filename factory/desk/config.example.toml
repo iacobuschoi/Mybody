@@ -83,4 +83,4 @@ enabled = true                    # deskd 에 손쉬운 사용 권한이 있어�
 # fist_state = "~/lab/hand-mouse/.run/fist.json"   # hand-mouse 가 적는 주먹 상태
 # apps = ["com.anthropic.claudefordesktop"]
 # fist_ratio = 0.5                # 말한 시간의 이만큼 이상 주먹이면 받아쓰기
-# erase_window_s = 120.0          # 주먹 쥐고 "지워"(방금 넣은 것) · "다 지워"(이어 넣은 것 모두) — 넣은 뒤 이 시간 안에만
+# erase_window_s = 120.0          # 지우기 다이얼(왼손 엄지·검지 집고 반시계 = 단어 지우기, 시계 = 되살리기) — 넣은 뒤 이 시간 안에만

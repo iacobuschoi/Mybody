@@ -108,43 +108,54 @@ class DictationRule(unittest.TestCase):
         self.assertFalse(dc.wants(now - 2, now))
 
 
-class Erase(unittest.TestCase):
-    def test_erase_words_only_alone(self):
-        self.assertEqual(dictate.erase_kind("지워."), "one")
-        self.assertEqual(dictate.erase_kind("방금 거 지워 줘"), "one")
-        self.assertEqual(dictate.erase_kind("취소"), "one")
-        self.assertEqual(dictate.erase_kind("다 지워!"), "all")
-        self.assertEqual(dictate.erase_kind("이 파일 지워 줘"), "")      # 문장 속 "지워"는 글로 넣음
-        self.assertEqual(dictate.erase_kind(""), "")
+class Dial(unittest.TestCase):
+    """왼손 지우기 다이얼: - 칸 = 단어 지우기(백스페이스), + 칸 = 되살리기(붙여넣기)"""
 
-    def test_erase_last_chunk_counts_hangul_and_space(self):
-        dc, put, _ = rig()
-        dc.put("테스트 추가해")
-        dc.put("로그도")
-        self.assertEqual(dc.erase(), 4)                     # " 로그도"
-        self.assertEqual(dc.erase(), 7)                     # "테스트 추가해"
-        self.assertEqual(dc.erase(), 0)                     # 더 지울 것 없음
-        self.assertEqual(put[-2:], ["<BS4>", "<BS7>"])
-        dc.put("새로")
-        self.assertEqual(put[-1], "새로")                   # 다 지운 뒤엔 띄어쓰기 없이
+    def setUp(self):
+        self.dc, self.out, _ = rig()
+        self.dc.put("테스트 추가해")
+        self.dc.put("로그도 봐")
+        self.out.clear()                                  # 창: "테스트 추가해 로그도 봐"
 
-    def test_erase_all(self):
-        dc, put, _ = rig()
-        dc.put("하나")
-        dc.put("둘")
-        self.assertEqual(dc.erase(everything=True), 4)   # "하나" + " 둘"
-        self.assertEqual(put[-1], "<BS4>")
+    def test_erase_word_by_word_with_leading_space(self):
+        self.assertEqual(self.dc.dial(-1), "지움 2글자")  # " 봐"
+        self.assertEqual(self.dc.dial(-2), "지움 8글자")  # " 로그도" + " 추가해"
+        self.assertEqual(self.dc.dial(-5), "지움 3글자")  # "테스트" — 처음에서 멈춤
+        self.assertEqual(self.dc.dial(-1), "끝")
+        self.assertEqual(self.out, ["<BS2>", "<BS8>", "<BS3>"])
 
-    def test_no_erase_after_window_or_app_change(self):
-        dc, put, _ = rig()
-        dc.put("하나")
-        dc._last_at -= 1000
-        self.assertEqual(dc.erase(), 0)
-        dc2, put2, _ = rig()
-        dc2.put("하나")
+    def test_restore_brings_back_exact_text(self):
+        self.dc.dial(-3)
+        self.assertEqual(self.dc.dial(+2), "되살림 8글자")
+        self.assertEqual(self.out[-1], " 추가해 로그도")
+        self.assertEqual(self.dc.dial(+9), "되살림 2글자")
+        self.assertEqual(self.dc.dial(+1), "끝")
+
+    def test_new_dictation_after_erase_drops_erased_tail(self):
+        self.dc.dial(-2)                                  # 남은 것: "테스트 추가해"
+        self.dc.put("커밋해")
+        self.assertEqual(self.out[-1], " 커밋해")
+        self.assertEqual(self.dc.text, "테스트 추가해 커밋해")
+        self.assertEqual(self.dc.dial(+1), "끝")          # 버린 "로그도 봐"는 안 돌아옴
+
+    def test_erase_everything_then_new_text_has_no_leading_space(self):
+        self.dc.dial(-9)
+        self.dc.put("새로")
+        self.assertEqual(self.out[-1], "새로")
+
+    def test_nothing_after_window_or_app_change(self):
+        self.dc._last_at -= 1000
+        self.assertIn("안 함", self.dc.dial(-1))
+        dc2, out2, _ = rig()
+        dc2.put("하나 둘")
         dc2._front = lambda: "com.apple.Safari"
-        self.assertEqual(dc2.erase(), 0)
-        self.assertFalse(any(p.startswith("<BS") for p in put + put2))
+        self.assertIn("안 함", dc2.dial(-1))
+        self.assertFalse(any(p.startswith("<BS") for p in self.out + out2))
+
+    def test_nothing_typed_yet(self):
+        dc, out, _ = rig()
+        self.assertEqual(dc.dial(-1), "없음")
+        self.assertEqual(out, [])
 
 
 class DaemonRouting(unittest.TestCase):
@@ -186,17 +197,18 @@ class DaemonRouting(unittest.TestCase):
         self.assertEqual(put, [])
         self.assertFalse(self.d.brain_q.empty())
 
-    def test_fist_erase_word_erases_not_typed(self):
+    def test_fist_erase_word_is_typed_as_text(self):
+        dc, put, _ = rig()
+        self.route(dc, "지워")                             # 말로 지우기는 뺐음 — 그냥 글로 들어감
+        self.assertEqual(put, ["지워"])
+
+    def test_dial_api(self):
         dc, put, _ = rig()
         self.route(dc, "테스트 추가해")
-        self.route(dc, "지워")
-        self.assertEqual(put, ["테스트 추가해", "<BS7>"])
-        self.assertTrue(self.d.brain_q.empty())
-
-    def test_cancel_without_fist_goes_to_assistant_router(self):
-        dc, put, _ = rig(fist=False)
-        self.route(dc, "취소")
-        self.assertEqual(put, [])
+        self.assertEqual(self.d.dial("-1"), "지움 4글자")
+        self.assertEqual(self.d.dial("+1"), "되살림 4글자")
+        self.assertEqual(self.d.dial("x"), "칸 수가 아님")
+        self.assertEqual(put[-2:], ["<BS4>", " 추가해"])
 
     def test_muted_does_not_dictate(self):
         dc, put, _ = rig()

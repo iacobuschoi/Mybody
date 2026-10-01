@@ -27,7 +27,7 @@ from .face import Gate
 from .bargein import Listener, has_stop_word, is_stop_utterance, only_stop_words
 from .brain import Brain
 from .clap import ClapConfig, ClapDetector
-from .dictate import Dictation, can_post_keys, erase_kind
+from .dictate import Dictation, can_post_keys
 from .dashboard import Board, serve, watch_agents
 from .router import route
 from .stt import WhisperSTT
@@ -392,17 +392,24 @@ class Desk:
                 if not self._dictate(cut, text):
                     self.handle(text)
 
+    def dial(self, body: str = "") -> str:
+        """hand-mouse 지우기 다이얼(왼손 집고 돌리기) — 칸 수만큼 받아쓴 글을 단어째 지우거나(-) 되살림(+)"""
+        try:
+            steps = int(body.strip() or 0)
+        except ValueError:
+            return "칸 수가 아님"
+        did = self.dictation.dial(steps)
+        log.info("지우기 다이얼 %+d칸: %s", steps, did)
+        if "글자" in did:
+            self.last_activity = time.time()
+            self.board.log("dictate", f"(다이얼 {steps:+d}) {did}")
+        return did
+
     def _dictate(self, cut: Cut, text: str) -> bool:
         """주먹을 쥔 채 한 말이고 Claude 앱이 맨 앞이면 그 앱 입력창에 붙여 넣음(엔터 없음). 넣었으면 True — 비서로 안 감"""
         if self.mode != "awake" or not self.dictation.wants(cut.t0, cut.t1):
             return False
         self.last_activity = time.time()
-        if kind := erase_kind(text):
-            n = self.dictation.erase(everything=(kind == "all"))
-            log.info("받아쓰기 지움 %d글자 (%s)", n, text)
-            self.board.log("dictate", f"(지움 {n}글자) {text}" if n else f"(지울 것 없음) {text}")
-            mac.sound("Bottle" if n else "Funk")
-            return True
         if self.dictation.put(text):
             log.info("받아쓰기 넣음 → Claude 앱: %s", text)
             self.board.log("dictate", text)
@@ -548,7 +555,7 @@ class Desk:
                            "say": self.remote_say, "show": self.show,
                            "enroll": self.enroll, "face": self.face_test,
                            "tts": self.tts_view, "tts_test": self.tts_test, "tts_save": self.tts_save,
-                           "model": self.model_set},
+                           "model": self.model_set, "dial": self.dial},
               port=self.cfg["dashboard"]["port"])
         watch_agents(self.board)
         threading.Thread(target=self._stt_worker, daemon=True).start()
