@@ -25,6 +25,7 @@ DEFAULTS: dict = {
             "prompt": "앱 공장, 상황판, 브리핑, 클로드, 깃허브, 맥 미니, 아이폰, 안드로이드, 워크플로, 출시"},
     "idle_minutes": 15,             # 이만큼 아무 말 없으면 화면 끄고 박수 대기로
     "camera_off": ["~/.local/bin/hand-mouse off"],   # 화면을 끌 때(어느 길로든) 돌려 카메라를 끄는 명령들
+    "camera_on": ["~/.local/bin/hand-mouse on --no-sweep"],   # 화면이 켜질 때(어느 길로든) 돌려 카메라를 켜는 명령들 — 끄기의 짝
     "tts": {"voice": "Yuna", "rate": 190, "device": "",   # device: 소리 낼 장치 이름(비우면 기본 출력)
             "engine": "say",                                # say · supertonic(신경망, desk/tts.py — 못 쓰면 say)
             "style": "F1", "model": "supertonic-3", "speed": 1.05, "steps": 5,

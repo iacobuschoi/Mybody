@@ -97,6 +97,7 @@ class Desk:
         self.clap.reset()
         self.seg.reset()
         mac.display_on()
+        self._cameras_on(why)
         mac.sound("Glass")
         if not self._dash_opened:
             mac.open_dashboard(f"http://127.0.0.1:{self.cfg['dashboard']['port']}", self.cfg["dashboard"].get("open_cmd", ""))
@@ -194,6 +195,13 @@ class Desk:
         self.board.log("sleep", why)
         self._show()
         return "ok"
+
+    def _cameras_on(self, why: str) -> None:
+        """화면이 켜질 때(어느 길로든) 카메라 쓰는 것들을 켬 — 끌 때 cameras_off 의 짝. hand-mouse on 은 이미 켜져 있으면 그대로"""
+        def report(cmd: str, out: str) -> None:
+            log.info("카메라 켬(%s): %s → %s", why, cmd, out.splitlines()[0] if out else "(출력 없음)")
+            self.board.log("camera", f"{cmd}: {out.splitlines()[0] if out else '출력 없음'}")
+        mac.cameras_on(self.cfg.get("camera_on", []), report)
 
     def mute(self, _: str = "") -> str:
         self.mode = "muted"
@@ -529,6 +537,7 @@ class Desk:
                  self.cfg["wake"]["night_claps"])
         self._show()
         last_show = last_display = 0.0
+        clock = (time.time(), time.monotonic())
         while not self._stop.is_set():
             opened = self._mic_heard = time.time()
             # 권한을 나중에 허용하면 이미 열린 스트림엔 계속 0 이 옵니다 — 막혀 있는 동안은 20초마다 다시 엽니다
@@ -539,6 +548,7 @@ class Desk:
                         x = self.audio_q.get(timeout=1)
                     except queue.Empty:
                         x = None
+                    clock = self._check_system_wake(*clock)
                     self._mic_check(x)
                     if self.mic_blocked and time.time() - opened > 20:
                         break
@@ -552,9 +562,24 @@ class Desk:
                         self._watch_display()
                         last_display = time.time()
 
+    def _check_system_wake(self, wall: float, mono: float, now_wall: float | None = None,
+                           now_mono: float | None = None) -> tuple[float, float]:
+        """맥이 잠들었다 깨면 벽시계는 가는데 monotonic 은 멈춰 있어 둘의 차이가 벌어집니다 — 그걸로 '잠자기에서 깨어남'을
+        알아챕니다(맥은 보통 안 자지만, 메뉴에서 재우면 잡니다). 깨어 보니 화면이 켜져 있고 듣는 중이면 카메라를 다시 켬
+        (자는 중이면 _watch_display 가 화면 켜짐을 보고 함). 돌려주는 값을 다음 호출에 넣습니다."""
+        now_wall = time.time() if now_wall is None else now_wall
+        now_mono = time.monotonic() if now_mono is None else now_mono
+        gap = (now_wall - wall) - (now_mono - mono)
+        if gap > 5:
+            log.info("잠자기에서 깨어남 (%.0f초 잤음)", gap)
+            self.board.log("wake", f"잠자기에서 깨어남 ({gap:.0f}초)")
+            if self.mode != "sleep" and mac.displays_asleep() is not True:
+                self._cameras_on("잠자기에서 깨어남")
+        return now_wall, now_mono
+
     def _watch_display(self) -> None:
         """박수 말고 다른 걸로 화면이 켜지거나 꺼졌을 때 상태를 맞춥니다.
-        키보드 · 마우스로 화면을 켜면 → 조용히 '듣는 중'(인사 · 브리핑 없이 딩만)
+        키보드 · 마우스 · 잠자기에서 깸으로 화면이 켜지면 → 조용히 '듣는 중'(인사 · 브리핑 없이 딩만) · 카메라 켬
         30분 안전망이나 손으로 화면이 꺼지면 → '자는 중'"""
         if time.time() - self._changed_at < 8:
             return
@@ -570,6 +595,7 @@ class Desk:
             self.seg.reset()
             mac.sound("Tink")
             self.board.log("wake", "키보드 · 마우스")
+            self._cameras_on("키보드 · 마우스")
             self._show()
         elif self.mode in ("awake", "muted") and asleep and not self.voice.busy():
             log.info("화면이 꺼짐 → 자는 중")

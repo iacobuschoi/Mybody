@@ -55,7 +55,7 @@ class FakeBrain:
 
 def make():
     CALLS.clear()
-    for name in ["display_on", "display_off", "open_dashboard", "keep_system_awake", "cameras_off"]:
+    for name in ["display_on", "display_off", "open_dashboard", "keep_system_awake", "cameras_off", "cameras_on"]:
         setattr(mac, name, (lambda n: (lambda *a, **k: CALLS.append(n)))(name))
     mac.sound = lambda *a, **k: None
     mac.displays_asleep = lambda: DISPLAY["asleep"]
@@ -87,6 +87,8 @@ class DaemonFlow(unittest.TestCase):
         feed(d, np.concatenate([silence(1.0), clap(), silence(0.3), clap(), silence(1.5)]))
         self.assertEqual(d.mode, "awake")
         self.assertIn("display_on", CALLS)
+        self.assertIn("cameras_on", CALLS)              # 화면을 켜면 hand-mouse 도 (끌 때 끄는 것의 짝)
+        self.assertLess(CALLS.index("display_on"), CALLS.index("cameras_on"))
         time.sleep(0.2)                                             # 브리핑 스레드
         self.assertTrue(any("시스템을 시작합니다" in s for s in d.voice.said))
         self.assertTrue(any("실험실은 정상" in s for s in d.voice.said))
@@ -147,11 +149,35 @@ class DaemonFlow(unittest.TestCase):
         d._watch_display()
         self.assertEqual(d.mode, "awake")
         self.assertFalse(any("시스템을 시작합니다" in s for s in d.voice.said))   # 조용히
+        self.assertIn("cameras_on", CALLS)              # 키보드로 켜도 hand-mouse 는 켬
         DISPLAY["asleep"] = True                  # 30분 안전망으로 화면이 꺼짐
         d._changed_at = 0
         d._watch_display()
         self.assertEqual(d.mode, "sleep")
         self.assertIn("cameras_off", CALLS)             # 손 · 안전망으로 꺼져도 카메라는 끔
+        DISPLAY["asleep"] = None
+
+    def test_wake_when_already_awake_does_not_turn_cameras_on_again(self):
+        d = make()
+        d.wake("test")
+        self.assertEqual(CALLS.count("cameras_on"), 1)
+        self.assertEqual(d.wake("deskctl"), "이미 깨어 있음")
+        self.assertEqual(CALLS.count("cameras_on"), 1)   # 이미 깨어 있으면 또 켜지 않음
+
+    def test_system_wake_turns_cameras_on_when_display_is_on(self):
+        # 맥이 잠들면 monotonic 은 멈추고 벽시계만 감 — 그 차이로 '잠자기에서 깨어남'을 봄
+        d = make()
+        d.wake("test")
+        CALLS.clear()
+        DISPLAY["asleep"] = False
+        clock = d._check_system_wake(1000.0, 10.0, now_wall=1002.0, now_mono=12.0)   # 그냥 2초 지남
+        self.assertEqual(clock, (1002.0, 12.0))
+        self.assertNotIn("cameras_on", CALLS)
+        d._check_system_wake(1002.0, 12.0, now_wall=1700.0, now_mono=13.0)           # 697초 잤다 깸
+        self.assertEqual(CALLS.count("cameras_on"), 1)
+        d.mode = "sleep"                                                              # 자는 중이면 _watch_display 몫
+        d._check_system_wake(1700.0, 13.0, now_wall=2400.0, now_mono=14.0)
+        self.assertEqual(CALLS.count("cameras_on"), 1)
         DISPLAY["asleep"] = None
 
     def test_idle_sleep_turns_cameras_off(self):
@@ -187,6 +213,29 @@ class CamerasOff(unittest.TestCase):
         m.cameras_off(["~/.local/bin/hand-mouse off", "echo 'a b'"])
         self.assertTrue(done.wait(2))
         self.assertEqual(ran, [[os.path.expanduser("~/.local/bin/hand-mouse"), "off"], ["echo", "a b"]])
+        importlib.reload(mac)
+
+    def test_on_reports_output_and_runs_after_off(self):
+        # 끄자마자 켜도(화면 껐다 바로 박수) 끄기가 끝난 뒤에 켜기가 돌아 켠 쪽이 남음
+        import importlib, os, threading, time as t
+        m = importlib.reload(mac)
+        ran, done = [], threading.Event()
+
+        def fake_run(argv, timeout=5):
+            if argv[1] == "off":
+                t.sleep(0.3)
+            ran.append(argv[1:])
+            if len(ran) == 2:
+                done.set()
+            return "켜짐 (pid 1)" if argv[1] == "on" else "꺼짐"
+        m._run = fake_run
+        reports = []
+        m.cameras_off(["~/.local/bin/hand-mouse off"])
+        t.sleep(0.05)
+        m.cameras_on(["~/.local/bin/hand-mouse on --no-sweep"], lambda cmd, out: reports.append((cmd, out)))
+        self.assertTrue(done.wait(3))
+        self.assertEqual(ran, [["off"], ["on", "--no-sweep"]])
+        self.assertEqual(reports, [("hand-mouse on --no-sweep", "켜짐 (pid 1)")])
         importlib.reload(mac)
 
 if __name__ == "__main__":

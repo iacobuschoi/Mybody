@@ -26,17 +26,33 @@ def display_off() -> None:
     subprocess.Popen(["pmset", "displaysleepnow"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def cameras_off(cmds: list[str]) -> None:
-    """화면을 끌 때 카메라 쓰는 것들을 끕니다(hand-mouse off 등). 뒤에서 돌아 잠들기를 막지 않습니다."""
+_camera_lock = threading.Lock()       # 카메라 끄기 · 켜기가 겹치면 순서대로(끄자마자 켜도 켠 쪽이 남게)
+
+
+def _cameras(cmds: list[str], name: str, report=None) -> None:
     import os
     import shlex
 
     def run():
-        for c in cmds:
-            argv = [os.path.expanduser(a) for a in shlex.split(c)]
-            _run(argv, timeout=10)
+        with _camera_lock:
+            for c in cmds:
+                argv = [os.path.expanduser(a) for a in shlex.split(c)]
+                out = _run(argv, timeout=20)
+                if report:
+                    report(argv[0].rsplit("/", 1)[-1] + " " + " ".join(argv[1:]), out)
     if cmds:
-        threading.Thread(target=run, daemon=True, name="cameras_off").start()
+        threading.Thread(target=run, daemon=True, name=name).start()
+
+
+def cameras_off(cmds: list[str]) -> None:
+    """화면을 끌 때 카메라 쓰는 것들을 끕니다(hand-mouse off 등). 뒤에서 돌아 잠들기를 막지 않습니다."""
+    _cameras(cmds, "cameras_off")
+
+
+def cameras_on(cmds: list[str], report=None) -> None:
+    """화면이 켜질 때 카메라 쓰는 것들을 켭니다(hand-mouse on 등) — 끄기의 짝. 뒤에서 돌아 인사 · 브리핑을 늦추지 않습니다.
+    명령 자체가 '이미 켜져 있으면 다시 안 켬'이어야 합니다(hand-mouse on 은 pid 로 봄). report(명령, 출력) 로 결과를 알립니다."""
+    _cameras(cmds, "cameras_on", report)
 
 
 def displays_asleep() -> bool | None:

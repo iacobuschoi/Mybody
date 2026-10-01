@@ -4,6 +4,7 @@
 owner = ""                        # 인사할 때 부를 이름
 idle_minutes = 15                 # 아무 말 없이 이만큼 지나면 화면 끄고 박수 대기 ([표] 아래에 두면 그 표 안의 값이 됨)
 camera_off = ["~/.local/bin/hand-mouse off"]   # 화면을 끌 때(deskctl sleep · "화면 꺼" · 조용히 지남 · 손으로 끔) 카메라 쓰는 것 끄기
+camera_on = ["~/.local/bin/hand-mouse on --no-sweep"]   # 화면이 켜질 때(박수 · deskctl wake · 키보드 · 잠자기에서 깸) 다시 켜기. 이미 켜져 있으면 그대로. 범위 잡기 안내는 인사와 겹쳐 건너뜀
 
 [audio]
 device = ""                       # 입력 장치 이름 일부("Brio"). 비우면 시스템 기본 입력 — install.sh 가 Brio 를 찾으면 채움

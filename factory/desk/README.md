@@ -32,6 +32,9 @@ OpenCV YuNet + SFace 로 **이 맥 안에서만** 봅니다. 사진은 남기지
 - 카메라 · 인식이 고장이면 `on_error = "stay"`(기본: 안 켬, 키보드 · `deskctl wake` 로는 켜짐) 또는 `"wake"`
 - 키보드 · 마우스 · `deskctl wake` 로 켜는 건 얼굴을 보지 않습니다(손이 닿는 사람 = 방에 있는 사람)
 - 웹캠 손동작 마우스(hand-mouse)와 카메라를 같이 씁니다. 그게 돌 때는 저쪽 화면 비율이 안 바뀌게 640×480 으로 엽니다
+- hand-mouse 는 화면과 같이 켜지고 꺼집니다: 화면을 끌 때(어느 길로든) `hand-mouse off`, 화면이 켜질 때(박수 · `deskctl wake` ·
+  키보드 · 잠자기에서 깸) `hand-mouse on --no-sweep`(이미 켜져 있으면 그대로, 범위 잡기 안내는 인사와 겹쳐 건너뜀).
+  config `camera_off` · `camera_on` 으로 바꾸거나 `[]` 로 끔
 
 ## 말로 하는 것
 
