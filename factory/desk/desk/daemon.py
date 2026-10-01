@@ -27,7 +27,7 @@ from .face import Gate
 from .bargein import Listener, has_stop_word, is_stop_utterance, only_stop_words
 from .brain import Brain
 from .clap import ClapConfig, ClapDetector
-from .dictate import Dictation, can_post_keys
+from .dictate import Dictation, can_post_keys, erase_kind
 from .dashboard import Board, serve, watch_agents
 from .router import route
 from .stt import WhisperSTT
@@ -397,6 +397,12 @@ class Desk:
         if self.mode != "awake" or not self.dictation.wants(cut.t0, cut.t1):
             return False
         self.last_activity = time.time()
+        if kind := erase_kind(text):
+            n = self.dictation.erase(everything=(kind == "all"))
+            log.info("받아쓰기 지움 %d글자 (%s)", n, text)
+            self.board.log("dictate", f"(지움 {n}글자) {text}" if n else f"(지울 것 없음) {text}")
+            mac.sound("Bottle" if n else "Funk")
+            return True
         if self.dictation.put(text):
             log.info("받아쓰기 넣음 → Claude 앱: %s", text)
             self.board.log("dictate", text)

@@ -81,7 +81,8 @@ def rig(front=CLAUDE_APP, fist=True, ok=True):
     now = time.time()
     put = []
     state = {"at": now, "fist": fist, "spans": [[now - 5, None]] if fist else []}
-    dc = Dictation({}, front=lambda: front, put=lambda t: put.append(t) or ok, fist=lambda p: state)
+    dc = Dictation({}, front=lambda: front, put=lambda t: put.append(t) or ok, fist=lambda p: state,
+                   back=lambda n: put.append(f"<BS{n}>") or ok)
     return dc, put, now
 
 
@@ -105,6 +106,45 @@ class DictationRule(unittest.TestCase):
         dc, _, now = rig()
         dc.enabled = False
         self.assertFalse(dc.wants(now - 2, now))
+
+
+class Erase(unittest.TestCase):
+    def test_erase_words_only_alone(self):
+        self.assertEqual(dictate.erase_kind("지워."), "one")
+        self.assertEqual(dictate.erase_kind("방금 거 지워 줘"), "one")
+        self.assertEqual(dictate.erase_kind("취소"), "one")
+        self.assertEqual(dictate.erase_kind("다 지워!"), "all")
+        self.assertEqual(dictate.erase_kind("이 파일 지워 줘"), "")      # 문장 속 "지워"는 글로 넣음
+        self.assertEqual(dictate.erase_kind(""), "")
+
+    def test_erase_last_chunk_counts_hangul_and_space(self):
+        dc, put, _ = rig()
+        dc.put("테스트 추가해")
+        dc.put("로그도")
+        self.assertEqual(dc.erase(), 4)                     # " 로그도"
+        self.assertEqual(dc.erase(), 7)                     # "테스트 추가해"
+        self.assertEqual(dc.erase(), 0)                     # 더 지울 것 없음
+        self.assertEqual(put[-2:], ["<BS4>", "<BS7>"])
+        dc.put("새로")
+        self.assertEqual(put[-1], "새로")                   # 다 지운 뒤엔 띄어쓰기 없이
+
+    def test_erase_all(self):
+        dc, put, _ = rig()
+        dc.put("하나")
+        dc.put("둘")
+        self.assertEqual(dc.erase(everything=True), 4)   # "하나" + " 둘"
+        self.assertEqual(put[-1], "<BS4>")
+
+    def test_no_erase_after_window_or_app_change(self):
+        dc, put, _ = rig()
+        dc.put("하나")
+        dc._last_at -= 1000
+        self.assertEqual(dc.erase(), 0)
+        dc2, put2, _ = rig()
+        dc2.put("하나")
+        dc2._front = lambda: "com.apple.Safari"
+        self.assertEqual(dc2.erase(), 0)
+        self.assertFalse(any(p.startswith("<BS") for p in put + put2))
 
 
 class DaemonRouting(unittest.TestCase):
@@ -145,6 +185,18 @@ class DaemonRouting(unittest.TestCase):
         self.route(dc)
         self.assertEqual(put, [])
         self.assertFalse(self.d.brain_q.empty())
+
+    def test_fist_erase_word_erases_not_typed(self):
+        dc, put, _ = rig()
+        self.route(dc, "테스트 추가해")
+        self.route(dc, "지워")
+        self.assertEqual(put, ["테스트 추가해", "<BS7>"])
+        self.assertTrue(self.d.brain_q.empty())
+
+    def test_cancel_without_fist_goes_to_assistant_router(self):
+        dc, put, _ = rig(fist=False)
+        self.route(dc, "취소")
+        self.assertEqual(put, [])
 
     def test_muted_does_not_dictate(self):
         dc, put, _ = rig()
