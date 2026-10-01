@@ -55,7 +55,7 @@ class FakeBrain:
 
 def make():
     CALLS.clear()
-    for name in ["display_on", "display_off", "open_dashboard", "keep_system_awake", "cameras_off", "lock_screen"]:
+    for name in ["display_on", "display_off", "open_dashboard", "keep_system_awake", "cameras_off"]:
         setattr(mac, name, (lambda n: (lambda *a, **k: CALLS.append(n)))(name))
     mac.sound = lambda *a, **k: None
     mac.displays_asleep = lambda: DISPLAY["asleep"]
@@ -108,8 +108,6 @@ class DaemonFlow(unittest.TestCase):
         self.assertEqual(d.mode, "sleep")
         self.assertIn("display_off", CALLS)
         self.assertIn("cameras_off", CALLS)             # 화면을 끄면 hand-mouse 카메라도
-        self.assertIn("lock_screen", CALLS)             # 맥도 잠금
-        self.assertLess(CALLS.index("lock_screen"), CALLS.index("display_off"))
 
     def test_muted_unmutes_on_double_clap(self):
         d = make()
@@ -154,7 +152,6 @@ class DaemonFlow(unittest.TestCase):
         d._watch_display()
         self.assertEqual(d.mode, "sleep")
         self.assertIn("cameras_off", CALLS)             # 손 · 안전망으로 꺼져도 카메라는 끔
-        self.assertIn("lock_screen", CALLS)             # 잠금도
         DISPLAY["asleep"] = None
 
     def test_idle_sleep_turns_cameras_off(self):
@@ -162,15 +159,6 @@ class DaemonFlow(unittest.TestCase):
         d.mode = "awake"
         d.sleep("idle")
         self.assertIn("cameras_off", CALLS)
-        self.assertIn("lock_screen", CALLS)
-
-    def test_lock_on_sleep_off(self):
-        d = make()
-        d.cfg["lock_on_sleep"] = False
-        d.mode = "awake"
-        d.sleep("voice")
-        self.assertNotIn("lock_screen", CALLS)
-        self.assertIn("display_off", CALLS)
 
     def test_mic_blocked_when_only_zeros(self):
         # 권한이 없으면 macOS 는 정확히 0 만 보냄 → 6초 뒤 막힘으로 보고 한 번만 말함, 소리가 오면 풀림

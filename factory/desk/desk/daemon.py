@@ -189,19 +189,11 @@ class Desk:
         self._changed_at = time.time()
         self.seg.reset()
         self.clap.reset()
-        self._lock()
         mac.display_off()
         mac.cameras_off(self.cfg["camera_off"])
         self.board.log("sleep", why)
         self._show()
         return "ok"
-
-    def _lock(self) -> bool:
-        """화면을 끌 때 맥도 잠금(lock_on_sleep). 깨울 땐 잠금 화면 — 얼굴 인증 · 브리핑은 소리로 그대로 됨"""
-        if not self.cfg.get("lock_on_sleep", True):
-            return False
-        mac.lock_screen()
-        return True
 
     def mute(self, _: str = "") -> str:
         self.mode = "muted"
@@ -586,8 +578,6 @@ class Desk:
             self.mode = "sleep"
             self.seg.reset()
             self.clap.reset()
-            if self._lock():
-                mac.display_off()                      # 잠금 화면이 화면을 다시 켜도 도로 끔
             mac.cameras_off(self.cfg["camera_off"])
             self.board.log("sleep", "화면 꺼짐")
             self._show()
