@@ -27,6 +27,8 @@ class Cut:
     final: bool
     seq: int
     frames: int
+    t0: float = 0.0     # 벽시계 — 말 시작 · 조각이 나온 때 (deskd 가 찍음, 주먹 쥐고 말하기에 씀)
+    t1: float = 0.0
 
 
 class Segmenter:

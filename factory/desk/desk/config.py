@@ -57,6 +57,14 @@ DEFAULTS: dict = {
         "min_s": 0.12,              # 0.3초 안에 그 큰 소리가 이만큼 있어야
         "grace_s": 0.3,             # 말 시작 뒤 이 시간은 되먹임 크기만 배움
     },
+    "dictate": {                    # 주먹 쥐고 말하기 — Claude 앱이 맨 앞이면 받아쓴 글을 그 입력창에 (desk/dictate.py)
+        "enabled": True,
+        "fist_state": "~/lab/hand-mouse/.run/fist.json",   # hand-mouse 가 적는 주먹 상태
+        "apps": ["com.anthropic.claudefordesktop"],        # 이 앱이 맨 앞일 때만
+        "fist_ratio": 0.5,          # 말한 시간의 이만큼 이상 주먹이면
+        "fist_enough_s": 1.0,       # 또는 이만큼 이상 주먹이면 (긴 말)
+        "join_s": 60.0,             # 이 안에 이어 넣으면 앞에 띄어쓰기
+    },
 }
 
 PATH = os.path.expanduser(os.environ.get("DESK_CONFIG", "~/.config/desk/config.toml"))

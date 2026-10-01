@@ -27,6 +27,7 @@ from .face import Gate
 from .bargein import Listener, has_stop_word, is_stop_utterance, only_stop_words
 from .brain import Brain
 from .clap import ClapConfig, ClapDetector
+from .dictate import Dictation, can_post_keys
 from .dashboard import Board, serve, watch_agents
 from .router import route
 from .stt import WhisperSTT
@@ -57,6 +58,7 @@ class Desk:
         self.board = Board()
         self.board.set(model=model_settings.current(self.brain.model), models=model_settings.options())
         self.face = Gate(cfg["face"])
+        self.dictation = Dictation(cfg.get("dictate", {}))   # 주먹 쥐고 말하기 → Claude 앱 입력창 (desk/dictate.py)
         self._verifying = False                       # 얼굴 보는 중엔 박수를 더 받지 않음
         bi = cfg["bargein"]
         self.barge_on = bool(bi.get("enabled", True)) and bool(bi.get("stop_words"))
@@ -387,7 +389,26 @@ class Desk:
             text = self._hear_cut(cut)
             if text:
                 log.info("들음: %s", text)
-                self.handle(text)
+                if not self._dictate(cut, text):
+                    self.handle(text)
+
+    def _dictate(self, cut: Cut, text: str) -> bool:
+        """주먹을 쥔 채 한 말이고 Claude 앱이 맨 앞이면 그 앱 입력창에 붙여 넣음(엔터 없음). 넣었으면 True — 비서로 안 감"""
+        if self.mode != "awake" or not self.dictation.wants(cut.t0, cut.t1):
+            return False
+        self.last_activity = time.time()
+        if self.dictation.put(text):
+            log.info("받아쓰기 넣음 → Claude 앱: %s", text)
+            self.board.log("dictate", text)
+            mac.sound("Pop")
+        else:
+            log.warning("받아쓰기 못 넣음(손쉬운 사용 권한 없음): %s", text)
+            self.board.log("error", f"받아쓰기 못 넣음 — deskd 에 손쉬운 사용 권한 필요: {text}")
+            if not self.dictation.warned:
+                self.dictation.warned = True
+                can_post_keys(ask=True)
+                self.voice.say("입력창에 넣으려면 손쉬운 사용 권한이 필요해요.")
+        return True
 
     def _hear_cut(self, cut: Cut) -> str:
         """조각을 받아씀. 잠정 조각은 끝난 말로 보일 때만 글을 돌려주고 구간을 닫음(말 끝 기다리기, desk/endpoint.py)"""
@@ -500,6 +521,8 @@ class Desk:
                 return
             self.seg.resume()
             for cut in self.seg.feed_cuts(x):
+                cut.t1 = time.time()
+                cut.t0 = cut.t1 - len(cut.audio) / self.sr
                 if cut.final:
                     self._finals.add(cut.seq)
                 try:
