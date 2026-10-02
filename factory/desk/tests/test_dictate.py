@@ -77,12 +77,12 @@ class FrontApp(unittest.TestCase):
             dictate.subprocess.run = orig
 
 
-def rig(front=CLAUDE_APP, fist=True, ok=True):
+def rig(front=CLAUDE_APP, fist=True, ok=True, focus=False):
     now = time.time()
     put = []
     state = {"at": now, "fist": fist, "spans": [[now - 5, None]] if fist else []}
     dc = Dictation({}, front=lambda: front, put=lambda t: put.append(t) or ok, fist=lambda p: state,
-                   back=lambda n: put.append(f"<BS{n}>") or ok)
+                   back=lambda n: put.append(f"<BS{n}>") or ok, focus=lambda: focus)
     return dc, put, now
 
 
@@ -96,6 +96,18 @@ class DictationRule(unittest.TestCase):
 
     def test_other_app_front(self):
         dc, _, now = rig(front="com.google.Chrome")
+        self.assertFalse(dc.wants(now - 2, now))
+
+    def test_any_app_with_text_field_focused(self):
+        dc, put, now = rig(front="com.kakao.KakaoTalkMac", focus=True)
+        self.assertTrue(dc.wants(now - 2, now))
+        self.assertTrue(dc.put("곧 갈게"))
+        self.assertEqual(put, ["곧 갈게"])
+        dc.any_app = False                                # 예전처럼 Claude 앱일 때만
+        self.assertFalse(dc.wants(now - 2, now))
+
+    def test_text_field_without_fist(self):
+        dc, _, now = rig(front="com.apple.Notes", fist=False, focus=True)
         self.assertFalse(dc.wants(now - 2, now))
 
     def test_no_fist(self):

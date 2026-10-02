@@ -86,10 +86,11 @@ margin_db = 3.0                   # 민감도: 스피커 되먹임보다 이만�
 # listen_s = [0.5, 0.9]          # 큰 소리 뒤 이때마다 받아써 봄 — 앞은 작은 모델, 마지막엔 못 찾으면 큰 모델까지
 # fast_model = "mlx-community/whisper-small-mlx"   # 첫 받아쓰기 모델(0.3초). 비우면 [stt] model 만 — 멈추기까지 3초
 
-[dictate]                         # 주먹 쥐고 말하기 — Claude 데스크톱 앱이 맨 앞일 때 주먹을 쥔 채 한 말은 비서 대신 그 앱 입력창에 붙여 넣음(엔터 없음)
-enabled = true                    # deskd 에 손쉬운 사용 권한이 있어야 함(⌘V 보내기). 다른 앱이 앞이면 지금처럼 비서로
+[dictate]                         # 주먹 쥐고 말하기 — 오른손 주먹을 쥔 채 한 말은 비서 대신 키보드 초점이 있는 글 칸에 붙여 넣음(엔터 없음, 어느 앱이든)
+enabled = true                    # deskd 에 손쉬운 사용 권한이 있어야 함(⌘V 보내기 · 초점 보기). 글 칸이 아니면 지금처럼 비서로
 # fist_state = "~/lab/hand-mouse/.run/fist.json"   # hand-mouse 가 적는 주먹 상태
-# apps = ["com.anthropic.claudefordesktop"]
+# apps = ["com.anthropic.claudefordesktop"]   # 이 앱은 맨 앞이기만 하면(Electron 이라 초점이 잘 안 보임)
+# any_app = true                  # false 면 apps 일 때만(예전)
 # fist_ratio = 0.5                # 말한 시간의 이만큼 이상 주먹이면 받아쓰기
 # erase_window_s = 120.0          # 지우기 다이얼(왼손 엄지·검지 집고 반시계 = 단어 지우기, 시계 = 되살리기) — 넣은 뒤 이 시간 안에만
 

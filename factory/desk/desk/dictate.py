@@ -1,8 +1,12 @@
-"""주먹 쥐고 말하기 — Claude 데스크톱 앱이 맨 앞일 때 주먹을 쥔 채 한 말은 비서 대신 그 앱 입력창에 넣습니다.
+"""주먹 쥐고 말하기 — 주먹을 쥔 채 한 말은 비서 대신 지금 키보드 입력이 가 있는 글 칸에 넣습니다(어느 앱이든).
 
-    hand-mouse ──~/lab/hand-mouse/.run/fist.json (주먹 구간)──▶ deskd: 말한 동안 주먹이었나? + 맨 앞 앱이 Claude?
+    hand-mouse ──~/lab/hand-mouse/.run/fist.json (주먹 구간)──▶ deskd: 말한 동안 주먹이었나? + 넣을 글 칸이 있나?
                                                               ├─ 둘 다 맞음 → 받아쓴 글을 붙여넣기(엔터 없음)
                                                               └─ 아니면 → 지금처럼 비서로
+  · 글 칸: 손쉬운 사용(AX)으로 본 키보드 초점이 글 칸(AXTextField · AXTextArea · AXComboBox · AXSearchField)일 때.
+    메모 · 카카오톡 · 사파리 입력란 등. 비밀번호 칸(AXSecureTextField)은 넣지 않음. 초점이 글 칸이 아니면 비서로.
+  · Claude 앱(apps)은 Electron 이라 AX 초점이 잘 안 보여서 예전처럼 맨 앞이기만 하면 넣음.
+    (주인 10월 2일 15:49 — 예전엔 Claude 앱일 때만)
 
 넣는 법은 실제 타이핑이 아니라 **클립보드 붙여넣기(⌘V)** 입니다.
   · 한글 입력기: 글자 하나씩 키 이벤트로 보내면(CGEventKeyboardSetUnicodeString) 한글 입력 소스가 켜져 있을 때
@@ -91,6 +95,32 @@ def front_bundle() -> str:
     return out.rsplit("=", 1)[-1].strip().strip('"') if "=" in out else ""
 
 
+TEXT_ROLES = {"AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"}
+
+
+def focused_text() -> bool:
+    """키보드 초점이 글 칸인가(손쉬운 사용 권한 필요 — 없으면 False 라 비서로 감)"""
+    try:
+        import ApplicationServices as AS
+        err, el = AS.AXUIElementCopyAttributeValue(AS.AXUIElementCreateSystemWide(), "AXFocusedUIElement", None)
+        if err or el is None:                  # 시스템 전체로는 자주 -25204 — 맨 앞 앱에 직접 물음
+            import AppKit
+            app = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
+            if app is None:
+                return False
+            err, el = AS.AXUIElementCopyAttributeValue(AS.AXUIElementCreateApplication(app.processIdentifier()),
+                                                       "AXFocusedUIElement", None)
+            if err or el is None:
+                return False
+        err, role = AS.AXUIElementCopyAttributeValue(el, "AXRole", None)
+        if err or role not in TEXT_ROLES:
+            return False
+        err, sub = AS.AXUIElementCopyAttributeValue(el, "AXSubrole", None)
+        return bool(err) or sub != "AXSecureTextField"
+    except Exception:                          # noqa: BLE001 — 모르면 비서로
+        return False
+
+
 # ── 붙여넣기 ────────────────────────────────────────────────────────────────
 def can_post_keys(ask: bool = False) -> bool:
     try:
@@ -172,17 +202,19 @@ def paste(text: str, restore_after_s: float = 0.6) -> bool:
 
 
 class Dictation:
-    """주먹 + Claude 앱이 맨 앞 → 붙여넣기. take() 가 True 면 그 말은 비서로 보내지 않음"""
+    """주먹 + (글 칸에 초점 또는 Claude 앱이 맨 앞) → 붙여넣기. wants() 가 True 면 그 말은 비서로 보내지 않음"""
 
-    def __init__(self, cfg: dict, front=front_bundle, put=paste, fist=read_fist, back=backspace):
+    def __init__(self, cfg: dict, front=front_bundle, put=paste, fist=read_fist, back=backspace,
+                 focus=focused_text):
         self.enabled = bool(cfg.get("enabled", True))
         self.state_path = cfg.get("fist_state", "~/lab/hand-mouse/.run/fist.json")
-        self.apps = list(cfg.get("apps", [CLAUDE_APP]))
+        self.apps = list(cfg.get("apps", [CLAUDE_APP]))   # 맨 앞이기만 하면 넣는 앱
+        self.any_app = bool(cfg.get("any_app", True))    # 다른 앱도 키보드 초점이 글 칸이면 넣음
         self.ratio = float(cfg.get("fist_ratio", 0.5))
         self.enough_s = float(cfg.get("fist_enough_s", 1.0))
         self.join_s = float(cfg.get("join_s", 60.0))
         self.erase_window_s = float(cfg.get("erase_window_s", 120.0))
-        self._front, self._put, self._fist, self._back = front, put, fist, back
+        self._front, self._put, self._fist, self._back, self._focus = front, put, fist, back, focus
         self._last_at = 0.0                    # 마지막으로 넣거나 지운 때 — 이어 말하면 앞에 띄어쓰기
         self.text = ""                         # 이번에 이어 넣은 글 전부(지운 부분 포함 — 되살리기용)
         self.kept = 0                          # 그중 지금 입력창에 남아 있는 글자 수
@@ -196,7 +228,7 @@ class Dictation:
             return False
         if not held_fist(self._fist(self.state_path), t0, t1, self.ratio, self.enough_s):
             return False
-        return self._front() in self.apps
+        return self._front() in self.apps or (self.any_app and self._focus())
 
     def put(self, text: str) -> bool:
         text = text.strip()

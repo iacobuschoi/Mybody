@@ -69,7 +69,7 @@ class Desk:
         self.board = Board()
         self.board.set(model=model_settings.current(self.brain.model), models=model_settings.options())
         self.face = Gate(cfg["face"])
-        self.dictation = Dictation(cfg.get("dictate", {}))   # 주먹 쥐고 말하기 → Claude 앱 입력창 (desk/dictate.py)
+        self.dictation = Dictation(cfg.get("dictate", {}))   # 주먹 쥐고 말하기 → 초점이 있는 글 칸 (desk/dictate.py)
         tk = cfg.get("talk", {})
         self.talk_on = bool(tk.get("enabled", True))
         self.talk_sound = tk.get("sound", "Morse")

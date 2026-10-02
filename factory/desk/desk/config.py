@@ -63,10 +63,11 @@ DEFAULTS: dict = {
         "listen_s": [0.5, 0.9],     # 큰 소리가 시작된 뒤 이때마다 받아써 봄 — 앞은 작은 모델, 마지막엔 못 찾으면 큰 모델까지
         "fast_model": "mlx-community/whisper-small-mlx",   # 끼어들기 첫 받아쓰기(0.3초). 비우면 [stt] model 만(멈추기까지 3초)
     },
-    "dictate": {                    # 주먹 쥐고 말하기 — Claude 앱이 맨 앞이면 받아쓴 글을 그 입력창에 (desk/dictate.py)
+    "dictate": {                    # 주먹 쥐고 말하기 — 글 칸에 초점이 있으면(어느 앱이든) 받아쓴 글을 거기에 (desk/dictate.py)
         "enabled": True,
         "fist_state": "~/lab/hand-mouse/.run/fist.json",   # hand-mouse 가 적는 주먹 상태
-        "apps": ["com.anthropic.claudefordesktop"],        # 이 앱이 맨 앞일 때만
+        "apps": ["com.anthropic.claudefordesktop"],        # 이 앱은 맨 앞이기만 하면
+        "any_app": True,            # 다른 앱도 키보드 초점이 글 칸이면(메모 · 카카오톡 · 사파리 …). 아니면 비서로
         "fist_ratio": 0.5,          # 말한 시간의 이만큼 이상 주먹이면
         "fist_enough_s": 1.0,       # 또는 이만큼 이상 주먹이면 (긴 말)
         "join_s": 60.0,             # 이 안에 이어 넣으면 앞에 띄어쓰기
