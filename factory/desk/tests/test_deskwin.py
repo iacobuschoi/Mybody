@@ -139,5 +139,53 @@ class KeeperTest(unittest.TestCase):
         self.assertLessEqual(r[1] + r[3], MAIN[3])
 
 
+
+class KeepLoopTest(unittest.TestCase):
+    def test_steps_only_on_start_and_screen_change(self):
+        """켤 때 한 번, 그 뒤엔 화면 구성이 바뀔 때만 (주인 15:13: 계속 옮기지 말 것)."""
+        import threading
+        import time as _t
+        state = {"screens": (MAIN, DESK), "calls": []}
+        done = threading.Event()
+
+        class K:
+            mine = (1280, 25, 640, 999)
+
+            def __init__(self, url):
+                pass
+
+            def screens(self):
+                return state["screens"]
+
+            def step(self, now):
+                state["calls"].append(state["screens"])
+                return "그대로"
+
+            def _say(self, m):
+                pass
+
+        real_k, real_sleep = deskwin.Keeper, deskwin.time.sleep
+        ticks = []
+
+        def fake_sleep(s):
+            ticks.append(s)
+            n = len(ticks)
+            if n == 3:
+                state["screens"] = (MAIN, None)        # 화면이 잠듦
+            elif n == 5:
+                state["screens"] = (MAIN, DESK)        # 깸
+            elif n >= 9:
+                done.set()
+                real_sleep(3600)
+        deskwin.Keeper, deskwin.time.sleep = K, fake_sleep
+        try:
+            deskwin.keep("u", every_s=0)
+            self.assertTrue(done.wait(5))
+        finally:
+            deskwin.Keeper, deskwin.time.sleep = real_k, real_sleep
+            deskwin._running = False
+        self.assertEqual(state["calls"], [(MAIN, DESK), (MAIN, None), (MAIN, DESK)])
+
+
 if __name__ == "__main__":
     unittest.main()
