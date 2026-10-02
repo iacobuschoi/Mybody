@@ -7,7 +7,11 @@
 3. `META=meta_hard.json TAG=hard_ python evalstt.py base full_new2_fb …` — configs.py 의 설정마다 글자 오류율(CER) · 버린 수 · 낱말 맞춤
 4. `latency.py` — 3 · 8 · 15초 말에 걸리는 시간
 
-결과는 results-2026-10-02.txt. 합성 목소리라 주인 목소리보다 쉽고(깨끗한 소리는 모든 설정이 4~5%), 차이는 "어려운" 묶음에서만 보입니다.
+5. 지연(10월 3일): `make_noise.py`(말 없는 잡음 30개 → meta_noise.json) · `e2e.py`(deskd 받아쓰기 그대로) · `deskpath.py`(_run 만) ·
+   `percall.py`(mlx_whisper 바로) — 모두 한 개씩 결과 · 시간을 pc_<이름>.json 에 남기고, `compare.py <이름…>` 으로 비교.
+   녹음 폴더가 이 폴더가 아니면 `SET=폴더`
+
+결과는 results-2026-10-02.txt(정확도) · results-2026-10-03.txt(지연). 합성 목소리라 주인 목소리보다 쉽고(깨끗한 소리는 모든 설정이 4~5%), 차이는 "어려운" 묶음에서만 보입니다.
 주인이 `[stt] keep_audio_days` 를 켜면 실제 목소리(~/.local/share/desk/heard)로 같은 비교를 할 수 있습니다.
 
 **소리를 스피커로 내는 시험은 주인이 확실히 없을 때만** — 10월 2일 16:14 주인이 말하는 중에 시험 소리를 내 방해했습니다.

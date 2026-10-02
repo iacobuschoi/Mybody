@@ -93,6 +93,7 @@ class Desk:
         self.last_activity = time.time()
         self.audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=400)
         self.utt_q: queue.Queue[Cut] = queue.Queue(maxsize=8)
+        self._pending: list[Cut] = []                 # 받아쓰기 일꾼이 줄에서 꺼내 둔 조각(_next_cut 이 순서를 정함)
         self.brain_q: queue.Queue[tuple[str, int, bool]] = queue.Queue(maxsize=8)   # (들은 말, 받은 때의 _turn, 주먹)
         self._stop = threading.Event()
         self._dash_opened = False
@@ -436,11 +437,38 @@ class Desk:
         log.info("끼어들기 아님: 소리 시작부터 %.2f초 (%s)", time.time() - t0, " → ".join(tried))
 
     # ── 일꾼 스레드 ────────────────────────────────────────────────────────
+    def _next_cut(self, block: bool = True) -> Cut | None:
+        """받아쓰기 줄에서 다음 조각 — 주먹 말이 먼저이고, 같은 구간의 더 긴 조각이 줄에 있으면 묵은 잠정 조각은 건너뜀.
+        (10월 2일 23:43~23:50 — 잡음 속 한 구간의 잠정 조각 1.2 · 2.4 · … 12.9초가 하나씩 large-v3 로 받아써지는 동안
+        주먹 말이 뒤에서 최대 100초 기다림. 더 긴 조각에 앞 조각 소리가 다 들어 있으니 그것만 받아쓰면 됨)"""
+        while True:
+            if not self._pending:
+                try:
+                    self._pending.append(self.utt_q.get(block=block))
+                except queue.Empty:
+                    return None
+            while True:
+                try:
+                    self._pending.append(self.utt_q.get_nowait())
+                except queue.Empty:
+                    break
+            self._pending = [Cut(c, True, -1, 0) if isinstance(c, np.ndarray) else c for c in self._pending]
+            while len(self._pending) > 12:              # 예전 줄 크기(8)보다 넉넉히 — 넘치면 가장 묵은 상시 듣기 조각부터
+                old = next((c for c in self._pending if not c.direct), self._pending[0])
+                self._pending.remove(old)
+                if old.final:
+                    self._finals.discard(old.seq)
+                log.warning("받아쓰기 줄이 차서 들은 말을 버림 (%.1f초)", len(old.audio) / self.sr)
+            i = next((k for k, c in enumerate(self._pending) if c.direct), 0)
+            cut = self._pending.pop(i)
+            if not cut.direct and not cut.final and any(c.seq == cut.seq and not c.direct for c in self._pending):
+                log.info("묵은 잠정 조각 건너뜀 (같은 말의 더 긴 조각이 기다림, %.1f초)", len(cut.audio) / self.sr)
+                continue
+            return cut
+
     def _stt_worker(self) -> None:
         while not self._stop.is_set():
-            cut = self.utt_q.get()
-            if isinstance(cut, np.ndarray):
-                cut = Cut(cut, True, -1, 0)
+            cut = self._next_cut()
             text = self._hear_cut(cut)
             if cut.direct:
                 self._talked(cut, text)
@@ -494,7 +522,8 @@ class Desk:
 
     def _talked(self, cut: Cut, text: str) -> None:
         dur = cut.t1 - cut.t0
-        log.info("주먹 말하기 끝 (%.1f초, 받아쓰기 %.2f초): %s", dur, self._stt_s, text or "(빈 말)")
+        log.info("주먹 말하기 끝 (%.1f초, 받아쓰기 %.2f초 · 녹음 끝에서 %.2f초): %s", dur, self._stt_s,
+                 time.time() - cut.t1, text or "(빈 말)")
         if not text:
             self.board.log("talk", f"받아쓴 글 없음 ({dur:.1f}초)")
             if dur >= 1.0:                          # 잠깐 쥐었다 편 건 조용히 넘김

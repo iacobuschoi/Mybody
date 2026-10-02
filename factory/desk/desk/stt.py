@@ -65,6 +65,67 @@ def clean_transcript(text: str, segments: list[dict] | None = None,
 _gpu = threading.Lock()
 
 
+LOOP_REPEATS = 5     # 같은 토큰 묶음이 이만큼 이어 되풀이되면 그 받아쓰기는 끝냄
+
+
+def repeating(seq: list[int], times: int = LOOP_REPEATS, longest: int = 24) -> bool:
+    """끝이 같은 토큰 묶음(1~longest개)의 times 번 되풀이인가"""
+    for k in range(1, longest + 1):
+        if len(seq) < times * k:
+            break
+        if seq[-k:] * times == seq[-times * k:]:
+            return True
+    return False
+
+
+def _stop_loops() -> None:
+    """Whisper 가 잡음에 "마이퍼를 연결하고, 마이퍼를 연결하고, …" 처럼 되풀이에 빠지면 토큰 한도까지 채우고, 다시 받아쓰기(0.2 · 0.4)
+    에서 또 빠짐 — 잡음 12초에 large-v3 로 65초(bench/stt 잡음 묶음, 10월 3일). 되풀이가 LOOP_REPEATS 번 보이면 바로 끝(EOT)을 냄.
+    그렇게 남은 글은 clean_transcript 가 어차피 버리는 꼴("(.{1,4})\\1{4,}" · "(.{5,40})\\1{3,}")이라 잃는 말은 없음.
+    mlx_whisper 의 DecodingTask 에 거르개 하나를 덧붙임(한 번만). 6걸음마다 봄 — 매 걸음 보면 GPU 를 기다려 느려짐"""
+    import dataclasses
+
+    import mlx.core as mx
+    from mlx_whisper import decoding
+    if getattr(decoding.DecodingTask, "_desk_loop_stop", False):
+        return
+
+    class RepeatStop(decoding.LogitFilter):
+        def __init__(self, tokenizer, sample_begin: int):
+            self.eot, self.ts, self.begin, self.n = tokenizer.eot, tokenizer.timestamp_begin, sample_begin, 0
+            self.fired: set[int] = set()
+
+        def apply(self, logits, tokens):
+            self.n += 1
+            if self.n % 6:
+                return logits
+            rows = [[t for t in row[self.begin:] if t < self.ts] for row in tokens.tolist()]
+            stop = [repeating(r) for r in rows]
+            if not any(stop):
+                return logits
+            self.fired |= {i for i, x in enumerate(stop) if x}
+            only_eot = mx.where(mx.arange(logits.shape[-1]) == self.eot, 0.0, -mx.inf)
+            return mx.where(mx.array(stop)[:, None], only_eot[None, :], logits)
+
+    init, run = decoding.DecodingTask.__init__, decoding.DecodingTask.run
+
+    def patched_init(task, model, options):
+        init(task, model, options)
+        task._desk_stop = RepeatStop(task.tokenizer, task.sample_begin)
+        task.logit_filters.append(task._desk_stop)
+
+    def patched_run(task, mel):
+        # 끊은 글은 짧아 압축률이 낮게 나옴 — 끝까지 되풀이했을 때처럼 "되풀이" 로 보여 다시 받아쓰기(0.2 · 0.4)가 그대로 돌게
+        out = run(task, mel)
+        fired = {row // task.n_group for row in task._desk_stop.fired}
+        return [dataclasses.replace(r, compression_ratio=max(r.compression_ratio, 10.0)) if i in fired else r
+                for i, r in enumerate(out)]
+
+    decoding.DecodingTask.__init__ = patched_init
+    decoding.DecodingTask.run = patched_run
+    decoding.DecodingTask._desk_loop_stop = True
+
+
 class WhisperSTT:
     def __init__(self, model: str = "mlx-community/whisper-large-v3-turbo", language: str = "ko",
                  prompt: str = "", fast_model: str = "", probe_model: str = ""):
@@ -73,12 +134,13 @@ class WhisperSTT:
         self.probe_model = probe_model           # 끼어들기 두 번째(작은 모델이 못 찾았을 때). 비우면 model —
                                                  # model 을 느린 large-v3 로 바꿔도 끼어들기는 turbo(1.3초)로
         self._mlx = None
-        self._models: dict[str, object] = {}
-        self.last_raw = ""                       # 거르기 전 받아쓴 글 — 걸러 버린 말을 데몬이 로그에 남기게     # 불러 둔 모델 — 큰 · 작은 모델을 번갈아 써도 다시 읽지 않게
+        self._models: dict[str, object] = {}     # 불러 둔 모델 — 큰 · 작은 모델을 번갈아 써도 다시 읽지 않게
+        self.last_raw = ""                       # 거르기 전 받아쓴 글 — 걸러 버린 말을 데몬이 로그에 남기게
 
     def _load(self):
         if self._mlx is None:
             import mlx_whisper  # 맥(애플 실리콘)에서만
+            _stop_loops()
             self._mlx = mlx_whisper
         return self._mlx
 
@@ -105,20 +167,28 @@ class WhisperSTT:
         if self.probe_model and self.probe_model != self.model:
             self.hear(np.zeros(16000, dtype=np.float32))
 
-    def transcribe(self, audio, direct: bool = False) -> str:
+    def _run(self, model: str, audio, temperature) -> dict:
         mw = self._load()
-        # temperature 를 0.0 하나만 주면 Whisper 의 되풀이 · 낮은 확신 다시 받아쓰기가 꺼져 "아, 아, 아 …" 에 빠진 채 끝남
-        # (10월 2일 주먹 말 여러 번이 3.5초 걸려 빈 말). 막힐 때만 0.2 · 0.4 로 다시 — 어려운 시험 묶음에서 시간은 그대로
-        kw = dict(path_or_hf_repo=self.model, language=self.language, temperature=(0.0, 0.2, 0.4),
-                  condition_on_previous_text=False, verbose=None)
+        # sample_len: 말 길이에 맞춘 토큰 한도(주인 말은 많아야 초당 6.4토큰). 잡음에 "아, 아, 아 …" · "감사합니다" 되풀이로 빠지면
+        # 224 토큰을 다 채우고 다시 받아쓰기(0.2 · 0.4)까지 세 번 — 1.3초 소리에 8초(10월 2일 23:24 · 23:46). 한도면 1초 안팎
+        kw = dict(path_or_hf_repo=model, language=self.language, temperature=temperature,
+                  condition_on_previous_text=False, verbose=None,
+                  sample_len=int(min(224, 32 + 12 * min(len(audio) / 16000, 30))))
         if self.prompt:
             kw["initial_prompt"] = self.prompt   # 자주 쓰는 낱말(앱 공장 · 상황판 · 클로드 …)을 알려 줘 인식을 돕습니다
         with _gpu:
-            self._use(self.model)
+            self._use(model)
             try:
-                r = mw.transcribe(audio, **kw)
+                return mw.transcribe(audio, **kw)
             except TypeError:                         # 판에 따라 받는 인자가 다름
-                r = mw.transcribe(audio, path_or_hf_repo=self.model, language=self.language)
+                return mw.transcribe(audio, path_or_hf_repo=model, language=self.language)
+
+    def transcribe(self, audio, direct: bool = False) -> str:
+        # 주먹 말: temperature 를 0.0 하나만 주면 Whisper 의 되풀이 · 낮은 확신 다시 받아쓰기가 꺼져 "아, 아, 아 …" 에 빠진 채 끝남
+        # (10월 2일 주먹 말 여러 번이 3.5초 걸려 빈 말). 막힐 때만 0.2 · 0.4 로 다시.
+        # 상시 듣기는 0.0 한 번만 — bench/stt 사람 말 540개에서 다시 받아쓰기가 돈 3개는 다시 써도 모두 틀린 글이었고,
+        # 잡음 한 조각엔 세 번 돌아 평균 5초 · 길게 10초(그동안 주먹 말 · "잠깐" 이 기다림). 10월 3일
+        r = self._run(self.model, audio, (0.0, 0.2, 0.4) if direct else 0.0)
         self.last_raw = r.get("text", "") or ""
         return clean_transcript(self.last_raw, r.get("segments"), direct=direct, prompt=self.prompt)
 
