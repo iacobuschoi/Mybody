@@ -1,0 +1,14 @@
+Version 0.2.21 (build 396) - citations added for Guideline 1.4.1
+
+Thank you for the review. We have added citations for the health, nutrition and exercise recommendations in the app.
+
+- Each recommended value now has a small "출처" (Sources) link with a book icon next to it: daily calories, protein/carbs/fat, BMR and daily energy use, weekly rate of change, weekly projections, workout prescription and cardio minutes.
+- Tapping it lists the sources for that value - mostly peer-reviewed studies and official guidelines (e.g. ACSM, WHO, Korean Ministry of Health and Welfare, Korean Society for the Study of Obesity) - each with a tappable link to the original. Where the app uses its own conservative setting rather than a guideline's exact number (e.g. activity multipliers, cardio minutes), the list says so and shows the related evidence.
+- Full list of all 51 references with a medical disclaimer: gear icon at the top right (설정, Settings) -> scroll down to the Help (도움말) section -> tap 근거 · 출처 (Sources). It is also linked from the last onboarding page and from "모든 출처 보기" (View all sources) under every list.
+- Every user is told to consult a doctor before making significant changes to diet or exercise: on the last onboarding page (must be acknowledged before use), under the daily diet targets, under every source list and on the 근거 · 출처 screen.
+
+To see the values with their links (no account or InBody sheet needed, about 1 minute):
+1. First screen: 로그인 없이 쓰기 (Use without signing in), or sign in with the demo account.
+2. If onboarding appears: enter height (e.g. 175) and age (e.g. 30) -> 다음 (Next) -> 다음 -> check 읽었고 이해했습니다 (I understand) -> 시작하기 (Start). Close the welcome sheet if shown.
+3. If the Plan tab (플랜) says 아직 계획이 없습니다 (no plan yet): on Home (홈) tap 인바디 없이 시작 (Start without InBody), enter a weight (e.g. 75) -> 추정치로 시작. On the pre-filled goal screen tap 기간 계산하기 -> 이 계획으로 시작하기 (if asked, 그대로 가기).
+4. Plan tab: top card, 하루 식단 목표 (daily diet targets), 주차별 궤적 (weekly projection) and the workout card each have a 출처 link. Home tab: 목표까지 (goal) card; tap the body-composition card -> 여기서 나온 값 (calculated values incl. BMR).

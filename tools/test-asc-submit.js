@@ -25,24 +25,36 @@ function fake(opts = {}) {
     app: { id: 'app1', type: 'apps', attributes: { name: 'MyBody', bundleId: 'io.github.iacobuschoi.mybody' } },
     versions: opts.versions || [{ id: 'v1', type: 'appStoreVersions',
       attributes: { versionString: '0.2.8', appStoreState: opts.verState || 'WAITING_FOR_REVIEW' } }],
-    subs: opts.noSub ? [] : [{ id: 's1', type: 'reviewSubmissions', attributes: { state: 'WAITING_FOR_REVIEW' } }],
+    subs: opts.noSub ? [] : [{ id: 's1', type: 'reviewSubmissions', attributes: { state: opts.subState || 'WAITING_FOR_REVIEW' } }],
     builds: opts.noBuild ? [] : [{ id: 'b298', type: 'builds',
       attributes: { version: '298', processingState: opts.buildState || 'VALID', usesNonExemptEncryption: false } }],
     groups: [{ id: 'g1', type: 'betaGroups', attributes: { name: 'friends', isInternalGroup: false } }],
     groupBuilds: { g1: [{ id: 'b269', type: 'builds' }] },
     locs: [],
     betaSubs: [],
-    items: [],
+    items: (opts.items || []).map(i => Object.assign({}, i)),
+    reviewDetail: opts.reviewDetail === undefined ? null : opts.reviewDetail,
     releases: [],
     calls: [],
     cancelPending: 0,
+    postBusy: 0,
+    itemBusy: 0,
   };
   const err = (status, msg, code) => {
     const e = new Error(msg); e.status = status;
     if (code) e.errors = [{ status: String(status), code, detail: msg }];
     throw e;
   };
+  /* 판을 고칠 수 있는가 — 애플처럼 거절된 판(REJECTED)도 고칠 수 있고, lockWhileUnresolved 면
+     거절된 제출이 열려 있는 동안은 막습니다(그 길이 막힌 애플을 흉내). */
+  const editable = v => ['PREPARE_FOR_SUBMISSION', 'DEVELOPER_REJECTED', 'REJECTED'].includes(v.attributes.appStoreState) &&
+    !(opts.lockWhileUnresolved && st.subs.some(s => s.attributes.state === 'UNRESOLVED_ISSUES'));
+  /* 진짜 API 처럼 응답은 늘 새 사본 — 스크립트가 받은 객체를 고쳐도 가짜 쪽 상태가 따라 바뀌지 않게. */
   async function call(method, p, body) {
+    const r = await raw(method, p, body);
+    return r == null ? r : JSON.parse(JSON.stringify(r));
+  }
+  async function raw(method, p, body) {
     st.calls.push(`${method} ${p.split('?')[0]}`);
     const path = p.split('?')[0];
     if (method === 'GET' && path === '/v1/apps') return { data: [st.app] };
@@ -59,23 +71,37 @@ function fake(opts = {}) {
     }
     if (vm && method === 'PATCH') {
       const v = st.versions.find(x => x.id === vm[1]);
-      if (!['PREPARE_FOR_SUBMISSION', 'DEVELOPER_REJECTED'].includes(v.attributes.appStoreState)) err(409, '판을 고칠 수 없음');
+      if (!editable(v)) err(409, '판을 고칠 수 없음', 'STATE_ERROR');
       Object.assign(v.attributes, body.data.attributes);
       return { data: v };
     }
     const vb = path.match(/^\/v1\/appStoreVersions\/(\w+)\/relationships\/build$/);
     if (vb && method === 'PATCH') {
       const v = st.versions.find(x => x.id === vb[1]);
-      if (!['PREPARE_FOR_SUBMISSION', 'DEVELOPER_REJECTED'].includes(v.attributes.appStoreState)) err(409, '빌드를 바꿀 수 없음');
+      if (!editable(v)) err(409, '빌드를 바꿀 수 없음', 'STATE_ERROR');
       v.build = body.data.id;
       return null;
     }
     const sm = path.match(/^\/v1\/reviewSubmissions\/(\w+)$/);
+    if (sm && method === 'GET') {
+      const s = st.subs.find(x => x.id === sm[1]);
+      if (!s) err(404, '없는 제출');
+      if (['CANCELING', 'COMPLETING'].includes(s.attributes.state) && !opts.neverClose && --s.closePolls <= 0) {
+        s.attributes.state = 'COMPLETE';
+      }
+      return { data: s };
+    }
     if (sm && method === 'PATCH') {
       const s = st.subs.find(x => x.id === sm[1]);
-      if (body.data.attributes.canceled) { s.attributes.state = 'CANCELING'; st.cancelPending = opts.cancelPolls || 2; }
+      if (body.data.attributes.canceled) {
+        /* 애플은 거절된 제출(UNRESOLVED_ISSUES)의 취소를 받지 않습니다 — 항목을 빼야 끝남. */
+        if (s.attributes.state === 'UNRESOLVED_ISSUES') err(409, 'Resource is not in cancellable state', 'STATE_ERROR');
+        s.attributes.state = 'CANCELING'; st.cancelPending = opts.cancelPolls || 2; s.closePolls = opts.closePolls || 1;
+      }
       if (body.data.attributes.submitted) {
         if (!st.items.some(i => i.sub === s.id)) err(409, '빈 제출');
+        if (opts.noResubmit && s.attributes.state === 'UNRESOLVED_ISSUES') err(422, '다시 낼 수 없음', 'STATE_ERROR');
+        if (st.items.some(i => i.sub === s.id && i.state === 'REJECTED')) err(409, '고치지 않은 항목', 'STATE_ERROR');
         s.attributes.state = 'WAITING_FOR_REVIEW';
         const it = st.items.find(i => i.sub === s.id);
         st.versions.find(v => v.id === it.ver).attributes.appStoreState = 'WAITING_FOR_REVIEW';
@@ -84,14 +110,67 @@ function fake(opts = {}) {
     }
     if (method === 'POST' && path === '/v1/reviewSubmissions') {
       if (st.subs.some(s => s.attributes.state === 'READY_FOR_REVIEW')) err(409, '열린 제출이 이미 있음');
+      if (st.subs.some(s => ['CANCELING', 'COMPLETING'].includes(s.attributes.state))) err(409, '닫는 중인 제출이 있음');
+      if (opts.postBusy && st.postBusy++ < opts.postBusy) err(409, '아직 못 만듦');
       const s = { id: 's' + (st.subs.length + 1), type: 'reviewSubmissions', attributes: { state: 'READY_FOR_REVIEW' } };
       st.subs.push(s);
       return { data: s };
     }
     if (method === 'POST' && path === '/v1/reviewSubmissionItems') {
       const r = body.data.relationships;
-      st.items.push({ sub: r.reviewSubmission.data.id, ver: r.appStoreVersion.data.id });
+      if (st.subs.some(s => ['CANCELING', 'COMPLETING'].includes(s.attributes.state))) err(409, 'not in valid state', 'STATE_ERROR.ENTITY_STATE_INVALID');
+      if (opts.itemBusy && st.itemBusy++ < opts.itemBusy) err(409, 'not in valid state', 'STATE_ERROR.ENTITY_STATE_INVALID');
+      if (st.items.some(i => i.sub === r.reviewSubmission.data.id && i.ver === r.appStoreVersion.data.id && i.state !== 'REMOVED')) {
+        err(409, '이미 들어 있음', 'ENTITY_ERROR.RELATIONSHIP.INVALID');
+      }
+      st.items.push({ id: 'i' + (st.items.length + 1), sub: r.reviewSubmission.data.id, ver: r.appStoreVersion.data.id,
+        state: 'READY_FOR_REVIEW' });
       return { data: { id: 'i1' } };
+    }
+    const si = path.match(/^\/v1\/reviewSubmissions\/(\w+)\/items$/);
+    if (si && method === 'GET') {
+      if (opts.itemsErr) err(opts.itemsErr, '항목을 못 읽음');
+      return { data: st.items.filter(i => i.sub === si[1]).map(i => ({ id: i.id, type: 'reviewSubmissionItems',
+        attributes: { state: i.state },
+        relationships: { appStoreVersion: { data: i.ver ? { type: 'appStoreVersions', id: i.ver } : null } } })) };
+    }
+    const ip = path.match(/^\/v1\/reviewSubmissionItems\/(\w+)$/);
+    if (ip && method === 'PATCH') {
+      const it = st.items.find(i => i.id === ip[1]);
+      if (body.data.attributes.resolved) {
+        if (opts.noResolve) err(409, 'resolved 는 모르는 칸', 'ENTITY_ERROR.ATTRIBUTE.UNKNOWN');
+        it.state = 'READY_FOR_REVIEW';
+      }
+      if (body.data.attributes.removed) {
+        if (opts.removeErr) err(opts.removeErr, '뺄 수 없음', 'STATE_ERROR');
+        it.state = 'REMOVED';
+        const s = st.subs.find(x => x.id === it.sub);
+        if (st.items.filter(i => i.sub === s.id).every(i => i.state === 'REMOVED')) {
+          s.attributes.state = 'COMPLETING'; s.closePolls = opts.closePolls || 1;   // 다 빼면 제출이 끝남(애플 도움말)
+        }
+      }
+      return { data: { id: it.id } };
+    }
+    const vbg = path.match(/^\/v1\/appStoreVersions\/(\w+)\/build$/);
+    if (vbg && method === 'GET') {
+      if (opts.buildReadErr) err(opts.buildReadErr, '빌드를 못 읽음');
+      const v = st.versions.find(x => x.id === vbg[1]);
+      return { data: v && v.build ? { id: v.build, type: 'builds' } : null };
+    }
+    const rd = path.match(/^\/v1\/appStoreVersions\/(\w+)\/appStoreReviewDetail$/);
+    if (rd && method === 'GET') {
+      if (opts.notesErr) err(opts.notesErr, '심사 정보를 못 읽음');
+      if (!st.reviewDetail) err(404, '심사 정보 없음');
+      return { data: st.reviewDetail };
+    }
+    if (method === 'POST' && path === '/v1/appStoreReviewDetails') {
+      st.reviewDetail = { id: 'rd1', type: 'appStoreReviewDetails', attributes: Object.assign({}, body.data.attributes) };
+      return { data: st.reviewDetail };
+    }
+    const rp = path.match(/^\/v1\/appStoreReviewDetails\/(\w+)$/);
+    if (rp && method === 'PATCH') {
+      Object.assign(st.reviewDetail.attributes, body.data.attributes);
+      return { data: st.reviewDetail };
     }
     if (method === 'POST' && path === '/v1/appStoreVersions') {
       const v = { id: 'v2', type: 'appStoreVersions',
@@ -185,7 +264,7 @@ const FORBIDDEN = /reviewSubmission|betaGroups|betaAppReview|betaBuild|\/v1\/bui
     const f = fake({ cancelPolls: 3 });
     const r = await run(['--version', '0.2.15', '--build', '298', '--submit'], {}, { client: f.client, ...quiet, tries: 10 });
     const v = f.st.versions[0];
-    ok(f.st.subs[0].attributes.state === 'CANCELING', '옛 제출 취소');
+    ok(f.st.subs[0].attributes.state === 'COMPLETE', '옛 제출 취소 → 정리 끝(COMPLETE)까지 기다림');
     ok(v.attributes.versionString === '0.2.15', '판 번호 0.2.15');
     ok(v.build === 'b298', '빌드 298 붙음');
     ok(v.attributes.appStoreState === 'WAITING_FOR_REVIEW', '다시 심사 대기');
@@ -599,6 +678,262 @@ const FORBIDDEN = /reviewSubmission|betaGroups|betaAppReview|betaBuild|\/v1\/bui
     let e2 = null;
     try { await getJson(`https://127.0.0.1:${port}/`, 3000); } catch (e) { e2 = e; }   // 방금 닫은 자리
     ok(e2 && e2.code === 'ECONNREFUSED', '연결 거절 → 오류(ECONNREFUSED)');
+  }
+
+  /* 10/2 — 0.2.20 이 1.4.1 로 거절된 모양 그대로: 판 0.2.20 REJECTED · 제출 s1 UNRESOLVED_ISSUES ·
+     그 제출의 항목 i0(판 v20, REJECTED). 새 빌드 298 을 0.2.21 로 다시 냅니다. */
+  const rejFake = (extra = {}) => fake(Object.assign({
+    versions: [{ id: 'v20', type: 'appStoreVersions', attributes: { versionString: '0.2.20', appStoreState: 'REJECTED' } }],
+    subState: 'UNRESOLVED_ISSUES', cancelPolls: 1,
+    items: [{ id: 'i0', sub: 's1', ver: 'v20', state: 'REJECTED' }],
+  }, extra));
+  const again = ['--version', '0.2.21', '--build', '298', '--submit'];
+
+  console.log('[21] 거절된 제출 하나 — 취소하지 않고 같은 제출로: 번호 · 빌드 → 항목 「고침」 → 제출');
+  {
+    const f = rejFake();
+    const lines = [];
+    const r = await run(again, {}, { client: f.client, ...logInto(lines) });
+    const v = f.st.versions[0];
+    ok(r.submissionId === 's1' && r.resubmitted === true, '같은 제출 s1 로 다시 냄');
+    ok(f.st.subs.length === 1 && f.st.subs[0].attributes.state === 'WAITING_FOR_REVIEW', '취소 · 새 제출 없이 심사 대기');
+    ok(!f.st.calls.includes('POST /v1/reviewSubmissions'), '새 제출을 만들지 않음');
+    ok(v.attributes.versionString === '0.2.21' && v.build === 'b298', '판 0.2.21 · 빌드 298');
+    ok(f.st.items[0].state === 'READY_FOR_REVIEW', '거절된 항목은 「고침」');
+    const iVer = f.st.calls.indexOf('PATCH /v1/appStoreVersions/v20');
+    const iItem = f.st.calls.indexOf('PATCH /v1/reviewSubmissionItems/i0');
+    const iSub = f.st.calls.indexOf('PATCH /v1/reviewSubmissions/s1');
+    ok(iVer >= 0 && iItem > iVer && iSub > iItem, '판 고치기 → 항목 고침 → 제출 순서');
+    ok(f.st.calls.filter(c => c === 'PATCH /v1/reviewSubmissions/s1').length === 1, '제출 PATCH 는 한 번(취소 없음)');
+    ok(lines.some(l => /같은 제출 s1/.test(l)), '로그에 「같은 제출」');
+  }
+
+  console.log('[22] 애플이 「고침」 표시를 받지 않으면(409) — 취소가 아니라 거절된 항목을 빼고, 정리되면 새로 낸다');
+  {
+    const f = rejFake({ noResolve: true });
+    const lines = [];
+    const r = await run(again, {}, { client: f.client, ...logInto(lines), tries: 5 });
+    ok(f.st.items[0].state === 'REMOVED' && f.st.subs[0].attributes.state === 'COMPLETE', '거절된 항목을 빼서 제출을 끝냄');
+    ok(!f.st.calls.includes('PATCH /v1/reviewSubmissions/s1'), '거절된 제출에 취소를 보내지 않음(애플이 409 로 막음)');
+    ok(r.submissionId === 's2' && !r.resubmitted, '새 제출 s2');
+    ok(f.st.subs[1].attributes.state === 'WAITING_FOR_REVIEW', '새 제출이 심사 대기');
+    ok(f.st.versions[0].attributes.versionString === '0.2.21' && f.st.versions[0].build === 'b298', '판 · 빌드 그대로');
+    ok(f.st.calls.filter(c => c === 'PATCH /v1/appStoreVersions/v20').length === 1, '번호는 한 번만 바꿈(응답이 사본이어도)');
+    ok(lines.some(l => /409 ENTITY_ERROR\.ATTRIBUTE\.UNKNOWN/.test(l) && /거절된 항목을 빼고/.test(l)), '애플 코드와 함께 넘어간다고 찍음');
+    const iWait = f.st.calls.indexOf('GET /v1/reviewSubmissions/s1');
+    ok(iWait >= 0 && iWait < f.st.calls.indexOf('POST /v1/reviewSubmissions'), '정리 끝을 확인한 뒤에 새 제출');
+  }
+
+  console.log('[23] 같은 제출 다시 내기를 422 로 거절 → 「고침」 했던 항목도 빼고 새로 낸다');
+  {
+    const f = rejFake({ noResubmit: true, closePolls: 3 });
+    const lines = [];
+    const r = await run(again, {}, { client: f.client, ...logInto(lines), tries: 5 });
+    ok(r.submissionId === 's2' && f.st.subs[1].attributes.state === 'WAITING_FOR_REVIEW', '새 제출 s2 심사 대기');
+    ok(f.st.items[0].state === 'REMOVED', '「고침」 했던 항목도 뺌');
+    ok(lines.some(l => /정리를 기다립니다\(COMPLETING\)/.test(l)), '정리(COMPLETING)를 기다린다고 찍음');
+    ok(f.st.calls.filter(c => c === 'POST /v1/reviewSubmissions').length === 1, '정리 뒤라 새 제출은 한 번에');
+  }
+  {
+    const f = rejFake({ noResubmit: true, neverClose: true });
+    let threw = null;
+    try { await run(again, {}, { client: f.client, ...quiet, tries: 3 }); } catch (e) { threw = e; }
+    ok(threw && /정리되지 않았습니다/.test(threw.message) && !f.st.calls.includes('POST /v1/reviewSubmissions'),
+      '끝내 정리되지 않으면 새 제출 없이 멈춤(무한히 기다리지 않음)');
+  }
+  {
+    const f = rejFake({ noResubmit: true, removeErr: 409 });
+    let threw = null;
+    try { await run(again, {}, { client: f.client, ...quiet, tries: 3 }); } catch (e) { threw = e; }
+    ok(threw && /Resubmit to App Review/.test(threw.message) && !f.st.calls.includes('POST /v1/reviewSubmissions'),
+      '항목도 못 빼면 — 웹에서 누를 단추를 알려 주고 멈춤');
+    ok(f.st.versions[0].attributes.versionString === '0.2.21' && f.st.versions[0].build === 'b298', '판 · 빌드는 준비된 채');
+  }
+
+  console.log('[24] 거절된 제출이 열려 있는 동안 판을 못 고치면(409) 항목을 빼고 새로 낸다');
+  {
+    const f = rejFake({ lockWhileUnresolved: true });
+    const r = await run(again, {}, { client: f.client, ...quiet, tries: 5 });
+    ok(f.st.subs[0].attributes.state === 'COMPLETE' && r.submissionId === 's2', '정리하고 새 제출 s2');
+    ok(f.st.versions[0].attributes.versionString === '0.2.21' && f.st.versions[0].build === 'b298', '판 · 빌드 바뀜');
+    ok(!f.st.calls.some(c => c.startsWith('PATCH /v1/reviewSubmissionItems')) || f.st.items[0].state === 'REMOVED',
+      '「고침」 은 안 보내고 빼기만');
+  }
+
+  console.log('[25] 거절된 제출에 이 판이 없거나 · 다른 제출이 걸려 있으면 같은 제출로 내지 않는다');
+  {
+    const f = rejFake({ items: [{ id: 'i0', sub: 's1', ver: 'vX', state: 'REJECTED' }] });
+    const r = await run(again, {}, { client: f.client, ...quiet, tries: 5 });
+    ok(f.st.subs[0].attributes.state === 'COMPLETE' && r.submissionId === 's2', '다른 판의 제출 — 정리하고 새로');
+    ok(!f.st.calls.includes('PATCH /v1/appStoreVersions/v20') || f.st.calls.indexOf('PATCH /v1/appStoreVersions/v20') >
+      f.st.calls.indexOf('GET /v1/reviewSubmissions/s1'), '판은 정리가 끝난 뒤에 고침');
+  }
+  {
+    /* 대기 중인 제출이 또 있으면(앱마다 하나라 실제로는 드묾) 같은 제출 길을 타지 않음 */
+    const f = rejFake();
+    f.st.subs.push({ id: 's9', type: 'reviewSubmissions', attributes: { state: 'WAITING_FOR_REVIEW' } });
+    await run(again, {}, { client: f.client, ...quiet, tries: 5 });
+    ok(!f.st.calls.some(c => c === 'PATCH /v1/reviewSubmissions/s1') && f.st.subs[0].attributes.state === 'COMPLETE' &&
+      f.st.subs[1].attributes.state === 'COMPLETE', '다른 제출이 걸려 있으면 둘 다 닫고(거절된 것은 항목 빼기) 새로');
+  }
+  {
+    /* 지난 실행이 번호 · 빌드까지 바꾸고 멈췄는데 판이 고칠 수 없는 상태가 됐으면 — 번호 · 빌드가 맞을 때만 그대로 이어서 */
+    const f = rejFake({ versions: [{ id: 'v20', type: 'appStoreVersions', attributes: { versionString: '0.2.21', appStoreState: 'READY_FOR_REVIEW' } }] });
+    f.st.versions[0].build = 'b298';
+    const r = await run(again, {}, { client: f.client, ...quiet, tries: 5 });
+    ok(r.submissionId === 's1' && r.resubmitted && !f.st.calls.includes('PATCH /v1/appStoreVersions/v20'),
+      '번호 · 빌드가 맞으면 고치지 않고 같은 제출로 이어서 냄');
+    const g = rejFake({ versions: [{ id: 'v20', type: 'appStoreVersions', attributes: { versionString: '0.2.21', appStoreState: 'READY_FOR_REVIEW' } }] });
+    g.st.versions[0].build = 'b111';
+    let threw = null;
+    try { await run(again, {}, { client: g.client, ...quiet, tries: 2 }); } catch (e) { threw = e; }
+    ok(!g.st.calls.some(c => c.startsWith('PATCH /v1/reviewSubmissionItems/i0') && g.st.items[0].state !== 'REMOVED'),
+      '빌드가 다르면 같은 제출로 내지 않음');
+  }
+
+  console.log('[26] 권한 · 애플 고장(401 · 403 · 5xx)은 닫고 새로 내기로 넘어가지 않고 멈춘다');
+  for (const code of [401, 403, 500]) {
+    const f = rejFake({ itemsErr: code });
+    let threw = null;
+    try { await run(again, {}, { client: f.client, ...quiet }); } catch (e) { threw = e; }
+    ok(threw && threw.status === code && f.st.subs[0].attributes.state === 'UNRESOLVED_ISSUES' &&
+      f.st.calls.every(c => c.startsWith('GET')), `${code} — 아무것도 안 바꾸고 멈춤`);
+  }
+
+  console.log('[27] 심사 메모 — 원래 메모 뒤에 덧붙임 · 한 번만 · 원래 메모 · 데모 계정 · 연락처는 로그에 안 찍음');
+  {
+    const NOTE = 'Version 0.2.21 - citations\nSettings -> Help -> Sources';
+    const rf = { readFile: f => (f === 'notes.txt' ? NOTE + '\r\n' : (() => { throw new Error('ENOENT'); })()) };
+    const secret = { notes: 'Demo login: reviewer / pw-SECRET-1', demoAccountName: 'reviewer',
+      demoAccountPassword: 'pw-SECRET-1', contactEmail: 'owner@example.invalid', contactPhone: '+82-10-0000-0000' };
+    const f = rejFake({ reviewDetail: { id: 'rd1', type: 'appStoreReviewDetails', attributes: Object.assign({}, secret) } });
+    const lines = [];
+    const argv = [...again, '--review-notes-file', 'notes.txt'];
+    await run(argv, {}, { client: f.client, ...logInto(lines), ...rf });
+    const n = f.st.reviewDetail.attributes.notes;
+    ok(n === `${secret.notes}\n\n${NOTE}`, '원래 메모 + 빈 줄 + 새 글(CRLF · 끝 공백 정리)');
+    ok(f.st.reviewDetail.attributes.demoAccountPassword === 'pw-SECRET-1', '데모 계정은 그대로');
+    ok(!lines.some(l => /SECRET|owner@example|0000-0000|reviewer/.test(l)), '로그에 원래 메모 · 계정 · 연락처 없음');
+    ok(lines.some(l => /심사 메모: 덧붙임/.test(l)), '덧붙였다고 찍음(글자 수만)');
+    const iNotes = f.st.calls.indexOf('PATCH /v1/appStoreReviewDetails/rd1');
+    ok(iNotes >= 0 && iNotes < f.st.calls.indexOf('PATCH /v1/reviewSubmissions/s1'), '메모는 제출 전에');
+    /* 같은 판을 다시 내도(예: 다시 거절된 뒤) 두 번 붙지 않음 */
+    f.st.subs[0].attributes.state = 'UNRESOLVED_ISSUES';
+    f.st.versions[0].attributes.appStoreState = 'REJECTED';
+    f.st.items[0].state = 'REJECTED';
+    const lines2 = [];
+    await run(argv, {}, { client: f.client, ...logInto(lines2), ...rf });
+    ok(f.st.reviewDetail.attributes.notes === n && lines2.some(l => /이미 들어 있음/.test(l)), '두 번째는 붙이지 않음');
+  }
+  {
+    const NOTE = 'Version 0.2.21 - citations';
+    const rf = { readFile: () => NOTE };
+    const f = rejFake();                                   // 심사 정보가 아직 없음(404)
+    await run([...again, '--review-notes-file', 'n.txt'], {}, { client: f.client, ...quiet, ...rf });
+    ok(f.st.reviewDetail && f.st.reviewDetail.attributes.notes === NOTE, '심사 정보가 없으면 새로 만들어 적음');
+    /* 메모를 줬는데 못 붙이면 내지 않고 멈춤 — 심사원에게 할 말 없이 내지 않게. 그 앞의 일은 다시 돌려도 무해. */
+    const noSubmit = st => !st.calls.some(c => c.startsWith('PATCH /v1/reviewSubmission') || c === 'POST /v1/reviewSubmissions');
+    const g = rejFake({ reviewDetail: { id: 'rd1', attributes: { notes: 'x'.repeat(3990) } } });
+    let tg = null;
+    try { await run([...again, '--review-notes-file', 'n.txt'], {}, { client: g.client, ...quiet, ...rf }); } catch (e) { tg = e; }
+    ok(tg && /4018자 — 한도 4000/.test(tg.message) && g.st.reviewDetail.attributes.notes === 'x'.repeat(3990), '4000자를 넘으면 원래 메모를 지키고 멈춤');
+    ok(noSubmit(g.st) && g.st.subs[0].attributes.state === 'UNRESOLVED_ISSUES', '「고침」 · 제출을 보내지 않음');
+    for (const code of [500, 409]) {
+      const h = rejFake({ notesErr: code, reviewDetail: { id: 'rd1', attributes: { notes: 'pw-SECRET-2' } } });
+      let th = null;
+      try { await run([...again, '--review-notes-file', 'n.txt'], {}, { client: h.client, ...quiet, ...rf }); } catch (e) { th = e; }
+      ok(th && new RegExp(`읽기 ${code}`).test(th.message) && !/SECRET/.test(th.message) && noSubmit(h.st), `메모를 못 읽으면(${code}) 내지 않고 멈춤`);
+    }
+    /* 멈춘 뒤 다시 돌리면(메모가 고쳐졌다고 치고) 같은 제출로 이어서 냄 */
+    g.st.reviewDetail.attributes.notes = 'short';
+    const rg = await run([...again, '--review-notes-file', 'n.txt'], {}, { client: g.client, ...quiet, ...rf });
+    ok(rg.submissionId === 's1' && rg.resubmitted && g.st.reviewDetail.attributes.notes === `short\n\n${NOTE}`, '다시 돌리면 이어서 같은 제출로');
+  }
+  {
+    const f = rejFake({ reviewDetail: { id: 'rd1', attributes: { notes: 'old' } } });
+    const lines = [];
+    await run(['--version', '0.2.21', '--build', '298', '--review-notes-file', 'n.txt'], {},
+      { client: f.client, ...logInto(lines), readFile: () => 'Version 0.2.21 - citations' });
+    ok(f.st.calls.every(c => c.startsWith('GET')) && f.st.reviewDetail.attributes.notes === 'old', '읽기만은 메모를 바꾸지 않음');
+    ok(lines.some(l => /심사 메모: n\.txt — 원래 3자 \+ 새 26자 = 31\/4000/.test(l)), '읽기만은 합친 길이만 찍음');
+    ok(!lines.some(l => /\bold\b/.test(l)), '원래 메모 내용은 안 찍음');
+    const g = rejFake({ reviewDetail: { id: 'rd1', attributes: { notes: 'z'.repeat(3990) } } });
+    const l2 = [];
+    await run(['--version', '0.2.21', '--build', '298', '--review-notes-file', 'n.txt'], {},
+      { client: g.client, ...logInto(l2), readFile: () => 'Version 0.2.21 - citations' });
+    ok(l2.some(l => /넘침\(제출하면 멈춤\)/.test(l)), '읽기만에서 넘침을 미리 알림');
+    const h = rejFake({ notesErr: 500 });
+    const l3 = [];
+    const r3 = await run(['--version', '0.2.21', '--build', '298', '--review-notes-file', 'n.txt'], {},
+      { client: h.client, ...logInto(l3), readFile: () => 'Version 0.2.21 - citations' });
+    ok(r3.submitted === false && l3.some(l => /원래 메모 확인 못 함\(500\)/.test(l)), '읽기만은 메모를 못 읽어도 멈추지 않음');
+  }
+
+  console.log('[28] 메모 파일 검사 — 비었거나 · 너무 길거나 · 경로가 없으면 아무것도 안 바꾸고 멈춘다');
+  for (const [name, text, re] of [['빈 파일', '  \n', /비어/], ['4001자', 'y'.repeat(4001), /4001자/]]) {
+    const f = rejFake();
+    let threw = null;
+    try { await run([...again, '--review-notes-file', 'n.txt'], {}, { client: f.client, ...quiet, readFile: () => text }); }
+    catch (e) { threw = e; }
+    ok(threw && re.test(threw.message) && f.st.calls.length === 0, `${name} — 애플에 묻기 전에 멈춤`);
+  }
+  {
+    const f = rejFake();
+    let threw = null;
+    try { await run([...again, '--review-notes-file'], {}, { client: f.client, ...quiet }); } catch (e) { threw = e; }
+    ok(threw && /파일 경로/.test(threw.message) && f.st.calls.length === 0, '경로 없음 — 멈춤');
+    let t2 = null;
+    try { await run([...again, '--review-notes-file', '/없는/파일.txt'], {}, { client: f.client, ...quiet }); } catch (e) { t2 = e; }
+    ok(t2 && f.st.calls.length === 0, '못 읽는 파일 — 멈춤');
+  }
+
+  console.log('[29] 이미 이 판 · 이 빌드로 심사 대기 중이면(응답을 못 받은 실행을 다시 돌림) 아무것도 안 바꾼다');
+  {
+    const f = fake({ versions: [{ id: 'v1', type: 'appStoreVersions', attributes: { versionString: '0.2.15', appStoreState: 'WAITING_FOR_REVIEW' } }] });
+    f.st.versions[0].build = 'b298';
+    const lines = [];
+    const r = await run(['--version', '0.2.15', '--build', '298', '--submit'], {}, { client: f.client, ...logInto(lines) });
+    ok(r.already === true && r.submissionId === 's1', '이미 제출됨으로 끝남');
+    ok(f.st.calls.every(c => c.startsWith('GET')) && f.st.subs[0].attributes.state === 'WAITING_FOR_REVIEW', '취소 · 수정 없음');
+    ok(lines.some(l => /이미 판 0\.2\.15 \(298\) 로 WAITING_FOR_REVIEW/.test(l)), '그렇다고 찍음');
+    const g = fake({ versions: [{ id: 'v1', type: 'appStoreVersions', attributes: { versionString: '0.2.15', appStoreState: 'WAITING_FOR_REVIEW' } }] });
+    g.st.versions[0].build = 'b111';
+    const r2 = await run(['--version', '0.2.15', '--build', '298', '--submit'], {}, { client: g.client, ...quiet, tries: 5 });
+    ok(r2.submissionId === 's2' && g.st.versions[0].build === 'b298', '빌드가 다르면 예전처럼 취소하고 새 빌드로 다시 냄');
+    const h = fake({ versions: [{ id: 'v1', type: 'appStoreVersions', attributes: { versionString: '0.2.15', appStoreState: 'WAITING_FOR_REVIEW' } }], buildReadErr: 500 });
+    let th = null;
+    try { await run(['--version', '0.2.15', '--build', '298', '--submit'], {}, { client: h.client, ...quiet }); } catch (e) { th = e; }
+    ok(th && th.status === 500 && h.st.calls.every(c => c.startsWith('GET')), '붙은 빌드를 못 읽으면 취소하지 않고 멈춤');
+  }
+
+  console.log('[30] 판 넣기가 409 — 정말 들어 있을 때만 넘어가고, 아니면 기다렸다 다시 · 끝내 안 되면 빈 제출을 내지 않음');
+  {
+    const f = fake({ itemBusy: 2 });
+    const lines = [];
+    const r = await run(['--version', '0.2.15', '--build', '298', '--submit'], {}, { client: f.client, ...logInto(lines), tries: 5 });
+    ok(r.submissionId === 's2' && f.st.subs[1].attributes.state === 'WAITING_FOR_REVIEW', '기다렸다 넣고 제출');
+    ok(f.st.calls.filter(c => c === 'POST /v1/reviewSubmissionItems').length === 3 && lines.some(l => /판을 아직 못 넣습니다/.test(l)), '409 두 번 → 세 번째에 들어감');
+    const g = fake({ itemBusy: 99 });
+    let tg = null;
+    try { await run(['--version', '0.2.15', '--build', '298', '--submit'], {}, { client: g.client, ...quiet, tries: 3 }); } catch (e) { tg = e; }
+    ok(tg && tg.status === 409 && !g.st.calls.includes('PATCH /v1/reviewSubmissions/s2'), '끝내 못 넣으면 빈 제출을 내지 않고 멈춤');
+    /* 이미 들어 있는 409 — 남은 안 낸 제출(READY_FOR_REVIEW)에 판이 이미 있을 때 */
+    const h = fake({ noSub: true, verState: 'DEVELOPER_REJECTED' });
+    h.st.subs.push({ id: 's5', type: 'reviewSubmissions', attributes: { state: 'READY_FOR_REVIEW' } });
+    h.st.items.push({ id: 'i5', sub: 's5', ver: 'v1', state: 'READY_FOR_REVIEW' });
+    const rh = await run(['--version', '0.2.15', '--build', '298', '--submit'], {}, { client: h.client, ...quiet, tries: 3 });
+    ok(rh.submissionId === 's5' && h.st.subs[0].attributes.state === 'WAITING_FOR_REVIEW', '이미 들어 있으면(409) 그대로 제출');
+  }
+
+  console.log('[31] 새 제출 만들기가 409 — 기다렸다 다시 · 끝내 안 되면 멈춤');
+  {
+    const f = fake({ postBusy: 2 });
+    const r = await run(['--version', '0.2.15', '--build', '298', '--submit'], {}, { client: f.client, ...quiet, tries: 5 });
+    ok(r.submissionId === 's2' && f.st.calls.filter(c => c === 'POST /v1/reviewSubmissions').length === 3, '세 번째에 만듦');
+    const g = fake({ postBusy: 99 });
+    let tg = null;
+    try { await run(['--version', '0.2.15', '--build', '298', '--submit'], {}, { client: g.client, ...quiet, tries: 3 }); } catch (e) { tg = e; }
+    ok(tg && tg.status === 409, '끝내 안 되면 409 로 멈춤');
   }
 
   console.log(`\n통과 ${pass} / 실패 ${fail}`);

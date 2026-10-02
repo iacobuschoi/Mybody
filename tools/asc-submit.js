@@ -3,7 +3,7 @@
  * tools/asc-submit.js — 앱스토어 심사 · TestFlight 베타 심사를 API 로 다시 올리기 (웹 로그인 없이)
  *
  *   node tools/asc-submit.js --version 0.2.15 --build 298 [--beta friends] [--drop-old-beta]
- *                            [--submit] [--whats-new "…"]
+ *                            [--submit] [--whats-new "…"] [--review-notes-file 파일]
  *
  *   node tools/asc-submit.js --link-only --beta friends [--submit] [--link-off]
  *
@@ -20,11 +20,30 @@
  *
  * 무엇을 하는가 (앱스토어)
  *   1. 번들 ID 로 앱을 찾습니다.
- *   2. 걸려 있는 심사 제출(reviewSubmissions: 대기 · 심사 중 · 문제 있음)을 취소하고, 판(appStoreVersion)이
- *      고칠 수 있는 상태가 될 때까지 기다립니다(취소는 애플 쪽에서 몇 초~몇 분 걸림).
+ *   2. 걸려 있는 심사 제출(reviewSubmissions)을 닫습니다 — 대기 · 심사 중은 취소, 거절된 것(문제 있음)은 애플이
+ *      취소를 받지 않으니 거절된 항목을 뺍니다(다 빼면 제출이 끝남). 애플 쪽 정리(CANCELING · COMPLETING →
+ *      COMPLETE)와 판(appStoreVersion)이 고칠 수 있는 상태가 될 때까지 기다립니다(몇 초~몇 분).
  *   3. 아직 출시된 적 없는 판이면 그 판의 번호를 새 번호로 바꿉니다(0.2.8 → 0.2.15). 심사 정보(데모 계정 ·
  *      메모) · 설명 · 스크린샷은 그 판에 붙어 있으니 그대로 따라옵니다. 이미 출시된 판뿐이면 새 판을 만듭니다.
  *   4. 빌드(버전 + 빌드 번호, 처리 완료)를 그 판에 붙이고, 새 심사 제출을 만들어 판을 넣고 제출합니다.
+ *      그래도 새 제출 · 판 넣기가 409 면 기다렸다 다시 합니다 — 판이 정말 들어간 것을 본 뒤에만 제출합니다.
+ *   이미 이 판 · 이 빌드로 심사 대기 · 심사 중이면 아무것도 바꾸지 않습니다(응답을 못 받은 실행을 다시 돌려도
+ *   멀쩡한 제출을 취소하지 않게).
+ *
+ * 거절된 제출(UNRESOLVED_ISSUES)이 하나뿐일 때 (10/2 — 0.2.20 이 1.4.1 로 거절)
+ *   취소하지 않고 **같은 제출로 다시 냅니다**(웹의 「다시 심사 요청」 과 같음 — 거절 때 오간 기록이 그 제출에
+ *   이어짐). 판 번호 · 빌드를 바꾸고 → 거절된 항목을 「고침」(resolved)으로 → 제출(submitted)합니다.
+ *   애플이 그 길을 400 · 404 · 409 · 422 로 받지 않으면 위의 2~4(거절된 항목을 빼고 새로 내기)로 넘어갑니다.
+ *   항목도 못 빼면 멈추고 웹에서 누를 단추(「Resubmit to App Review」)를 알려 줍니다. 401 · 403 · 5xx 는 넘어가지
+ *   않고 멈춥니다. 거절된 판은 이미 대기 줄에서 빠져 있어서, 다시 내도 잃는 순서는 없습니다.
+ *
+ * 심사 메모 (--review-notes-file 파일)
+ *   --submit 일 때 그 판의 「App Review 정보 → 메모」(appStoreReviewDetail.notes) 끝에 파일 내용을
+ *   덧붙입니다(API 로는 Resolution Center 답장을 못 쓰니 심사원에게 하는 말은 여기에). 첫 줄이 이미 메모에
+ *   있으면 다시 붙이지 않습니다. 원래 메모 · 데모 계정 · 연락처는 **읽기만 하고 로그에 찍지 않습니다**
+ *   (Actions 로그는 공개 — 글자 수 · 애플 오류 코드만). 메모를 못 붙이면(못 읽음 · 못 씀 · 합쳐서 4000자 넘음)
+ *   **제출하지 않고 멈춥니다** — 심사원에게 할 말 없이 내지 않으려고(그 앞의 일은 다시 돌려도 무해).
+ *   읽기만일 때는 붙을지(원래 + 새 = 합계/4000)만 찍습니다.
  *
  * 무엇을 하는가 (--beta 그룹이름)
  *   그 외부 테스트 그룹에 빌드를 넣고, 「테스트할 내용」(--whats-new)을 적고, 베타 심사를 제출합니다.
@@ -59,6 +78,7 @@
  *   **바꾸기 전에 확인할 수 있는 것은 전부 먼저 확인**합니다.
  * ========================================================================== */
 'use strict';
+const fs = require('fs');
 const https = require('https');
 const asc = require('./asc.js');
 
@@ -81,6 +101,17 @@ const PAST_REVIEW = ['PENDING_APPLE_RELEASE', 'ACCEPTED', 'PREORDER_READY_FOR_SA
   'REMOVED_FROM_SALE', 'DEVELOPER_REMOVED_FROM_SALE'];
 const LOOKUP = 'https://itunes.apple.com/lookup';
 const LOOKUP_MS = 8000;
+/* 「App Review 정보 → 메모」 의 최대 길이(애플 4000자). */
+const NOTES_MAX = 4000;
+/* 거절된 제출을 같은 제출로 다시 낼 때, 애플이 「그 상태 · 그 요청으로는 안 됨」 이라고 하는 답 —
+   이때만 닫고 새로 내는 길로 넘어갑니다. 401 · 403(열쇠 · 권한) · 5xx · 네트워크는 그대로 멈춥니다. */
+const RESUBMIT_SOFT = [400, 404, 409, 422];
+
+/** 애플 오류의 코드 · 설명을 한 줄로(로그용 · 200자). */
+function appleDetail(e) {
+  return ((e && e.errors) || []).map(x => [x.code, x.detail || x.title].filter(Boolean).join(': '))
+    .filter(Boolean).join(' | ').replace(/\s+/g, ' ').slice(0, 200);
+}
 
 function arg(argv, k, d) {
   const i = argv.indexOf(k);
@@ -151,24 +182,270 @@ async function waitEditable(c, versionId, opts) {
   throw new Error('취소한 뒤에도 판이 고칠 수 있는 상태가 되지 않았습니다 — 새 제출을 만들지 않고 멈춥니다');
 }
 
+/** 판 번호를 opts.version 으로(다르면), 빌드를 그 판에 붙입니다. 바꾼 번호는 ver 에도 적습니다 — 같은 제출로
+ *  다시 내려다 닫고 새로 내는 길로 넘어가도 번호를 두 번 바꾸지 않게. */
+async function editVersion(c, opts, p, ver) {
+  if (ver.attributes.versionString !== opts.version) {
+    opts.log(`판 번호 바꾸기: ${ver.attributes.versionString} → ${opts.version}`);
+    await c.call('PATCH', `/v1/appStoreVersions/${ver.id}`, {
+      data: { type: 'appStoreVersions', id: ver.id, attributes: { versionString: opts.version } },
+    });
+    ver.attributes.versionString = opts.version;
+  }
+  opts.log(`빌드 붙이기: ${opts.version} (${opts.build})`);
+  await c.call('PATCH', `/v1/appStoreVersions/${ver.id}/relationships/build`, {
+    data: { type: 'builds', id: p.build.id },
+  });
+}
+
+/** 그 판에 붙은 빌드가 이 빌드인가. 못 읽으면(404 외) 던집니다 — 「아니다」 로 넘기면 멀쩡한 제출을 닫습니다. */
+async function buildIs(c, versionId, buildId) {
+  try {
+    const r = await c.call('GET', `/v1/appStoreVersions/${versionId}/build`);
+    return !!(r && r.data && r.data.id === buildId);
+  } catch (e) {
+    if (e.status === 404) return false;
+    throw e;
+  }
+}
+
+/** 제출의 항목들(판 관계 포함). */
+async function itemsOf(c, subId) {
+  return (await c.call('GET', `/v1/reviewSubmissions/${subId}/items?include=appStoreVersion&limit=50`)).data || [];
+}
+const itemVer = it => ((((it && it.relationships) || {}).appStoreVersion || {}).data || {}).id;
+
+/** 심사 메모 — 원래 메모를 읽어 덧붙일 글과 합친 결과만 돌려줍니다(바꾸지 않음). 원래 내용은 밖으로 찍지
+ *  않습니다. { detail, old, already, notes } — detail 이 null 이면 심사 정보가 아직 없음(404). */
+async function notesPlan(c, opts, ver) {
+  const add = opts.reviewNotes;
+  let detail = null;
+  try {
+    detail = (await c.call('GET', `/v1/appStoreVersions/${ver.id}/appStoreReviewDetail`)).data || null;
+  } catch (e) {
+    if (e.status !== 404) throw e;
+  }
+  const old = String((detail && detail.attributes && detail.attributes.notes) || '');
+  const mark = add.split('\n')[0].trim();
+  const already = !!mark && old.includes(mark);
+  const notes = old.trim() ? `${old.replace(/\s+$/, '')}\n\n${add}` : add;
+  return { detail, old, already, notes };
+}
+
+/** 애플 오류의 코드만(심사 정보 쪽 — 설명은 보낸 값을 되풀이할 수 있어 찍지 않음). */
+const codesOf = e => ((e && e.errors) || []).map(x => x && x.code).filter(Boolean).join(' | ').slice(0, 120);
+
+/** 심사 메모 덧붙이기(머리말 「심사 메모」). 메모 파일을 줬는데 못 붙이면 **던집니다** — 심사원에게 할 말
+ *  없이 내지 않으려고(이 앞의 일은 다시 돌려도 무해하니 멈춰도 잃는 것이 없음). 원래 메모 · 데모 계정 ·
+ *  연락처는 로그에 찍지 않습니다(글자 수만). 돌려주는 값: 'added' · 'already' · 'none'(파일 없음). */
+async function addReviewNotes(c, opts, ver) {
+  const log = opts.log;
+  const add = opts.reviewNotes;
+  if (!add) return 'none';
+  const stop = why => new Error(`심사 메모를 붙이지 못해 제출하지 않고 멈춥니다(${why}) — 판 ${opts.version} · ` +
+    `빌드 ${opts.build} 는 붙어 있습니다. 메모 파일을 고치거나 다시 돌리세요`);
+  let m;
+  try { m = await notesPlan(c, opts, ver); } catch (e) {
+    throw stop(`읽기 ${(e && e.status) || '응답 없음'}${codesOf(e) ? ' ' + codesOf(e) : ''}`);
+  }
+  if (m.already) {
+    log('심사 메모: 이미 들어 있음 — 다시 붙이지 않습니다');
+    return 'already';
+  }
+  if (m.notes.length > NOTES_MAX) throw stop(`합치면 ${m.notes.length}자 — 한도 ${NOTES_MAX}`);
+  try {
+    if (!m.detail) {
+      await c.call('POST', '/v1/appStoreReviewDetails', {
+        data: { type: 'appStoreReviewDetails', attributes: { notes: add },
+          relationships: { appStoreVersion: { data: { type: 'appStoreVersions', id: ver.id } } } },
+      });
+      log(`심사 메모: 새로 적음 (${add.length}자)`);
+    } else {
+      await c.call('PATCH', `/v1/appStoreReviewDetails/${m.detail.id}`, {
+        data: { type: 'appStoreReviewDetails', id: m.detail.id, attributes: { notes: m.notes } },
+      });
+      log(`심사 메모: 덧붙임 (원래 ${m.old.length}자 + ${add.length}자)`);
+    }
+  } catch (e) {
+    throw stop(`쓰기 ${(e && e.status) || '응답 없음'}${codesOf(e) ? ' ' + codesOf(e) : ''}`);
+  }
+  return 'added';
+}
+
+/** 거절된 제출(UNRESOLVED_ISSUES)을 취소하지 않고 같은 제출로 다시 냅니다(머리말) — 애플 도움말의
+ *  「거절된 항목 고치기 → 다시 심사 요청」 과 같은 순서. 애플이 그 길을 받지 않으면(RESUBMIT_SOFT) null —
+ *  부른 쪽이 거절된 항목을 빼고 새로 내는 길로 갑니다. 그 밖의 오류(권한 · 애플 고장 · 메모)는 던집니다. */
+async function resubmitUnresolved(c, opts, p, sub) {
+  const log = opts.log;
+  const ver = p.target;
+  const soft = (e, what) => {
+    if (!RESUBMIT_SOFT.includes(e && e.status)) throw e;
+    const d = appleDetail(e);
+    log(`같은 제출로 다시 내기: ${what}에서 애플이 받지 않음(${e.status}${d ? ' ' + d : ''}) — 거절된 항목을 빼고 새로 냅니다`);
+    return null;
+  };
+  /* 판을 고칠 수 없는 상태면, 지난 실행이 번호 · 빌드를 이미 바꿔 놓은 경우(그 뒤에 멈춤)만 그대로 이어서 냅니다. */
+  const editable = EDITABLE.includes(stateOf(ver));
+  if (!editable && !(ver.attributes.versionString === opts.version && await buildIs(c, ver.id, p.build.id))) {
+    log(`거절된 제출 ${sub.id}: 판 ${ver.attributes.versionString} 이 ${stateOf(ver)} — 새로 냅니다`);
+    return null;
+  }
+  let items;
+  try { items = await itemsOf(c, sub.id); } catch (e) { return soft(e, '제출 항목 읽기'); }
+  if (!items.some(it => itemVer(it) === ver.id)) {
+    log(`거절된 제출 ${sub.id} 에 판 ${ver.attributes.versionString} 이 없습니다 — 새로 냅니다`);
+    return null;
+  }
+  log(`거절된 제출 ${sub.id} 를 취소하지 않고 같은 제출로 다시 냅니다`);
+  if (editable) {
+    try { await editVersion(c, opts, p, ver); } catch (e) { return soft(e, '판 번호 · 빌드 바꾸기'); }
+  } else {
+    log(`판 ${opts.version} · 빌드 ${opts.build} 는 이미 붙어 있음(${stateOf(ver)}) — 그대로 다시 냅니다`);
+  }
+  await addReviewNotes(c, opts, ver);
+  try {
+    for (const it of items) {
+      if (((it.attributes || {}).state) !== 'REJECTED') continue;
+      log(`거절된 항목 「고침」 표시: ${it.id}`);
+      await c.call('PATCH', `/v1/reviewSubmissionItems/${it.id}`, {
+        data: { type: 'reviewSubmissionItems', id: it.id, attributes: { resolved: true } },
+      });
+    }
+  } catch (e) { return soft(e, '거절된 항목 「고침」 표시'); }
+  try {
+    await c.call('PATCH', `/v1/reviewSubmissions/${sub.id}`, {
+      data: { type: 'reviewSubmissions', id: sub.id, attributes: { submitted: true } },
+    });
+  } catch (e) { return soft(e, '다시 제출'); }
+  log(`앱스토어 다시 심사 요청 끝: 판 ${opts.version} (${opts.build}) · 같은 제출 ${sub.id}`);
+  return { submissionId: sub.id, versionId: ver.id, resubmitted: true };
+}
+
+/** 걸려 있는 제출을 닫습니다. 대기 · 심사 중은 취소(canceled), 거절된 것(UNRESOLVED_ISSUES)은 애플이 취소를
+ *  받지 않으므로(409 「not in cancellable state」) 거절된 항목을 뺍니다(removed — 애플 도움말: 항목을 다 빼면
+ *  제출이 끝남). 닫은 제출의 id 들을 돌려줍니다. */
+async function closeOpen(c, opts, p) {
+  const log = opts.log;
+  const closed = [];
+  for (const s of p.subs) {
+    const st = s.attributes.state;
+    if (st === 'READY_FOR_REVIEW') continue;             // 아직 안 낸 것 — 아래에서 다시 씀
+    if (st === 'UNRESOLVED_ISSUES') {
+      try {
+        const items = (await itemsOf(c, s.id)).filter(it => !['REMOVED', 'APPROVED', 'ACCEPTED'].includes((it.attributes || {}).state));
+        log(`거절된 제출 정리: ${s.id} — 항목 ${items.length}개 빼기`);
+        for (const it of items) {
+          await c.call('PATCH', `/v1/reviewSubmissionItems/${it.id}`, {
+            data: { type: 'reviewSubmissionItems', id: it.id, attributes: { removed: true } },
+          });
+        }
+      } catch (e) {
+        const d = appleDetail(e);
+        throw new Error(`거절된 제출 ${s.id} 을 정리하지 못했습니다(${(e && e.status) || (e && e.message) || e}${d ? ' ' + d : ''}) — ` +
+          `판 · 빌드 · 메모는 붙어 있을 수 있습니다. App Store Connect → 앱 심사에서 「Resubmit to App Review」 를 누르세요`);
+      }
+    } else {
+      log(`심사 제출 취소: ${s.id} (${st})`);
+      await c.call('PATCH', `/v1/reviewSubmissions/${s.id}`, {
+        data: { type: 'reviewSubmissions', id: s.id, attributes: { canceled: true } },
+      });
+    }
+    closed.push(s.id);
+  }
+  return closed;
+}
+
+/** 닫은 제출이 애플 쪽에서 정리(CANCELING · COMPLETING → COMPLETE)될 때까지 기다립니다 — 그 사이에는 새 제출 ·
+ *  항목 넣기가 409 로 막힙니다. 시간 안에 안 끝나면 새 제출을 만들지 않고 멈춥니다. */
+const STILL_OPEN = ['CANCELING', 'COMPLETING', 'WAITING_FOR_REVIEW', 'IN_REVIEW', 'UNRESOLVED_ISSUES'];
+async function waitClosed(c, ids, opts) {
+  const tries = opts.tries || 30;
+  for (const id of ids) {
+    for (let i = 0; ; i++) {
+      let st = null;
+      try { st = String(((((await c.call('GET', `/v1/reviewSubmissions/${id}`)) || {}).data || {}).attributes || {}).state || ''); }
+      catch (e) { if (e.status !== 404) throw e; }
+      if (!STILL_OPEN.includes(st)) break;
+      if (i + 1 >= tries) throw new Error(`닫은 제출 ${id} 이 정리되지 않았습니다(${st}) — 새 제출을 만들지 않고 멈춥니다`);
+      opts.log(`  제출 ${id} 정리를 기다립니다(${st}) (${i + 1}/${tries})`);
+      await sleep(opts.waitMs || 10000, opts);
+    }
+  }
+}
+
+/** 안 낸 제출(READY_FOR_REVIEW)을 쓰거나 새로 만듭니다. 그래도 애플이 409 로 막으면 열릴 때까지
+ *  기다립니다(같은 횟수 · 간격). */
+async function draftSubmission(c, opts, appId) {
+  const tries = opts.tries || 30;
+  for (let i = 0; ; i++) {
+    const left = (await openSubmissions(c, appId)).find(s => s.attributes.state === 'READY_FOR_REVIEW');
+    if (left) return left.id;
+    try {
+      const r = await c.call('POST', '/v1/reviewSubmissions', {
+        data: { type: 'reviewSubmissions', attributes: { platform: 'IOS' },
+          relationships: { app: { data: { type: 'apps', id: appId } } } },
+      });
+      return r.data.id;
+    } catch (e) {
+      if (e.status !== 409 || i + 1 >= tries) throw e;
+      opts.log(`  새 제출을 아직 못 만듭니다(409) — 기다립니다 (${i + 1}/${tries})`);
+      await sleep(opts.waitMs || 10000, opts);
+    }
+  }
+}
+
+/** 제출에 판을 넣습니다. 409 는 「이미 들어 있음」 일 수도, 「아직 못 넣음」 일 수도 있어서 항목을 다시 읽어
+ *  판이 정말 들어 있을 때만 넘어갑니다(빈 제출을 내지 않게). */
+async function addItem(c, opts, subId, verId) {
+  const tries = opts.tries || 30;
+  for (let i = 0; ; i++) {
+    try {
+      await c.call('POST', '/v1/reviewSubmissionItems', {
+        data: { type: 'reviewSubmissionItems', relationships: {
+          reviewSubmission: { data: { type: 'reviewSubmissions', id: subId } },
+          appStoreVersion: { data: { type: 'appStoreVersions', id: verId } } } },
+      });
+      return;
+    } catch (e) {
+      if (e.status !== 409) throw e;
+      if ((await itemsOf(c, subId)).some(it => itemVer(it) === verId)) return;   // 이미 들어 있음
+      if (i + 1 >= tries) throw e;
+      opts.log(`  제출 ${subId} 에 판을 아직 못 넣습니다(409) — 기다립니다 (${i + 1}/${tries})`);
+      await sleep(opts.waitMs || 10000, opts);
+    }
+  }
+}
+
 async function submitAppStore(c, opts, p) {
   const log = opts.log;
   if (!p.build) throw new Error(`빌드 ${opts.version} (${opts.build}) 를 못 찾았습니다 — TestFlight 처리가 끝났는지 보세요`);
   const bstate = p.build.attributes.processingState;
   if (bstate !== 'VALID') throw new Error(`빌드 처리 상태가 ${bstate} 입니다 — VALID 가 된 뒤 다시`);
 
-  /* 1. 걸려 있는 제출을 취소합니다. */
-  for (const s of p.subs) {
-    const st = s.attributes.state;
-    if (st === 'READY_FOR_REVIEW') continue;             // 아직 안 낸 것 — 아래에서 다시 씀
-    log(`심사 제출 취소: ${s.id} (${st})`);
-    await c.call('PATCH', `/v1/reviewSubmissions/${s.id}`, {
-      data: { type: 'reviewSubmissions', id: s.id, attributes: { canceled: true } },
-    });
+  /* 이미 이 판 · 이 빌드로 심사 대기 · 심사 중이면 아무것도 안 바꿉니다 — 응답을 못 받은 실행을 다시 돌려도
+     멀쩡한 제출을 취소하지 않게. */
+  const t = p.target;
+  if (t && t.attributes.versionString === opts.version && ['WAITING_FOR_REVIEW', 'IN_REVIEW'].includes(stateOf(t)) &&
+      await buildIs(c, t.id, p.build.id)) {
+    const s = p.subs.find(x => ['WAITING_FOR_REVIEW', 'IN_REVIEW'].includes(x.attributes.state));
+    log(`이미 판 ${opts.version} (${opts.build}) 로 ${stateOf(t)} — 아무것도 바꾸지 않습니다`);
+    return { submissionId: s ? s.id : null, versionId: t.id, already: true };
   }
 
+  /* 0. 거절된 제출 하나만 걸려 있으면 같은 제출로 다시 냅니다(머리말). 안 되면 아래로. */
+  const unresolved = p.subs.filter(s => s.attributes.state === 'UNRESOLVED_ISSUES');
+  const busy = p.subs.filter(s => !['READY_FOR_REVIEW', 'UNRESOLVED_ISSUES'].includes(s.attributes.state));
+  if (t && unresolved.length === 1 && !busy.length) {
+    const done = await resubmitUnresolved(c, opts, p, unresolved[0]);
+    if (done) return done;
+  }
+
+  /* 1. 걸려 있는 제출을 닫고(취소 · 거절된 항목 빼기), 애플 쪽 정리가 끝날 때까지 기다립니다. */
+  const closed = await closeOpen(c, opts, p);
+  await waitClosed(c, closed, opts);
+
   /* 2. 판을 고칠 수 있게 되면 번호 · 빌드를 바꿉니다. */
-  let ver = p.target;
+  let ver = t;
   if (!ver) {
     log(`새 판 ${opts.version} 를 만듭니다`);
     const r = await c.call('POST', '/v1/appStoreVersions', {
@@ -178,37 +455,14 @@ async function submitAppStore(c, opts, p) {
     ver = r.data;
   } else {
     await waitEditable(c, ver.id, opts);
-    if (ver.attributes.versionString !== opts.version) {
-      log(`판 번호 바꾸기: ${ver.attributes.versionString} → ${opts.version}`);
-      await c.call('PATCH', `/v1/appStoreVersions/${ver.id}`, {
-        data: { type: 'appStoreVersions', id: ver.id, attributes: { versionString: opts.version } },
-      });
-    }
   }
-  log(`빌드 붙이기: ${opts.version} (${opts.build})`);
-  await c.call('PATCH', `/v1/appStoreVersions/${ver.id}/relationships/build`, {
-    data: { type: 'builds', id: p.build.id },
-  });
+  /* 같은 제출로 다시 내려다 넘어온 경우 번호 · 빌드는 이미 바뀌어 있을 수 있습니다 — 그대로 다시 붙여도 무해. */
+  await editVersion(c, opts, p, ver);
+  await addReviewNotes(c, opts, ver);
 
   /* 3. 새 심사 제출 — 안 낸 것이 남아 있으면 그것을 씁니다(애플은 앱마다 열린 제출을 하나만 허락). */
-  const left = (await openSubmissions(c, p.app.id)).find(s => s.attributes.state === 'READY_FOR_REVIEW');
-  let subId = left && left.id;
-  if (!subId) {
-    const r = await c.call('POST', '/v1/reviewSubmissions', {
-      data: { type: 'reviewSubmissions', attributes: { platform: 'IOS' },
-        relationships: { app: { data: { type: 'apps', id: p.app.id } } } },
-    });
-    subId = r.data.id;
-  }
-  try {
-    await c.call('POST', '/v1/reviewSubmissionItems', {
-      data: { type: 'reviewSubmissionItems', relationships: {
-        reviewSubmission: { data: { type: 'reviewSubmissions', id: subId } },
-        appStoreVersion: { data: { type: 'appStoreVersions', id: ver.id } } } },
-    });
-  } catch (e) {
-    if (e.status !== 409) throw e;                       // 이미 들어 있음
-  }
+  const subId = await draftSubmission(c, opts, p.app.id);
+  await addItem(c, opts, subId, ver.id);
   await c.call('PATCH', `/v1/reviewSubmissions/${subId}`, {
     data: { type: 'reviewSubmissions', id: subId, attributes: { submitted: true } },
   });
@@ -460,8 +714,7 @@ async function releaseVersion(c, opts, deps) {
       log(`이미 출시됨 — 출시 요청은 ${e.status} 로 거절됐지만 판이 ${now.join(' / ')} 입니다`);
       return out('already', { state: now.join(' / ') });
     }
-    const detail = (e.errors || []).map(x => [x.code, x.detail || x.title].filter(Boolean).join(': '))
-      .filter(Boolean).join(' | ').replace(/\s+/g, ' ').slice(0, 200);
+    const detail = appleDetail(e);
     const msg = `출시 요청을 애플이 받지 않았습니다(${e.status}${detail ? ' ' + detail : ''}) — ` +
       `판 ${opts.version} 은 ${now.join(' / ') || '상태 모름'} 그대로입니다. App Store Connect 에서 확인하세요`;
     log(msg);
@@ -501,6 +754,15 @@ async function run(argv, env, deps = {}) {
   }
   if (!/^\d+\.\d+\.\d+$/.test(opts.version || '')) throw new Error('--version 0.2.15 같은 판 번호가 필요합니다');
   if (!/^\d+$/.test(opts.build || '')) throw new Error('--build 298 같은 빌드 번호가 필요합니다');
+  /* 심사 메모 파일 — 바꾸기 전에 먼저 읽고 검사합니다(못 읽으면 아무것도 안 바꾸고 멈춤). */
+  const notesFile = arg(argv, '--review-notes-file', '');
+  if (has(argv, '--review-notes-file') && !notesFile) throw new Error('--review-notes-file 에는 파일 경로가 필요합니다');
+  if (notesFile) {
+    const text = String((deps.readFile || (f => fs.readFileSync(f, 'utf8')))(notesFile)).replace(/\r\n/g, '\n').trim();
+    if (!text) throw new Error(`심사 메모 파일이 비어 있습니다: ${notesFile}`);
+    if (text.length > NOTES_MAX) throw new Error(`심사 메모가 ${text.length}자입니다(한도 ${NOTES_MAX})`);
+    opts.reviewNotes = text;
+  }
   const c = client();
   const p = await plan(c, opts);
   log(describe(p, opts));
@@ -515,6 +777,21 @@ async function run(argv, env, deps = {}) {
     /* 앱스토어 페이지가 바깥에 보이는지 — 읽기만 · 못 읽어도 멈추지 않습니다(머리말 「앱스토어 페이지」).
        --submit 길(취소 · 재제출)에는 넣지 않습니다 — 그 길은 바깥 요청 하나 없이 전과 같게. */
     p.store = await storeCheck(p.app.id, opts, deps);
+    /* 심사 메모가 붙을 수 있는지 미리 — 원래 메모는 읽기만 하고 길이만 찍습니다(내용 · 계정은 안 찍음). */
+    if (opts.reviewNotes) {
+      let how = `새 ${opts.reviewNotes.length}자`;
+      if (p.target) {
+        try {
+          const m = await notesPlan(c, opts, p.target);
+          how = m.already ? '이미 들어 있음'
+            : `원래 ${m.old.length}자 + 새 ${opts.reviewNotes.length}자 = ${m.notes.length}/${NOTES_MAX}` +
+              (m.notes.length > NOTES_MAX ? ' — 넘침(제출하면 멈춤)' : '');
+        } catch (e) {
+          how += ` · 원래 메모 확인 못 함(${(e && e.status) || '응답 없음'})`;
+        }
+      }
+      log(`심사 메모: ${notesFile} — ${how} · --submit 이면 덧붙입니다`);
+    }
     log('읽기만 했습니다(--submit 없음).');
     return { plan: p, submitted: false };
   }

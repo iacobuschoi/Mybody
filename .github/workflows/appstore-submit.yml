@@ -3,9 +3,11 @@
 #
 #   version  판 번호 (예: 0.2.15)
 #   build    빌드 번호 (예: 298 — 릴리스의 커밋 수)
-#   beta     외부 테스트 그룹 이름 (비우면 베타는 건너뜀)
+#   beta     외부 테스트 그룹 이름 (none 이면 베타는 건너뜀 — 비워 보내면 기본값 friends 가 들어옴)
 #   submit   끄면 읽기만 합니다 — 지금 걸린 심사 · 판 · 빌드 상태와 할 일을 찍습니다.
 #            켜면 걸린 심사를 취소하고 그 판을 새 번호 · 새 빌드로 바꿔 다시 제출합니다.
+#            거절된 제출(UNRESOLVED_ISSUES) 하나뿐이면 취소하지 않고 같은 제출로 다시 냅니다.
+#            appstore/review-notes-<판>.txt 가 있으면 「App Review 정보 → 메모」 에 덧붙입니다.
 #   link_only  판 · 빌드는 두고 beta 그룹의 TestFlight 공개 링크만 봅니다(submit 이면 켭니다).
 #   link_off   link_only 와 함께 켜면 반대로 공개 링크를 닫습니다(submit 이면).
 #   release    심사 통과(PENDING_DEVELOPER_RELEASE)한 version 판을 앱스토어에 출시합니다(submit 이면).
@@ -31,7 +33,7 @@ on:
         required: false
         default: ''
       beta:
-        description: '외부 테스트 그룹 (비우면 베타 건너뜀)'
+        description: '외부 테스트 그룹 (none 이면 베타 건너뜀)'
         required: false
         default: 'friends'
       drop_old_beta:
@@ -107,6 +109,11 @@ jobs:
             node tools/asc-submit.js "${args[@]}"
             exit $?
           fi
+          # 베타 그룹이 꼭 있어야 하는 길(베타만 · 공개 링크)에 none 이 오면 아무것도 안 하고 멈춥니다.
+          if { [ "$IN_LINK_ONLY" = "true" ] || [ "$IN_BETA_ONLY" = "true" ]; } && { [ -z "$IN_BETA" ] || [ "$IN_BETA" = "none" ]; }; then
+            echo "::error::link_only · beta_only 에는 베타 그룹(beta)이 필요합니다 — none 은 안 됩니다"
+            exit 1
+          fi
           if [ "$IN_LINK_ONLY" = "true" ]; then
             args=(--link-only --beta "$IN_BETA")
             [ "$IN_LINK_OFF" = "true" ] && args+=(--link-off)
@@ -115,7 +122,11 @@ jobs:
             exit $?
           fi
           args=(--version "$IN_VERSION" --build "$IN_BUILD")
-          [ -n "$IN_BETA" ] && args+=(--beta "$IN_BETA")
+          # beta 를 비워 보내도 기본값(friends)이 들어옵니다 — 베타를 건너뛰려면 none.
+          [ -n "$IN_BETA" ] && [ "$IN_BETA" != "none" ] && args+=(--beta "$IN_BETA")
+          # 그 판의 심사 메모가 저장소에 있으면 「App Review 정보 → 메모」 에 덧붙입니다(submit 일 때만 바꿈).
+          notes="appstore/review-notes-$IN_VERSION.txt"
+          [ "$IN_BETA_ONLY" != "true" ] && [ -f "$notes" ] && args+=(--review-notes-file "$notes")
           [ "$IN_DROP" = "true" ] && args+=(--drop-old-beta)
           [ "$IN_BETA_ONLY" = "true" ] && args+=(--beta-only)
           [ -n "$IN_WHATS_NEW" ] && args+=(--whats-new "$IN_WHATS_NEW")

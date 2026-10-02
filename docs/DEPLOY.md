@@ -284,6 +284,15 @@ Certificates → Apple Distribution → 키체인에서 `.p12` 내보내기, dev
 Profiles 에서 App Store 프로파일 내려받기. `base64 -i 파일 | pbcopy` 로
 `IOS_CERT_P12_BASE64`, `IOS_CERT_PASSWORD`, `IOS_PROFILE_BASE64` 를 넣으면 그쪽을 씁니다.
 
+**앱스토어 심사에서 거절됐을 때** — 고친 빌드가 TestFlight 처리(VALID)까지 끝나면 Actions →
+「앱스토어 심사 다시 올리기」 를 새 판 · 빌드 번호, `beta=none`(베타는 건드리지 않음), `submit` 을 켜고
+돌립니다. 거절된 제출(UNRESOLVED_ISSUES)은 취소하지 않고 **같은 제출로** 판 번호 · 빌드를 바꿔 다시
+냅니다(웹의 「다시 심사 요청」 과 같음 — 애플이 그 길을 받지 않으면 거절된 항목을 빼고 새로 냄). 거절된 판은 이미 대기
+줄에서 빠져 있어 다시 내도 잃는 순서가 없습니다 — 순서를 잃는 것은 **대기 중인** 제출을 취소할 때입니다.
+심사원에게 할 말은 `appstore/review-notes-<판>.txt` 에 두면 그 판의 「App Review 정보 → 메모」 끝에 한 번
+덧붙습니다(못 붙이면 내지 않고 멈춤 · API 로는 Resolution Center 답장을 못 씀 — 답장은 웹에서). 먼저 `submit` 을
+끄고 돌려 계획(「심사 메모: … = 합계/4000」 포함)을 봅니다. 실패한 실행을 다시 돌리기 전에도 읽기만으로 상태부터 봅니다.
+
 ---
 
 ## 9. 새 판을 낸 뒤 — 앱 안 업데이트 안내
