@@ -82,7 +82,8 @@ class HoldTest(unittest.TestCase):
 class EndpointTest(unittest.TestCase):
     DONE = ["화면 꺼", "오늘 날씨 어때?", "브리핑 해 줘", "음량 좀 줄여줘.", "지금 몇 시야", "공장 상태 알려줘", "고마워",
             "그만", "이거 뭐지", "빌드 돌려", "알았어", "내일 일정 정리해 줘요", "조용히 해", "좋아", "다시 들어",
-            "메일 보냈니", "응", "날씨 알려 줄래", "잠깐", ""]
+            "메일 보냈니", "응", "날씨 알려 줄래", "잠깐", "",
+            "안 움직인다고", "세팅하라고", "이동모드가 뭐냐고", "같이 하자고"]
     CONT = ["오늘 일정이랑", "그리고", "음", "공장에서", "아이폰으로", "내일은", "날씨를", "빌드 돌리고", "시간 되면",
             "그러니까", "이거 끝나면", "앱 만들어서", "확인했는데", "브리핑하고,", "그 앱을", "깃허브에", "근데…"]
 
@@ -113,6 +114,24 @@ class DaemonHearCut(unittest.TestCase):
         cuts = run(self.d.seg, np.concatenate([quiet(1.0), voice(1.0), quiet(1.0)]))
         self.assertEqual(self.d._hear_cut(cuts[0]), "")
         self.assertTrue(self.d.seg.in_speech)
+
+    def test_held_text_reused_when_nothing_followed(self):
+        self.text = "작업 브리핑을"
+        cuts = run(self.d.seg, np.concatenate([quiet(1.0), voice(1.0), quiet(3.0)]))
+        self.assertEqual([c.final for c in cuts], [False, True])
+        self.assertEqual(self.d._hear_cut(cuts[0]), "")
+        self.assertEqual(self.d._hear_cut(cuts[1]), "작업 브리핑을")       # 다시 받아쓰지 않음
+        self.assertEqual(len(self.heard), 1)
+        self.assertGreaterEqual(cuts[1].tail_s, 2.5)
+
+    def test_held_then_more_speech_hears_again(self):
+        self.text = "오늘 일정이랑"
+        cuts = run(self.d.seg, PAUSED)
+        self.assertEqual([c.final for c in cuts], [False, False, True])
+        self.assertEqual(self.d._hear_cut(cuts[0]), "")                    # 첫 뜸에서 기다림
+        self.text = "오늘 일정이랑 날씨"
+        self.assertEqual(self.d._hear_cut(cuts[2]), "오늘 일정이랑 날씨")   # 뒤에 말이 더 있었으니 합쳐 다시 받아씀
+        self.assertEqual(len(self.heard), 2)
 
     def test_tentative_skipped_when_final_queued(self):
         self.text = "화면 꺼"

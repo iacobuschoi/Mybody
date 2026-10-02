@@ -50,6 +50,8 @@ class Desk:
                              hold_silence_s=li.get("hold_silence_s", 0.0))
         self._finals: set[int] = set()               # 확정 조각이 받아쓰기 줄에 들어간 구간(seq)
         self._taken: dict[int, int] = {}             # 잠정 조각으로 이미 답한 구간 → 그 칸 수
+        self._held: dict[int, tuple[int, str]] = {}  # 이어질 듯해 기다리는 구간 → (잠정 조각 칸 수, 받아쓴 글)
+        self._stt_s = 0.0                            # 마지막 받아쓰기에 걸린 시간(로그용)
         st = cfg["stt"]
         self.stt = WhisperSTT(st["model"], st["language"], st.get("prompt", ""))
         self.voice = mac.make_voice(cfg["tts"])
@@ -389,6 +391,9 @@ class Desk:
             text = self._hear_cut(cut)
             if text:
                 log.info("들음: %s", text)
+                if cut.t1:
+                    log.info("말 끝에서 %.2f초 (침묵 %.2f · 받아쓰기 %.2f)",
+                             cut.tail_s + time.time() - cut.t1, cut.tail_s, self._stt_s)
                 if not self._dictate(cut, text):
                     self.handle(text)
 
@@ -426,18 +431,24 @@ class Desk:
     def _hear_cut(self, cut: Cut) -> str:
         """조각을 받아씀. 잠정 조각은 끝난 말로 보일 때만 글을 돌려주고 구간을 닫음(말 끝 기다리기, desk/endpoint.py)"""
         audio = cut.audio
+        self._stt_s = 0.0
         if cut.final:
             self._finals.discard(cut.seq)
+            held = self._held.pop(cut.seq, None)
             took = self._taken.pop(cut.seq, 0)
+            if held and not took and cut.voiced <= held[0]:   # 기다리는 동안 말이 없었음 — 받아쓴 글 그대로
+                return held[1]
             if took:                                   # 앞부분은 잠정 조각으로 이미 답함 — 뒤에 붙은 말만
                 audio = audio[took * self.seg.n:]
                 if len(audio) / self.sr - self.seg.hold_silence_s < self.seg.min_utt_s:
                     return ""
         elif cut.seq in self._finals:                  # 확정 조각이 벌써 줄에 있음 — 그걸로 받아씀
             return ""
+        t = time.time()
         try:
             with self._stt_lock:
                 text = self.stt.transcribe(audio)
+            self._stt_s = time.time() - t
         except Exception as e:  # noqa: BLE001
             log.exception("받아쓰기 실패")
             self.board.log("error", f"받아쓰기: {e}")
@@ -446,6 +457,9 @@ class Desk:
             return text
         if looks_unfinished(text):
             log.info("말이 이어질 듯 — 더 기다림: %s", text)
+            if len(self._held) > 32:
+                self._held.clear()
+            self._held[cut.seq] = (cut.frames, text)
             return ""
         self.seg.commit(cut.seq, cut.frames)
         if len(self._taken) > 32:

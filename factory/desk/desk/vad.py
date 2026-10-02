@@ -29,6 +29,8 @@ class Cut:
     frames: int
     t0: float = 0.0     # 벽시계 — 말 시작 · 조각이 나온 때 (deskd 가 찍음, 주먹 쥐고 말하기에 씀)
     t1: float = 0.0
+    voiced: int = 0     # 앞에서부터 마지막 말소리 칸까지의 칸 수 — 잠정 조각 뒤로 말이 더 있었는지 봄
+    tail_s: float = 0.0  # 조각이 나올 때까지 기다린 끝 침묵(초)
 
 
 class Segmenter:
@@ -154,13 +156,14 @@ class Segmenter:
                 spoken = dur - self._silence            # 말한 길이(끝 침묵 뺌)
                 if self._silence >= self.hold_silence_s or dur >= self.max_utt_s:
                     audio = np.concatenate(self._utt)
-                    n = len(self._utt)
+                    n, tail = len(self._utt), self._silence
                     self._utt = None
                     self._silence, self._offered = 0.0, False
                     if spoken >= self.min_utt_s:
-                        out.append(Cut(audio, True, self._seq, n))
+                        out.append(Cut(audio, True, self._seq, n, voiced=self._voiced_at + 1, tail_s=tail))
                 elif self.holding and not self._offered and self._silence >= self.end_silence_s:
                     self._offered = True
                     if spoken >= self.min_utt_s:
-                        out.append(Cut(np.concatenate(self._utt), False, self._seq, len(self._utt)))
+                        out.append(Cut(np.concatenate(self._utt), False, self._seq, len(self._utt),
+                                       voiced=self._voiced_at + 1, tail_s=self._silence))
         return out

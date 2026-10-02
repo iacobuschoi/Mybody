@@ -24,7 +24,7 @@ clap_when_awake = "none"          # "sleep" 이면 깨어 있을 때 박수 두 
 
 [listen]
 end_silence_s = 0.8               # 말이 끝났다고 보는 침묵
-hold_silence_s = 2.5              # 받아쓴 끝이 조사 · 접속사("…이랑", "그리고")면 이만큼까지 더 기다림. 0 = 끔(end_silence_s 만)
+hold_silence_s = 2.0              # 받아쓴 끝이 조사 · 접속사("…이랑", "그리고")면 이만큼까지 더 기다림. 0 = 끔(end_silence_s 만)
 min_utt_s = 0.4
 max_utt_s = 20.0
 vad_level = -1                    # webrtcvad 0~3(높을수록 엄격). -1 = 끔 — 침대에서 Brio 로 한 말을 거의 못 알아봄
