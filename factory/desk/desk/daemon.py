@@ -32,6 +32,7 @@ from .dictate import Dictation, can_post_keys
 from .dashboard import Board, serve, watch_agents
 from .router import route
 from .stt import WhisperSTT
+from .talk import PushToTalk
 from .endpoint import looks_unfinished
 from .vad import Cut, Segmenter
 
@@ -62,6 +63,10 @@ class Desk:
         self.board.set(model=model_settings.current(self.brain.model), models=model_settings.options())
         self.face = Gate(cfg["face"])
         self.dictation = Dictation(cfg.get("dictate", {}))   # 주먹 쥐고 말하기 → Claude 앱 입력창 (desk/dictate.py)
+        tk = cfg.get("talk", {})
+        self.talk_on = bool(tk.get("enabled", True))
+        self.talk_sound = tk.get("sound", "Morse")
+        self.ptt = PushToTalk(sr=sr, **tk)          # 왼손 주먹 = 비서에게 말하기 (desk/talk.py)
         self._verifying = False                       # 얼굴 보는 중엔 박수를 더 받지 않음
         bi = cfg["bargein"]
         self.barge_on = bool(bi.get("enabled", True)) and bool(bi.get("stop_words"))
@@ -76,7 +81,7 @@ class Desk:
         self.last_activity = time.time()
         self.audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=400)
         self.utt_q: queue.Queue[Cut] = queue.Queue(maxsize=8)
-        self.brain_q: queue.Queue[tuple[str, int]] = queue.Queue(maxsize=8)   # (들은 말, 받은 때의 _turn)
+        self.brain_q: queue.Queue[tuple[str, int, bool]] = queue.Queue(maxsize=8)   # (들은 말, 받은 때의 _turn, 주먹)
         self._stop = threading.Event()
         self._dash_opened = False
         self._changed_at = 0.0                        # 우리가 화면을 켜고/끈 시각 — 화면 감시가 헷갈리지 않게
@@ -310,11 +315,12 @@ class Desk:
         return "ok"
 
     # ── 들은 말 처리 ───────────────────────────────────────────────────────
-    def handle(self, text: str) -> None:
+    def handle(self, text: str, direct: bool = False) -> None:
+        """direct: 왼손 주먹을 쥐고 한 말 — 조용히 모드여도 받고, Claude 에게 비서에게 한 말이라고 알림"""
         if self._speech_stop(text):
             return
-        a = route(text, muted=(self.mode == "muted"))
-        self.board.log(a.kind, text)
+        a = route(text, muted=(self.mode == "muted" and not direct))
+        self.board.log(a.kind, ("(주먹) " if direct else "") + text)
         if a.kind == "ignore":
             return
         self.last_activity = time.time()
@@ -344,7 +350,7 @@ class Desk:
         elif k == "claude":
             mac.sound("Tink")                       # 들었다는 표시 — 말로 "잠시만요" 하면 매번 귀찮습니다
             try:
-                self.brain_q.put_nowait((text, self._turn))
+                self.brain_q.put_nowait((text, self._turn, direct))
             except queue.Full:
                 self.voice.say("밀린 일이 많아요. 잠시 뒤에 다시 말해 주세요.")
         self._show()
@@ -393,6 +399,9 @@ class Desk:
             if isinstance(cut, np.ndarray):
                 cut = Cut(cut, True, -1, 0)
             text = self._hear_cut(cut)
+            if cut.direct:
+                self._talked(cut, text)
+                continue
             if text:
                 log.info("들음: %s", text)
                 if cut.t1:
@@ -400,6 +409,47 @@ class Desk:
                              cut.tail_s + time.time() - cut.t1, cut.tail_s, self._stt_s)
                 if not self._dictate(cut, text):
                     self.handle(text)
+
+    # ── 왼손 주먹 = 비서에게 말하기 (desk/talk.py) ─────────────────────────
+    def talk(self, body: str = "") -> str:
+        """hand-mouse 가 부름: start(쥠) · hold(쥐고 있음, 1초마다) · end(폄) · cancel"""
+        what = (body or "").strip()
+        if what == "hold":
+            self.ptt.hold()
+            return "ok"
+        if what == "end":
+            return "ok" if self.ptt.end() else "녹음 중 아님"
+        if what == "cancel":
+            self.ptt.cancel()
+            return "ok"
+        if what != "start":
+            return "start · hold · end · cancel 중 하나"
+        if not self.talk_on:
+            return "꺼짐"
+        if self.mode == "sleep":
+            return "자는 중"
+        if not self.ptt.start():
+            return "이어서 녹음"
+        self.last_activity = time.time()
+        if self.voice.busy():                       # 말하는 중에 쥐면 말을 끊고 듣기(밀린 답은 그대로)
+            self._barged_at = time.time()
+            self.voice.stop()
+        mac.sound(self.talk_sound)                  # 듣는 중이라는 짧은 소리
+        log.info("주먹 말하기 시작")
+        self.board.log("talk", "왼손 주먹 — 듣는 중")
+        self._show("listening")
+        return "ok"
+
+    def _talked(self, cut: Cut, text: str) -> None:
+        dur = cut.t1 - cut.t0
+        log.info("주먹 말하기 끝 (%.1f초, 받아쓰기 %.2f초): %s", dur, self._stt_s, text or "(빈 말)")
+        if not text:
+            self.board.log("talk", f"받아쓴 글 없음 ({dur:.1f}초)")
+            if dur >= 1.0:                          # 잠깐 쥐었다 편 건 조용히 넘김
+                self.voice.say("잘 못 들었어요. 다시 말해 주세요.")
+            return
+        log.info("들음(주먹): %s", text)
+        self.handle(text, direct=True)
 
     def dial(self, body: str = "") -> str:
         """hand-mouse 지우기 다이얼(왼손 집고 돌리기) — 칸 수만큼 받아쓴 글을 단어째 지우거나(-) 되살림(+)"""
@@ -453,7 +503,7 @@ class Desk:
         t = time.time()
         try:
             with self._stt_lock:
-                text = self.stt.transcribe(audio)
+                text = self.stt.transcribe(audio, direct=True) if cut.direct else self.stt.transcribe(audio)
             self._stt_s = time.time() - t
         except Exception as e:  # noqa: BLE001
             log.exception("받아쓰기 실패")
@@ -475,18 +525,21 @@ class Desk:
 
     def _brain_worker(self) -> None:
         while not self._stop.is_set():
-            text, turn = self.brain_q.get()
+            text, turn, direct = self.brain_q.get()
             if turn != self._turn:                   # 받은 뒤에 "멈춰" — 답하지 않음
                 continue
             self._asking = turn
             self._show("thinking")
             try:
-                spoken, full = self.brain.ask(text)
+                spoken, full = self.brain.ask(text, direct=direct)
             finally:
                 self._asking = None
             if turn != self._turn:
                 log.info("멈춘 뒤 온 답 버림: %s", text[:40])
                 self.board.log("barge", f"(멈춘 뒤 온 답 버림) {text}")
+            elif spoken is None and direct:          # 주먹 쥐고 한 말은 무시하지 않음 — 그래도 무시했으면 되묻기
+                self.board.log("ignore", f"(Claude 가 주먹 말을 무시함) {text}")
+                self.voice.say("무슨 말인지 잘 모르겠어요. 다시 말해 주세요.")
             elif spoken is None:
                 self.board.log("ignore", f"(Claude: 나한테 한 말 아님) {text}")
             else:
@@ -546,6 +599,8 @@ class Desk:
                 threading.Thread(target=self.sleep, args=("clap",), daemon=True).start()
                 return
         if self.mode == "awake" or self.mode == "muted":
+            if self._feed_talk(x):                   # 왼손 주먹으로 녹음 중 — 상시 듣기 자르개에는 안 넣음
+                return
             speaking = self.voice.busy() and time.time() - self._barged_at > 1.0   # 끊은 직후 남은 꼬리는 말하는 중 아님
             if self.barge_on:
                 for a in ears:
@@ -570,6 +625,21 @@ class Desk:
             threading.Thread(target=self.sleep, args=("idle",), daemon=True).start()
             self.last_activity = time.time()
 
+    def _feed_talk(self, x: np.ndarray) -> bool:
+        """주먹 녹음에 소리를 넣음. 녹음 중(또는 방금 끝남)이면 True. 끝났으면 받아쓰기 줄에 넣음"""
+        was = self.ptt.active
+        got = self.ptt.feed(x)
+        if got is None:
+            return was
+        audio, t0, t1, why = got
+        log.info("주먹 녹음 끝 (%s, %.1f초)", why, t1 - t0)
+        self.seg.reset()                             # 녹음 중 자르개에 남은 반쪽 말은 버림
+        try:
+            self.utt_q.put_nowait(Cut(audio, True, -1, 0, t0, t1, direct=True))
+        except queue.Full:
+            log.warning("받아쓰기 줄이 차서 주먹 말을 버림")
+        return True
+
     def run(self) -> None:
         import sounddevice as sd
         mac.keep_system_awake()
@@ -578,7 +648,7 @@ class Desk:
                            "say": self.remote_say, "show": self.show,
                            "enroll": self.enroll, "face": self.face_test,
                            "tts": self.tts_view, "tts_test": self.tts_test, "tts_save": self.tts_save,
-                           "model": self.model_set, "dial": self.dial},
+                           "model": self.model_set, "dial": self.dial, "talk": self.talk},
               port=self.cfg["dashboard"]["port"])
         watch_agents(self.board)
         threading.Thread(target=self._stt_worker, daemon=True).start()

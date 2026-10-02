@@ -110,6 +110,9 @@ cd ~/lab/desk && .venv/bin/python -m desk calibrate   # 박수를 쳐 보고 ★
 
 ## 알아둘 것
 
+- **왼손 주먹 쥐고 말하기** = 비서에게(누르고 말하기). 쥐는 순간 "똑" 소리 · 녹음, 펴는 순간 침묵을 기다리지 않고
+  받아써 `[음성·주먹 HH:MM]` 로 넘깁니다 — 비서는 무시 판정 없이 답합니다. 오른손 주먹(Claude 앱이 앞일 때 입력창에
+  받아쓰기)은 그대로고, 둘 다 쥐면 왼손이 이깁니다. 조용히 모드에서도 받고, 비서가 말하는 중에 쥐면 말을 끊습니다.
 - **상시 듣기는 방의 모든 말을 받아씁니다.** 받아쓰기는 이 맥 안에서만(whisper) 하지만, 로컬 명령이 아닌 문장은
   Claude 로 갑니다(Anthropic 서버). 통화 · 손님이 있을 때는 "조용히". 자는 중에는 받아쓰기 자체를 안 합니다.
 - Claude 로 가는 말은 구독 사용량을 씁니다. 로컬 명령 · 브리핑 · 무시된 짧은 말은 0.
@@ -125,6 +128,7 @@ cd ~/lab/desk && .venv/bin/python -m desk calibrate   # 박수를 쳐 보고 ★
 ```
 desk/clap.py       박수 감지 (갑자기 · 짧게 · 높은 소리 · 앞뒤 조용)      시험 12개
 desk/vad.py        말소리 구간 자르기 (말하는 동안 귀 닫기)
+desk/talk.py       왼손 주먹 = 비서에게 말하기: 쥐면 녹음 · 펴면 바로 받아쓰기 (hand-mouse → POST /api/talk)
 desk/stt.py        받아쓰기(mlx-whisper) + 환각 거르기
 desk/router.py     짧은 정해진 말 → 즉시 명령, 나머지 → Claude
 desk/brain.py      claude -p · 하루 단위로 대화 이어 가기 · 권한 창 없음(auto)

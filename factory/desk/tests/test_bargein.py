@@ -125,15 +125,15 @@ class DaemonStop(unittest.TestCase):
         d.voice.said.clear()
         started, release = threading.Event(), threading.Event()
 
-        def ask(text):
+        def ask(text, direct=False):
             started.set()
             d.remote_say("패치노트는 이렇습니다")                              # 턴 도중 말하기(끊기 전) — 말함
             release.wait(2)
             d.remote_say("그리고 이것도요")                                   # 끊은 뒤 — 버림
             return "패치노트를 띄웠어요.", "패치노트를 띄웠어요."
         d.brain.ask = ask
-        d.brain_q.put(("패치노트 띄워 줘", d._turn))
-        d.brain_q.put(("그다음 것도", d._turn))
+        d.brain_q.put(("패치노트 띄워 줘", d._turn, False))
+        d.brain_q.put(("그다음 것도", d._turn, False))
         threading.Thread(target=d._brain_worker, daemon=True).start()
         self.assertTrue(started.wait(2))
         d.handle("멈춰")
@@ -145,7 +145,7 @@ class DaemonStop(unittest.TestCase):
         d.remote_say("다음 일 끝났어요")                                      # 턴이 끝나면 다시 말함
         self.assertEqual(d.voice.said[-1], "다음 일 끝났어요")
         d._stop.set()
-        d.brain_q.put(("끝", -1))                                        # 일꾼 스레드를 깨워 끝냄
+        d.brain_q.put(("끝", -1, False))                                        # 일꾼 스레드를 깨워 끝냄
 
     def test_brief_waiting_for_speech_is_dropped(self):
         d = self.d

@@ -31,6 +31,7 @@ class Cut:
     t1: float = 0.0
     voiced: int = 0     # 앞에서부터 마지막 말소리 칸까지의 칸 수 — 잠정 조각 뒤로 말이 더 있었는지 봄
     tail_s: float = 0.0  # 조각이 나올 때까지 기다린 끝 침묵(초)
+    direct: bool = False  # 왼손 주먹을 쥐고 한 말(desk/talk.py) — 비서에게 한 말이 확실함
 
 
 class Segmenter:

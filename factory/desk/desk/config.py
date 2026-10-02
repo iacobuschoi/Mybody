@@ -68,6 +68,14 @@ DEFAULTS: dict = {
         "join_s": 60.0,             # 이 안에 이어 넣으면 앞에 띄어쓰기
         "erase_window_s": 120.0,    # 왼손 지우기 다이얼이 먹는 시간 (넣거나 지운 뒤, 그 뒤엔 커서가 옮겨졌을 수 있어 안 함)
     },
+    "talk": {                       # 왼손 주먹 = 비서에게 말하기 (desk/talk.py, hand-mouse 가 POST /api/talk)
+        "enabled": True,
+        "sound": "Morse",           # 쥐는 순간 내는 짧은 소리 (/System/Library/Sounds)
+        "preroll_s": 0.4,           # 쥐기 바로 앞 소리도 붙임 (첫소리가 안 잘리게)
+        "tail_s": 0.25,             # 편 뒤 이만큼만 더 받고 바로 받아쓰기
+        "max_s": 90.0,              # 이보다 길면 끊어 넘김
+        "beat_s": 3.0,              # hand-mouse 의 hold 가 이만큼 안 오면 끊어 넘김
+    },
 }
 
 PATH = os.path.expanduser(os.environ.get("DESK_CONFIG", "~/.config/desk/config.toml"))

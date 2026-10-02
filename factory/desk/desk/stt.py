@@ -24,17 +24,18 @@ def _norm(s: str) -> str:
 
 
 def clean_transcript(text: str, segments: list[dict] | None = None,
-                     no_speech_max: float = 0.6, logprob_min: float = -1.0) -> str:
-    """Whisper 결과를 명령으로 써도 되는 글로. 못 쓰면 "" """
+                     no_speech_max: float = 0.6, logprob_min: float = -1.0, direct: bool = False) -> str:
+    """Whisper 결과를 명령으로 써도 되는 글로. 못 쓰면 ""
+    direct: 주먹 쥐고 한 말 — "응" · "네" 같은 짧은 대답도 진짜 대답이라 남김(확인 받기에 씀)"""
     if segments:
         kept = [s.get("text", "") for s in segments
                 if s.get("no_speech_prob", 0.0) <= no_speech_max and s.get("avg_logprob", 0.0) >= logprob_min]
         text = "".join(kept)
     text = (text or "").strip()
     n = _norm(text)
-    if len(n) < 2:
+    if len(n) < (1 if direct else 2):
         return ""
-    if n in _ONLY_THANKS:
+    if n in _ONLY_THANKS and not (direct and n != "감사합니다"):
         return ""
     if any(h in n for h in HALLUCINATIONS):
         return ""
@@ -61,7 +62,7 @@ class WhisperSTT:
         import numpy as np
         self.transcribe(np.zeros(16000, dtype=np.float32))
 
-    def transcribe(self, audio) -> str:
+    def transcribe(self, audio, direct: bool = False) -> str:
         mw = self._load()
         kw = dict(path_or_hf_repo=self.model, language=self.language, temperature=0.0,
                   condition_on_previous_text=False, verbose=None)
@@ -71,7 +72,7 @@ class WhisperSTT:
             r = mw.transcribe(audio, **kw)
         except TypeError:                         # 판에 따라 받는 인자가 다름
             r = mw.transcribe(audio, path_or_hf_repo=self.model, language=self.language)
-        return clean_transcript(r.get("text", ""), r.get("segments"))
+        return clean_transcript(r.get("text", ""), r.get("segments"), direct=direct)
 
     def hear(self, audio) -> str:
         """멈춤 말 찾기용(desk/bargein.py) — 힌트 문구 없이, 거르지 않은 글.

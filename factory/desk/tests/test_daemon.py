@@ -48,7 +48,7 @@ class FakeBrain:
         CALLS.append("brain.cancel")
         return False
 
-    def ask(self, text):
+    def ask(self, text, direct=False):
         self.asked.append(text)
         return ("<IGNORE>" in text and (None, "")) or ("네, 가계부 시험을 돌렸어요.", "네, 가계부 시험을 돌렸어요.")
 

@@ -89,3 +89,9 @@ enabled = true                    # deskd 에 손쉬운 사용 권한이 있어�
 # apps = ["com.anthropic.claudefordesktop"]
 # fist_ratio = 0.5                # 말한 시간의 이만큼 이상 주먹이면 받아쓰기
 # erase_window_s = 120.0          # 지우기 다이얼(왼손 엄지·검지 집고 반시계 = 단어 지우기, 시계 = 되살리기) — 넣은 뒤 이 시간 안에만
+
+[talk]                            # 왼손 주먹 = 비서에게 말하기 — 쥐는 순간 짧은 소리와 함께 녹음, 펴는 순간 바로 받아써 "[음성·주먹 HH:MM]" 로 비서에게
+enabled = true                    # 상시 듣기는 그대로. 조용히 모드에서도 받음, 자는 중엔 안 받음. hand-mouse talk on|off 로도 끔
+# sound = "Morse"
+# preroll_s = 0.4                 # 쥐기 바로 앞 소리도 붙임
+# tail_s = 0.25                   # 편 뒤 이만큼 더 받고 넘김
