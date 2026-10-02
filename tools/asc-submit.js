@@ -790,7 +790,7 @@ async function run(argv, env, deps = {}) {
           how += ` · 원래 메모 확인 못 함(${(e && e.status) || '응답 없음'})`;
         }
       }
-      log(`심사 메모: ${notesFile} — ${how} · --submit 이면 덧붙입니다`);
+      log(`심사 메모: ${notesFile} — ${how}${how === '이미 들어 있음' ? '' : ' · --submit 이면 덧붙입니다'}`);
     }
     log('읽기만 했습니다(--submit 없음).');
     return { plan: p, submitted: false };
