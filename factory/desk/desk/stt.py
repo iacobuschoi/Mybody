@@ -24,8 +24,19 @@ def _norm(s: str) -> str:
     return re.sub(r"[\s\.,!?~·…'\"“”‘’\-]+", "", s).lower()
 
 
+def _prompt_echo(n: str, prompt: str) -> bool:
+    """받아쓴 글이 힌트 문구(initial_prompt)를 그대로 읊은 것 — 소리가 거의 없으면 Whisper 가 힌트를 되풀이함
+    (10월 2일 15:40 "룰이, 아이폰, 안드로이드, 워크플로, 출시")"""
+    p = _norm(prompt)
+    if not p or len(n) < 4:
+        return False
+    words = [_norm(w) for w in prompt.split(",") if len(_norm(w)) >= 2 and _norm(w) in n]
+    return (len(n) >= 8 and n in p) or (len(words) >= 3 and sum(map(len, words)) >= 0.6 * len(n))   # 힌트 낱말 셋 이상으로만 된 글
+
+
 def clean_transcript(text: str, segments: list[dict] | None = None,
-                     no_speech_max: float = 0.6, logprob_min: float = -1.0, direct: bool = False) -> str:
+                     no_speech_max: float = 0.6, logprob_min: float = -1.0, direct: bool = False,
+                     prompt: str = "") -> str:
     """Whisper 결과를 명령으로 써도 되는 글로. 못 쓰면 ""
     direct: 주먹 쥐고 한 말 — "응" · "네" 같은 짧은 대답도 진짜 대답이라 남김(확인 받기에 씀)"""
     if segments:
@@ -39,6 +50,8 @@ def clean_transcript(text: str, segments: list[dict] | None = None,
     if n in _ONLY_THANKS and not (direct and n != "감사합니다"):
         return ""
     if any(h in n for h in HALLUCINATIONS):
+        return ""
+    if _prompt_echo(n, prompt):
         return ""
     if re.search(r"(.{1,4})\1{4,}", n):          # "아아아아아" · "감사감사감사감사감사"
         return ""
@@ -54,9 +67,11 @@ _gpu = threading.Lock()
 
 class WhisperSTT:
     def __init__(self, model: str = "mlx-community/whisper-large-v3-turbo", language: str = "ko",
-                 prompt: str = "", fast_model: str = ""):
+                 prompt: str = "", fast_model: str = "", probe_model: str = ""):
         self.model, self.language, self.prompt = model, language, prompt
         self.fast_model = fast_model             # 끼어들기 첫 받아쓰기용 작은 모델(desk/bargein.py). 비우면 늘 model
+        self.probe_model = probe_model           # 끼어들기 두 번째(작은 모델이 못 찾았을 때). 비우면 model —
+                                                 # model 을 느린 large-v3 로 바꿔도 끼어들기는 turbo(1.3초)로
         self._mlx = None
         self._models: dict[str, object] = {}
         self.last_raw = ""                       # 거르기 전 받아쓴 글 — 걸러 버린 말을 데몬이 로그에 남기게     # 불러 둔 모델 — 큰 · 작은 모델을 번갈아 써도 다시 읽지 않게
@@ -87,10 +102,14 @@ class WhisperSTT:
         self.transcribe(np.zeros(16000, dtype=np.float32))
         if self.fast_model:
             self.hear(np.zeros(16000, dtype=np.float32), fast=True)
+        if self.probe_model and self.probe_model != self.model:
+            self.hear(np.zeros(16000, dtype=np.float32))
 
     def transcribe(self, audio, direct: bool = False) -> str:
         mw = self._load()
-        kw = dict(path_or_hf_repo=self.model, language=self.language, temperature=0.0,
+        # temperature 를 0.0 하나만 주면 Whisper 의 되풀이 · 낮은 확신 다시 받아쓰기가 꺼져 "아, 아, 아 …" 에 빠진 채 끝남
+        # (10월 2일 주먹 말 여러 번이 3.5초 걸려 빈 말). 막힐 때만 0.2 · 0.4 로 다시 — 어려운 시험 묶음에서 시간은 그대로
+        kw = dict(path_or_hf_repo=self.model, language=self.language, temperature=(0.0, 0.2, 0.4),
                   condition_on_previous_text=False, verbose=None)
         if self.prompt:
             kw["initial_prompt"] = self.prompt   # 자주 쓰는 낱말(앱 공장 · 상황판 · 클로드 …)을 알려 줘 인식을 돕습니다
@@ -101,7 +120,7 @@ class WhisperSTT:
             except TypeError:                         # 판에 따라 받는 인자가 다름
                 r = mw.transcribe(audio, path_or_hf_repo=self.model, language=self.language)
         self.last_raw = r.get("text", "") or ""
-        return clean_transcript(self.last_raw, r.get("segments"), direct=direct)
+        return clean_transcript(self.last_raw, r.get("segments"), direct=direct, prompt=self.prompt)
 
     def hear(self, audio, fast: bool = False) -> str:
         """멈춤 말 찾기용(desk/bargein.py) — 힌트 문구 없이, 거르지 않은 글.
@@ -110,7 +129,7 @@ class WhisperSTT:
         sample_len=40: 2초 소리엔 넉넉하고, 되먹임에 "다음은 다음은 …" 처럼 되풀이에 빠져도 224 토큰(4초)까지 붙잡지 않게
         (10월 2일 15:21 — 그동안 뒤의 소리가 "받아쓰기 바쁨" 으로 건너뜀).
         fast: 작은 모델로 — 2초 소리에 0.3초(큰 모델 1.4~1.8초). 대신 짧은 "그만" 을 더 놓쳐서(24번 중 20번) 큰 모델이 뒤를 받침."""
-        model = self.fast_model if fast and self.fast_model else self.model
+        model = self.fast_model if fast and self.fast_model else (self.probe_model or self.model)
         mw = self._load()
         with _gpu:
             self._use(model)

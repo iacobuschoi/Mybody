@@ -25,8 +25,14 @@ DEFAULTS: dict = {
                "energy_db": 6.0,            # 말소리 대역이 바닥 소음보다 이만큼 커야 말
                "min_level": 0.001,          # 바닥 소음을 이보다 낮게 보지 않음(스피커폰의 거의 0 인 바닥 — Brio 바닥은 0.002 안팎)
                "defer_max_s": 20.0},        # 주인이 말하는 동안 비서 말을 미루는 최대 초(잡음이 길어도 결국 말하게)
-    "stt": {"model": "mlx-community/whisper-large-v3-turbo", "language": "ko",
-            "prompt": "앱 공장, 상황판, 브리핑, 클로드, 깃허브, 맥 미니, 아이폰, 안드로이드, 워크플로, 출시"},
+    # 받아쓰기 — 10월 2일 비교(합성 목소리 M1~M5 × 36문장, 방 울림 RT60 0.6초 + SNR 10 · 5dB, 360개):
+    #   turbo + 낱말 나열 힌트(예전)   글자 오류 19.1% · 버림 32 · 낱말 296/370 · 3초 말 1.3초
+    #   large-v3 + 문장 힌트 + 다시 받아쓰기  11.7% · 11 · 352/370 · 3초 말 1.9초(8초 2.5 · 15초 3.8)
+    #   낱말 나열 힌트는 소리가 흐리면 그 낱말을 지어내거나("동작"→"공장") 되풀이("마이바디, 마이바디 …")해서 문장으로
+    "stt": {"model": "mlx-community/whisper-large-v3-mlx", "language": "ko",
+            "prompt": "핸드마우스 조이스틱 모드랑 더블클릭 좀 봐 줘. 책상 탭에서 손 카메라, 마우스 포인터, 다이얼 확인하고, "
+                      "터미널이랑 사파리, 카카오톡, 승인, 권한, 배포, 작업 공간, 클로드 세션, 깃허브, 앱스토어 심사, 마이바디도.",
+            "keep_audio_days": 0},      # 받아쓴 소리를 ~/.local/share/desk/heard 에 이만큼(일) 남김(정확도 재기용). 기본 0 = 안 남김 — 주인이 켤 때만
     "idle_minutes": 15,             # 이만큼 아무 말 없으면 화면 끄고 박수 대기로
     "camera_off": ["~/.local/bin/hand-mouse off"],   # 화면을 끌 때(어느 길로든) 돌려 카메라를 끄는 명령들
     "camera_on": ["~/.local/bin/hand-mouse on --no-sweep"],   # 화면이 켜질 때(어느 길로든) 돌려 카메라를 켜는 명령들 — 끄기의 짝
@@ -62,6 +68,7 @@ DEFAULTS: dict = {
         "grace_s": 0.3,             # 말 시작 뒤 이 시간은 되먹임 크기만 배움
         "listen_s": [0.5, 0.9],     # 큰 소리가 시작된 뒤 이때마다 받아써 봄 — 앞은 작은 모델, 마지막엔 못 찾으면 큰 모델까지
         "fast_model": "mlx-community/whisper-small-mlx",   # 끼어들기 첫 받아쓰기(0.3초). 비우면 [stt] model 만(멈추기까지 3초)
+        "probe_model": "mlx-community/whisper-large-v3-turbo",   # 작은 모델이 못 찾으면 이걸로(1.3초). 비우면 [stt] model
     },
     "dictate": {                    # 주먹 쥐고 말하기 — 글 칸에 초점이 있으면(어느 앱이든) 받아쓴 글을 거기에 (desk/dictate.py)
         "enabled": True,

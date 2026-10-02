@@ -42,6 +42,18 @@ class RouterTest(unittest.TestCase):
         self.assertEqual(self.k("아"), "ignore")
 
 
+class PromptEchoTest(unittest.TestCase):
+    P = "앱 공장, 상황판, 브리핑, 클로드, 깃허브, 맥 미니, 아이폰, 안드로이드, 워크플로, 출시"
+
+    def test_prompt_recited_is_dropped(self):
+        """소리가 흐리면 Whisper 가 힌트 낱말을 읊음(10월 2일 15:40)"""
+        self.assertEqual(clean_transcript("룰이, 아이폰, 안드로이드, 워크플로, 출시", prompt=self.P), "")
+
+    def test_real_speech_with_prompt_words_kept(self):
+        for t in ["클로드 세션 몇 개 돌고 있어", "브리핑 해 줘", "아이폰 안드로이드 둘 다 빌드해", "깃허브에 푸시했어"]:
+            self.assertEqual(clean_transcript(t, prompt=self.P), t)
+
+
 class SttFilterTest(unittest.TestCase):
     def test_hallucinations_dropped(self):
         for s in ["시청해 주셔서 감사합니다.", "구독과 좋아요 부탁드립니다", "MBC 뉴스 이덕영입니다.", "이 시각 세계였습니다.",

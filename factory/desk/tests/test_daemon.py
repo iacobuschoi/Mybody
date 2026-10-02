@@ -68,6 +68,7 @@ def make():
     briefing.gather = lambda cfg: {"weather": "맑음", "factory": {"ok": False}, "lab": {"runner": True, "iphone": True, "android": 1}}
     cfg = config.load("/nonexistent")
     cfg["wake"]["night"] = ["00:00", "00:00"]      # 시험 중엔 밤이 아니게
+    cfg["stt"]["keep_audio_days"] = 0              # 시험 소리를 ~/.local/share/desk/heard 에 남기지 않게
     cfg["face"]["enabled"] = False                 # 이 맥에 얼굴이 등록돼 있어도 시험이 카메라를 켜지 않게
     d = daemon.Desk(cfg)
     return d

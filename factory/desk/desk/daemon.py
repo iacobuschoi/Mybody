@@ -32,6 +32,7 @@ from .clap import ClapConfig, ClapDetector
 from .dictate import Dictation, can_post_keys
 from .dashboard import Board, serve, watch_agents
 from .router import normalize, route
+from .heard import Keeper
 from .stt import WhisperSTT
 from .talk import PushToTalk
 from .endpoint import looks_unfinished
@@ -62,7 +63,9 @@ class Desk:
         self._held: dict[int, tuple[int, str]] = {}  # 이어질 듯해 기다리는 구간 → (잠정 조각 칸 수, 받아쓴 글)
         self._stt_s = 0.0                            # 마지막 받아쓰기에 걸린 시간(로그용)
         st = cfg["stt"]
-        self.stt = WhisperSTT(st["model"], st["language"], st.get("prompt", ""), cfg["bargein"].get("fast_model", ""))
+        self.heard = Keeper(st.get("keep_audio_days", 0))   # 받아쓴 소리 남기기(정확도 재기용, desk/heard.py)
+        self.stt = WhisperSTT(st["model"], st["language"], st.get("prompt", ""), cfg["bargein"].get("fast_model", ""),
+                              cfg["bargein"].get("probe_model", ""))
         self.voice = self._own(mac.make_voice(cfg["tts"]))
         b = cfg["brain"]
         self.brain = Brain(b["workdir"], b.get("model", ""), b.get("timeout_s", 180))
@@ -568,6 +571,8 @@ class Desk:
         if cut.seq == self._echo_seq[0] and not cut.direct and cut.voiced <= self._echo_seq[2] + 15:   # 마이크 지연 · 되울림 0.45초
             log.info("겹친 소리가 비서 말과 함께 그침 — 제 목소리로 보고 버림: %s", raw or "(빈 말)")
             return ""                                  # 끝난 뒤로 말소리가 없으면 되먹임(끼어들기 감지는 제 목소리에도 자주 걸림)
+        self.heard.save(audio, self.sr, "fist" if cut.direct else ("final" if cut.final else "tentative"),
+                        raw=raw, text=text, stt_s=round(self._stt_s, 2))
         if not text and raw:
             log.info("받아쓰기 거름 (환각 · 짧은 말로 봄, %.1f초): %s", len(audio) / self.sr, raw)
         if text and cut.seq == self._echo_seq[0] and not cut.direct:

@@ -36,9 +36,10 @@ defer_max_s = 20.0                # 주인이 말하는 동안(주먹 · 상시 
 min_level = 0.001                 # 바닥 소음을 이보다 낮게 보지 않음 — 스피커폰은 조용하면 거의 0 이라 작은 소리가 말로 잡혀 환각이 남
 
 [stt]
-model = "mlx-community/whisper-large-v3-turbo"   # 느리면 "mlx-community/whisper-small-mlx"
+model = "mlx-community/whisper-large-v3-mlx"   # 가장 정확(3초 말 1.9초). 빠르게: "mlx-community/whisper-large-v3-turbo"(1.3초, 오류 1.6배)
 language = "ko"
-prompt = "앱 공장, 상황판, 브리핑, 클로드, 깃허브, 맥 미니, 아이폰, 안드로이드, 워크플로, 출시"
+prompt = "핸드마우스 조이스틱 모드랑 더블클릭 좀 봐 줘. 책상 탭에서 손 카메라, 마우스 포인터, 다이얼 확인하고, 터미널이랑 사파리, 카카오톡, 승인, 권한, 배포, 작업 공간, 클로드 세션, 깃허브, 앱스토어 심사, 마이바디도."   # 자주 쓰는 낱말을 문장으로(나열하면 지어냄)
+# keep_audio_days = 7             # 받아쓴 소리를 ~/.local/share/desk/heard 에 남겨 정확도를 실제 목소리로 잼. 기본 0(안 남김)
 
 [tts]
 engine = "supertonic"             # 신경망 목소리(맥 안에서, 무료). "say" 면 맥 기본 음성 — 모델을 못 쓰면 알아서 say
@@ -85,6 +86,7 @@ margin_db = 3.0                   # 민감도: 스피커 되먹임보다 이만�
 # grace_s = 0.3                   # 말 시작 뒤 이 시간은 되먹임 크기만 배움
 # listen_s = [0.5, 0.9]          # 큰 소리 뒤 이때마다 받아써 봄 — 앞은 작은 모델, 마지막엔 못 찾으면 큰 모델까지
 # fast_model = "mlx-community/whisper-small-mlx"   # 첫 받아쓰기 모델(0.3초). 비우면 [stt] model 만 — 멈추기까지 3초
+# probe_model = "mlx-community/whisper-large-v3-turbo"   # 작은 모델이 못 찾으면 이걸로(1.3초). 비우면 [stt] model
 
 [dictate]                         # 주먹 쥐고 말하기 — 오른손 주먹을 쥔 채 한 말은 비서 대신 키보드 초점이 있는 글 칸에 붙여 넣음(엔터 없음, 어느 앱이든)
 enabled = true                    # deskd 에 손쉬운 사용 권한이 있어야 함(⌘V 보내기 · 초점 보기). 글 칸이 아니면 지금처럼 비서로
