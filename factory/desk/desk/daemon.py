@@ -28,6 +28,7 @@ from .bargein import Listener, has_stop_word, is_stop_utterance, only_stop_words
 from .brain import Brain
 from .clap import ClapConfig, ClapDetector
 from .dictate import Dictation, can_post_keys
+from . import deskwin
 from .dashboard import Board, serve, watch_agents
 from .router import route
 from .stt import WhisperSTT
@@ -558,6 +559,8 @@ class Desk:
                            "model": self.model_set, "dial": self.dial},
               port=self.cfg["dashboard"]["port"])
         watch_agents(self.board)
+        if self.cfg["dashboard"].get("keep_screen", True):
+            deskwin.keep(f"http://127.0.0.1:{self.cfg['dashboard']['port']}/")   # 두 번째 모니터 = 책상 창
         threading.Thread(target=self._stt_worker, daemon=True).start()
         threading.Thread(target=self._brain_worker, daemon=True).start()
         threading.Thread(target=self._warmup, daemon=True).start()

@@ -44,6 +44,22 @@ main{display:grid;grid-template-columns:1.4fr 1fr;grid-template-rows:minmax(0,1f
 .cam #handCard{display:flex}.cam #agentsCard{grid-row:2}
 #handImg{flex:1;min-height:0;width:100%;object-fit:contain;border-radius:8px;background:#000}
 #handText{margin-top:10px;font-size:26px;font-weight:600;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 세로 책상 화면(두 번째 모니터 640×1024, 사파리 창 — desk/deskwin.py): 한 줄로 쌓고 글자는 이 화면에 맞춤 */
+@media (orientation:portrait) and (max-width:900px){
+body{font-size:19px;padding:14px 16px;gap:12px;grid-template-rows:auto minmax(0,1fr)}footer{display:none}
+header{gap:6px 16px}#clock{font-size:56px}#date{font-size:21px}#state{font-size:23px;gap:8px}#dot{width:16px;height:16px}
+#models button,#voiceBtn{font-size:16px;padding:4px 10px}#models button small{font-size:12px}
+main{grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(0,1fr);grid-template-areas:"heard heard" "brief agents";gap:12px}
+.cam main{grid-template-rows:auto 36vh minmax(0,1fr);grid-template-areas:"heard heard" "cam cam" "brief agents"}
+.showing main{grid-template-rows:auto minmax(0,1fr);grid-template-areas:"heard heard" "show show"}
+.showing.cam main{grid-template-rows:auto 30vh minmax(0,1fr);grid-template-areas:"heard heard" "cam cam" "show show"}
+#heardCard,.showing #heardCard{grid-area:heard;max-height:24vh}#briefCard{grid-area:brief}#handCard{grid-area:cam}#showCard{grid-area:show}
+#agentsCard,.cam #agentsCard{grid-area:agents}.showing #agentsCard{display:none}
+section{padding:12px 14px}h2{font-size:14px;margin-bottom:6px}
+#heard{font-size:30px}#reply{font-size:21px;margin-top:8px}.showing #heard{font-size:22px}.showing #reply{font-size:17px}
+#panel{font-size:19px}#log{font-size:13px}#agents .row{font-size:16px;padding:4px 0}
+#handCard{padding:10px 14px}#handText{font-size:21px;margin-top:6px}
+}
 section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px 24px;overflow:auto;min-height:0}
 h2{margin:0 0 12px;font-size:18px;letter-spacing:.08em;color:var(--dim);font-weight:600}
 #heard{font-size:40px;font-weight:600;min-height:1.5em}#reply{font-size:29px;margin-top:14px;white-space:pre-wrap;color:#c9d1d9}

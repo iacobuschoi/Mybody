@@ -60,6 +60,7 @@ ship_repo = ""                    # "<주인>/app-factory-ship"
 [dashboard]
 port = 7070
 open_cmd = ""                     # 비우면 크롬 앱 창 전체 화면. 예: "open -a Safari {url}"
+keep_screen = true                # 두 번째 모니터(주 화면 아닌 가장 오른쪽)를 사파리 「책상」 창 전용으로 — 꽉 채우고 다른 창은 주 화면으로
 
 [face]                            # 박수로 깨울 때 얼굴 인증 — 등록: deskctl enroll (등록 전엔 박수만으로 켜짐)
 enabled = true                    # false 면 예전처럼 박수만으로

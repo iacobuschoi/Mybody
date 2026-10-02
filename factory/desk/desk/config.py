@@ -33,7 +33,8 @@ DEFAULTS: dict = {
             "volume": 1.0},                                 # 이 목소리만의 크기(0~1.5, say 는 1 까지) — 시스템 음량과 별개
     "brain": {"workdir": "~/lab/desk-assistant", "model": "", "timeout_s": 180},
     "briefing": {"city": "Seoul", "repo": "", "ship_repo": ""},   # repo = 주인/app-factory
-    "dashboard": {"port": 7070, "open_cmd": ""},
+    "dashboard": {"port": 7070, "open_cmd": "",
+                  "keep_screen": True},       # 두 번째 모니터를 책상 사파리 창 전용으로 (desk/deskwin.py)
     "face": {                       # 박수로 깨울 때 얼굴 인증 (desk/face.py). 등록(deskctl enroll) 전에는 박수만으로 깨어남
         "enabled": True,
         "camera": "Brio",           # 카메라 이름 일부 (아이폰 연속성 카메라를 피해서). 비우면 camera_index
