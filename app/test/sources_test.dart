@@ -431,7 +431,7 @@ void main() {
       await t.tap(find.byType(SourceLink));
       await t.pumpAndSettle();
       expect(find.byKey(const Key('sources-sheet')), findsOneWidget);
-      expect(find.byKey(const ValueKey('citation-ace_body_fat_chart')), findsOneWidget);
+      expect(find.byKey(const ValueKey('citation-gallagher_2000_pbf')), findsOneWidget);
     });
 
     /* 시트 안 토스트가 바깥 Scaffold 로 가면 시트 밑에 깔려 안 보입니다 — 시트가 출처의 주된 길. */

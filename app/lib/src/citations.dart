@@ -146,9 +146,12 @@ const Map<String, List<String>> kTopicRelated = {
   'duration_options': ['plan_timeline_prediction', 'weekly_loss_rate', 'measurement_noise'],
   'diet_adherence': ['daily_kcal_target', 'protein_target'],
   'goal_mode_selection': ['weekly_loss_rate', 'daily_kcal_target', 'protein_target', 'recommended_goal_default'],
-  'goal_refusals_safety': ['weekly_loss_rate', 'body_fat_lower_limit', 'measurement_noise'],
+  'goal_refusals_safety': ['weekly_loss_rate', 'recommended_goal_default', 'measurement_noise'],
   'goal_consistency': ['measurement_noise'],
   'estimate_upgrade': ['body_fat_estimate', 'measurement_noise'],
+  /* 체지방률 하한(남 8% · 여 15%)은 앱이 정한 값입니다 — 건강 체지방률 범위(Gallagher 2000)를 관련
+     근거로 보여 줍니다. ACE 체지방 구간 글은 주소가 없어져서(블로그 첫 화면으로 넘어감) 뺐습니다. */
+  'body_fat_lower_limit': ['recommended_goal_default'],
 };
 
 /// 문헌은 있지만 앱이 쓰는 **구체적인 값은 앱이 정한** 주제 — 문헌은 방향 · 범위만 줍니다.
@@ -499,15 +502,6 @@ const List<Citation> kCitations = [
     url: 'https://koreanfood.rda.go.kr/kfi/fct/fctIntro/list?menuId=PS03562',
   ),
   Citation(
-    id: 'usda_fdc_egg_171287',
-    group: kGroupNutrition,
-    topics: ['diet_status_nudge', 'food_composition'],
-    title: '계란 1개 단백질 약 6.3g',
-    reference: 'U.S. Department of Agriculture, Agricultural Research Service. FoodData Central '
-        '(SR Legacy): Egg, whole, raw, fresh. FDC ID 171287.',
-    url: 'https://fdc.nal.usda.gov/fdc-app.html#/food-details/171287/nutrients',
-  ),
-  Citation(
     id: 'urban_2010_stated_energy',
     group: kGroupNutrition,
     topics: ['food_composition'],
@@ -681,16 +675,6 @@ const List<Citation> kCitations = [
         'mass: development and cross-validation of anthropometric prediction models. '
         'Am J Clin Nutr. 2000;72(3):796-803.',
     url: 'https://doi.org/10.1093/ajcn/72.3.796',
-  ),
-  Citation(
-    id: 'ace_body_fat_chart',
-    group: kGroupBody,
-    topics: ['body_fat_lower_limit', 'recommended_goal_default'],
-    title: '체지방률 구간 — 필수 체지방 남 2~5% · 여 10~13% '
-        '(앱의 하한 남 8% · 여 15% 는 이보다 여유 있게 잡은 값)',
-    reference: 'American Council on Exercise (ACE). What are the guidelines for percentage of body '
-        'fat loss? ACE Lifestyle Blog #112.',
-    url: 'https://www.acefitness.org/education-and-resources/lifestyle/blog/112/what-are-the-guidelines-for-percentage-of-body-fat-loss/',
   ),
   Citation(
     id: 'kouri_1995_ffmi',
