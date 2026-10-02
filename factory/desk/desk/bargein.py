@@ -37,10 +37,10 @@ def has_stop_word(text: str, words: list[str], spoken: str = "") -> bool:
     return any(w and normalize(w) in n and normalize(w) not in s for w in words)
 
 
-def strip_echo(text: str, spoken: str, tail_chars: int = 40) -> str:
-    """겹친 말(비서 말 끝에 주인이 말을 얹음)을 받아쓰면 앞에 비서 말의 끝이 같이 받아써짐 — 그 앞 낱말들을 뗌.
-    앞에서부터 낱말을 늘려 가며 비서 말 끝(tail_chars 글자) 안에 그대로 있는 데까지."""
-    tail = normalize(spoken)[-tail_chars:]
+def strip_echo(text: str, spoken: str) -> str:
+    """겹친 말(비서 말 끝에 주인이 말을 얹음)을 받아쓰면 앞에 비서 말이 같이 받아써짐 — 그 앞 낱말들을 뗌.
+    앞에서부터 낱말을 늘려 가며 비서가 한 말 안에 그대로 있는 데까지(멈춰서 끊겼으면 끝이 아니라 중간일 수 있음)."""
+    tail = normalize(spoken)
     words = (text or "").split()
     k = 0
     for i in range(1, len(words) + 1):

@@ -547,7 +547,7 @@ class Desk:
             log.exception("받아쓰기 실패")
             self.board.log("error", f"받아쓰기: {e}")
             return ""
-        if cut.seq == self._echo_seq[0] and not cut.direct and cut.voiced <= self._echo_seq[2] + 3:
+        if cut.seq == self._echo_seq[0] and not cut.direct and cut.voiced <= self._echo_seq[2] + 15:   # 마이크 지연 · 되울림 0.45초
             log.info("겹친 소리가 비서 말과 함께 그침 — 제 목소리로 보고 버림: %s", raw or "(빈 말)")
             return ""                                  # 끝난 뒤로 말소리가 없으면 되먹임(끼어들기 감지는 제 목소리에도 자주 걸림)
         if not text and raw:
@@ -651,7 +651,8 @@ class Desk:
                 return
             # 스피커에서 소리가 나는 동안(+되울림 echo_s)만 말하는 중 — 합성 기다림 · 끝난 뒤 꼬리에는 듣기
             speaking = self.voice.sounding(self.echo_s) and time.time() - self._barged_at > 1.0   # 끊은 직후는 아님
-            lead = self.barge.voice_s() if self._deaf and not speaking and self.barge_on else 0.0
+            lead = (self.barge.voice_s() if self._deaf and not speaking and self.barge_on
+                    and time.time() - self._barged_at > 1.5 else 0.0)   # 멈춤 말로 끊었으면 겹친 건 그 멈춤 말 — 이어 듣지 않음
             if self.barge_on:
                 for a in ears:
                     heard = self.barge.feed(a, speaking)
