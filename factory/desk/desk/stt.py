@@ -58,12 +58,29 @@ class WhisperSTT:
         self.model, self.language, self.prompt = model, language, prompt
         self.fast_model = fast_model             # 끼어들기 첫 받아쓰기용 작은 모델(desk/bargein.py). 비우면 늘 model
         self._mlx = None
+        self._models: dict[str, object] = {}
+        self.last_raw = ""                       # 거르기 전 받아쓴 글 — 걸러 버린 말을 데몬이 로그에 남기게     # 불러 둔 모델 — 큰 · 작은 모델을 번갈아 써도 다시 읽지 않게
 
     def _load(self):
         if self._mlx is None:
             import mlx_whisper  # 맥(애플 실리콘)에서만
             self._mlx = mlx_whisper
         return self._mlx
+
+    def _use(self, name: str) -> None:
+        """mlx_whisper 는 모델을 하나만 들고 있어, 다른 모델을 부르면 매번 디스크에서 다시 읽고 허깅페이스에 물어봄
+        (10월 2일 15:08 — 끼어들기가 작은 · 큰 모델을 번갈아 불러 한 번에 1~2초씩, "받아쓰기 바쁨" 으로 "잠깐" 을 건너뜀).
+        그래서 둘 다 여기 들고 있다가 부르기 전에 바꿔 끼움. _gpu 안에서 부름."""
+        import sys
+        import mlx.core as mx
+        holder = sys.modules["mlx_whisper.transcribe"].ModelHolder
+        if holder.model_path == name and holder.model is not None:
+            return
+        m = self._models.get(name)
+        if m is None:
+            from mlx_whisper.load_models import load_model
+            m = self._models[name] = load_model(name, dtype=mx.float16)
+        holder.model, holder.model_path = m, name
 
     def warmup(self) -> None:
         import numpy as np
@@ -78,11 +95,13 @@ class WhisperSTT:
         if self.prompt:
             kw["initial_prompt"] = self.prompt   # 자주 쓰는 낱말(앱 공장 · 상황판 · 클로드 …)을 알려 줘 인식을 돕습니다
         with _gpu:
+            self._use(self.model)
             try:
                 r = mw.transcribe(audio, **kw)
             except TypeError:                         # 판에 따라 받는 인자가 다름
                 r = mw.transcribe(audio, path_or_hf_repo=self.model, language=self.language)
-        return clean_transcript(r.get("text", ""), r.get("segments"), direct=direct)
+        self.last_raw = r.get("text", "") or ""
+        return clean_transcript(self.last_raw, r.get("segments"), direct=direct)
 
     def hear(self, audio, fast: bool = False) -> str:
         """멈춤 말 찾기용(desk/bargein.py) — 힌트 문구 없이, 거르지 않은 글.
@@ -92,6 +111,7 @@ class WhisperSTT:
         model = self.fast_model if fast and self.fast_model else self.model
         mw = self._load()
         with _gpu:
+            self._use(model)
             r = mw.transcribe(audio, path_or_hf_repo=model, language=self.language, temperature=0.0,
                               condition_on_previous_text=False, verbose=None)
         return r.get("text", "")

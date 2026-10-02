@@ -156,8 +156,10 @@ class Voice:
         self.voice, self.rate, self.tail_s, self.device, self.volume = voice, rate, tail_s, device, volume
         self._p: subprocess.Popen | None = None
         self._until = 0.0
+        self.ended = 0.0                     # 소리가 실제로 그친 시각 — 꼬리(tail_s) 전체가 아니라 되울림만 귀를 닫게(sounding)
         self._lock = threading.Lock()
         self.last_text = ""
+        self.said_at = 0.0                   # last_text 를 말하기 시작한 시각
         if not shutil.which("say"):
             self.voice = ""
         else:
@@ -167,6 +169,12 @@ class Voice:
         with self._lock:
             running = self._p is not None and self._p.poll() is None
         return running or time.time() < self._until
+
+    def sounding(self, echo_s: float = 0.2) -> bool:
+        """스피커에서 지금 소리가 나는 중(그친 뒤 되울림 echo_s 까지). busy 는 그 뒤 꼬리까지 — 밀린 말 · 상태판용"""
+        with self._lock:
+            running = self._p is not None and self._p.poll() is None
+        return running or time.time() < self.ended + echo_s
 
     def configure(self, c: dict) -> None:
         """설정 창에서 저장한 값을 다시 켜지 않고 바로 씁니다."""
@@ -184,7 +192,7 @@ class Voice:
         voice = best_voice(o["voice"]) if o.get("voice") and self.voice else self.voice
         rate, vol = int(o.get("rate", self.rate)), min(1.0, float(o.get("volume", self.volume)))
         self.stop()
-        self.last_text = text
+        self.last_text, self.said_at = text, time.time()
         cmd = (["say", "-r", str(rate)] + (["-v", voice] if voice else [])
                + (["-a", self.device] if self.device else [])
                + [(f"[[volm {vol:.2f}]] " if vol < 0.995 else "") + text])
@@ -203,11 +211,13 @@ class Voice:
         p = self._p
         if p:
             p.wait()
-        self._until = time.time() + self.tail_s
+        self.ended = time.time()
+        self._until = self.ended + self.tail_s
 
     def stop(self) -> None:
         with self._lock:
             if self._p and self._p.poll() is None:
                 self._p.terminate()
             self._p = None
-        self._until = time.time() + 0.2
+        self.ended = time.time()
+        self._until = self.ended + 0.2

@@ -24,6 +24,9 @@ class FakeVoice:
     def busy(self):
         return False
 
+    def sounding(self, echo_s=0.2):
+        return self.busy()
+
     def say(self, text, block=False, opts=None):
         self.said.append(text)
         self.last_text = text

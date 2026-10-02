@@ -20,12 +20,13 @@ import logging
 import queue
 import threading
 import time
+from collections import deque
 
 import numpy as np
 
 from . import briefing, config, devices, mac, model_settings, voice_settings
 from .face import Gate
-from .bargein import Listener, has_stop_word, is_stop_utterance, only_stop_words
+from .bargein import Listener, has_stop_word, is_stop_utterance, only_stop_words, strip_echo
 from .brain import Brain
 from .clap import ClapConfig, ClapDetector
 from .dictate import Dictation, can_post_keys
@@ -49,7 +50,13 @@ class Desk:
         li = cfg["listen"]
         self.seg = Segmenter(sr=sr, level=li["vad_level"], end_silence_s=li["end_silence_s"],
                              min_utt_s=li["min_utt_s"], max_utt_s=li["max_utt_s"], energy_db=li["energy_db"],
-                             hold_silence_s=li.get("hold_silence_s", 0.0), min_level=li.get("min_level", 1e-5))
+                             hold_silence_s=li.get("hold_silence_s", 0.0), min_level=li.get("min_level", 1e-5),
+                             on_drop=lambda s, peak: log.info("짧아서 버림: 말 %.2f초 (기준 %.2f) · 가장 큰 %.4f",
+                                                              s, li["min_utt_s"], peak))
+        self.echo_s = float(li.get("echo_s", 0.2))   # 스피커 소리가 그친 뒤 이만큼만 귀를 닫음(되울림)
+        self._deaf = False                           # 말하는 중이라 상시 듣기를 닫아 둔 상태
+        self._spk: deque[np.ndarray] = deque()       # 닫아 둔 동안의 마이크 소리(최근 2초) — 겹친 말 앞부분 되살리기
+        self._echo_seq: tuple[int, str, int] = (-1, "", 0)   # 비서 말 끝을 앞에 붙여 들은 구간 → (구간, 비서가 한 말, 붙인 칸 수)
         self._finals: set[int] = set()               # 확정 조각이 받아쓰기 줄에 들어간 구간(seq)
         self._taken: dict[int, int] = {}             # 잠정 조각으로 이미 답한 구간 → 그 칸 수
         self._held: dict[int, tuple[int, str]] = {}  # 이어질 듯해 기다리는 구간 → (잠정 조각 칸 수, 받아쓴 글)
@@ -504,6 +511,11 @@ class Desk:
                 self.voice.say("입력창에 넣으려면 손쉬운 사용 권한이 필요해요.")
         return True
 
+    def _answering(self) -> bool:
+        """비서가 방금(30초 안) 물었음 — "응" · "네" 같은 짧은 대답도 버리지 않음"""
+        q = (self.voice.last_text or "").rstrip().rstrip(".")
+        return time.time() - getattr(self.voice, "said_at", 0.0) < 30 and (q.endswith("?") or q.endswith("까요"))
+
     def _hear_cut(self, cut: Cut) -> str:
         """조각을 받아씀. 잠정 조각은 끝난 말로 보일 때만 글을 돌려주고 구간을 닫음(말 끝 기다리기, desk/endpoint.py)"""
         audio = cut.audio
@@ -525,12 +537,24 @@ class Desk:
         t = time.time()
         try:
             with self._stt_lock:
-                text = self.stt.transcribe(audio, direct=True) if cut.direct else self.stt.transcribe(audio)
+                direct = cut.direct or self._answering()
+                text = self.stt.transcribe(audio, direct=True) if direct else self.stt.transcribe(audio)
+                raw = getattr(self.stt, "last_raw", "").strip()
             self._stt_s = time.time() - t
         except Exception as e:  # noqa: BLE001
             log.exception("받아쓰기 실패")
             self.board.log("error", f"받아쓰기: {e}")
             return ""
+        if cut.seq == self._echo_seq[0] and not cut.direct and cut.voiced <= self._echo_seq[2] + 3:
+            log.info("겹친 소리가 비서 말과 함께 그침 — 제 목소리로 보고 버림: %s", raw or "(빈 말)")
+            return ""                                  # 끝난 뒤로 말소리가 없으면 되먹임(끼어들기 감지는 제 목소리에도 자주 걸림)
+        if not text and raw:
+            log.info("받아쓰기 거름 (환각 · 짧은 말로 봄, %.1f초): %s", len(audio) / self.sr, raw)
+        if text and cut.seq == self._echo_seq[0] and not cut.direct:
+            cut_text = strip_echo(text, self._echo_seq[1])
+            if cut_text != text:
+                log.info("겹친 말 앞의 비서 말 끝을 뗌: %s → %s", text, cut_text or "(없음)")
+                text = cut_text
         if cut.final or not text:
             return text
         if looks_unfinished(text):
@@ -623,7 +647,9 @@ class Desk:
         if self.mode == "awake" or self.mode == "muted":
             if self._feed_talk(x):                   # 왼손 주먹으로 녹음 중 — 상시 듣기 자르개에는 안 넣음
                 return
-            speaking = self.voice.busy() and time.time() - self._barged_at > 1.0   # 끊은 직후 남은 꼬리는 말하는 중 아님
+            # 스피커에서 소리가 나는 동안(+되울림 echo_s)만 말하는 중 — 합성 기다림 · 끝난 뒤 꼬리에는 듣기
+            speaking = self.voice.sounding(self.echo_s) and time.time() - self._barged_at > 1.0   # 끊은 직후는 아님
+            lead = self.barge.voice_s() if self._deaf and not speaking and self.barge_on else 0.0
             if self.barge_on:
                 for a in ears:
                     heard = self.barge.feed(a, speaking)
@@ -632,22 +658,46 @@ class Desk:
                                          args=(heard, self.voice.last_text, self.barge.final,
                                                time.time() - self.barge.after_s)).start()
             if speaking:
+                if not self._deaf:                   # 막 말하기 시작 — 주인이 하던 말은 버리지 말고 여기까지로 넘김
+                    self._deaf = True
+                    self._spk.clear()
+                    cut = self.seg.flush()
+                    if cut is not None:
+                        log.info("말하기 시작 — 듣던 말 %.1f초를 여기까지로 넘김", len(cut.audio) / self.sr)
+                        self._queue_cut(cut)
+                self._spk.append(x)
+                while sum(len(a) for a in self._spk) - len(self._spk[0]) > 2 * self.sr:
+                    self._spk.popleft()
                 self.seg.pause()                     # 스피커에서 나가는 제 목소리를 듣지 않게(멈춤 말은 위에서 따로)
                 return
             self.seg.resume()
-            for cut in self.seg.feed_cuts(x):
-                cut.t1 = time.time()
-                cut.t0 = cut.t1 - len(cut.audio) / self.sr
-                if cut.final:
-                    self._finals.add(cut.seq)
-                try:
-                    self.utt_q.put_nowait(cut)
-                except queue.Full:
-                    self._finals.discard(cut.seq)
+            feed = x
+            if self._deaf:
+                self._deaf = False
+                if lead > 0 and self._spk:           # 비서 말 끝에 주인 목소리가 겹쳐 있었음 — 그 앞부분부터 듣기
+                    prev = np.concatenate(self._spk)
+                    prev = prev[-int(min(lead + 0.3, 2.0) * self.sr):]
+                    feed = np.concatenate([prev, x])
+                    log.info("말하기 끝에 겹친 말 — 앞 %.1f초부터 이어 들음", len(prev) / self.sr)
+                    self._echo_seq = (self.seg.seq + 1, self.voice.last_text, len(prev) // self.seg.n)
+                self._spk.clear()
+            for cut in self.seg.feed_cuts(feed):
+                self._queue_cut(cut)
         if self.mode == "awake" and time.time() - self.last_activity > self.cfg["idle_minutes"] * 60 \
                 and not self.voice.busy() and not self.brain.busy() and not self.seg.in_speech:
             threading.Thread(target=self.sleep, args=("idle",), daemon=True).start()
             self.last_activity = time.time()
+
+    def _queue_cut(self, cut: Cut) -> None:
+        cut.t1 = time.time()
+        cut.t0 = cut.t1 - len(cut.audio) / self.sr
+        if cut.final:
+            self._finals.add(cut.seq)
+        try:
+            self.utt_q.put_nowait(cut)
+        except queue.Full:
+            log.warning("받아쓰기 줄이 차서 들은 말을 버림 (%.1f초)", len(cut.audio) / self.sr)
+            self._finals.discard(cut.seq)
 
     def _feed_talk(self, x: np.ndarray) -> bool:
         """주먹 녹음에 소리를 넣음. 녹음 중(또는 방금 끝남)이면 True. 끝났으면 받아쓰기 줄에 넣음"""

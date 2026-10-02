@@ -38,7 +38,7 @@ class Segmenter:
     def __init__(self, sr: int = 16000, frame_ms: int = 30, level: int = -1, start_ratio: float = 0.6,
                  end_silence_s: float = 0.8, min_utt_s: float = 0.4, max_utt_s: float = 20.0,
                  preroll_s: float = 0.3, energy_db: float = 6.0, band: tuple[float, float] = (150.0, 4000.0),
-                 hold_silence_s: float = 0.0, min_level: float = 1e-5):
+                 hold_silence_s: float = 0.0, min_level: float = 1e-5, on_drop=None):
         self.sr, self.n = sr, int(sr * frame_ms / 1000)
         self.min_level = min_level      # 바닥 소음을 이보다 낮게 보지 않음 — 스피커폰은 조용하면 잡음 제거로 거의 0 을 보내
                                         # 아주 작은 소리도 "바닥보다 6dB" 가 되어 빈 구간을 받아쓰고 환각이 남(10월 2일)
@@ -68,6 +68,9 @@ class Segmenter:
         self._offered = False                      # 이번 침묵에서 잠정 조각을 이미 냈는지
         self._voiced_at = 0                        # 구간에서 마지막으로 말소리가 난 칸
         self._lock = threading.Lock()              # feed(소리 스레드) 와 commit(받아쓰기 스레드)
+        self._peak = 0.0                           # 구간에서 가장 큰 말소리 대역 크기(로그용)
+        self._last_rms = 0.0
+        self.on_drop = on_drop                     # 짧아서 버린 구간을 알림(말한 초, 가장 큰 크기) — 데몬이 로그에 남김
 
     @property
     def holding(self) -> bool:
@@ -103,6 +106,25 @@ class Segmenter:
             self._seq += 1
             self._offered = False                  # 그 말도 지금 침묵에서 잠정 조각으로 다시 낼 수 있게(옛 구간 번호로 낸 건 버려짐)
 
+    def flush(self) -> Cut | None:
+        """열린 구간을 지금까지로 끝냄(말하기가 시작돼 귀를 닫기 직전) — 충분히 길면 확정 조각으로, 아니면 버림"""
+        with self._lock:
+            if self._utt is None:
+                return None
+            spoken = len(self._utt) * self.frame_s - self._silence
+            n, audio, seq = len(self._utt), np.concatenate(self._utt), self._seq
+            self._utt = None
+            self._silence, self._offered = 0.0, False
+            if spoken >= self.min_utt_s:
+                return Cut(audio, True, seq, n, voiced=self._voiced_at + 1, tail_s=0.0)
+            if self.on_drop:
+                self.on_drop(spoken, self._peak)
+            return None
+
+    @property
+    def seq(self) -> int:
+        return self._seq
+
     @property
     def in_speech(self) -> bool:
         return self._utt is not None
@@ -111,6 +133,7 @@ class Segmenter:
         f = f - f.mean()                                   # 직류(DC) 빼기
         spec = np.abs(np.fft.rfft(f * self._win)) ** 2
         rms = float(np.sqrt(spec[self._band].sum() * self._norm)) + 1e-9
+        self._last_rms = rms
         floor = max(float(np.median(self._floor)) if self._floor else rms, self.min_level)
         if not self.in_speech:
             self._floor.append(rms)
@@ -149,8 +172,10 @@ class Segmenter:
                     self._offered = False
                     self._voiced_at = len(self._utt) - 1
                     self._seq += 1
+                    self._peak = self._last_rms
             else:
                 self._utt.append(f)
+                self._peak = max(self._peak, self._last_rms)
                 if sp:
                     self._silence, self._offered = 0.0, False
                     self._voiced_at = len(self._utt) - 1
@@ -165,6 +190,8 @@ class Segmenter:
                     self._silence, self._offered = 0.0, False
                     if spoken >= self.min_utt_s:
                         out.append(Cut(audio, True, self._seq, n, voiced=self._voiced_at + 1, tail_s=tail))
+                    elif self.on_drop:
+                        self.on_drop(spoken, self._peak)
                 elif self.holding and not self._offered and self._silence >= self.end_silence_s:
                     self._offered = True
                     if spoken >= self.min_utt_s:

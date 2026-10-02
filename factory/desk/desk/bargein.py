@@ -37,6 +37,20 @@ def has_stop_word(text: str, words: list[str], spoken: str = "") -> bool:
     return any(w and normalize(w) in n and normalize(w) not in s for w in words)
 
 
+def strip_echo(text: str, spoken: str, tail_chars: int = 40) -> str:
+    """겹친 말(비서 말 끝에 주인이 말을 얹음)을 받아쓰면 앞에 비서 말의 끝이 같이 받아써짐 — 그 앞 낱말들을 뗌.
+    앞에서부터 낱말을 늘려 가며 비서 말 끝(tail_chars 글자) 안에 그대로 있는 데까지."""
+    tail = normalize(spoken)[-tail_chars:]
+    words = (text or "").split()
+    k = 0
+    for i in range(1, len(words) + 1):
+        if len(normalize(" ".join(words[:i]))) >= 2 and normalize(" ".join(words[:i])) in tail:
+            k = i
+        elif normalize(" ".join(words[:i])):
+            break
+    return " ".join(words[k:])
+
+
 def is_stop_utterance(text: str, words: list[str]) -> bool:
     """들은 한 마디가 멈춤 말뿐인가("잠깐만", "그만해"). "그만 들어"(조용히) · "화면 꺼"(자기)는 제 명령으로."""
     n = normalize(text)
@@ -88,6 +102,7 @@ class Listener:
         self._recent: deque[bool] = deque(maxlen=round(0.3 / fs))   # 최근 칸들이 기준보다 컸나
         self._hold: list[float] = []  # 기준보다 컸던 칸 — 사람 목소리로 잡히지 않으면 나중에 되먹임 기준에 넣음
         self._hot = False            # 지금 사람 목소리로 잡힌 중
+        self._hot_at = 0             # 사람 목소리로 잡힌 큰 소리가 시작된 칸(_spoke 눈금)
         self._since = -1             # 큰 소리가 시작된 뒤 지난 칸(-1 = 듣는 중 아님)
         self.final = False           # 방금 내준 소리가 이번 큰 소리의 마지막 받아쓰기인가
         self.after_s = 0.0           # 방금 내준 소리 — 큰 소리가 시작된 지 몇 초 뒤인가
@@ -101,6 +116,11 @@ class Listener:
         f = f - f.mean()
         spec = np.abs(np.fft.rfft(f * self._win)) ** 2
         return float(np.sqrt(spec[self._band].sum() * self._norm)) + 1e-9
+
+    def voice_s(self) -> float:
+        """지금 사람 목소리가 이어지는 중이면 시작된 지 몇 초인가(아니면 0) — 말하기가 끝날 때 상시 듣기가
+        이 만큼 앞에서부터 이어 듣게(겹친 말 앞부분이 잘리지 않게). 말하기가 끝난 칸을 넣기 전에 물어야 함."""
+        return (self._spoke - self._hot_at) * self.fs if self._hot else 0.0
 
     def ref(self) -> float:
         floor = float(np.median(self._floor)) if self._floor else 1e-5
@@ -128,6 +148,8 @@ class Listener:
             self._recent.append(loud)
             (self._hold if loud else self._echo).append(rms)
             if sum(self._recent) >= self.min_frames:
+                if not self._hot:
+                    self._hot_at = self._spoke - len(self._recent) + list(self._recent).index(True)
                 self._hot = True
                 self._hold.clear()                           # 사람 목소리 — 되먹임 기준에 안 넣음
                 if self._since < 0:

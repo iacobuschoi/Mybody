@@ -56,6 +56,7 @@ class NeuralVoice(mac.Voice):
         self._styles: dict = {}
         self._gen = 0                   # 말 하나마다 +1 — stop() 도 올려서 하던 말을 멈추게
         self._speaking = False
+        self._out_gen = -1              # 스피커로 소리를 내기 시작한 말의 _gen
         self.ready = threading.Event()
         self.error = ""
         threading.Thread(target=self._load, daemon=True).start()
@@ -92,6 +93,10 @@ class NeuralVoice(mac.Voice):
     def busy(self) -> bool:
         return self._speaking or super().busy()
 
+    def sounding(self, echo_s: float = 0.2) -> bool:
+        """합성하는 동안(아직 소리 없음)은 False — 그때 주인이 한 말도 듣게"""
+        return (self._speaking and self._out_gen == self._gen) or super().sounding(echo_s)
+
     def say(self, text: str, block: bool = False, opts: dict | None = None) -> None:
         """opts: 이번 말에만 쓸 설정(설정 창의 「들어 보기」) — engine · style · speed · pitch · volume · voice · rate."""
         text = (text or "").strip()
@@ -107,7 +112,7 @@ class NeuralVoice(mac.Voice):
             print(f"[말하기] 목소리 {o.get('style')} 를 못 씀: {e}", flush=True)
             return super().say(text, block, opts)
         self.stop()
-        self.last_text = text
+        self.last_text, self.said_at = text, time.time()
         with self._lock:
             self._gen += 1
             gen, self._speaking = self._gen, True
@@ -152,6 +157,7 @@ class NeuralVoice(mac.Voice):
             with stream as out:
                 gap = np.zeros(int(sr * 0.15), dtype=np.float32)
                 while alive() and (wav := parts.get()) is not None:
+                    self._out_gen = gen
                     for i in range(0, len(wav), sr // 10):    # 0.1초씩 — stop() 에 바로 멈추게
                         if not alive():
                             break
@@ -169,4 +175,5 @@ class NeuralVoice(mac.Voice):
         with self._lock:
             if self._gen == gen:
                 self._speaking = False
-                self._until = time.time() + self.tail_s
+                self.ended = time.time()
+                self._until = self.ended + self.tail_s

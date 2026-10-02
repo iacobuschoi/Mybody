@@ -18,7 +18,8 @@ DEFAULTS: dict = {
         "clap_when_awake": "none",  # none · sleep (깨어 있을 때 박수로 끄기)
     },
     "clap": {},                     # ClapConfig 값 덮어쓰기 (rise_db · min_centroid_hz · max_gap_s …)
-    "listen": {"end_silence_s": 0.8, "min_utt_s": 0.4, "max_utt_s": 20.0,
+    "listen": {"end_silence_s": 0.8, "min_utt_s": 0.3, "max_utt_s": 20.0,   # min_utt_s: 0.4 는 "응" · "꺼" 같은 짧은 말을 버림(10월 2일)
+               "echo_s": 0.2,               # 스피커 소리가 그친 뒤 이만큼만 귀를 닫음(예전엔 말 꼬리 0.5초 내내 닫아 이어 한 말 앞이 잘림)
                "hold_silence_s": 2.0,       # 받아쓴 끝이 조사 · 접속사("…이랑", "그리고")면 이만큼까지 더 기다림. 0 = 끔
                "vad_level": -1,             # webrtcvad 0~3, -1 = 끔(말소리 대역 크기로만 — desk/vad.py)
                "energy_db": 6.0,            # 말소리 대역이 바닥 소음보다 이만큼 커야 말

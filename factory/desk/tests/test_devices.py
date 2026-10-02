@@ -88,6 +88,7 @@ class DaemonDevices(unittest.TestCase):
         d.mode = "awake"
         fed = []
         d.voice.busy = lambda: True
+        d.voice.sounding = lambda echo_s=0.2: True
         d.barge.feed = lambda a, speaking: fed.append((len(a), speaking))
         d._on_audio(np.zeros(480, dtype=np.float32), [np.ones(480, dtype=np.float32)] * 2)
         self.assertEqual(fed, [(480, True), (480, True)])
