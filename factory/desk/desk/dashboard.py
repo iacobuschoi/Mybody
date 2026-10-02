@@ -5,7 +5,9 @@
 /api/<명령> deskctl 이 부르는 곳: wake · sleep · brief · mute · unmute · stop · say · show
            그리고 「목소리」 설정 창: tts(지금 값) · tts_test(들어 보기) · tts_save(저장 → config.toml [tts])
            위쪽 모델 토글: model(고른 모델 → config.toml [brain] model, 빈 글이면 지금 모델)
-/handcam.mjpg · /handcam.json  hand-mouse 카메라(손 인식 그림) · 상태 줄 — 「손 카메라」 칸.
+/handcam.jpg · /handcam.json  hand-mouse 카메라(손 인식 그림) 한 장 · 상태 줄 — 「손 카메라」 칸.
+           페이지가 한 장씩 계속 받아 감(긴 MJPEG 스트림은 deskd 가 다시 뜨면 사파리에서 오류 없이 마지막 장에 멈춰 있었다,
+           주인 15:47). 새 그림이 몇 초 안 오면 칸에 「멈춤」.
            hand-mouse(overlay.py)는 HANDCAM/want 가 몇 초 안에 건드려졌을 때만 view.jpg · view.json 을 쓴다.
 
 오른쪽 칸의 「백그라운드 작업」 은 `claude agents --json` 을 몇 초마다 읽어 채웁니다(watch_agents).
@@ -23,7 +25,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 HANDCAM = os.path.expanduser("~/.cache/hand-mouse")   # hand-mouse overlay.py DESK_DIR 와 같은 자리
-HANDCAM_STALE_S = 2.0   # 이만큼 새 그림이 없으면 꺼진 것으로 (칸을 숨김)
+HANDCAM_STALE_S = 3.0   # 이만큼 새 그림이 없으면 「멈춤」
+HANDCAM_GONE_S = 60.0   # 이만큼 없으면 꺼진 것으로 (칸을 숨김 — hand-mouse off · 화면 꺼짐)
 
 PAGE = r"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>책상</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -41,7 +44,7 @@ header{display:flex;align-items:baseline;gap:24px;flex-wrap:wrap}
 main{display:grid;grid-template-columns:1.4fr 1fr;grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:24px;min-height:0}
 #agentsCard{grid-column:2;grid-row:1/3}
 #handCard{display:none;grid-column:2;grid-row:1;flex-direction:column;padding:16px 20px;overflow:hidden}
-.cam #handCard{display:flex}.cam #agentsCard{grid-row:2}
+.cam #handCard{display:flex}.stuck #handImg{opacity:.35}.stuck #handText{color:var(--warn)}.cam #agentsCard{grid-row:2}
 #handImg{flex:1;min-height:0;width:100%;object-fit:contain;border-radius:8px;background:#000}
 #handText{margin-top:10px;font-size:26px;font-weight:600;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 세로 책상 화면(두 번째 모니터 640×1024, 사파리 창 — desk/deskwin.py): 한 줄로 쌓고 글자는 이 화면에 맞춤 */
@@ -126,9 +129,9 @@ setInterval(renderAgents,30000);
 const SHOW_MS=15*60000;let shown="",closedAt=-1,last={};
 function showing(){return !!last.panel&&last.panel_at!==closedAt&&Date.now()-(last.panel_at||0)<SHOW_MS}
 function closeShow(){closedAt=last.panel_at;render(last)}
-let camLive=false;
+let camShown=false;
 function render(st){last=st;
- document.body.className=(st.mode||"sleep")+(showing()?" showing":"")+(camLive?" cam":"");stateText.textContent=S[st.mode]||st.mode;
+ document.body.className=(st.mode||"sleep")+(showing()?" showing":"")+(camShown?" cam":"");stateText.textContent=S[st.mode]||st.mode;
  heard.textContent=st.heard||"—";reply.textContent=st.reply||"";
  if(st.panel!==shown){shown=st.panel||"";panel.textContent=shown;showCard.scrollTop=0}
  const b=st.briefing||{},f=b.factory||{},l=b.lab||{};let h="";
@@ -179,13 +182,23 @@ vSave.onclick=()=>{vMsg.textContent="저장 중…";api("tts_save",vs).then(t=>v
 voiceBtn.onclick=vOpen;vClose.onclick=vHide;voiceDlg.onclick=e=>{if(e.target===voiceDlg)vHide()};
 showCard.onclick=closeShow;addEventListener("keydown",e=>{if(e.key==="Escape"){if(!voiceDlg.hidden)return vHide();closeShow()}});
 setInterval(()=>{if(last.panel)render(last)},30000);
-// 손 카메라 — hand-mouse 가 켜져 새 그림을 보내는 동안만 칸이 보임 (그림은 MJPEG, 상태 줄은 짧게 물어봄)
-function camStream(){handImg.src="/handcam.mjpg?"+Date.now()}
-handImg.onerror=()=>setTimeout(camStream,2000);
-function camPoll(){fetch("/handcam.json").then(r=>r.json()).then(c=>{
-  if(c.live!==camLive){camLive=c.live;render(last);if(camLive)camStream()}
-  handText.textContent=c.text||""}).catch(()=>{}).finally(()=>setTimeout(camPoll,300))}
-connect();renderAgents();camPoll();
+// 손 카메라 — hand-mouse 가 켜져 있는 동안 칸이 보임. 그림은 한 장씩 계속 받아 감(3초 넘게 안 오면 끊고 다시),
+// 상태 줄은 짧게 물어봄. 새 그림이 3초 넘게 없으면(hand-mouse 쪽이든 받는 쪽이든) 「멈춤」
+let camOk=0,camUrl="";const nap=ms=>new Promise(r=>setTimeout(r,ms));
+async function camLoop(){for(;;){
+ if(!camShown){await nap(500);continue}
+ const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),3000);
+ try{const r=await fetch("/handcam.jpg?"+Date.now(),{cache:"no-store",signal:ctl.signal});
+  if(r.ok){const u=URL.createObjectURL(await r.blob());handImg.src=u;if(camUrl)URL.revokeObjectURL(camUrl);camUrl=u;camOk=Date.now()}
+  else await nap(1000)}
+ catch(e){await nap(1000)}finally{clearTimeout(to)}
+ await nap(60)}}
+function camPoll(){fetch("/handcam.json?"+Date.now(),{cache:"no-store"}).then(r=>r.json()).then(c=>{
+  if(c.shown!==camShown){camShown=c.shown;camOk=Date.now();render(last)}
+  const ago=Math.max(c.live?0:c.age,(Date.now()-camOk)/1000),stuck=camShown&&ago>=3;
+  handCard.classList.toggle("stuck",stuck);
+  handText.textContent=stuck?`멈춤 — ${Math.round(ago)}초째 새 그림 없음`:(c.text||"")}).catch(()=>{}).finally(()=>setTimeout(camPoll,300))}
+connect();renderAgents();camPoll();camLoop();
 </script></body></html>"""
 BUILD = hashlib.sha1(PAGE.encode()).hexdigest()[:12]
 PAGE = PAGE.replace("@BUILD@", BUILD)
@@ -202,15 +215,16 @@ def handcam_touch(folder: str = "") -> None:
 
 
 def handcam_state(folder: str = "", now: float | None = None) -> dict:
-    """{"live": 새 그림이 HANDCAM_STALE_S 안에 왔나, "text": 상태 줄}."""
+    """{"shown": 칸을 보일까(HANDCAM_GONE_S 안), "live": 새 그림이 HANDCAM_STALE_S 안에 왔나, "age": 초, "text": 상태 줄}."""
     folder = folder or HANDCAM
     try:
         with open(os.path.join(folder, "view.json"), encoding="utf-8") as f:
             v = json.load(f)
     except (OSError, ValueError):
-        return {"live": False, "text": ""}
-    live = (now or time.time()) - float(v.get("t") or 0) < HANDCAM_STALE_S
-    return {"live": live, "text": str(v.get("text") or "") if live else ""}
+        return {"shown": False, "live": False, "age": None, "text": ""}
+    age = max(0.0, (now or time.time()) - float(v.get("t") or 0))
+    return {"shown": age < HANDCAM_GONE_S, "live": age < HANDCAM_STALE_S, "age": round(age, 1),
+            "text": str(v.get("text") or "")}
 
 
 class Board:
@@ -305,8 +319,13 @@ def serve(board: Board, commands: dict, host: str = "127.0.0.1", port: int = 707
             if u.path == "/handcam.json":
                 handcam_touch()
                 return self._send(200, json.dumps(handcam_state(), ensure_ascii=False).encode(), "application/json")
-            if u.path == "/handcam.mjpg":
-                return self._handcam()
+            if u.path == "/handcam.jpg":
+                handcam_touch()
+                try:
+                    with open(os.path.join(HANDCAM, "view.jpg"), "rb") as f:
+                        return self._send(200, f.read(), "image/jpeg")
+                except OSError:
+                    return self._send(404, b"no frame")
             if u.path == "/events":
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
@@ -321,34 +340,6 @@ def serve(board: Board, commands: dict, host: str = "127.0.0.1", port: int = 707
                 except (BrokenPipeError, ConnectionResetError):
                     return
             self._send(404, b"not found")
-
-        def _handcam(self):
-            """view.jpg 가 바뀔 때마다 한 장씩 (multipart MJPEG). 페이지가 닫히면 끝."""
-            self.send_response(200)
-            self.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            path, seen, touched = os.path.join(HANDCAM, "view.jpg"), None, 0.0
-            try:
-                while True:
-                    now = time.monotonic()
-                    if now - touched > 1:
-                        handcam_touch()
-                        touched = now
-                    try:
-                        st = os.stat(path)
-                        key = (st.st_mtime_ns, st.st_ino)
-                        jpeg = None if key == seen else open(path, "rb").read()
-                    except OSError:
-                        key = jpeg = None
-                    if jpeg:
-                        seen = key
-                        self.wfile.write(b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
-                                         + str(len(jpeg)).encode() + b"\r\n\r\n" + jpeg + b"\r\n")
-                        self.wfile.flush()
-                    time.sleep(1 / 20)
-            except (BrokenPipeError, ConnectionResetError):
-                return
 
         def do_POST(self):
             u = urlparse(self.path)
