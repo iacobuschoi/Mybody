@@ -98,6 +98,7 @@ class Segmenter:
             self._utt = self._utt[frames:]         # 뒤이어 한 말은 새 구간
             self._voiced_at -= frames
             self._seq += 1
+            self._offered = False                  # 그 말도 지금 침묵에서 잠정 조각으로 다시 낼 수 있게(옛 구간 번호로 낸 건 버려짐)
 
     @property
     def in_speech(self) -> bool:

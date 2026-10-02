@@ -133,6 +133,23 @@ class DaemonHearCut(unittest.TestCase):
         self.assertEqual(self.d._hear_cut(cuts[2]), "오늘 일정이랑 날씨")   # 뒤에 말이 더 있었으니 합쳐 다시 받아씀
         self.assertEqual(len(self.heard), 2)
 
+    def test_speech_during_stt_not_answered_twice(self):
+        self.text = "아래로 내려가는 걸 인식을 못해요"                     # 10/2 13:34 — 같은 말에 두 번 답함
+        sig = lambda *p: np.concatenate(p)
+        first = run(self.d.seg, sig(quiet(1.0), voice(1.0), quiet(0.9)))
+        second = run(self.d.seg, sig(voice(0.6), quiet(0.9)))              # 받아쓰는 사이 이어 말하고 또 쉼
+        self.assertEqual([c.final for c in first + second], [False, False])
+        self.assertEqual(self.d._hear_cut(first[0]), self.text)            # 앞 말 답하고 구간을 나눔
+        self.assertEqual(self.d._hear_cut(second[0]), "")                  # 옛 구간 번호 — 앞 말까지 든 조각은 버림
+        self.assertEqual(len(self.heard), 1)
+        rest = run(self.d.seg, quiet(0.1))                                 # 뒤 말은 새 구간으로 바로 다시 나옴
+        self.assertEqual([c.final for c in rest], [False])
+        self.assertNotEqual(rest[0].seq, first[0].seq)
+        self.assertLess(len(rest[0].audio) / SR, 1.8)
+        self.text = "손가락 아래로 향했을 때"
+        self.assertEqual(self.d._hear_cut(rest[0]), self.text)             # 뒤 말만 따로 답함
+        self.assertEqual(len(self.heard), 2)
+
     def test_tentative_skipped_when_final_queued(self):
         self.text = "화면 꺼"
         self.d._finals.add(7)

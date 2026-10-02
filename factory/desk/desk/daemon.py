@@ -444,6 +444,8 @@ class Desk:
                     return ""
         elif cut.seq in self._finals:                  # 확정 조각이 벌써 줄에 있음 — 그걸로 받아씀
             return ""
+        elif cut.seq in self._taken:                   # 받아쓰는 사이 말이 이어져 같은 구간에서 또 나온 잠정 조각 —
+            return ""                                  # 앞은 이미 답했고, 뒤는 새 구간 번호로 다시 나옴
         t = time.time()
         try:
             with self._stt_lock:
