@@ -30,6 +30,7 @@ def calibrate() -> None:
     import sounddevice as sd
     from . import config
     from .clap import ClapConfig, ClapDetector
+    from .devices import pick
     cfg = config.load()
     sr = cfg["audio"]["samplerate"]
     det = ClapDetector(ClapConfig(sr=sr, **cfg.get("clap", {})))
@@ -50,7 +51,8 @@ def calibrate() -> None:
             print(f"  (바닥 소음 {f.get('floor', 0):.4f})")
 
     with sd.InputStream(samplerate=sr, channels=1, dtype="float32", blocksize=int(sr * 0.03),
-                        device=cfg["audio"].get("device") or None, callback=cb):
+                        device=pick(cfg["audio"].get("side_device") or cfg["audio"].get("device"), "input") or None,
+                        callback=cb):
         try:
             while True:
                 time.sleep(0.2)
@@ -62,6 +64,7 @@ def selftest() -> None:
     import shutil
     import subprocess
     from . import briefing, config, mac
+    from .devices import pick
     cfg = config.load()
     ok = True
 
@@ -80,7 +83,8 @@ def selftest() -> None:
         import sounddevice as sd
         sr = cfg["audio"]["samplerate"]
         print("2초 동안 말해 보세요 … ", end="", flush=True)
-        x = sd.rec(int(sr * 2), samplerate=sr, channels=1, dtype="float32", device=cfg["audio"].get("device") or None)
+        x = sd.rec(int(sr * 2), samplerate=sr, channels=1, dtype="float32",
+                   device=pick(cfg["audio"].get("device"), "input") or None)
         sd.wait()
         rms = float(np.sqrt(np.mean(x ** 2)))
         if rms < 0.003:
@@ -94,7 +98,7 @@ def selftest() -> None:
             if v.error:
                 raise RuntimeError(f"Supertonic 못 씀 — {v.error} (pip install supertonic)")
         v.say("책상 시스템 점검 중입니다.", block=True)
-        where = cfg["tts"].get("device") or "기본 출력"
+        where = v.device or "기본 출력"
         if hasattr(v, "engine"):
             return f"{v.engine} · {where}"
         voices = subprocess.run(["say", "-v", "?"], capture_output=True, text=True).stdout

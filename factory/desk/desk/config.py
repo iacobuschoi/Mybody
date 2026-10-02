@@ -9,7 +9,8 @@ import tomllib
 
 DEFAULTS: dict = {
     "owner": "",                    # 인사할 때 부를 이름 (비우면 이름 없이)
-    "audio": {"device": "", "samplerate": 16000},
+    "audio": {"device": "", "samplerate": 16000,   # device: 이름 하나 또는 목록(꽂힌 첫 장치, desk/devices.py)
+              "side_device": ""},           # 박수 · 끼어들기를 들을 마이크(비우면 device 와 같음)
     "wake": {
         "claps": 2,                 # 켜는 박수 수
         "night_claps": 3,           # 밤에는 더 (침대 앞 책상 — 기침 · 뒤척임에 켜지지 않게)

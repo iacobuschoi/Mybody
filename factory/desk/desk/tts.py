@@ -14,7 +14,7 @@ import re
 import threading
 import time
 
-from . import mac
+from . import devices, mac
 
 
 def sentences(text: str) -> list[str]:
@@ -147,7 +147,9 @@ class NeuralVoice(mac.Voice):
         threading.Thread(target=make, daemon=True).start()
         played = False
         try:
-            with sd.OutputStream(samplerate=sr, channels=1, dtype="float32", device=output_device(self.device)) as out:
+            with devices.pa_lock:                   # 장치 목록을 새로 읽는 중엔 기다렸다 엶(desk/devices.py)
+                stream = sd.OutputStream(samplerate=sr, channels=1, dtype="float32", device=output_device(self.device))
+            with stream as out:
                 gap = np.zeros(int(sr * 0.15), dtype=np.float32)
                 while alive() and (wav := parts.get()) is not None:
                     for i in range(0, len(wav), sr // 10):    # 0.1초씩 — stop() 에 바로 멈추게

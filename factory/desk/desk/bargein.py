@@ -85,6 +85,11 @@ class Listener:
         self._hot = False            # 지금 사람 목소리로 잡힌 중
         self._wait = -1              # 받아쓰기까지 남은 칸(-1 = 기다리는 중 아님)
 
+    def forget(self) -> None:
+        """배운 방 소리 · 되먹임 크기를 버림 — 마이크를 바꿨을 때(장치마다 크기가 다름)."""
+        self._floor.clear()
+        self._echo.clear()
+
     def _rms(self, f: np.ndarray) -> float:
         f = f - f.mean()
         spec = np.abs(np.fft.rfft(f * self._win)) ** 2

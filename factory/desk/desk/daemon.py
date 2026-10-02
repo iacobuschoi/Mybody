@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import contextlib
 import datetime as dt
 import json
 import logging
@@ -22,7 +23,7 @@ import time
 
 import numpy as np
 
-from . import briefing, config, mac, model_settings, voice_settings
+from . import briefing, config, devices, mac, model_settings, voice_settings
 from .face import Gate
 from .bargein import Listener, has_stop_word, is_stop_utterance, only_stop_words
 from .brain import Brain
@@ -81,6 +82,9 @@ class Desk:
         self._changed_at = 0.0                        # 우리가 화면을 켜고/끈 시각 — 화면 감시가 헷갈리지 않게
         self.mic_blocked = False
         self._mic_heard = time.time()                 # 마지막으로 0 이 아닌 소리가 들어온 시각
+        self.side_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=400)   # 박수 · 끼어들기 마이크가 따로일 때
+        self._devs: tuple[str, str, str] | None = None   # 지금 쓰는 (마이크, 박수 · 끼어들기 마이크, 스피커) 실제 이름
+        self._devs_want: tuple[str, str, str] | None = None   # 장치 감시가 고른 새 짝 — 듣기 고리가 다시 엶
         self._mic_warned = False
 
     # ── 상태 바꾸기 ────────────────────────────────────────────────────────
@@ -526,8 +530,10 @@ class Desk:
         night = (a <= now < b) if a < b else (now >= a or now < b)
         return int(w["night_claps"] if night else w["claps"])
 
-    def _on_audio(self, x: np.ndarray) -> None:
-        bursts = self.clap.feed(x)
+    def _on_audio(self, x: np.ndarray, side: list[np.ndarray] | None = None) -> None:
+        """side: 박수 · 끼어들기를 듣는 마이크가 따로면(side_device) 그 사이 들어온 조각들. 없으면 x 로 둘 다 봄."""
+        ears = [x] if side is None else side
+        bursts = [n for a in ears for n in self.clap.feed(a)]
         if self.mode == "sleep":
             if any(n == self._required_claps() for n in bursts):
                 self.clap_wake()
@@ -542,9 +548,10 @@ class Desk:
         if self.mode == "awake" or self.mode == "muted":
             speaking = self.voice.busy() and time.time() - self._barged_at > 1.0   # 끊은 직후 남은 꼬리는 말하는 중 아님
             if self.barge_on:
-                heard = self.barge.feed(x, speaking)
-                if heard is not None:
-                    threading.Thread(target=self._probe, args=(heard, self.voice.last_text), daemon=True).start()
+                for a in ears:
+                    heard = self.barge.feed(a, speaking)
+                    if heard is not None:
+                        threading.Thread(target=self._probe, args=(heard, self.voice.last_text), daemon=True).start()
             if speaking:
                 self.seg.pause()                     # 스피커에서 나가는 제 목소리를 듣지 않게(멈춤 말은 위에서 따로)
                 return
@@ -584,35 +591,99 @@ class Desk:
             except queue.Full:
                 pass
 
-        dev = self.cfg["audio"].get("device") or None
-        log.info("deskd 시작 · 마이크 %s · 박수 %d번(밤 %d번)", dev or "기본", self.cfg["wake"]["claps"],
-                 self.cfg["wake"]["night_claps"])
+        def side_cb(indata, frames, t, status):  # noqa: ARG001
+            try:
+                self.side_q.put_nowait(indata[:, 0].copy())
+            except queue.Full:
+                pass
+
+        log.info("deskd 시작 · 박수 %d번(밤 %d번)", self.cfg["wake"]["claps"], self.cfg["wake"]["night_claps"])
+        threading.Thread(target=self._watch_devices, daemon=True).start()
         self._show()
         last_show = last_display = 0.0
         clock = (time.time(), time.monotonic())
         while not self._stop.is_set():
+            mic, side_mic = self._use_devices(self._devs_want or self._pick_devices())
             opened = self._mic_heard = time.time()
             # 권한을 나중에 허용하면 이미 열린 스트림엔 계속 0 이 옵니다 — 막혀 있는 동안은 20초마다 다시 엽니다
-            with sd.InputStream(samplerate=self.sr, channels=1, dtype="float32", blocksize=int(self.sr * 0.03),
-                                device=dev, callback=cb):
+            # 장치를 빼거나 꽂아 고를 장치가 바뀌어도(_watch_devices) 닫고 새로 엽니다
+            with contextlib.ExitStack() as streams:
+                streams.enter_context(sd.InputStream(samplerate=self.sr, channels=1, dtype="float32",
+                                                     blocksize=int(self.sr * 0.03), device=mic or None, callback=cb))
+                if side_mic != mic:
+                    with self.side_q.mutex:
+                        self.side_q.queue.clear()
+                    streams.enter_context(sd.InputStream(samplerate=self.sr, channels=1, dtype="float32",
+                                                         blocksize=int(self.sr * 0.03), device=side_mic or None,
+                                                         callback=side_cb))
                 while not self._stop.is_set():
                     try:
                         x = self.audio_q.get(timeout=1)
                     except queue.Empty:
                         x = None
                     clock = self._check_system_wake(*clock)
-                    self._mic_check(x)
+                    if self._devs_want is not None and self._devs_want != self._devs:
+                        break
+                    side = None
+                    if side_mic != mic:
+                        side = []
+                        while not self.side_q.empty():
+                            side.append(self.side_q.get_nowait())
+                    # 권한이 없으면 모든 마이크가 0 — 스피커폰은 조용한 방에서 잡음 제거로 몇 초씩 0 을 보내므로 둘 중 하나만 들려도 됨
+                    self._mic_check(x if x is not None and np.any(x) or not side else np.concatenate(side))
                     if self.mic_blocked and time.time() - opened > 20:
                         break
                     if x is None:
                         continue
-                    self._on_audio(x)
+                    self._on_audio(x, side)
                     if time.time() - last_show > 0.5:        # 말하기가 끝났는지 등 — 상태판을 따라가게
                         self._show()
                         last_show = time.time()
                     if time.time() - last_display > 2:       # 키보드로 켠 화면 · 저절로 꺼진 화면 따라가기
                         self._watch_display()
                         last_display = time.time()
+
+    # ── 소리 장치 (desk/devices.py) ───────────────────────────────────────
+    def _pick_devices(self) -> tuple[str, str, str]:
+        """[audio] device · side_device · [tts] device 목록 중 지금 꽂힌 첫 장치 (마이크, 박수 · 끼어들기 마이크, 스피커).
+
+        스피커폰(Jabra Speak2)은 듣기엔 좋지만 박수 · 끼어들기엔 못 씁니다(10월 2일 녹음) — 잡음 제거가 말 첫소리를 박수처럼
+        날카롭게 만들고(말 90초에 헛박수 8번, Brio 0번), 제가 말하는 동안엔 마이크를 아예 닫습니다(그 위로 한 "멈춰" 가 0).
+        그래서 박수와 끼어들기는 side_device(Brio)로 듣습니다."""
+        a = self.cfg["audio"]
+        have_in, have_out = devices.present("input"), devices.present("output")
+        mic = devices.pick(a.get("device"), "input", have_in)
+        side = devices.pick(a.get("side_device"), "input", have_in) if devices.names(a.get("side_device")) else mic
+        return mic, side, devices.pick(self.cfg["tts"].get("device"), "output", have_out)
+
+    def _watch_devices(self) -> None:
+        """3초마다 고를 장치를 다시 봅니다 — 스피커폰을 빼면 Brio · 맥 미니 스피커로, 다시 꽂으면 스피커폰으로."""
+        while not self._stop.wait(3):
+            want = self._pick_devices()
+            if self._devs is not None and want != self._devs:
+                self._devs_want = want
+
+    def _use_devices(self, want: tuple[str, str, str]) -> tuple[str, str]:
+        """스트림을 열기 전 — 장치가 바뀌었으면 PortAudio 목록을 새로 읽고(꽂은 장치를 알게) 목소리도 옮깁니다."""
+        old, self._devs_want = self._devs, None
+        if want != old:
+            if old is not None:
+                if want[2] != old[2]:
+                    self.voice.stop()                 # 뺀 스피커로 나가던 말은 끊음
+                until = time.time() + 15
+                while self.voice.busy() and time.time() < until:   # 말하는 스트림이 열려 있으면 다시 못 띄움
+                    time.sleep(0.1)
+                devices.refresh()
+                self.clap.reset()
+                self.seg.reset()
+                self.barge.forget()
+            self.voice.device = want[2]
+            line = f"마이크 {want[0] or '기본'} · 박수 · 끼어들기 {want[1] or '기본'} · 스피커 {want[2] or '기본'}"
+            log.info("소리 장치: %s", line)
+            if old is not None:
+                self.board.log("mic", f"장치 바뀜 — {line}")
+        self._devs = want
+        return want[0], want[1]
 
     def _check_system_wake(self, wall: float, mono: float, now_wall: float | None = None,
                            now_mono: float | None = None) -> tuple[float, float]:

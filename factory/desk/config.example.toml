@@ -8,6 +8,9 @@ camera_on = ["~/.local/bin/hand-mouse on --no-sweep"]   # 화면이 켜질 때(�
 
 [audio]
 device = ""                       # 입력 장치 이름 일부("Brio"). 비우면 시스템 기본 입력 — install.sh 가 Brio 를 찾으면 채움
+                                  # 목록이면 꽂힌 첫 장치: ["Jabra", "Brio"] — 스피커폰을 빼면 Brio, 다시 꽂으면 스피커폰(3초 안)
+# side_device = ["Brio", "Jabra"] # 박수 · 끼어들기를 들을 마이크(비우면 device). 스피커폰(Jabra)은 잡음 제거가 말 첫소리를
+                                  # 박수처럼 만들고 제가 말하는 동안 마이크를 닫아서, 이 둘은 웹캠(Brio) 마이크가 나음
 samplerate = 16000
 
 [wake]
@@ -45,6 +48,7 @@ volume = 1.0                      # 이 목소리만의 크기(0~1.5, say 는 1 
 voice = "Yuna"                    # say 목소리(설정 → 손쉬운 사용 → 읽기 및 말하기 → 시스템 음성에서 "Yuna (프리미엄)" 권장)
 rate = 190                        # say 빠르기
 device = ""                       # 소리 낼 장치. TV 가 꺼져도 들리게 맥 미니 내장 스피커로 — install.sh 가 채움
+                                  # 목록이면 꽂힌 첫 장치: ["Jabra", "Mac mini 스피커"]
 
 [brain]
 workdir = "~/lab/desk-assistant"

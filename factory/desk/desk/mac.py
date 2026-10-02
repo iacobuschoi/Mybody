@@ -134,6 +134,8 @@ def korean_voices() -> list[str]:
 def make_voice(c: dict, neural: bool = False) -> "Voice":
     """[tts] 설정대로 목소리를 만듭니다. engine = "supertonic" 이면 신경망 목소리(desk/tts.py, 못 쓰면 알아서 say).
     neural=True 면 engine 이 say 여도 모델을 띄워 둠 — 설정 창에서 Supertonic 을 들어 보려는 경우."""
+    from .devices import pick
+    c = {**c, "device": pick(c.get("device", ""), "output")}   # 목록이면 지금 꽂힌 첫 장치(desk/devices.py)
     if neural or c.get("engine") == "supertonic":
         from .tts import NeuralVoice
         return NeuralVoice(c.get("style", "F1"), c.get("model", "supertonic-3"), c.get("speed", 1.05),
