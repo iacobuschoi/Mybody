@@ -124,9 +124,13 @@ class ProgressScreen extends StatelessWidget {
 
     return ListView(padding: const EdgeInsets.all(16), children: [
       if (estimated)
-        const Note(tone: Tone.warn, title: '추정치로 시작했어요.', text: ' $kEstimateHint')
+        const Note(
+            tone: Tone.warn,
+            title: '추정치로 시작했어요.',
+            text: ' $kEstimateHint',
+            sources: ['body_fat_estimate'])
       else if (scans.length < 2)
-        const Note(text: '첫 측정이에요 — 4주 뒤 다시 재면 변화가 보여요')
+        const Note(text: '첫 측정이에요 — 4주 뒤 다시 재면 변화가 보여요', sources: ['measurement_noise'])
       else
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -140,10 +144,16 @@ class ProgressScreen extends StatelessWidget {
             _DeltaRow(label: '체지방', from: first['bfmKg'], to: last['bfmKg'],
                 floor: core.jsToNumber(noise['bfm']), color: c.fat),
             const SizedBox(height: 8),
-            Text(
-              '* 표시는 인바디 오차 안의 차이입니다',
-              style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5),
-            ),
+            /* 오차 폭(체중 ±1 · 골격근 ±0.6 · 체지방 ±1kg)의 출처 — 별표 설명 바로 옆. */
+            Row(children: [
+              Flexible(
+                child: Text(
+                  '* 표시는 인바디 오차 안의 차이입니다',
+                  style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.5),
+                ),
+              ),
+              const SourceLink(['measurement_noise']),
+            ]),
           ]),
         ),
 

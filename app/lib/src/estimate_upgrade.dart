@@ -51,6 +51,7 @@
  * ========================================================================== */
 import 'package:mybody_core/mybody_core.dart' as core;
 
+import 'citations.dart' show reworded;
 import 'estimate.dart';
 import 'screens/goal.dart' show selectGoalMode;
 import 'screens/intensity.dart' show resultsOf, isBlocked;
@@ -167,7 +168,7 @@ Map<String, Object?>? upgradeEstimates(core.Store store) {
         if (sel['refused'] == true) {
           store.setGoal(newGoal, kUpgradeReason);
           goalAfter = goal3;
-          needsGoal('${sel['message']}');
+          needsGoal(reworded('${sel['message']}'));
         } else {
           /* 계획의 모드를 그대로 — 기간 길로 세운 계획은 모드가 null 이고 null 로 둡니다. */
           final pm = oldPlan['mode'];

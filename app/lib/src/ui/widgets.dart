@@ -9,6 +9,10 @@ import 'package:flutter/material.dart';
 
 import '../theme.dart';
 import 'fmt.dart';
+import 'source_link.dart';
+
+/* 「출처」 링크는 화면마다 씁니다 — 이 파일을 들이는 화면이면 바로 쓸 수 있게. */
+export 'source_link.dart' show SourceLink, showSourcesSheet;
 
 MbColors mb(BuildContext c) => Theme.of(c).extension<MbColors>()!;
 
@@ -36,21 +40,34 @@ class MbCard extends StatelessWidget {
 }
 
 /// 제목 한 줄. 카드 안에서 쓰는 작은 머리글입니다.
+///
+/// [sources] 를 주면 제목 바로 뒤에 「출처」 링크가 붙습니다 — 카드의 숫자가
+/// 어느 연구 · 지침에서 왔는지(citations.dart).
 class SectionTitle extends StatelessWidget {
-  const SectionTitle(this.text, {super.key, this.trailing, this.crossAxisAlignment = CrossAxisAlignment.center});
+  const SectionTitle(this.text,
+      {super.key, this.trailing, this.crossAxisAlignment = CrossAxisAlignment.center, this.sources});
   final String text;
   final Widget? trailing;
   /// [trailing] 이 두 줄(주수 / 날짜)이면 start — 제목이 두 줄 사이에 걸리지 않게.
   final CrossAxisAlignment crossAxisAlignment;
+  final List<String>? sources;
 
   @override
   Widget build(BuildContext context) {
+    final title = Text(text,
+        style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700));
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(crossAxisAlignment: crossAxisAlignment, children: [
         Expanded(
-          child: Text(text,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+          child: sources == null
+              ? title
+              /* 제목 바로 뒤에 링크. 폭이 모자라면 링크가 다음 줄로 내려갑니다 — Row 로 붙이면
+                 좁은 폰 · 큰 글자에서 오른쪽 표(trailing)와 다투다 넘쳤습니다. */
+              : Wrap(crossAxisAlignment: WrapCrossAlignment.center, spacing: 2, children: [
+                  title,
+                  SourceLink(sources!),
+                ]),
         ),
         if (trailing != null) trailing!,
       ]),
@@ -61,13 +78,14 @@ class SectionTitle extends StatelessWidget {
 enum Tone { none, ok, warn, bad }
 
 /// 설명 상자. **근거** 를 접어 둘 수 있습니다 — 숫자를 주장할 때는
-/// 왜 그런지를 같이 들고 있어야 합니다.
+/// 왜 그런지를 같이 들고 있어야 합니다. [sources] 를 주면 문장 끝에 「출처」 링크.
 class Note extends StatefulWidget {
-  const Note({super.key, this.title, required this.text, this.tone = Tone.none, this.evidence});
+  const Note({super.key, this.title, required this.text, this.tone = Tone.none, this.evidence, this.sources});
   final String? title;
   final String text;
   final Tone tone;
   final String? evidence;
+  final List<String>? sources;
 
   @override
   State<Note> createState() => _NoteState();
@@ -99,6 +117,15 @@ class _NoteState extends State<Note> {
           if (widget.title != null)
             TextSpan(text: '${widget.title} ', style: TextStyle(fontWeight: FontWeight.w700, color: fg)),
           TextSpan(text: widget.text, style: TextStyle(color: fg)),
+          /* 「출처」 는 문장 끝에 이어서 — 줄을 하나 더 쓰면 상자가 커져 화면이 밀립니다. */
+          if (widget.sources != null)
+            WidgetSpan(
+              alignment: PlaceholderAlignment.middle,
+              child: Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: SourceLink(widget.sources!, inline: true),
+              ),
+            ),
         ]), style: const TextStyle(fontSize: 13, height: 1.5)),
         if (widget.evidence != null) ...[
           InkWell(

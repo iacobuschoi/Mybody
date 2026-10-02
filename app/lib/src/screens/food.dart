@@ -206,7 +206,9 @@ class _TodayCard extends StatelessWidget {
 
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        /* 단백질 목표 · 칼로리 목표 범위 · 탄수 · 지방의 출처. */
         SectionTitle('오늘',
+            sources: const ['daily_kcal_target', 'protein_target', 'fat_carb_split', 'diet_adherence'],
             trailing: Pill(logged ? '${n0(totals['entries'])}건 기록' : '기록 없음',
                 tone: logged && inBand ? Tone.ok : Tone.none)),
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -242,6 +244,7 @@ class _TodayCard extends StatelessWidget {
             tone: nudge['tone'] == 'ok' ? Tone.ok : (nudge['tone'] == 'warn' ? Tone.warn : Tone.none),
             title: '${nudge['text']}',
             text: ' ${nudge['detail'] ?? ''}',
+            sources: const ['diet_status_nudge', 'protein_target'],
           ),
         ],
       ]),
@@ -285,10 +288,17 @@ class _BandBar extends StatelessWidget {
           );
         }),
         const SizedBox(height: 3),
-        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        /* 가운데 「목표 범위」 는 남은 폭 안에서 — 큰 글자 · 좁은 폰에서 세 글자가 한 줄을
+           넘쳤습니다(375px · 1.3배에서 45px). 넘치면 줄을 바꿉니다. */
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text('0', style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, fontSize: 10.5)),
-          Text('목표 범위 ${n0(lo)}~${n0(hi)} kcal',
-              style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, fontSize: 10.5)),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text('목표 범위 ${n0(lo)}~${n0(hi)} kcal',
+                textAlign: TextAlign.center,
+                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, fontSize: 10.5)),
+          ),
+          const SizedBox(width: 6),
           Text(n0(max), style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, fontSize: 10.5)),
         ]),
       ]),
@@ -400,13 +410,16 @@ class _SuggestCardState extends State<_SuggestCard> {
                   overflow: TextOverflow.ellipsis,
                   style: hintStyle),
             )),
-        Wrap(spacing: 6, children: [
+        /* 「출처」 는 고르기 칩 끝에 — 제목 줄에 두면 1.3배 글자 · 360px 에서 제목이 두 줄로 접힙니다
+           (제목 옆 남은 kcal 줄과 폭을 나눠 씁니다). */
+        Wrap(spacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
           for (final m in _modes)
             ChoiceChip(
               label: Text(m.$2),
               selected: _mode == m.$1,
               onSelected: (_) => setState(() => _mode = m.$1),
             ),
+          const SourceLink(['food_suggestions', 'protein_per_meal_and_diet_notes', 'food_composition']),
         ]),
         const SizedBox(height: 10),
         if (options.isEmpty)
@@ -496,7 +509,9 @@ class _MealCard extends StatelessWidget {
 
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        /* 담은 음식의 kcal · 영양성분은 식품 DB 의 대표값 — 담긴 것이 있을 때만 그 출처. */
         SectionTitle(meal,
+            sources: rows.isEmpty ? null : const ['food_composition'],
             trailing: Text(
                 rows.isEmpty ? '비어 있음' : '${n0(sum['kcal'])}kcal · 단백질 ${n0(sum['p'])}g',
                 style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
@@ -893,9 +908,15 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
             ],
             /* 제목에 검색어를 그대로 인용합니다 — 「'김치찌게' 와 비슷한 이름」.
                행은 검색 결과와 같은 모양이라 그대로 눌러 담습니다. */
-            label(q.isNotEmpty
-                ? (similar.isNotEmpty ? "'$q' 와 비슷한 이름" : '검색 결과')
-                : (_cat ?? '목록')),
+            /* 목록의 kcal · 단백질 · 탄수 · 지방은 공개 식품 DB 의 대표값 — 그 출처. */
+            Row(children: [
+              Expanded(
+                child: label(q.isNotEmpty
+                    ? (similar.isNotEmpty ? "'$q' 와 비슷한 이름" : '검색 결과')
+                    : (_cat ?? '목록')),
+              ),
+              const SourceLink(['food_composition']),
+            ]),
             if (similar.isNotEmpty) ...[
               for (final s in similar)
                 _FoodRow(food: s.food, hint: _whyLabel(s.why), onTap: () => _pick(s.food)),
@@ -1066,10 +1087,15 @@ class _FoodSearchScreenState extends State<FoodSearchScreen> {
                         color: fav ? t.colorScheme.primary : t.hintColor),
                   ),
                 ]),
-                Text(
-                    '${food['unit']} ${n0(food['g'])}g · ${n0(food['kcal'])}kcal · '
-                    '단백질 ${n1(food['p'])}g · 탄수 ${n1(food['c'])}g · 지방 ${n1(food['f'])}g',
-                    style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
+                Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(
+                    child: Text(
+                        '${food['unit']} ${n0(food['g'])}g · ${n0(food['kcal'])}kcal · '
+                        '단백질 ${n1(food['p'])}g · 탄수 ${n1(food['c'])}g · 지방 ${n1(food['f'])}g',
+                        style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
+                  ),
+                  const SourceLink(['food_composition']),
+                ]),
                 if (note.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   /* 편차가 큰 음식은 그렇다고 말합니다 — 숫자를 얼마나 믿어도

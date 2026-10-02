@@ -525,6 +525,16 @@ final ValueNotifier<bool> feedbackBubbleOn = ValueNotifier<bool>(true);
 /// 규칙(모르는 값은 켜짐)입니다.
 bool feedbackBubbleLocked(UpdateCheck? update) => update?.testing ?? true;
 
+/// 잠겼을 때 설정 스위치의 부제. 아이폰 판은 같은 빌드가 **앱스토어 심사**에도 들어가서
+/// 「테스트」 라는 말을 쓰지 않습니다 — 심사하는 사람 화면에 "테스트 기간" 이 뜨면 시험판을
+/// 냈다고 보고 거절할 수 있습니다(지침 2.2, tester_welcome.dart 의 welcomeTitle 과 같은 까닭).
+String feedbackLockedSubtitle([TargetPlatform? platform]) =>
+    (platform ?? defaultTargetPlatform) == TargetPlatform.iOS ? '의견을 모으는 동안 켜 둡니다' : '테스트 기간에는 켜 둡니다';
+
+/// 잠겼을 때 말풍선을 X 에 갖다대면 뜨는 말 — 아이폰은 「테스트」 없이(위와 같은 까닭).
+String feedbackLockedRemoveSay([TargetPlatform? platform]) =>
+    (platform ?? defaultTargetPlatform) == TargetPlatform.iOS ? '지금은 없앨 수 없어요' : '테스트 기간에는 없앨 수 없어요';
+
 const String kFeedbackBubbleOnKey = 'mybody.feedbackBubble.on.v1';
 
 /// 저장된 값을 [feedbackBubbleOn] 에 싣습니다. 못 읽으면 켜진 채로 — 의견 길이 사라지는

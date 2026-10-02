@@ -134,6 +134,9 @@ class ExercisePicker extends StatefulWidget {
   State<ExercisePicker> createState() => _ExercisePickerState();
 }
 
+/// 종목 고르기 머리의 「출처」 주제.
+const List<String> kExercisePickerSources = ['sets_reps_rest', 'resistance_volume_split'];
+
 class _ExercisePickerState extends State<ExercisePicker> {
   final _query = TextEditingController();
   String? _group;
@@ -236,6 +239,9 @@ class _ExercisePickerState extends State<ExercisePicker> {
             style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
         ),
+        /* 종목 줄의 부제(「가볍게 · 어깨가 아프면 중단」 같은 요령)와 세트 × 반복의 출처 —
+           헬스 · 플랜 화면의 머리글 링크와 같은 주제(ACSM 2009 · 2026). */
+        const SourceLink(kExercisePickerSources, key: ValueKey('pick-sources')),
         if (_multi)
           FilledButton(
             key: const ValueKey('pick-done'),

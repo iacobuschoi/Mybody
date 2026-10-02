@@ -194,6 +194,14 @@ String clockText(Duration d) {
   return '${(s ~/ 60).toString().padLeft(2, '0')}:${(s % 60).toString().padLeft(2, '0')}';
 }
 
+/// 헬스 화면 머리글의 「출처」 — 세트 × 반복 · 휴식 · 추천 무게 · 올리기 · 볼륨.
+const List<String> kGymSessionSources = [
+  'sets_reps_rest', 'load_recommendation', 'progression_rule', 'resistance_volume_split',
+];
+
+/// 맨몸 화면 머리글의 「출처」 — 루틴(세트 × 반복 · 쉬는 시간) · 소모 kcal.
+const List<String> kBodyweightSessionSources = ['bodyweight_routine', 'sets_reps_rest', 'exercise_kcal'];
+
 /// 헬스 · 유산소 · 맨몸 운동 한 번. [type] 은 'gym' | 'cardio' | 'bodyweight'.
 class WorkoutSessionScreen extends StatefulWidget {
   const WorkoutSessionScreen({super.key, required this.dateKey, required this.type});
@@ -385,7 +393,11 @@ Future<KgPick?> showKgStepper(BuildContext context, GymExercise e) async {
       final t = Theme.of(ctx);
       final stepNow = kg == null ? step : (stepFor(e.equip, kg!) > 0 ? stepFor(e.equip, kg!) : step);
       return _Sheet(children: [
-        Text(e.name, style: t.textTheme.titleMedium),
+        /* 추천 무게(%1RM 표 · 초보 기준)와 「다 채우면 올리기」 의 출처. */
+        Row(children: [
+          Expanded(child: Text(e.name, style: t.textTheme.titleMedium)),
+          const SourceLink(['load_recommendation', 'progression_rule']),
+        ]),
         if (e.load.hint.isNotEmpty)
           Text(e.load.hint, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
         const SizedBox(height: 12),
@@ -737,7 +749,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
   ///
   /// 맨몸은 같은 시트에 집에서 되는 맨몸 종목만(isHomeBodyweight) — 헬스장 기구가 흐리게라도
   /// 섞이면 맨몸 종목을 찾으려고 머신 · 바벨 섹션을 넘겨야 하고, 덤벨을 넣으면 무게 단추가
-  /// 생겨 맨몸 기록(MET 8.0)이 아니게 됩니다. 기구를 가리지 않으니 「내 기구 아님」 · 「내
+  /// 생겨 맨몸 기록(맨몸 MET)이 아니게 됩니다. 기구를 가리지 않으니 「내 기구 아님」 · 「내
   /// 기구만」 도 없습니다. 루틴이 점프를 뺀 사람(lowImpact)에게는 점프 · 뛰기도 안 보입니다 —
   /// 루틴과 같은 선. 「최근」 은 지난 맨몸 기록(이름만)까지 읽습니다 — 무게 추천의 재료
   /// (_LoadCtx)는 헬스 기록뿐이라 집에서만 하는 사람은 늘 빈 줄이었습니다.
@@ -982,6 +994,9 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
                   ),
                   Text('$doneSets/$totalSets 세트',
                       style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+                  /* 세트 × 반복 · 휴식 · 추천 무게(맨몸은 루틴 · 소모 kcal)의 출처 — 종목 줄마다
+                     붙이면 일곱 줄에 일곱 개라 머리글에 한 번. */
+                  SourceLink(bwRoutine == null ? kGymSessionSources : kBodyweightSessionSources),
                 ]),
                 if (bwRoutine != null && bwNow != null) ..._bodyweightIntro(t, bwRoutine, bwNow),
                 const SizedBox(height: 6),
@@ -1144,7 +1159,10 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
             ? workoutKcal(weightKg: weight ?? kFallbackWeightKg, duration: Duration(seconds: sec), kind: _logKind)
             : 0.0;
         return _Sheet(children: [
-          Text(bw ? '오늘 맨몸 운동' : '오늘 헬스', style: Theme.of(ctx).textTheme.titleMedium),
+          Row(children: [
+            Expanded(child: Text(bw ? '오늘 맨몸 운동' : '오늘 헬스', style: Theme.of(ctx).textTheme.titleMedium)),
+            const SourceLink(['exercise_kcal']),
+          ]),
           const SizedBox(height: 12),
           _statRow([
             Stat(
@@ -1365,7 +1383,10 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
               helperText: '몰라도 됩니다'),
         );
         return _Sheet(children: [
-          Text('오늘 유산소 · 스포츠', style: Theme.of(ctx).textTheme.titleMedium),
+          Row(children: [
+            Expanded(child: Text('오늘 유산소 · 스포츠', style: Theme.of(ctx).textTheme.titleMedium)),
+            const SourceLink(['exercise_kcal', 'cardio_minutes']),
+          ]),
           const SizedBox(height: 12),
           if (prevText != null)
             Note(tone: Tone.warn, text: '이미 $prevText — 저장하면 바뀝니다'),
@@ -1631,6 +1652,8 @@ class _CelebrationScreenState extends State<CelebrationScreen> {
                   Text('약 ${widget.kcal} kcal 소모했어요! 축하합니다',
                       textAlign: TextAlign.center,
                       style: t.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 4),
+                  const SourceLink(['exercise_kcal']),
                   const SizedBox(height: 12),
                   Text('오늘 계획을 지켰습니다 — 내일도 만나요',
                       textAlign: TextAlign.center,
@@ -1795,6 +1818,7 @@ class _RestBanner extends StatelessWidget {
                       fontWeight: FontWeight.w800, fontFeatures: const [FontFeature.tabularFigures()])),
             ),
           ),
+          const SourceLink(['sets_reps_rest']),
           TextButton(onPressed: onSkip, child: const Text('건너뛰기')),
         ]),
         const SizedBox(height: 6),

@@ -1700,7 +1700,11 @@ class _FriendDietCard extends StatelessWidget {
     final hint = t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5);
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        /* 친구의 하루 목표(칼로리 · 탄단지)도 같은 계산 — 목표가 보일 때만 그 출처. */
         SectionTitle('오늘 식단',
+            sources: logged && target != null
+                ? const ['daily_kcal_target', 'protein_target', 'fat_carb_split']
+                : null,
             trailing: !logged
                 ? null
                 : Text(

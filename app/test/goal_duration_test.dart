@@ -482,7 +482,8 @@ void main() {
     await t.pumpWidget(host(app, DurationScreen(
         compute: (w) => _fixture(w, empty: true, warnings: ['$w주는 너무 짧습니다.']))));
     await t.pump(const Duration(milliseconds: 200));
-    expect(find.text('12주는 너무 짧습니다.'), findsOneWidget);
+    /* 경고 상자 끝에 「출처」 링크가 붙어(문장 뒤 WidgetSpan) 글 전체가 그 한 문장은 아닙니다. */
+    expect(find.textContaining('12주는 너무 짧습니다.'), findsOneWidget);
     expect(find.byType(LineChart), findsNothing);
     expect(find.textContaining('하루 '), findsNothing, reason: '카드가 없습니다');
     expect(find.byKey(const Key('training-line')), findsNothing);

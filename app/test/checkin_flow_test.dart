@@ -18,6 +18,7 @@ import 'package:mybody/src/scope.dart';
 import 'package:mybody/src/screens/checkin.dart';
 import 'package:mybody/src/screens/home.dart';
 import 'package:mybody/src/screens/progress.dart';
+import 'package:mybody/src/ui/widgets.dart' show SourceLink;
 import 'package:mybody/src/theme.dart';
 
 const _scan = {
@@ -142,6 +143,45 @@ void main() {
     /* 다음 판정은 조정한 체크인부터 — 같은 정체로 또 줄이라고 하지 않습니다. */
     final again = core.checkinReview(plan, readingsFor(app.store, plan), null);
     expect(again['status'], 'early');
+  });
+
+  /* 확인 창의 내용이 글 + 「출처」(Column)라 큰 글자 · 작은 폰에서 넘쳤습니다(글만일 때는 조용히
+     잘렸습니다 — 375×667 · 2배에서 336px). 굴러가는 창이라 넘치지 않고, 아래 「출처」 까지
+     굴러서 눌립니다. 창만 2배로 봅니다 — 체크인 화면 자체(「지난 체크인」 줄)는 이번 일과
+     상관없이 원래부터 2배에서 몇 px 넘칩니다. */
+  testWidgets('「계획을 이렇게 바꿀까요?」 — 375×667 · 글자 2배에서도 넘치지 않고 「출처」 가 눌린다', (t) async {
+    final app = await stalled();
+    t.view.physicalSize = const Size(375, 667);
+    t.view.devicePixelRatio = 1.0;
+    addTearDown(t.view.reset);
+    final api = Api(baseUrl: '', client: MockClient((_) async => http.Response('{"ok":false}', 404)));
+    api.setToken('tok');
+    await t.pumpWidget(Scope(
+        state: app, api: api, onServerChange: (_) async {},
+        child: MaterialApp(
+          theme: mbLight(),
+          builder: (context, w) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(textScaler: const TextScaler.linear(2.0)), child: w!),
+          home: Builder(
+              builder: (c) => MediaQuery(
+                  data: MediaQuery.of(c).copyWith(textScaler: TextScaler.noScaling),
+                  child: const CheckinScreen())),
+        )));
+    await t.pumpAndSettle();
+    await t.enterText(find.byType(TextField), (_planW(app, 4) + 2.4).toStringAsFixed(1));
+    await t.pump();
+    final apply = find.text('저장하고 제안 적용');
+    await t.scrollUntilVisible(apply, 200, scrollable: find.byType(Scrollable).first);
+    await t.pumpAndSettle();
+    await t.tap(apply);
+    await t.pumpAndSettle();
+    expect(find.text('계획을 이렇게 바꿀까요?'), findsOneWidget);
+    expect(t.takeException(), isNull);
+    final link = find.descendant(of: find.byType(AlertDialog), matching: find.byType(SourceLink));
+    await t.ensureVisible(link);
+    await t.pumpAndSettle();
+    expect(link.hitTestable(), findsOneWidget);
+    expect(t.takeException(), isNull);
   });
 
   testWidgets('한 번 벗어나면 지켜보기만 — 적용 버튼 없음', (t) async {

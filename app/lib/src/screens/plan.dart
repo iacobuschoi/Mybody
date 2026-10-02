@@ -19,6 +19,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
+import '../citations.dart';
 import '../estimate.dart';
 import '../scope.dart';
 import 'adherence.dart';
@@ -31,6 +32,7 @@ import '../workout/planner.dart';
 import '../workout/prefs.dart';
 import '../workout/scheme.dart';
 import 'gym_settings.dart';
+import 'sources.dart' show kMedicalShort;
 
 /// 진행 규칙 한 줄. 엔진의 「더블 프로그레션 — 목표 반복 상단에 도달하면 다음
 /// 세션에 중량 2.5~5kg 증가」 는 맞는 말이지만 용어부터 배워야 읽힙니다.
@@ -40,6 +42,25 @@ const String kProgressionHint = '반복을 다 채우면 다음엔 무게를 2.5
 final RegExp _cardioRe = RegExp(r'(\d+)분\s*×\s*(\d+)회');
 /* 엔진(applyCheckinAdvice)은 소수도 허용해 적습니다 — 정수만 받으면 '7.5분' 에서 조용히 빠집니다. */
 final RegExp _cardioAddedRe = RegExp(r'추가 유산소 주 (-?\d+(?:\.\d+)?)분');
+
+/* 엔진의 근거 메모 · 식단 메모 중 바로 밑 「출처」 와 어긋나는 말은 그릴 때 바꿉니다 —
+   citations.dart 의 kClaimReword · reworded(엔진은 웹과 같은 글이라 거기서는 못 고칩니다). */
+
+/// WHO 2020 · 보건복지부 지침의 유산소 기준(중강도 주 150분). 앱의 유산소 처방은 체성분
+/// 계획용이라 이보다 적을 때가 많습니다(주 80분 = 40분 × 2회) — 숫자 옆 「출처」 를 누른
+/// 사람이 앱 숫자와 다른 150분을 먼저 보게 되므로, 그 관계를 숫자 바로 밑에서 밝힙니다.
+const double kWhoAerobicMinPerWeek = 150;
+const String kWhoActivityHint = 'WHO 권장: 중강도 신체활동 주 150분 이상 — 걷기 등 일상 활동과 합쳐 채우세요';
+
+/// 유산소 처방(주 분)이 WHO 기준보다 적은가. 값이 없으면 false.
+bool cardioBelowWho(Map<String, Object?> workout) {
+  final m = core.jsToNumber(workout['cardioMinPerWeek']);
+  return m.isFinite && m < kWhoAerobicMinPerWeek;
+}
+
+/// 2025 한국인 영양소 섭취기준의 탄수화물 권장섭취량(하루 g). 앱의 탄수 하한은 50g 이라
+/// 감량 중에는 이보다 적게 나올 수 있습니다 — 그때는 숫자 밑에 그렇다고.
+const double kKdriCarbRniG = 130;
 
 /// 유산소 타일에 쓸 값 · 단위 · 보조 줄. cardioPlan(「Z2 저강도 40분 × 2회」)에서
 /// 분과 회를 읽어 「40분」「× 2회」 — "주 96분" 보다 "40분 두 번" 이 할 일로 읽힙니다.
@@ -165,7 +186,10 @@ class _PlanScreenState extends State<PlanScreen> {
       picker,
       MbCard(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          /* 기간 · 목표일은 주차별 시뮬레이션(감량 속도 · 지방 1kg 열량 · 근육 증가 속도)의
+             결과 — 그 계수들의 출처. */
           SectionTitle('${plan['label']} · ${plan['title']}',
+              sources: kPlanTimelineSources,
               trailing: Text('${plan['strategyLabel']}',
                   style: Theme.of(context).textTheme.labelSmall
                       ?.copyWith(color: Theme.of(context).hintColor))),
@@ -206,7 +230,7 @@ class _PlanScreenState extends State<PlanScreen> {
           ],
           if (plan['capWarning'] != null) ...[
             const SizedBox(height: 8),
-            Note(tone: Tone.warn, text: '${plan['capWarning']}'),
+            Note(tone: Tone.warn, text: '${plan['capWarning']}', sources: const ['continuous_cut_limit']),
           ],
           if (plan['phases'] != null) ...[
             const SizedBox(height: 14),
@@ -224,6 +248,7 @@ class _PlanScreenState extends State<PlanScreen> {
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             SectionTitle('하루 식단 목표',
+                sources: kDietTargetSources,
                 trailing: Text('하루 소모 ${n0(macros['tdeeKcal'])}kcal',
                     style: Theme.of(context).textTheme.labelSmall
                         ?.copyWith(color: Theme.of(context).hintColor))),
@@ -243,6 +268,19 @@ class _PlanScreenState extends State<PlanScreen> {
                 '체중 1kg당 단백질 ${n1(macros['proteinPerBW'])}g',
                 style: Theme.of(context).textTheme.labelSmall
                     ?.copyWith(color: Theme.of(context).hintColor)),
+            /* 출처(2025 KDRI 130g)보다 낮은 탄수 목표는 그렇다고 — 출처를 눌러 본 사람이
+               앱 숫자와 다른 숫자를 말없이 보지 않게. */
+            if (core.jsToNumber(macros['carbG']) < kKdriCarbRniG)
+              Text(
+                  '탄수 ${n0(macros['carbG'])}g 은 일반 성인 권장섭취량(하루 130g)보다 적습니다 — 감량 중 계획값',
+                  key: const Key('carb-below-kdri'),
+                  style: Theme.of(context).textTheme.labelSmall
+                      ?.copyWith(color: Theme.of(context).hintColor, height: 1.5)),
+            const SizedBox(height: 6),
+            Text(kMedicalShort,
+                key: const Key('diet-medical'),
+                style: Theme.of(context).textTheme.labelSmall
+                    ?.copyWith(color: Theme.of(context).hintColor, fontSize: 10.5, height: 1.4)),
           ]),
         ),
 
@@ -301,7 +339,7 @@ class _TrajectoryCard extends StatelessWidget {
     final c = mb(context);
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const SectionTitle('주차별 궤적'),
+        const SectionTitle('주차별 궤적', sources: kPlanTimelineSources),
         _TrajChart(title: '체중', unit: 'kg', color: c.weight, points: _pts('weightKg'),
             goalY: goal == null ? null : core.jsToNumber(goal!['weightKg'])),
         _TrajChart(title: '골격근', unit: 'kg', color: c.muscle, points: _pts('smmKg'),
@@ -389,6 +427,7 @@ class _WorkoutCard extends StatelessWidget {
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         SectionTitle('${workout['splitName']}',
+            sources: kWorkoutSources,
             trailing: Text('주 ${n0(workout['daysPerWeek'])}회 · ${n0(workout['sessionMinutes'])}분',
                 style: small)),
         /* 숫자 셋이 「근육군당 주 12세트 · 유산소 주 96분 · Z2 저강도」 를 대신합니다 —
@@ -399,6 +438,11 @@ class _WorkoutCard extends StatelessWidget {
           Expanded(
               child: Stat(label: '유산소', value: cardio.value, unit: cardio.unit, delta: cardio.delta)),
         ]),
+        /* 유산소가 WHO 기준(주 150분)보다 적으면 그 관계를 — 위의 「출처」 가 WHO 를 가리킵니다. */
+        if (cardioBelowWho(workout)) ...[
+          const SizedBox(height: 6),
+          Text(kWhoActivityHint, key: const Key('cardio-who'), style: small?.copyWith(height: 1.4)),
+        ],
         const SizedBox(height: 12),
 
         /* 기구 · 익숙한 종목 — 종목 목록은 이 설정을 거쳐서 보입니다. 설정 화면
@@ -446,6 +490,7 @@ class _WorkoutCard extends StatelessWidget {
             ),
             const SizedBox(width: 6),
             Expanded(child: Text(kProgressionHint, style: small?.copyWith(height: 1.4))),
+            const SourceLink(['progression_rule', 'load_recommendation']),
           ]),
         ),
 
@@ -466,8 +511,9 @@ class _WorkoutCard extends StatelessWidget {
               for (final b in bias)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
-                  child: Text('· $b', style: t.textTheme.labelSmall?.copyWith(height: 1.5)),
+                  child: Text('· ${reworded(b)}', style: t.textTheme.labelSmall?.copyWith(height: 1.5)),
                 ),
+              const SourceLink(['resistance_volume_split', 'sets_reps_rest']),
             ],
           ),
       ]),
@@ -668,10 +714,11 @@ class _DietCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     final meals = ((diet['meals'] as List?) ?? const []).cast<Map<String, Object?>>();
-    final notes = ((diet['notes'] as List?) ?? const []).map((n) => '$n').toList();
+    final notes = ((diet['notes'] as List?) ?? const []).map((n) => reworded('$n')).toList();
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         SectionTitle('하루 ${n0(diet['mealsPerDay'])}끼 예시',
+            sources: const ['protein_per_meal_and_diet_notes', 'meal_plan_examples'],
             trailing: Text('끼니당 단백질 ${n0(diet['proteinPerMeal'])}g',
                 style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
         for (final m in meals)
@@ -716,6 +763,7 @@ class _DietCard extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text('· $n', style: t.textTheme.labelSmall?.copyWith(height: 1.5)),
                 ),
+              const SourceLink(['protein_per_meal_and_diet_notes']),
             ],
           ),
       ]),
@@ -732,7 +780,7 @@ class _MilestoneCard extends StatelessWidget {
     final t = Theme.of(context);
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const SectionTitle('4주마다 이쯤'),
+        const SectionTitle('4주마다 이쯤', sources: kPlanTimelineSources),
         for (final m in milestones)
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),

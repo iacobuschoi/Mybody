@@ -36,6 +36,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
+import '../citations.dart';
 import '../estimate.dart';
 import '../scope.dart';
 import '../theme.dart';
@@ -149,7 +150,8 @@ class _DurationPanelState extends State<DurationPanel> {
           weeks: _weeks,
           targetDate: durationTargetDate(res, today, _weeks),
           onChanged: (w) => setState(() => _weeks = w)),
-      for (final w in warnings) Note(tone: Tone.warn, text: w),
+      for (final w in warnings)
+        Note(tone: Tone.warn, text: w, sources: const ['duration_options', 'measurement_noise', 'body_fat_lower_limit']),
       if (options.isEmpty)
         (warnings.isEmpty
             ? const Note(text: '이 기간에는 계획이 없습니다 — 기간을 바꿔 보세요')
@@ -157,7 +159,7 @@ class _DurationPanelState extends State<DurationPanel> {
       else ...[
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            SectionTitle('$_weeks주 동안의 체지방'),
+            SectionTitle('$_weeks주 동안의 체지방', sources: kPlanTimelineSources),
             LineChart(
               height: 170,
               series: _series(options, c),
@@ -169,7 +171,10 @@ class _DurationPanelState extends State<DurationPanel> {
           padding: const EdgeInsets.only(left: 2, bottom: 8),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             if (training != null)
-              Text(training, key: const Key('training-line'), style: hint),
+              Row(children: [
+                Flexible(child: Text(training, key: const Key('training-line'), style: hint)),
+                const SourceLink(['resistance_volume_split']),
+              ]),
             /* 막대 읽는 법은 이 한마디면 됩니다 — 긴 문장은 카드보다 먼저 읽히면서
                정작 카드를 화면 아래로 밀었습니다. */
             Text('연한 줄 지금 · 진한 줄 그때', style: hint),
@@ -662,10 +667,16 @@ class _OptionCard extends StatelessWidget {
                 color: c.muscle),
             const SizedBox(height: 10),
             /* 식단은 한 줄. 운동 횟수는 위의 한 줄이 맡고, 카드마다 다를 때만 여기에. */
-            Text(
-                '하루 ${n0(o['intakeKcal'])} kcal · 단백질 ${n0(o['proteinG'])} g'
-                '${showDays ? ' · 주 ${n0(o['daysPerWeek'])}회' : ''}',
-                style: small),
+            /* 하루 kcal · 단백질 · 기간 예측의 출처 — 카드마다 같은 자리(줄 끝). */
+            Row(children: [
+              Expanded(
+                child: Text(
+                    '하루 ${n0(o['intakeKcal'])} kcal · 단백질 ${n0(o['proteinG'])} g'
+                    '${showDays ? ' · 주 ${n0(o['daysPerWeek'])}회' : ''}',
+                    style: small),
+              ),
+              const SourceLink(kDurationOptionSources),
+            ]),
             if (noteText != null) ...[
               const SizedBox(height: 6),
               /* 엔진이 도중에 멈춘 옵션 — 그 주부터는 몸이 더 안 바뀝니다.

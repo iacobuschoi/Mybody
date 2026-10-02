@@ -19,6 +19,7 @@ import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../scope.dart';
 import '../ui/widgets.dart';
+import 'sources.dart' show kSourcesTitle;
 import 'update_banner.dart';
 
 class OnboardingScreen extends StatefulWidget {
@@ -89,8 +90,17 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         /* 홈에 닿기 전이라도 서버와 안 맞는 판이면 알립니다 — 동기화가 왜
            안 되는지 모른 채 설정부터 하게 두지 않습니다. */
         const UpdateBanner(requiredOnly: true),
-        Text(titles[_step].$2,
-            style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
+        /* 마지막 장(의료기기 아님 · 전문가 상담)에는 권장값의 「근거 · 출처」 링크 — 시작 전에도
+           볼 수 있게(다시 보는 곳은 설정 → 도움말). 설명 줄 옆에 둡니다: 줄 높이가 같아
+           아래 동의 칸이 밀리지 않습니다(작은 화면에서 동의 칸 · 스위치 자리가 정해져 있습니다). */
+        Row(children: [
+          Expanded(
+            child: Text(titles[_step].$2,
+                style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
+          ),
+          if (_step == 2)
+            const SourceLink([], key: Key('onboarding-sources'), label: kSourcesTitle),
+        ]),
         const SizedBox(height: 14),
         if (_step == 0) _basics(),
         if (_step == 1) _training(),
@@ -204,7 +214,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   Widget _training() => Column(children: [
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SectionTitle('하루 활동량'),
+            const SectionTitle('하루 활동량', sources: ['tdee_activity']),
             RadioGroup<String>(
               groupValue: _activity,
               onChanged: (v) => setState(() => _activity = v ?? _activity),
@@ -222,7 +232,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         ),
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SectionTitle('운동 경력'),
+            const SectionTitle('운동 경력', sources: ['muscle_gain_rate', 'activity_onboarding_inputs']),
             Text('주 2회 이상 근력운동을 이어 온 기간 — 모르면 짧은 쪽',
                 style: Theme.of(context).textTheme.labelSmall
                     ?.copyWith(color: Theme.of(context).hintColor, height: 1.5)),
@@ -275,11 +285,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
       ]);
 
   Widget _consent() => Column(children: [
+        /* 의사와 상의하라는 말은 **모두에게**(애플 지침 1.4.1) — 아래 「기저질환 · 임신 …」
+           줄은 그중에서도 꼭 그래야 하는 경우입니다. 설정의 「근거 · 출처」 와 같은 뜻. */
         const Note(
+          key: Key('onboarding-medical'),
           tone: Tone.warn,
           title: '이 앱은 의료기기가 아닙니다.',
           text: ' 진단·치료·예방을 목적으로 하지 않으며, 제공되는 운동·식단은 '
-              '일반적인 정보입니다.',
+              '일반적인 정보입니다. 식단·운동을 크게 바꾸거나 건강에 관한 결정을 하기 전에는 '
+              '의사와 상의하세요.',
         ),
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

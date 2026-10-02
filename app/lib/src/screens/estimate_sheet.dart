@@ -145,8 +145,17 @@ class _EstimateSheetState extends State<EstimateSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('키·체중으로 시작',
-                style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+            /* 추정 식(Gallagher 2000 · Lee 2000)의 출처 — 숫자가 나오기 전에도 보입니다. 아래
+               추정 결과(골격근 · 체지방률 · 오차)도 같은 출처라 링크는 여기 하나. 제목 줄 높이
+               그대로(dense) — 360 × 740 · 키보드 300px 에서 「추정치로 시작」 이 키보드 위에
+               있어야 합니다(estimate_ui_test). */
+            Row(children: [
+              Expanded(
+                child: Text('키·체중으로 시작',
+                    style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+              ),
+              const SourceLink(['body_fat_estimate'], dense: true),
+            ]),
             const SizedBox(height: 2),
             Text(kEstimateHint, style: hint),
             const SizedBox(height: 14),

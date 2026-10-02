@@ -732,7 +732,7 @@ class _BubbleState extends State<_Bubble> with SingleTickerProviderStateMixin {
       // 제자리
     } else if (feedbackBubbleOverBin(at, size, pad)) {
       if (feedbackBubbleLocked(_update)) {
-        say = '테스트 기간에는 없앨 수 없어요';
+        say = feedbackLockedRemoveSay();
       } else {
         remove = true;
         to = feedbackBubbleBinCenter(size, pad);

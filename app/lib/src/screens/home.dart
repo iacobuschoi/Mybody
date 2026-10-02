@@ -37,7 +37,7 @@ import '../ui/symbols.dart';
 import '../ui/widgets.dart';
 import 'adherence.dart' show DayMark, DayMarkLegend, dayMarkState;
 import 'estimate_sheet.dart';
-import 'plan.dart' show cardioStat;
+import 'plan.dart' show cardioBelowWho, cardioStat, kWhoActivityHint;
 import 'update_banner.dart';
 
 /* 아래쪽에 자리를 둡니다 — 떠 있는 "인바디" 버튼이 마지막 줄을 가렸습니다.
@@ -138,6 +138,7 @@ class BriefingCard extends StatelessWidget {
     final b = buildBriefing(app, now: now);
     final t = Theme.of(context);
     final c = mb(context);
+    final hasPlan = app.state['plan'] != null;
 
     Future<void> tap(BriefAction a) async {
       if (a.route != kEstimateRoute) {
@@ -191,6 +192,7 @@ class BriefingCard extends StatelessWidget {
                     style: t.textTheme.bodyMedium?.copyWith(
                         height: 1.4, color: l.done ? t.hintColor : null)),
               ),
+              if (briefLineSources(l, hasPlan: hasPlan) case final src?) SourceLink(src),
             ]),
           ),
         if (b.primary != null || b.secondary.isNotEmpty) ...[
@@ -207,6 +209,24 @@ class BriefingCard extends StatelessWidget {
       ]),
     );
   }
+}
+
+/// 브리핑 한 줄의 숫자(남은 kcal · 단백질 · 유산소 분 · 운동 · 소모 kcal)의 출처 주제.
+/// 계획이 없으면 숫자도 없어서 null.
+List<String>? briefLineSources(BriefLine l, {required bool hasPlan}) {
+  if (!hasPlan) return null;
+  return switch (l.icon) {
+    'food' => const ['daily_kcal_target', 'protein_target'],
+    'rest' => const ['protein_target'],
+    'cardio' => const ['cardio_minutes'],
+    /* 헬스 줄에 「· 유산소 40분」 이 붙으면(briefing.dart — 둘 다 남았을 때) 그 분도. */
+    'gym' => [
+        'resistance_volume_split', 'sets_reps_rest',
+        if (l.text.contains('유산소')) 'cardio_minutes',
+      ],
+    'done' when l.text.contains('kcal') => const ['exercise_kcal'],
+    _ => null,
+  };
 }
 
 /* --- 추정 → 실측 알림 ------------------------------------------------------
@@ -245,6 +265,7 @@ class _UpgradeCard extends StatelessWidget {
             child: Text('실측으로 바꿨어요',
                 style: t.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
           ),
+          const SourceLink(['estimate_upgrade']),
           IconButton(
             key: const ValueKey('estimate-upgrade-close'),
             tooltip: '닫기',
@@ -346,12 +367,16 @@ class _SummaryCard extends StatelessWidget {
         /* 바꾸는 길은 떠 있는 「인바디」 버튼 — 여기는 한 줄만. */
         if (est) ...[
           const SizedBox(height: 8),
-          Text(kEstimateHint, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+          Row(children: [
+            Expanded(
+                child: Text(kEstimateHint, style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
+            const SourceLink(['body_fat_estimate']),
+          ]),
         ],
         if (core.jsTruthy(scan['inbodyScore'])) ...[
           const Divider(height: 24),
           _Kv('InBody 점수', '${n0(scan['inbodyScore'])} / 100'),
-          _Kv('기초대사량', '${n0(d['bmrKcal'])} kcal'),
+          _Kv('기초대사량', '${n0(d['bmrKcal'])} kcal', sources: const ['bmr']),
           _Kv('내장지방 레벨', scan['visceralFatLevel'] == null ? '—' : n0(scan['visceralFatLevel'])),
         ],
       ]),
@@ -360,16 +385,26 @@ class _SummaryCard extends StatelessWidget {
 }
 
 class _Kv extends StatelessWidget {
-  const _Kv(this.k, this.v);
+  const _Kv(this.k, this.v, {this.sources});
   final String k, v;
+  /// 값이 계산값이면 그 식의 출처 — 이름 바로 뒤에 「출처」.
+  final List<String>? sources;
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+      /* 값은 남은 폭 안에서 오른쪽 맞춤 — 좁은 폰 · 큰 글자에서 이름 + 「출처」 + 값이
+         한 줄을 넘으면 값이 줄을 바꿉니다(넘치지 않게). */
+      child: Row(children: [
         Text(k, style: t.textTheme.bodySmall?.copyWith(color: t.hintColor)),
-        Text(v, style: t.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700)),
+        if (sources != null) ...[const SizedBox(width: 2), SourceLink(sources!)],
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(v,
+              textAlign: TextAlign.right,
+              style: t.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w700)),
+        ),
       ]),
     );
   }
@@ -430,7 +465,9 @@ class _GoalCard extends StatelessWidget {
 
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        /* D−day · 도착 예정 · 계획 대비는 시뮬레이션과 인바디 오차 위에 섭니다. */
         SectionTitle('목표까지',
+            sources: const ['plan_timeline_prediction', 'plan_drift_progress', 'measurement_noise'],
             trailing: Wrap(spacing: 4, children: [
               if (mode != null) Pill('${mode['nameKo']}'),
               Pill('${plan['label']} 강도', tone: Tone.none),
@@ -485,7 +522,8 @@ class _GoalCard extends StatelessWidget {
                     '실제 ${n1((drift['actual'] as Map)['bfmKg'])}kg',
           ),
           if (drift['muscleWarning'] != null)
-            Note(tone: Tone.warn, text: '${drift['muscleWarning']}'),
+            Note(tone: Tone.warn, text: '${drift['muscleWarning']}',
+                sources: const ['lean_mass_loss_warning']),
           /* 예전엔 플랜 탭으로 갔습니다 — 거기엔 다시 세우는 기능이 없어서,
              누른 사람은 같은 계획을 한 번 더 읽고 끝났습니다. 다시 세우는
              길은 목표 화면입니다(저장된 목표로 미리 채워 두고, 기간 고르기로
@@ -675,8 +713,18 @@ List<Widget> _cardioNote(BuildContext context, app, List<Map<String, Object?>> d
   final what = cs.unit.startsWith('×') ? '${cs.value} ${cs.unit}' : '주 ${cs.value}분';
   return [
     const SizedBox(height: 8),
-    Text('유산소 $what — 요일은 칸을 눌러 고르세요',
-        style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
+    Row(children: [
+      Expanded(
+        child: Text('유산소 $what — 요일은 칸을 눌러 고르세요',
+            style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
+      ),
+      const SourceLink(['cardio_minutes']),
+    ]),
+    /* 출처(WHO 2020)는 주 150분 — 처방이 그보다 적으면 그 관계를 같은 자리에서. */
+    if (cardioBelowWho(w.cast<String, Object?>()))
+      Text(kWhoActivityHint,
+          key: const Key('home-cardio-who'),
+          style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.4)),
   ];
 }
 

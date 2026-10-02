@@ -15,7 +15,7 @@
  *
  * 차례(위 → 아래): 내 몸 정보 · 화면 · 운동 환경 · 계정 · 기본 공유(로그인
  * 했을 때) · 동기화 · **도움말(의견함 · 가입자 목록 — 운영자만 · 의견 버튼 보이기 · 앱 안내
- * 다시 보기)** · 지우기 ·
+ * 다시 보기 · 근거 · 출처)** · 지우기 ·
  * **로그아웃(로그인했을 때)** · 작은 글씨(내보내기 · 가져오기 ·
  * 개인정보처리방침) · 앱 버전.
  *
@@ -68,10 +68,16 @@ import '../scope.dart';
 import '../update.dart';
 import 'account.dart';
 import 'feedback.dart'
-    show feedbackBubbleLocked, feedbackBubbleOn, loadFeedbackBubbleOn, setFeedbackBubbleOn;
+    show
+        feedbackBubbleLocked,
+        feedbackBubbleOn,
+        feedbackLockedSubtitle,
+        loadFeedbackBubbleOn,
+        setFeedbackBubbleOn;
 import 'feedback_inbox.dart' show FeedbackInboxRow;
 import 'gym_settings.dart';
 import 'share_defaults.dart';
+import 'sources.dart';
 import 'sync_settings.dart';
 import 'tester_welcome.dart' show showTesterWelcome;
 import 'user_list.dart' show OperatorUsersRow;
@@ -265,7 +271,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   key: const Key('settings-feedback-bubble'),
                   contentPadding: EdgeInsets.zero,
                   title: const Text('의견 버튼 보이기'),
-                  subtitle: Text(locked ? '테스트 기간에는 켜 둡니다' : '화면 가장자리 말풍선 · 꾹 눌러 옮겨요',
+                  subtitle: Text(locked ? feedbackLockedSubtitle() : '화면 가장자리 말풍선 · 꾹 눌러 옮겨요',
                       style: t.textTheme.labelSmall),
                   value: locked || feedbackBubbleOn.value,
                   onChanged: locked ? null : (v) => unawaited(setFeedbackBubbleOn(v)),
@@ -280,6 +286,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
               onPressed: () => showTesterWelcome(context, force: true),
               icon: const Icon(LucideIcons.bookOpen, size: 18),
               label: const Text('앱 안내 다시 보기'),
+            ),
+            /* 칼로리 · 단백질 · 운동 처방 · 체성분 추정이 어디서 왔는지(애플 심사 1.4.1 —
+               건강 권장값에는 앱 안에서 쉽게 찾을 수 있는 출처가 있어야 합니다). 화면마다
+               숫자 옆의 「출처」 링크가 같은 목록을 부분만 보여 줍니다. 의료 안내도 여기서
+               다시 봅니다. */
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              key: const Key('settings-sources'),
+              style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+              onPressed: () => Navigator.of(context)
+                  .push(MaterialPageRoute(builder: (_) => const SourcesScreen())),
+              icon: const Icon(LucideIcons.library, size: 18),
+              label: const Text(kSourcesTitle),
             ),
           ]),
         ),
@@ -408,7 +427,11 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 /* 목록을 끌면 키보드를 내립니다 — 숫자 패드는 달리 닫을 키가 없습니다. */
                 keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
                 children: [
-                  Text('내 몸 정보', style: Theme.of(ctx).textTheme.titleMedium),
+                  /* 활동량 → 하루 소모, 운동 경력 · 나이 → 근육 증가 속도 — 그 계수의 출처. */
+                  Row(children: [
+                    Expanded(child: Text('내 몸 정보', style: Theme.of(ctx).textTheme.titleMedium)),
+                    const SourceLink(['tdee_activity', 'muscle_gain_rate', 'activity_onboarding_inputs']),
+                  ]),
                   const SizedBox(height: 4),
                   Text('계획의 기준값입니다 — 나이를 비우면 보수적으로 잡습니다',
                       style: Theme.of(ctx).textTheme.bodySmall

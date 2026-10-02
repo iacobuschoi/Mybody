@@ -7,7 +7,7 @@
  *     잘 아는 종목을 하나만 넣는가, 같은 종목이 두 번 안 나오는가
  *   · 정해진 종목에 스킴(세트 · 횟수 · 휴식)이 새 규칙으로 붙는가 — 맨몸 스쿼트 15-20,
  *     플랭크 30초, 바벨 초보 8-12, 머신 8-12, 편측은 한쪽씩 · 60분 예산(3차 피드백 31)
- *   · 칼로리 공식이 손으로 계산한 값과 같은가 (80kg · 30분 · MET 5 = 210)
+ *   · 칼로리 공식이 손으로 계산한 값과 같은가 (80kg · 30분 · MET 3.5 = 147)
  *   · 맨몸 루틴이 경력·체중·오늘 분할에 따라 모양을 바꾸는가
  * ========================================================================== */
 import 'dart:math' as math;
@@ -678,9 +678,12 @@ void main() {
   });
 
   group('workoutKcal', () {
-    test('80kg · 30분 헬스 = 210 kcal (MET 5)', () {
+    /* 「출처」(2011 Compendium)의 해당 항목 그대로 — 헬스 02054 「여러 종목 8~15회」 3.5,
+       맨몸 「보통 강도」 3.8. 예전 5.0 · 8.0 은 더 센 항목이라 출처보다 높게 나왔습니다. */
+    test('80kg · 30분 헬스 = 147 kcal (MET 3.5)', () {
       expect(workoutKcal(weightKg: 80, duration: const Duration(minutes: 30), kind: 'gym'),
-          closeTo(210, 0.001));
+          closeTo(147, 0.001));
+      expect(workoutMet(kind: 'gym'), 3.5);
     });
 
     test('80kg · 30분에 5km 달리기 = 시속 10km → MET 9.8~11', () {
@@ -704,10 +707,10 @@ void main() {
           closeTo(3.5 * 84, 0.001));
     });
 
-    test('기본 MET — 자전거 6.8 · 유산소 6.0 · 맨몸 8.0 · 모르는 것은 6.0', () {
+    test('기본 MET — 자전거 6.8 · 유산소 6.0 · 맨몸 3.8 · 모르는 것은 6.0', () {
       expect(workoutMet(kind: 'bike'), 6.8);
       expect(workoutMet(kind: 'cardio'), 6.0);
-      expect(workoutMet(kind: 'bodyweight'), 8.0);
+      expect(workoutMet(kind: 'bodyweight'), 3.8);
       expect(workoutMet(kind: 'zumba'), 6.0);
     });
 
@@ -715,7 +718,7 @@ void main() {
       final big = workoutKcal(weightKg: 634, duration: const Duration(minutes: 30), kind: 'gym');
       expect(big, closeTo(workoutKcal(weightKg: 250, duration: const Duration(minutes: 30), kind: 'gym'), 0.001));
       expect(workoutKcal(weightKg: double.nan, duration: const Duration(minutes: 30), kind: 'gym'),
-          closeTo(5 * 3.5 * 70 / 200 * 30, 0.001));
+          closeTo(kGymMet * 3.5 * 70 / 200 * 30, 0.001));
       expect(workoutKcal(weightKg: 80, duration: const Duration(minutes: -5), kind: 'gym'), 0);
       expect(workoutKcal(weightKg: 80, duration: const Duration(hours: 20), kind: 'gym'),
           closeTo(workoutKcal(weightKg: 80, duration: const Duration(hours: 6), kind: 'gym'), 0.001));

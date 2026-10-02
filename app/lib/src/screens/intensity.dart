@@ -31,6 +31,7 @@
 import 'package:flutter/material.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
+import '../citations.dart';
 import '../estimate.dart';
 import '../scope.dart';
 import '../ui/charts.dart';
@@ -139,7 +140,8 @@ class _IntensityScreenState extends State<IntensityScreen> {
       return Scaffold(
         appBar: AppBar(title: const Text('기간 고르기')),
         body: ListView(padding: const EdgeInsets.all(16), children: [
-          for (final w in (cmp['warnings'] as List)) Note(tone: Tone.bad, text: '$w'),
+          for (final w in (cmp['warnings'] as List))
+            Note(tone: Tone.bad, text: '$w', sources: kPlanTimelineSources),
           const Note(text: '목표를 조금 낮춰 보세요'),
         ]),
       );
@@ -187,7 +189,7 @@ class _IntensityScreenState extends State<IntensityScreen> {
 
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SectionTitle('주차별 궤적'),
+            const SectionTitle('주차별 궤적', sources: kPlanTimelineSources),
             LineChart(
               height: 170,
               series: [
@@ -434,6 +436,21 @@ class LevelGroup {
   String get subject => '$names${names.endsWith('하') ? '가' : '이'}';
 }
 
+/// 강도 카드의 「출처」 주제 — 기간 · 섭취 · 단백질 · 운동 · 단계 설명(감량 · 유지 · 증량)은 늘,
+/// 경고가 있으면 그 주제도.
+List<String> levelCardSources(Map<String, Object?> r) {
+  final feas = r['feasibility'];
+  final blockedMsg = feas is Map && feas['verdict'] == 'blocked' ? '${feas['message'] ?? ''}' : '';
+  return [
+    'plan_timeline_prediction', 'weekly_loss_rate', 'daily_kcal_target', 'protein_target',
+    'resistance_volume_split', 'strategy_description',
+    if (r['capWarning'] != null) 'continuous_cut_limit',
+    if (r['leanLossWarning'] != null) 'lean_mass_loss_warning',
+    if (blockedMsg.contains('상한')) 'ffmi_muscle_ceiling',
+    if (blockedMsg.isNotEmpty && !blockedMsg.contains('상한')) 'body_fat_lower_limit',
+  ];
+}
+
 /// 공격성 a 와 기간이 같으면 같은 계획입니다(엔진이 같은 점을 고른 것). 유지 계획은
 /// a 가 모두 0 이어도 기간이 4 · 8 · 12주로 달라서 안 묶입니다. 웹 UI.levelGroups 와 같은 규칙.
 List<LevelGroup> levelGroups(List<Map<String, Object?>> results, Object? recommended) {
@@ -495,6 +512,7 @@ class _NotesCardState extends State<_NotesCard> {
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         SectionTitle('이 목표는',
+            sources: const ['intensity_notes', 'fat_mobilization_cap', 'muscle_gain_rate'],
             trailing: warnings.isEmpty ? null : Pill('주의 ${warnings.length}', tone: Tone.warn)),
         Text(head, style: t.textTheme.bodySmall?.copyWith(height: 1.5)),
         if (_open) ...[
@@ -566,15 +584,19 @@ class _LevelCard extends StatelessWidget {
             Row(children: [
               DifficultyStars(core.jsToNumber(r['difficulty']).toInt()),
               const SizedBox(width: 6),
-              Text(withoutStars(r['difficultyLabel']),
-                  style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+              Expanded(
+                child: Text(withoutStars(r['difficultyLabel']),
+                    style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+              ),
+              /* 기간 · 섭취 · 단백질 · 운동 일수, 그리고 아래 경고들의 출처 — 카드마다 같은 자리. */
+              SourceLink(levelCardSources(r)),
             ]),
             const SizedBox(height: 6),
             /* 합친 카드에 대표(상)의 설명("가장 빠르게 · 식단이 가장 빡빡")을 달면 틀립니다. */
             Text(
                 merged
                     ? '${group.subject} 같은 계획 — 한 장으로 합쳤습니다'
-                    : '${r['blurb']}',
+                    : reworded('${r['blurb']}'),
                 style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, height: 1.5)),
             const SizedBox(height: 12),
             Row(children: [

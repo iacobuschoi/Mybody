@@ -40,6 +40,9 @@ class _F {
   final bool derivable;
 }
 
+/// 검산(제지방 = 체중 − 체지방 · 체수분 ≈ 제지방의 73% · 기초대사량 ≈ 370 + 21.6 × 제지방)의 「출처」.
+const List<String> kScanCheckSources = ['scan_crosscheck', 'bmr'];
+
 const _core = [
   _F('weightKg', '체중', 'kg', range: [20, 300], hint: '결과지 상단 "체중" 값'),
   _F('smmKg', '골격근량 (SMM)', 'kg', range: [5, 70], hint: '근력이 아니라 근육의 무게입니다'),
@@ -255,9 +258,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
               tone: Tone.bad,
               title: '물리적으로 맞지 않는 값이 있습니다.',
               text: (invalid['reasons'] as List).join(' '),
+              sources: kScanCheckSources,
             ),
           for (final c in checks)
-            Note(tone: Tone.bad, title: '${c['label']}', text: ' ${c['why'] ?? ''}'),
+            Note(tone: Tone.bad, title: '${c['label']}', text: ' ${c['why'] ?? ''}', sources: kScanCheckSources),
           if (involved != null && involved.length > 1)
             Note(
               tone: Tone.warn,
@@ -272,9 +276,10 @@ class _ReviewScreenState extends State<ReviewScreen> {
             Note(
               tone: i['level'] == 'bad' ? Tone.bad : Tone.warn,
               text: '${i['why'] ?? ''}',
+              sources: kScanCheckSources,
             ),
           if (invalid == null && checks.isEmpty && rangeIssues.isEmpty && deltaIssues.isEmpty)
-            const Note(tone: Tone.ok, text: '검산을 통과했습니다'),
+            const Note(tone: Tone.ok, text: '검산을 통과했습니다', sources: kScanCheckSources),
   
           MbCard(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [

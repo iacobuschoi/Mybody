@@ -192,6 +192,13 @@ double _bikeMet(double kmh) {
   return 12.0;
 }
 
+/// 헬스 한 번 — Compendium 02054 「근력운동, 여러 종목, 8~15회」.
+const double kGymMet = 3.5;
+
+/// 맨몸 운동 한 번 — Compendium 「맨몸 운동(팔굽혀펴기 · 윗몸일으키기 · 런지), 보통 강도」.
+/// 앱의 맨몸 루틴은 초보 3 × 10 · 쉬는 시간 15~60초라 고강도(8.0, 점프 위주)가 아닙니다.
+const double kBodyweightMet = 3.8;
+
 /// 종류와 (있으면) 속도로 MET 를 정합니다. 속도를 못 구하면 표([kSports])의 값.
 double workoutMet({required String kind, double? kmh}) {
   final v = kmh != null && kmh.isFinite && kmh > 0 ? kmh : null;
@@ -206,10 +213,13 @@ double workoutMet({required String kind, double? kmh}) {
     }
   }
   switch (kind) {
+    /* 헬스와 맨몸은 「출처」(2011 Compendium)의 해당 항목 그대로. 예전 값(헬스 5.0 = 「스쿼트,
+       느리거나 폭발적으로」 · 맨몸 8.0 = 「맨몸 운동, 고강도」)은 앱의 보통 세션보다 센 항목이라
+       소모 kcal 이 출처보다 1.4 · 2.1배 높게 나왔습니다. */
     case 'gym':
-      return 5.0;
+      return kGymMet;
     case 'bodyweight':
-      return 8.0;
+      return kBodyweightMet;
     default:
       /* 스포츠는 속도와 상관없이 표의 값. 모르는 id 는 일반 유산소 — 옛 판이 새 판의
          기록을 받아도 0 kcal 이 되지 않습니다. */

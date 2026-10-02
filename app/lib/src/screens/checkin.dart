@@ -126,7 +126,9 @@ class _CheckinScreenState extends State<CheckinScreen> {
           children: [
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            /* 계획상 오늘 체중 · 아침 공복 · 지난 7일 실행(식단 범위 안)의 출처. */
             SectionTitle('계획 ${n0(weeksIn + 1)}주차',
+                sources: const ['plan_timeline_prediction', 'checkin_adjustment', 'diet_adherence'],
                 trailing: Text('시작 ${dateK(startDate)}',
                     style: t.textTheme.labelSmall?.copyWith(color: t.hintColor))),
             Text('계획상 오늘 체중은 ${n1(expected)}kg 입니다.',
@@ -194,7 +196,7 @@ class _CheckinScreenState extends State<CheckinScreen> {
         if (traj.length > 1)
           MbCard(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const SectionTitle('계획선과 체크인'),
+              const SectionTitle('계획선과 체크인', sources: ['checkin_adjustment']),
               LineChart(
                 height: 150,
                 series: [
@@ -372,12 +374,19 @@ class _CheckinScreenState extends State<CheckinScreen> {
     final yes = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
+        /* 내용이 Column(글 + 「출처」)이라 큰 글자 · 작은 폰에서 넘칩니다(글만일 때는 조용히
+           잘렸습니다) — 굴러가게 두면 아래 「출처」 까지 닿습니다. */
+        scrollable: true,
         title: const Text('계획을 이렇게 바꿀까요?'),
-        content: Text([
-          ...lines,
-          '',
-          '다음 체크인부터는 오늘 값을 새 기준으로 다시 봅니다.',
-        ].join('\n')),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text([
+            ...lines,
+            '',
+            '다음 체크인부터는 오늘 값을 새 기준으로 다시 봅니다.',
+          ].join('\n')),
+          const SizedBox(height: 8),
+          const SourceLink(kCheckinAdviceSources),
+        ]),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('취소')),
           FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('적용')),
@@ -399,6 +408,9 @@ class _CheckinScreenState extends State<CheckinScreen> {
     toast(context, '체크인을 저장하고 계획을 바꿨습니다 · 하루 ${n0(after['intakeKcal'])}kcal');
   }
 }
+
+/// 체크인 제안(±150kcal · 유산소 추가 · 하루 하한 · 순응도 먼저)의 「출처」.
+const List<String> kCheckinAdviceSources = ['checkin_adjustment', 'kcal_floor', 'cardio_minutes'];
 
 class _AdviceCard extends StatelessWidget {
   const _AdviceCard({required this.review, this.preview, required this.before, this.caveat});
@@ -454,7 +466,9 @@ class _AdviceCard extends StatelessWidget {
 
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        SectionTitle('이번 주 제안', trailing: Pill(checkinStatusLabel(status), tone: tone)),
+        SectionTitle('이번 주 제안',
+            sources: kCheckinAdviceSources,
+            trailing: Pill(checkinStatusLabel(status), tone: tone)),
         if (devText != null)
           Padding(
             padding: const EdgeInsets.only(bottom: 10),

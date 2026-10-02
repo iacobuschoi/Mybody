@@ -17,6 +17,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:mybody/src/api.dart';
 import 'package:mybody/src/app_state.dart';
+import 'package:mybody/src/citations.dart' show reworded;
 import 'package:mybody/src/scope.dart';
 import 'package:mybody/src/screens/plan.dart';
 import 'package:mybody/src/screens/workout_session.dart';
@@ -335,7 +336,8 @@ void main() {
     final app = await seeded();
     await open(t, app);
     final diet = ((app.state['plan'] as Map)['diet'] as Map).cast<String, Object?>();
-    final notes = (diet['notes'] as List).map((n) => '$n').toList();
+    /* 화면은 엔진 글 중 출처와 어긋나는 말을 바꿔 그립니다(citations.dart reworded). */
+    final notes = (diet['notes'] as List).map((n) => reworded('$n')).toList();
     expect(notes, hasLength(3));
     await t.scrollUntilVisible(find.byKey(const Key('diet-notes')), 300);
     expect(find.textContaining('하루 3끼 예시'), findsOneWidget);

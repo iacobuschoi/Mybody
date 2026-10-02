@@ -245,7 +245,9 @@ class _AdherenceBodyState extends State<AdherenceBody> {
       /* 요약 — 분모를 반드시 명시합니다. */
       MbCard(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          /* 목표(칼로리 · 단백질)와 범위 안(목표 ±10%) · 단백질 달성(90% 이상)의 출처. */
           SectionTitle('식단 · $label',
+              sources: const ['diet_adherence', 'daily_kcal_target', 'protein_target'],
               trailing: Pill('기록 ${n0(loggedDays)}/${n0(totalDays)}일',
                   tone: core.jsToNumber(adh['logRatePct']) >= 70 ? Tone.ok : Tone.none)),
           if (loggedDays == 0)

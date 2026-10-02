@@ -35,6 +35,7 @@ import 'package:flutter/material.dart';
 import 'package:mybody_core/mybody_core.dart' as core;
 
 import '../app_state.dart';
+import '../citations.dart' show reworded;
 import '../estimate.dart';
 import '../scope.dart';
 import '../ui/fmt.dart';
@@ -181,6 +182,7 @@ class _GoalScreenState extends State<GoalScreen> {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             /* 키 · 체중으로 어림한 몸이면 그렇다고 — 아래 목표 숫자도 그 위에 섭니다. */
             SectionTitle('현재 (${dateK(scans.last['measuredAt'])})',
+                sources: isEstimate(scans.last) ? const ['body_fat_estimate'] : null,
                 trailing: isEstimate(scans.last) ? const Pill('추정', tone: Tone.warn) : null),
             Row(children: [
               Expanded(child: Stat(label: '체중', value: n1(cur['weightKg']), unit: 'kg')),
@@ -246,7 +248,9 @@ class _GoalScreenState extends State<GoalScreen> {
     return [
       MbCard(
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const SectionTitle('목표'),
+          /* 처음 값(체지방률 남 15 · 여 24%) · 하한(남 8 · 여 15%) · 세 숫자 맞추기의 근거. */
+          const SectionTitle('목표',
+              sources: ['recommended_goal_default', 'body_fat_lower_limit', 'goal_consistency']),
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: Text('두 칸을 정하면 나머지 한 칸은 자동입니다',
@@ -278,6 +282,7 @@ class _GoalScreenState extends State<GoalScreen> {
                   text: ' 근육·지방으로 계산한 체중은 '
                       '${n1(goalInfo['impliedWeightKg'])}kg 입니다 '
                       '(${signed(goalInfo['mismatchKg'])}kg 차이).',
+                  sources: const ['goal_consistency'],
                 ),
               ),
           ],
@@ -288,16 +293,23 @@ class _GoalScreenState extends State<GoalScreen> {
           tone: Tone.bad,
           title: '목표 체지방률 ${n1(targetPbf)}% 는 하한 $floorPct% 보다 낮습니다.',
           text: ' 필수 체지방 $essentialPct% 근처라 계획을 만들지 않습니다.',
+          sources: const ['body_fat_lower_limit'],
         ),
       /* 「마감 (선택)」 카드는 뺐습니다 — 바로 다음 강도 화면에서 주를 고르니 두 번
          고르는 셈이었습니다. */
       if (sel != null) ...[
         if (refused)
-          Note(tone: Tone.bad, title: '이 목표로는 계획을 만들지 않습니다.', text: ' ${sel['message']}')
+          Note(
+              tone: Tone.bad,
+              title: '이 목표로는 계획을 만들지 않습니다.',
+              /* 엔진 문구 중 출처 없는 의학 · 안전 주장은 바꿔서(citations.dart kClaimReword). */
+              text: ' ${reworded('${sel['message']}')}',
+              sources: const ['goal_refusals_safety'])
         else if (mode != null)
           MbCard(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               SectionTitle('모드 — ${mode['nameKo']}',
+                  sources: const ['goal_mode_selection'],
                   trailing: sel['manual'] == true ? const Pill('직접 고름') : null),
               Text('${mode['oneLiner']}',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.5)),
@@ -324,7 +336,7 @@ class _GoalScreenState extends State<GoalScreen> {
             ]),
           ),
         if (sel['trendNote'] != null)
-          Note(tone: Tone.warn, text: '${sel['trendNote']}'),
+          Note(tone: Tone.warn, text: '${sel['trendNote']}', sources: const ['measurement_noise']),
       ],
       FilledButton(
         onPressed: (!complete || refused || (targetPbf.isFinite && targetPbf < floorPct))
@@ -385,7 +397,10 @@ class _GoalScreenState extends State<GoalScreen> {
         expand: false,
         initialChildSize: 0.8,
         builder: (ctx, sc) => ListView(controller: sc, padding: const EdgeInsets.all(20), children: [
-          Text('모드 고르기', style: Theme.of(ctx).textTheme.titleMedium),
+          Row(children: [
+            Expanded(child: Text('모드 고르기', style: Theme.of(ctx).textTheme.titleMedium)),
+            const SourceLink(['goal_mode_selection']),
+          ]),
           const SizedBox(height: 4),
           Text('앱이 고른 것이 기본입니다 — 바꾸면 그 모드의 기준을 따릅니다',
               style: Theme.of(ctx).textTheme.bodySmall

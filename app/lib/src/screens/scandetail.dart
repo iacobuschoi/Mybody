@@ -44,6 +44,12 @@ const _rows = [
   ('inbodyScore', 'InBody 점수', '점', 0),
 ];
 
+/// 기초대사량이 어디서 왔는지. 엔진은 계산값을 「Katch-McArdle 계산값」 이라 적는데,
+/// 370 + 21.6 × 제지방 식의 동료 심사 원 출처는 Cunningham(1991)이고 인바디도 그렇게
+/// 부릅니다 — 「출처」 에 뜨는 논문과 이름이 같아야 같은 식인 줄 압니다.
+String bmrSourceLabel(Object? source) =>
+    source == 'Katch-McArdle 계산값' ? 'Cunningham 식 계산값' : '${source ?? ''}';
+
 class ScanDetailScreen extends StatelessWidget {
   const ScanDetailScreen({super.key, required this.scanId});
   final Object? scanId;
@@ -102,7 +108,8 @@ class ScanDetailScreen extends StatelessWidget {
           const Note(
               tone: Tone.warn,
               title: '추정치예요.',
-              text: ' 키·체중으로 계산했어요 — $kEstimateCaveat'),
+              text: ' 키·체중으로 계산했어요 — $kEstimateCaveat',
+              sources: ['body_fat_estimate']),
           Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: Align(
@@ -117,11 +124,12 @@ class ScanDetailScreen extends StatelessWidget {
           ),
         ],
         for (final c in broken)
-          Note(tone: Tone.warn, title: '${c['label']}', text: ' ${c['why'] ?? ''}'),
+          Note(tone: Tone.warn, title: '${c['label']}', text: ' ${c['why'] ?? ''}', sources: const ['scan_crosscheck']),
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             est
-                ? const SectionTitle('추정값', trailing: Pill('추정', tone: Tone.warn))
+                ? const SectionTitle('추정값',
+                    sources: ['body_fat_estimate'], trailing: Pill('추정', tone: Tone.warn))
                 : const SectionTitle('결과지 값'),
             for (final r in _rows)
               if (scan[r.$1] != null || d[r.$1] != null)
@@ -150,8 +158,9 @@ class ScanDetailScreen extends StatelessWidget {
         ),
         MbCard(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SectionTitle('여기서 나온 값'),
-            Text('기초대사량 ${n0(d['bmrKcal'])}kcal (${d['bmrSource']})',
+            /* 기초대사량(370 + 21.6 × 제지방) · 활동계수 · 골격근/제지방 비율의 출처. */
+            const SectionTitle('여기서 나온 값', sources: ['bmr', 'tdee_activity', 'scan_crosscheck']),
+            Text('기초대사량 ${n0(d['bmrKcal'])}kcal (${bmrSourceLabel(d['bmrSource'])})',
                 style: t.textTheme.bodySmall),
             Text('활동대사량 ${n0(d['tdeeKcal'])}kcal (활동계수 ${n2(d['pal'])})',
                 style: t.textTheme.bodySmall),
