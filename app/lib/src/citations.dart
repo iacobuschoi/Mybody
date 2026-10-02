@@ -505,7 +505,7 @@ const List<Citation> kCitations = [
     title: '계란 1개 단백질 약 6.3g',
     reference: 'U.S. Department of Agriculture, Agricultural Research Service. FoodData Central '
         '(SR Legacy): Egg, whole, raw, fresh. FDC ID 171287.',
-    url: 'https://fdc.nal.usda.gov/food-details/171287/nutrients',
+    url: 'https://fdc.nal.usda.gov/fdc-app.html#/food-details/171287/nutrients',
   ),
   Citation(
     id: 'urban_2010_stated_energy',
@@ -670,7 +670,7 @@ const List<Citation> kCitations = [
     reference: 'Gallagher D, Heymsfield SB, Heo M, et al. Healthy percentage body fat ranges: an '
         'approach for developing guidelines based on body mass index. '
         'Am J Clin Nutr. 2000;72(3):694-701.',
-    url: 'https://pubmed.ncbi.nlm.nih.gov/10966886/',
+    url: 'https://doi.org/10.1093/ajcn/72.3.694',
   ),
   Citation(
     id: 'lee_2000_smm',
@@ -690,7 +690,7 @@ const List<Citation> kCitations = [
         '(앱의 하한 남 8% · 여 15% 는 이보다 여유 있게 잡은 값)',
     reference: 'American Council on Exercise (ACE). What are the guidelines for percentage of body '
         'fat loss? ACE Lifestyle Blog #112.',
-    url: 'https://www.acefitness.org/resources/everyone/blog/112/what-are-the-guidelines-for-percentage-of-body-fat-loss/',
+    url: 'https://www.acefitness.org/education-and-resources/lifestyle/blog/112/what-are-the-guidelines-for-percentage-of-body-fat-loss/',
   ),
   Citation(
     id: 'kouri_1995_ffmi',

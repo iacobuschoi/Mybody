@@ -60,12 +60,34 @@ async function describe(url) {
       return `${(w.title || ['?'])[0]} | ${a ? `${a.family || ''} ${a.given || ''}`.trim() : '?'} | ${year || '?'} | `
         + `${(w['container-title'] || [w.publisher || '?'])[0]}`;
     }
+    /* FoodData Central 은 화면이 자바스크립트로만 그려져서 페이지 제목으로는 무슨 식품인지 모릅니다 —
+       같은 번호를 공개 API(DEMO_KEY)로 읽어 이름과 단백질 값을 찍습니다. */
+    const fdc = url.match(/fdc\.nal\.usda\.gov\/.*food-details\/(\d+)/);
+    if (fdc) {
+      const r = await fetch(`https://api.nal.usda.gov/fdc/v1/food/${fdc[1]}?api_key=DEMO_KEY`,
+        { signal: AbortSignal.timeout(20000) });
+      if (!r.ok) return `FDC API ${r.status}`;
+      const f = await r.json();
+      const prot = (f.foodNutrients || []).find(n => (n.nutrient || {}).name === 'Protein');
+      return `FDC ${fdc[1]}: ${f.description} (${f.dataType}) · 단백질 ${prot ? prot.amount : '?'} g/100g`;
+    }
     const res = await fetch(url, {
       redirect: 'follow', headers: { 'user-agent': UA, accept: 'text/html,*/*' }, signal: AbortSignal.timeout(20000),
     });
-    const html = await res.text();
-    const t = (html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1];
-    return `HTTP ${res.status} | <title> ${t ? t.replace(/\s+/g, ' ').trim().slice(0, 160) : '(없음)'}`;
+    /* 한국 정부 · 학회 사이트는 아직 EUC-KR 인 곳이 있습니다 — 머리말 · <meta> 의 charset 대로 풉니다. */
+    const buf = Buffer.from(await res.arrayBuffer());
+    const head = buf.toString('latin1', 0, 4096);
+    const cs = ((res.headers.get('content-type') || '').match(/charset=([\w-]+)/i)
+      || head.match(/charset=["']?([\w-]+)/i) || [])[1] || 'utf-8';
+    let html;
+    try { html = new TextDecoder(cs.toLowerCase()).decode(buf); } catch (e) { html = buf.toString('utf8'); }
+    const clean = x => (x || '').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    const t = clean((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1]).slice(0, 160);
+    /* 게시판 글은 <title> 이 사이트 이름뿐일 때가 많아서 글 제목(h1~h4 · og:title)도 같이 찍습니다. */
+    const og = (html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)/i) || [])[1];
+    const hs = [...html.matchAll(/<h[1-4][^>]*>([\s\S]*?)<\/h[1-4]>/gi)].map(m => clean(m[1])).filter(Boolean)
+      .slice(0, 4).join(' / ').slice(0, 200);
+    return `HTTP ${res.status} | <title> ${t || '(없음)'}${og ? ` | og: ${og.slice(0, 120)}` : ''}${hs ? ` | 제목: ${hs}` : ''}`;
   } catch (e) {
     return `못 읽음(${String(e.cause?.code || e.message)})`;
   }
