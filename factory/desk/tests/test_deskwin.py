@@ -139,6 +139,76 @@ class KeeperTest(unittest.TestCase):
         self.assertLessEqual(r[1] + r[3], MAIN[3])
 
 
+class FakeQ:
+    """미러링된 두 화면: 2 가 1 을 따라 함. 풀면 2 는 (0, 0) — 주 화면과 겹침 (오른쪽으로 옮겨야)."""
+    kCGNullDirectDisplay = 0
+    kCGConfigurePermanently = 2
+
+    def __init__(self, origin_after=(0, 0)):
+        self.mirror = {1: 0, 2: 1}
+        self.bounds = {1: (0, 0, 1280, 768), 2: (0, 0, 640, 1024)}
+        self.after = origin_after
+        self.pending, self.commits = [], 0
+
+    def CGGetOnlineDisplayList(self, n, a, b):
+        return 0, (1, 2), 2
+
+    def CGGetActiveDisplayList(self, n, a, b):
+        return 0, tuple(d for d in (1, 2) if not self.mirror[d]), 2
+
+    def CGMainDisplayID(self):
+        return 1
+
+    def CGDisplayMirrorsDisplay(self, d):
+        return self.mirror[d]
+
+    def CGDisplayBounds(self, d):
+        from types import SimpleNamespace as N
+        x, y, w, h = self.bounds[d]
+        return N(origin=N(x=x, y=y), size=N(width=w, height=h))
+
+    def CGBeginDisplayConfiguration(self, _):
+        self.pending = []
+        return 0, "cfg"
+
+    def CGConfigureDisplayMirrorOfDisplay(self, cfg, d, master):
+        self.pending.append(("mirror", d, master))
+
+    def CGConfigureDisplayOrigin(self, cfg, d, x, y):
+        self.pending.append(("origin", d, x, y))
+
+    def CGCompleteDisplayConfiguration(self, cfg, how):
+        assert how == self.kCGConfigurePermanently
+        self.commits += 1
+        for op in self.pending:
+            if op[0] == "mirror":
+                self.mirror[op[1]] = op[2]
+                if not op[2]:
+                    self.bounds[op[1]] = (*self.after, *self.bounds[op[1]][2:])
+            else:
+                self.bounds[op[1]] = (op[2], op[3], *self.bounds[op[1]][2:])
+        return 0
+
+
+class MirrorTest(unittest.TestCase):
+    def test_unmirror_and_put_desk_screen_right_of_main(self):
+        q = FakeQ()
+        self.assertTrue(deskwin.mirrored(deskwin.mirror_state(q)))
+        self.assertEqual(deskwin.unmirror(q, wait_s=0), 0)
+        self.assertFalse(deskwin.mirrored(deskwin.mirror_state(q)))
+        self.assertEqual(q.bounds[2], (1280, 0, 640, 1024))
+
+    def test_unmirror_keeps_arrangement_macos_restored(self):
+        q = FakeQ(origin_after=(1280, 0))
+        self.assertEqual(deskwin.unmirror(q, wait_s=0), 0)
+        self.assertEqual(q.bounds[2], (1280, 0, 640, 1024))
+        self.assertEqual(q.commits, 1)                   # 이미 오른쪽 → 자리 옮기기 없음
+
+    def test_not_mirrored(self):
+        q = FakeQ()
+        q.mirror[2] = 0
+        self.assertFalse(deskwin.mirrored(deskwin.mirror_state(q)))
+
 
 class KeepLoopTest(unittest.TestCase):
     def test_steps_only_on_start_and_screen_change(self):
@@ -189,3 +259,61 @@ class KeepLoopTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class KeepMirrorLoopTest(unittest.TestCase):
+    def test_unmirrors_once_then_fits_window(self):
+        """깸 → 미러링이면 한 번 풀고 그다음 창을 맞춤. 풀기가 실패해도 같은 상태엔 되풀이 않음."""
+        import threading
+        import time as _t
+        mir = ((1, 0), (2, 1))
+        state = {"mirror": mir, "fail": True, "un": 0, "steps": 0}
+        done = threading.Event()
+
+        class K:
+            mine = (1280, 25, 640, 999)
+
+            def __init__(self, url):
+                pass
+
+            def screens(self):
+                return (MAIN, None) if state["mirror"] == mir else (MAIN, DESK)
+
+            def step(self, now):
+                state["steps"] += 1
+                return "그대로"
+
+            def _say(self, m):
+                pass
+
+        def un():
+            state["un"] += 1
+            if state["fail"]:
+                return 1001
+            state["mirror"] = ((1, 0), (2, 0))
+            return 0
+
+        real_k, real_sleep = deskwin.Keeper, deskwin.time.sleep
+        ticks = []
+
+        def fake_sleep(s):
+            ticks.append(s)
+            n = len(ticks)
+            if n == 4:
+                self.assertEqual(state["un"], 1)          # 실패 뒤 되풀이 없음
+                state["mirror"] = ((1, 0), (2, 0))       # 사람이 풂
+            elif n == 6:
+                state["mirror"], state["fail"] = mir, False   # 다시 미러링 (깸)
+            elif n >= 10:
+                done.set()
+                real_sleep(3600)
+        deskwin.Keeper, deskwin.time.sleep = K, fake_sleep
+        try:
+            deskwin.keep("u", every_s=0, mirror_fn=lambda: state["mirror"], unmirror_fn=un)
+            self.assertTrue(done.wait(5))
+        finally:
+            deskwin.Keeper, deskwin.time.sleep = real_k, real_sleep
+            deskwin._running = False
+        self.assertEqual(state["un"], 2)
+        self.assertEqual(state["mirror"], ((1, 0), (2, 0)))
+        self.assertEqual(state["steps"], 3)               # 실패 뒤(화면 없음) · 사람이 푼 뒤 · 다시 푼 뒤 한 번씩

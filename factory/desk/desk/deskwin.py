@@ -4,6 +4,8 @@ deskd 시작 · 화면 구성이 바뀔 때(모니터 다시 붙음 · 화면이
   1. 사파리에 「책상」 창이 없으면 새 창으로 연다.
   2. 그 창이 책상 화면을 꽉 채우게 옮기고 키운다 — 이미 제자리면 그대로. 최소화 · 사파리 가리기도 푼다.
   3. 책상 화면에 올라온 다른 창은 주 화면으로 옮긴다 (전체 화면 창은 건드리지 않음).
+  0. 그 전에 두 모니터가 복사(미러링)로 돌아가 있으면 먼저 푼다 (주인 10월 2일 17:52: 화면을 켜니 미러링) —
+     풀린 책상 화면이 주 화면과 겹치면 주 화면 오른쪽에 붙인다. 같은 미러링 상태엔 한 번만 (실패해도 되풀이 않음).
 화면이 하나뿐이거나 책상 화면이 잠들었으면 아무것도 안 한다. 창 찾기 · 옮기기는 손쉬운 사용(AX) — deskd 가 이미 받은 권한.
 끄기: config.toml [dashboard] keep_screen = false.
 """
@@ -41,6 +43,51 @@ def screens(Q=None) -> tuple[tuple, tuple | None]:
         return m, None
     r, d = max(others, key=lambda o: o[0][0])
     return m, (r if not Q.CGDisplayIsAsleep(d) else None)
+
+
+def mirror_state(Q=None) -> tuple:
+    """붙은 화면마다 (화면, 따라 하는 화면 — 미러링이 아니면 0)."""
+    if Q is None:
+        import Quartz as Q
+    ids = Q.CGGetOnlineDisplayList(16, None, None)[1] or []
+    return tuple((d, Q.CGDisplayMirrorsDisplay(d)) for d in ids)
+
+
+def mirrored(state: tuple) -> bool:
+    return any(m for _, m in state)
+
+
+def unmirror(Q=None, wait_s: float = 1.0) -> int:
+    """미러링을 풀고(/tmp/unmirror.swift 와 같음), 풀린 화면이 주 화면과 겹치면 주 화면 오른쪽 위에 붙인다. 0 이면 성공."""
+    if Q is None:
+        import Quartz as Q
+    err, cfg = Q.CGBeginDisplayConfiguration(None)
+    if err:
+        return err
+    for d, m in mirror_state(Q):
+        if m:
+            Q.CGConfigureDisplayMirrorOfDisplay(cfg, d, Q.kCGNullDirectDisplay)
+    err = Q.CGCompleteDisplayConfiguration(cfg, Q.kCGConfigurePermanently)
+    if err:
+        return err
+    time.sleep(wait_s)          # 화면 다시 짜는 동안
+    main = Q.CGMainDisplayID()
+    mb = Q.CGDisplayBounds(main)
+    m = (mb.origin.x, mb.origin.y, mb.size.width, mb.size.height)
+    over = []
+    for d in Q.CGGetActiveDisplayList(16, None, None)[1] or []:
+        b = Q.CGDisplayBounds(d)
+        if d != main and b.origin.x < m[0] + m[2] and m[0] < b.origin.x + b.size.width \
+                and b.origin.y < m[1] + m[3] and m[1] < b.origin.y + b.size.height:
+            over.append(d)
+    if over:
+        err, cfg = Q.CGBeginDisplayConfiguration(None)
+        if err:
+            return err
+        for i, d in enumerate(over):
+            Q.CGConfigureDisplayOrigin(cfg, d, int(m[0] + m[2]) + i, int(m[1]))
+        err = Q.CGCompleteDisplayConfiguration(cfg, Q.kCGConfigurePermanently)
+    return err
 
 
 def inside(rect: tuple, frame: tuple) -> bool:
@@ -233,8 +280,8 @@ def running() -> bool:
     return _running
 
 
-def keep(url: str, every_s: float = 2.0) -> threading.Thread:
-    """deskd 시작 때, 그리고 화면 구성이 바뀔 때(모니터를 다시 붙임 · 화면이 잠에서 깸 · 크기 바뀜)만 한 번 맞춘다.
+def keep(url: str, every_s: float = 2.0, mirror_fn=mirror_state, unmirror_fn=unmirror) -> threading.Thread:
+    """미러링이면 먼저 풀고(같은 상태엔 한 번만), deskd 시작 때, 그리고 화면 구성이 바뀔 때(모니터를 다시 붙임 · 화면이 잠에서 깸 · 크기 바뀜)만 한 번 맞춘다.
     그 사이에는 창을 건드리지 않는다 (주인 15:13: 창이 계속 왔다 갔다 함 — 이미 제자리면 손대지 말 것).
     새 창을 연 뒤에는 그 창이 뜰 때까지(OPEN_WAIT_S)만 다시 본다. 오류는 로그만 남기고 계속."""
     global _running
@@ -242,9 +289,19 @@ def keep(url: str, every_s: float = 2.0) -> threading.Thread:
     k = Keeper(url)
 
     def loop():
-        seen, until = object(), 0.0
+        seen, until, tried = object(), 0.0, None
         while True:
             try:
+                ms = mirror_fn()
+                if not mirrored(ms):
+                    tried = None               # 다음에 또 미러링되면 다시 푼다
+                elif ms != tried:
+                    tried = ms
+                    err = unmirror_fn()
+                    k._say("미러링 풀기" + (f" 실패 ({err})" if err else ""))
+                    seen = object()        # 다음 차례에 창을 오른쪽 화면에 맞춤
+                    time.sleep(every_s)
+                    continue
                 now = time.monotonic()
                 cur = k.screens()
                 if cur != seen or now < until:
