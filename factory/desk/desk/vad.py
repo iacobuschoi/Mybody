@@ -37,8 +37,10 @@ class Segmenter:
     def __init__(self, sr: int = 16000, frame_ms: int = 30, level: int = -1, start_ratio: float = 0.6,
                  end_silence_s: float = 0.8, min_utt_s: float = 0.4, max_utt_s: float = 20.0,
                  preroll_s: float = 0.3, energy_db: float = 6.0, band: tuple[float, float] = (150.0, 4000.0),
-                 hold_silence_s: float = 0.0):
+                 hold_silence_s: float = 0.0, min_level: float = 1e-5):
         self.sr, self.n = sr, int(sr * frame_ms / 1000)
+        self.min_level = min_level      # 바닥 소음을 이보다 낮게 보지 않음 — 스피커폰은 조용하면 잡음 제거로 거의 0 을 보내
+                                        # 아주 작은 소리도 "바닥보다 6dB" 가 되어 빈 구간을 받아쓰고 환각이 남(10월 2일)
         self.frame_s = frame_ms / 1000
         self.start_ratio, self.end_silence_s = start_ratio, end_silence_s
         self.hold_silence_s = max(hold_silence_s, end_silence_s)   # 같으면 잠정 조각 없이 예전처럼
@@ -108,7 +110,7 @@ class Segmenter:
         f = f - f.mean()                                   # 직류(DC) 빼기
         spec = np.abs(np.fft.rfft(f * self._win)) ** 2
         rms = float(np.sqrt(spec[self._band].sum() * self._norm)) + 1e-9
-        floor = max(float(np.median(self._floor)) if self._floor else rms, 1e-5)
+        floor = max(float(np.median(self._floor)) if self._floor else rms, self.min_level)
         if not self.in_speech:
             self._floor.append(rms)
         loud = rms > floor * self.energy_k

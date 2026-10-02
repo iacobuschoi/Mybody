@@ -79,6 +79,17 @@ class HoldTest(unittest.TestCase):
         self.assertFalse(seg.in_speech)
 
 
+class MinLevelTest(unittest.TestCase):
+    def test_gated_silence_blip_is_not_speech(self):
+        """스피커폰은 조용하면 거의 0 — 그 위의 아주 작은 소리(제 말이 끝나고 마이크가 다시 열릴 때)를 말로 자르지 않음."""
+        blip = (RNG.standard_normal(int(SR * 1.0)) * 0.0012).astype(np.float32)
+        sig = np.concatenate([np.zeros(int(SR * 3), dtype=np.float32), blip, np.zeros(int(SR * 2), dtype=np.float32)])
+        self.assertTrue(run(Segmenter(sr=SR), sig))                                 # 예전: 빈 구간을 받아씀
+        self.assertEqual(run(Segmenter(sr=SR, min_level=0.001), sig), [])
+        talk = np.concatenate([np.zeros(int(SR * 3), dtype=np.float32), voice(1.0), np.zeros(int(SR * 2), dtype=np.float32)])
+        self.assertEqual(len([c for c in run(Segmenter(sr=SR, min_level=0.001), talk) if c.final]), 1)
+
+
 class EndpointTest(unittest.TestCase):
     DONE = ["화면 꺼", "오늘 날씨 어때?", "브리핑 해 줘", "음량 좀 줄여줘.", "지금 몇 시야", "공장 상태 알려줘", "고마워",
             "그만", "이거 뭐지", "빌드 돌려", "알았어", "내일 일정 정리해 줘요", "조용히 해", "좋아", "다시 들어",

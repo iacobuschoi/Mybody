@@ -48,7 +48,7 @@ class Desk:
         li = cfg["listen"]
         self.seg = Segmenter(sr=sr, level=li["vad_level"], end_silence_s=li["end_silence_s"],
                              min_utt_s=li["min_utt_s"], max_utt_s=li["max_utt_s"], energy_db=li["energy_db"],
-                             hold_silence_s=li.get("hold_silence_s", 0.0))
+                             hold_silence_s=li.get("hold_silence_s", 0.0), min_level=li.get("min_level", 1e-5))
         self._finals: set[int] = set()               # 확정 조각이 받아쓰기 줄에 들어간 구간(seq)
         self._taken: dict[int, int] = {}             # 잠정 조각으로 이미 답한 구간 → 그 칸 수
         self._held: dict[int, tuple[int, str]] = {}  # 이어질 듯해 기다리는 구간 → (잠정 조각 칸 수, 받아쓴 글)
