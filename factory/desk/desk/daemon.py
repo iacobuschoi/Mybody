@@ -446,6 +446,15 @@ class Desk:
         """hand-mouse 가 부름: start(쥠) · hold(쥐고 있음, 1초마다) · end(폄) · cancel"""
         what = (body or "").strip()
         if what == "hold":
+            if not self.ptt.active and self.talk_on and self.mode == "awake":
+                # 쥐고 있는데 녹음이 없음 — 쥔 사이 deskd 가 다시 켜짐(배포). 상시 듣기가 받던 말부터 이어 녹음
+                # (10월 2일 15:16 · 15:18 — 재시작에 녹음이 사라져 폈을 때 "녹음 중 아님", 말은 [음성] 으로 감)
+                pre = self.seg.take()
+                self.ptt.start(prefix=pre)
+                log.info("주먹 녹음 이어 받음 (쥔 사이 다시 켜짐, 앞 %.1f초)", 0 if pre is None else len(pre) / self.sr)
+                self.board.log("talk", "왼손 주먹 — 이어 듣는 중")
+                self._show("listening")
+                return "ok"
             self.ptt.hold()
             return "ok"
         if what == "end":

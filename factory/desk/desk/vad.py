@@ -121,6 +121,16 @@ class Segmenter:
                 self.on_drop(spoken, self._peak)
             return None
 
+    def take(self) -> np.ndarray | None:
+        """열린 구간의 소리를 가져가고 구간을 버림(받아쓰기로 넘기지 않음)"""
+        with self._lock:
+            if self._utt is None:
+                return None
+            audio = np.concatenate(self._utt)
+            self._utt = None
+            self._silence, self._offered = 0.0, False
+            return audio
+
     @property
     def seq(self) -> int:
         return self._seq

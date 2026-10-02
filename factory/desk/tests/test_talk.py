@@ -133,6 +133,24 @@ class DaemonTalk(unittest.TestCase):
         self.assertGreater(len(cut.audio) / SR, 1.5)
         self.assertTrue(d.utt_q.empty())
 
+    def test_hold_after_restart_resumes_with_heard_speech(self):
+        """쥔 사이 deskd 가 다시 켜짐 — start 없이 hold 가 오면 상시 듣기가 받던 말부터 이어 녹음"""
+        d = self.d
+        feed(d, np.zeros(SR, np.float32))
+        feed(d, tone(1.0))                                # 다시 켜진 뒤 상시 듣기로 들어온 말
+        self.assertTrue(d.seg.in_speech)
+        self.assertEqual(d.talk("hold"), "ok")
+        self.assertTrue(d.ptt.active)
+        self.assertFalse(d.seg.in_speech)
+        feed(d, tone(0.5))
+        self.assertEqual(d.talk("end"), "ok")             # 예전: "녹음 중 아님"
+        time.sleep(d.ptt.tail_s + 0.05)
+        feed(d, np.zeros(480, np.float32))
+        cut = d.utt_q.get_nowait()
+        self.assertTrue(cut.direct)
+        self.assertGreater(len(cut.audio) / SR, 1.4)
+        self.assertTrue(d.utt_q.empty())
+
     def test_direct_text_skips_dictate_and_reaches_brain_tagged(self):
         d = self.d
         d.dictation.wants = lambda *a: True               # 오른손 주먹 + Claude 앱이어도 왼손 주먹이 이김

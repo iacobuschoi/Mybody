@@ -35,16 +35,21 @@ class PushToTalk:
     def active(self) -> bool:
         return self._chunks is not None
 
-    def start(self) -> bool:
-        """새로 시작했으면 True. 이미 녹음 중이면(펴자마자 다시 쥠 포함) 이어서 — False"""
+    def start(self, prefix: np.ndarray | None = None) -> bool:
+        """새로 시작했으면 True. 이미 녹음 중이면(펴자마자 다시 쥠 포함) 이어서 — False.
+        prefix: preroll 대신 앞에 붙일 소리(지금까지의 것) — 쥔 사이 deskd 가 다시 켜졌을 때 상시 듣기가 받아 둔 말"""
         with self._lock:
             now = self.clock()
             self._beat = now
             if self._chunks is not None:
                 self._end_at = 0.0
                 return False
-            self._chunks = list(self._pre)
-            self.started = now - self._pre_n / self.sr
+            if prefix is not None and len(prefix):
+                self._chunks = [prefix]
+                self.started = now - len(prefix) / self.sr
+            else:
+                self._chunks = list(self._pre)
+                self.started = now - self._pre_n / self.sr
             self._end_at = 0.0
             return True
 
