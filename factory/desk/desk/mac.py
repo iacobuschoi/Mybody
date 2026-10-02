@@ -1,6 +1,7 @@
 """맥에 시키는 것 — 화면 켜고 끄기 · 말하기 · 소리 크기 · 효과음. 전부 macOS 기본 명령입니다."""
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 import subprocess
@@ -8,6 +9,7 @@ import threading
 import time
 
 SOUNDS = "/System/Library/Sounds"
+log = logging.getLogger("deskd")
 
 
 def _run(cmd: list[str], timeout: float = 5) -> str:
@@ -160,6 +162,12 @@ class Voice:
         self._lock = threading.Lock()
         self.last_text = ""
         self.said_at = 0.0                   # last_text 를 말하기 시작한 시각
+        # 주인이 말하는 중(왼손 주먹 · 상시 듣기에 목소리)이면 True — 그동안은 말을 시작하지 않고 조용해질 때까지 미룸.
+        # 데몬이 넣음. 이미 하는 말을 멈추지는 않음(그건 끼어들기 · 주먹 멈춤). hold_max_s 넘게 이어지면(잡음) 그냥 말함
+        self.hold = None
+        self.hold_max_s = 20.0
+        self._sgen = 0                       # stop() 마다 +1 — 미뤄 둔 말을 버리게
+        self._waiting = False                # 주인 말이 끝나길 기다리는 말이 있음(busy)
         if not shutil.which("say"):
             self.voice = ""
         else:
@@ -168,7 +176,19 @@ class Voice:
     def busy(self) -> bool:
         with self._lock:
             running = self._p is not None and self._p.poll() is None
-        return running or time.time() < self._until
+        return running or self._waiting or time.time() < self._until
+
+    def wait_turn(self, alive) -> float:
+        """주인이 말하는 동안 기다림(alive() 가 False 가 되면 바로 그만). 기다린 초"""
+        if self.hold is None or not self.hold():
+            return 0.0
+        t0 = time.time()
+        while alive() and self.hold() and time.time() - t0 < self.hold_max_s:
+            time.sleep(0.05)
+        waited = time.time() - t0
+        log.info("주인이 말하는 중이라 %.1f초 미뤘다가 말함%s", waited,
+                 " (너무 길어 그냥 말함)" if waited >= self.hold_max_s else "")
+        return waited
 
     def sounding(self, echo_s: float = 0.2) -> bool:
         """스피커에서 지금 소리가 나는 중(그친 뒤 되울림 echo_s 까지). busy 는 그 뒤 꼬리까지 — 밀린 말 · 상태판용"""
@@ -193,14 +213,37 @@ class Voice:
         rate, vol = int(o.get("rate", self.rate)), min(1.0, float(o.get("volume", self.volume)))
         self.stop()
         self.last_text, self.said_at = text, time.time()
-        cmd = (["say", "-r", str(rate)] + (["-v", voice] if voice else [])
+        if self.hold is not None and self.hold():  # 주인이 말하는 중 — 조용해지면 말함
+            gen = self._sgen
+            self._waiting = True
+
+            def later() -> None:
+                self.wait_turn(lambda: self._sgen == gen)
+                with self._lock:
+                    if self._sgen != gen:
+                        return
+                    self._waiting = False
+                self.said_at = time.time()
+                self._start(cmd, True)
+            cmd = self._cmd(text, voice, rate, vol)
+            t = threading.Thread(target=later, daemon=True)
+            t.start()
+            if block:
+                t.join()
+            return
+        self._start(self._cmd(text, voice, rate, vol), block)
+
+    def _cmd(self, text: str, voice: str, rate: int, vol: float) -> list[str]:
+        return (["say", "-r", str(rate)] + (["-v", voice] if voice else [])
                + (["-a", self.device] if self.device else [])
                + [(f"[[volm {vol:.2f}]] " if vol < 0.995 else "") + text])
+
+    def _start(self, cmd: list[str], block: bool) -> None:
         with self._lock:
             try:
                 self._p = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             except FileNotFoundError:
-                print("[말]", text)
+                print("[말]", cmd[-1])
                 return
         if block:
             self.wait()
@@ -216,6 +259,8 @@ class Voice:
 
     def stop(self) -> None:
         with self._lock:
+            self._sgen += 1
+            self._waiting = False
             if self._p and self._p.poll() is None:
                 self._p.terminate()
             self._p = None

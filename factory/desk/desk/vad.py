@@ -139,6 +139,11 @@ class Segmenter:
     def in_speech(self) -> bool:
         return self._utt is not None
 
+    @property
+    def talking(self) -> bool:
+        """지금 말하는 중 — 구간이 열려 있고 말 끝 침묵(end_silence_s)에 아직 못 미침. 조사로 끝나 더 기다리는 동안은 아님"""
+        return self._utt is not None and not self._paused and self._silence < self.end_silence_s
+
     def _is_speech(self, f: np.ndarray) -> bool:
         f = f - f.mean()                                   # 직류(DC) 빼기
         spec = np.abs(np.fft.rfft(f * self._win)) ** 2

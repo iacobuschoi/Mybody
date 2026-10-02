@@ -149,7 +149,9 @@ class NeuralVoice(mac.Voice):
                 parts.put(np.clip(wav * p["volume"], -1, 1).astype(np.float32))
             parts.put(None)
 
-        threading.Thread(target=make, daemon=True).start()
+        threading.Thread(target=make, daemon=True).start()   # 기다리는 동안에도 미리 만들어 둠
+        if self.wait_turn(alive) and alive():
+            self.said_at = time.time()
         played = False
         try:
             with devices.pa_lock:                   # 장치 목록을 새로 읽는 중엔 기다렸다 엶(desk/devices.py)

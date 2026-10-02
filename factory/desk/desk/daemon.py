@@ -63,7 +63,7 @@ class Desk:
         self._stt_s = 0.0                            # 마지막 받아쓰기에 걸린 시간(로그용)
         st = cfg["stt"]
         self.stt = WhisperSTT(st["model"], st["language"], st.get("prompt", ""), cfg["bargein"].get("fast_model", ""))
-        self.voice = mac.make_voice(cfg["tts"])
+        self.voice = self._own(mac.make_voice(cfg["tts"]))
         b = cfg["brain"]
         self.brain = Brain(b["workdir"], b.get("model", ""), b.get("timeout_s", 180))
         self.board = Board()
@@ -100,6 +100,15 @@ class Desk:
         self._devs: tuple[str, str, str] | None = None   # 지금 쓰는 (마이크, 박수 · 끼어들기 마이크, 스피커) 실제 이름
         self._devs_want: tuple[str, str, str] | None = None   # 장치 감시가 고른 새 짝 — 듣기 고리가 다시 엶
         self._mic_warned = False
+
+    def _own(self, voice):
+        """주인이 말하는 동안(왼손 주먹을 쥐었거나 상시 듣기에 목소리가 들림) 말을 시작하지 않게 (주인 10월 2일 15:37 · 15:41)"""
+        voice.hold = self._owner_talking
+        voice.hold_max_s = float(self.cfg["listen"].get("defer_max_s", 20.0))
+        return voice
+
+    def _owner_talking(self) -> bool:
+        return self.ptt.active or (self.mode == "awake" and self.seg.talking)
 
     # ── 상태 바꾸기 ────────────────────────────────────────────────────────
     def _show(self, sub: str | None = None) -> None:
@@ -279,7 +288,7 @@ class Desk:
     def _neural(self, wait_s: float = 20) -> bool:
         """Supertonic 을 쓸 수 있게 — say 로 켜져 있었으면 그때 모델을 띄웁니다(처음이면 내려받기라 오래 걸릴 수 있음)."""
         if not hasattr(self.voice, "ready"):
-            old, self.voice = self.voice, mac.make_voice(self.cfg["tts"], neural=True)
+            old, self.voice = self.voice, self._own(mac.make_voice(self.cfg["tts"], neural=True))
             old.stop()
         return self.voice.ready.wait(wait_s) and self.voice._tts is not None
 
@@ -468,12 +477,12 @@ class Desk:
             return "꺼짐"
         if self.mode == "sleep":
             return "자는 중"
+        # 쥐면 바로 멈춤 — 말하기 · 만드는 답 · 밀린 말 모두("잠깐" 과 같음, 주인 10월 2일 15:34). 백그라운드 세션은 그대로
+        if self.voice.busy() or self.brain.busy() or not self.brain_q.empty() or self._asking is not None:
+            self._cut("왼손 주먹")
         if not self.ptt.start():
             return "이어서 녹음"
         self.last_activity = time.time()
-        if self.voice.busy():                       # 말하는 중에 쥐면 말을 끊고 듣기(밀린 답은 그대로)
-            self._barged_at = time.time()
-            self.voice.stop()
         mac.sound(self.talk_sound)                  # 듣는 중이라는 짧은 소리
         log.info("주먹 말하기 시작")
         self.board.log("talk", "왼손 주먹 — 듣는 중")
