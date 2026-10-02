@@ -9,6 +9,7 @@ Whisper 는 조용한 소리 · 잡음에서 **없는 말을 지어냅니다**. 
 from __future__ import annotations
 
 import re
+import threading
 
 HALLUCINATIONS = [
     "시청해주셔서감사합니다", "시청해주셔서고맙습니다", "시청감사합니다", "구독과좋아요", "좋아요와구독",
@@ -46,6 +47,11 @@ def clean_transcript(text: str, segments: list[dict] | None = None,
     return text
 
 
+# MLX(Metal)는 스레드 둘이 동시에 GPU 를 쓰면 "GPU Timeout" 이 나고, 그 뒤로는 그 프로세스의 모든 받아쓰기가 실패합니다
+# (10월 2일 14:20 — 주먹 말하기 받아쓰기와 끼어들기 작은 모델 데우기가 겹침). 그래서 모델 호출은 모두 여기서 한 줄로.
+_gpu = threading.Lock()
+
+
 class WhisperSTT:
     def __init__(self, model: str = "mlx-community/whisper-large-v3-turbo", language: str = "ko",
                  prompt: str = "", fast_model: str = ""):
@@ -71,10 +77,11 @@ class WhisperSTT:
                   condition_on_previous_text=False, verbose=None)
         if self.prompt:
             kw["initial_prompt"] = self.prompt   # 자주 쓰는 낱말(앱 공장 · 상황판 · 클로드 …)을 알려 줘 인식을 돕습니다
-        try:
-            r = mw.transcribe(audio, **kw)
-        except TypeError:                         # 판에 따라 받는 인자가 다름
-            r = mw.transcribe(audio, path_or_hf_repo=self.model, language=self.language)
+        with _gpu:
+            try:
+                r = mw.transcribe(audio, **kw)
+            except TypeError:                         # 판에 따라 받는 인자가 다름
+                r = mw.transcribe(audio, path_or_hf_repo=self.model, language=self.language)
         return clean_transcript(r.get("text", ""), r.get("segments"), direct=direct)
 
     def hear(self, audio, fast: bool = False) -> str:
@@ -83,6 +90,8 @@ class WhisperSTT:
         (방 녹음 시험: 힌트 · 거르기 있으면 24번 중 16번, 없으면 22번 찾음). 멈춤 말만 보므로 환각은 상관없음.
         fast: 작은 모델로 — 2초 소리에 0.3초(큰 모델 1.4~1.8초). 대신 짧은 "그만" 을 더 놓쳐서(24번 중 20번) 큰 모델이 뒤를 받침."""
         model = self.fast_model if fast and self.fast_model else self.model
-        r = self._load().transcribe(audio, path_or_hf_repo=model, language=self.language, temperature=0.0,
-                                    condition_on_previous_text=False, verbose=None)
+        mw = self._load()
+        with _gpu:
+            r = mw.transcribe(audio, path_or_hf_repo=model, language=self.language, temperature=0.0,
+                              condition_on_previous_text=False, verbose=None)
         return r.get("text", "")

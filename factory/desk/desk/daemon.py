@@ -30,7 +30,7 @@ from .brain import Brain
 from .clap import ClapConfig, ClapDetector
 from .dictate import Dictation, can_post_keys
 from .dashboard import Board, serve, watch_agents
-from .router import route
+from .router import normalize, route
 from .stt import WhisperSTT
 from .talk import PushToTalk
 from .endpoint import looks_unfinished
@@ -77,6 +77,8 @@ class Desk:
         self._turn = 0                               # 멈출 때마다 +1 — 그 전에 받은 말의 답 · 밀린 말하기는 버림
         self._asking: int | None = None               # 지금 Claude 가 답하는 말의 _turn(없으면 None)
         self._stt_lock = threading.Lock()            # 받아쓰기 모델은 한 번에 하나만
+        self._probe_mu = threading.Lock()
+        self._probe_n = 0                            # 끼어들기 받아쓰기 차례 번호(기다리는 동안 더 새 것이 왔나)
         self.mode = "sleep"                          # sleep · awake · muted
         self.last_activity = time.time()
         self.audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=400)
@@ -380,13 +382,21 @@ class Desk:
 
     def _probe(self, audio: np.ndarray, spoken: str, final: bool = True, t0: float | None = None) -> None:
         """말하는 도중 들린 소리를 받아써 멈춤 말인지 봄 — 먼저 작은 모델, 마지막 차례(final)에 못 찾으면 큰 모델도.
-        t0: 큰 소리가 시작된 시각(로그용). 받아쓰기가 바쁘면 이번 건 건너뜀"""
-        if not self._stt_lock.acquire(blocking=False):
+        t0: 큰 소리가 시작된 시각(로그용).
+        받아쓰기가 바쁘면 잠깐(1.5초) 기다리되, 그사이 더 새 소리가 들어오면 이건 버림(새 소리 2초 안에 이 소리도 들어 있음).
+        큰 모델은 작은 모델이 짧게 들었을 때만 — 긴 문장은 제 목소리 되먹임이라 큰 모델이 2초씩 붙잡으면 진짜 "잠깐" 을
+        건너뛰게 됨(10월 2일 14:18 실제 시험: 여섯 번 중 두 번만 멈춤, 나머지는 "받아쓰기 바쁨" 으로 건너뜀)"""
+        with self._probe_mu:
+            self._probe_n += 1
+            me = self._probe_n
+        if not self._stt_lock.acquire(timeout=1.5):
             log.info("끼어들기 받아쓰기 건너뜀 (받아쓰기 바쁨)")
             return
         t0 = time.time() if t0 is None else t0
         tried = []
         try:
+            if me != self._probe_n and not final:
+                return                               # 더 새 소리가 기다리는 중
             for fast in ((True, False) if final and self.stt.fast_model else (True,)):
                 text = self.stt.hear(audio, fast=fast)
                 tried.append(f"{'작은' if fast else '큰'} 모델 {text.strip()!r}")
@@ -395,6 +405,8 @@ class Desk:
                 if text and has_stop_word(text, self.stop_words, spoken):
                     self._cut(text, f" · 소리 시작부터 {time.time() - t0:.2f}초 ({' → '.join(tried)})")
                     return
+                if len(normalize(text)) > 5:         # 멈춤 말("잠깐만요")보다 긴 말 — 큰 모델로 다시 볼 것 없음
+                    break
         except Exception as e:  # noqa: BLE001
             log.warning("끼어들기 받아쓰기 실패: %s", e)
             return
