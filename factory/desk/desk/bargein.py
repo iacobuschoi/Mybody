@@ -10,7 +10,10 @@
      (말은 음절마다 끊기므로 이어진 길이가 아니라 합으로 셈). 그렇게 잡힌 소리는 되먹임 기준에 넣지 않습니다.
      말 시작 grace_s 동안은 기준만 배웁니다(스피커가 막 켜질 때의 소리로 멈추지 않게).
   2. 말: 그 앞뒤 2초를 받아써서(stt.hear) 멈춤 말이 있고, **그 낱말이 지금 비서가 하는 말 안에는 없을 때만** 멈춥니다
-     (되먹임이 같이 받아써져도 비서 자신의 말로는 멈추지 않게). 말 시작부터 멈추기까지 2초 안팎.
+     (되먹임이 같이 받아써져도 비서 자신의 말로는 멈추지 않게).
+     두 번 들어 봅니다(listen_s = [0.5, 0.9]): 큰 소리 0.5초 뒤 작은 모델(whisper-small, 0.3초)로 한 번, 못 찾으면 0.9초 뒤
+     다시 작은 모델, 그래도 없으면 같은 소리를 큰 모델로. 말 시작부터 멈추기까지 0.9초 안팎(10월 2일 방 녹음 24번 중앙값,
+     예전 큰 모델 한 번은 3.1초 — 주인 "잠깐 하면 바로 멈춰").
 
 반향 제거(에코 캔슬러)는 두지 않았습니다 — 맥 미니 스피커(음량 51) → Brio 되먹임이 말소리 대역에서 방 바닥 소음보다
 평균 4~6dB 크기라, 이상적인 선형 필터로도 바닥까지밖에 안 내려가고 적응 필터는 오히려 잡음을 키웠습니다.
@@ -63,14 +66,16 @@ class Listener:
     """
 
     def __init__(self, sr: int = 16000, frame_ms: int = 30, margin_db: float = 3.0, min_s: float = 0.12,
-                 grace_s: float = 0.3, listen_s: float = 0.9, window_s: float = 2.0,
+                 grace_s: float = 0.3, listen_s: float | list[float] = (0.5, 0.9), window_s: float = 2.0,
                  band: tuple[float, float] = (150.0, 4000.0)):
         self.n = int(sr * frame_ms / 1000)
         fs = frame_ms / 1000
         self.k = 10 ** (margin_db / 20)
         self.min_frames = max(1, round(min_s / fs))
         self.grace_frames = round(grace_s / fs)
-        self.listen_frames = max(1, round(listen_s / fs))   # 큰 소리가 시작된 뒤 이만큼 더 듣고 받아씀(멈춤 말 끝까지)
+        marks = [listen_s] if isinstance(listen_s, (int, float)) else list(listen_s)
+        self.marks = sorted({max(1, round(float(s) / fs)) for s in marks})   # 큰 소리가 시작된 뒤 이 칸마다 받아써 봄
+        self.fs = fs
         self._win = np.hanning(self.n)
         freqs = np.fft.rfftfreq(self.n, 1.0 / sr)
         self._band = (freqs >= band[0]) & (freqs <= band[1])
@@ -83,7 +88,9 @@ class Listener:
         self._recent: deque[bool] = deque(maxlen=round(0.3 / fs))   # 최근 칸들이 기준보다 컸나
         self._hold: list[float] = []  # 기준보다 컸던 칸 — 사람 목소리로 잡히지 않으면 나중에 되먹임 기준에 넣음
         self._hot = False            # 지금 사람 목소리로 잡힌 중
-        self._wait = -1              # 받아쓰기까지 남은 칸(-1 = 기다리는 중 아님)
+        self._since = -1             # 큰 소리가 시작된 뒤 지난 칸(-1 = 듣는 중 아님)
+        self.final = False           # 방금 내준 소리가 이번 큰 소리의 마지막 받아쓰기인가
+        self.after_s = 0.0           # 방금 내준 소리 — 큰 소리가 시작된 지 몇 초 뒤인가
 
     def forget(self) -> None:
         """배운 방 소리 · 되먹임 크기를 버림 — 마이크를 바꿨을 때(장치마다 크기가 다름)."""
@@ -109,7 +116,7 @@ class Listener:
             if not speaking:
                 self._floor.append(rms)
                 self._spoke = 0
-                self._wait = -1
+                self._since = -1
                 self._audio.clear()
                 self._recent.clear()
                 self._hold.clear()
@@ -123,16 +130,19 @@ class Listener:
             if sum(self._recent) >= self.min_frames:
                 self._hot = True
                 self._hold.clear()                           # 사람 목소리 — 되먹임 기준에 안 넣음
-                if self._wait < 0:
-                    self._wait = self.listen_frames
+                if self._since < 0:
+                    self._since = 0
             elif not any(self._recent):
                 if not self._hot:
                     self._echo.extend(self._hold)            # 잠깐 튄 제 목소리였음
                 self._hold.clear()
                 self._hot = False
-            if self._wait > 0:
-                self._wait -= 1
-            if self._wait == 0:
-                self._wait = -1
-                out = np.concatenate(self._audio)
+            if self._since >= 0:
+                self._since += 1
+                if self._since in self.marks:
+                    out = np.concatenate(self._audio)
+                    self.final = self._since == self.marks[-1]
+                    self.after_s = self._since * self.fs
+                    if self.final:
+                        self._since = -1
         return out

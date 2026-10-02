@@ -64,6 +64,23 @@ class Listen(unittest.TestCase):
         self.assertTrue(got)
         self.assertLessEqual(len(got[0]), int(SR * 2.0) + 480)
 
+    def test_checks_early_then_again(self):
+        li = Listener(listen_s=[0.5, 0.9])
+        run(li, speechlike(2.0, 0.001), speaking=False)
+        run(li, speechlike(2.0, 0.05))
+        got, finals, after = [], [], []
+        sig = speechlike(0.6, 0.05) + speechlike(0.6, 0.2)
+        sig = np.concatenate([sig, speechlike(1.5, 0.05)])
+        for i in range(0, len(sig), 480):
+            a = li.feed(sig[i:i + 480], True)
+            if a is not None:
+                got.append(a)
+                finals.append(li.final)
+                after.append(li.after_s)
+        self.assertEqual(finals[:2], [False, True])
+        self.assertAlmostEqual(after[0], 0.51, delta=0.05)
+        self.assertAlmostEqual(after[1], 0.9, delta=0.05)
+
     def test_silence_between_speeches_resets(self):
         li = Listener()
         run(li, speechlike(1.0, 0.05))
@@ -161,7 +178,11 @@ class DaemonStop(unittest.TestCase):
         class STT:
             text = ""
 
-            def hear(self, a):
+            fast_model = "small"
+            calls = []
+
+            def hear(self, a, fast=False):
+                self.calls.append(fast)
                 return self.text
         self.d.stt = STT()
         self.d.stt.text = "오늘 할 일은 세 건이에요"                              # 되먹임만
@@ -171,6 +192,27 @@ class DaemonStop(unittest.TestCase):
         self.d._probe(np.zeros(100, np.float32), "오늘 할 일은 세 건이에요")
         self.assertIn("voice.stop", CALLS)
         self.assertIn("brain.cancel", CALLS)
+
+    def test_probe_small_model_first_big_only_at_last(self):
+        class STT:
+            fast_model = "small"
+            text = "오늘 할 일은"
+            calls = []
+
+            def hear(self, a, fast=False):
+                self.calls.append(fast)
+                return self.text
+        self.d.stt = STT()
+        self.d._probe(np.zeros(100, np.float32), "오늘 할 일은 세 건이에요", final=False)
+        self.assertEqual(self.d.stt.calls, [True])                          # 첫 차례는 작은 모델만
+        self.d._probe(np.zeros(100, np.float32), "오늘 할 일은 세 건이에요", final=True)
+        self.assertEqual(self.d.stt.calls, [True, True, False])             # 마지막엔 못 찾으면 큰 모델도
+        self.assertNotIn("voice.stop", CALLS)
+        self.d.stt.calls.clear()
+        self.d.stt.text = "잠깐만"
+        self.d._probe(np.zeros(100, np.float32), "오늘 할 일은 세 건이에요", final=True)
+        self.assertEqual(self.d.stt.calls, [True])                          # 작은 모델이 찾으면 바로 멈춤
+        self.assertIn("voice.stop", CALLS)
 
 
 if __name__ == "__main__":

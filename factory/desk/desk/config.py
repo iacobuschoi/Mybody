@@ -58,6 +58,8 @@ DEFAULTS: dict = {
         "margin_db": 3.0,           # 민감도: 스피커 되먹임보다 이만큼 커야 받아써 봄. 못 알아들으면 낮추고(0), 헛멈추면 올림(6)
         "min_s": 0.12,              # 0.3초 안에 그 큰 소리가 이만큼 있어야
         "grace_s": 0.3,             # 말 시작 뒤 이 시간은 되먹임 크기만 배움
+        "listen_s": [0.5, 0.9],     # 큰 소리가 시작된 뒤 이때마다 받아써 봄 — 앞은 작은 모델, 마지막엔 못 찾으면 큰 모델까지
+        "fast_model": "mlx-community/whisper-small-mlx",   # 끼어들기 첫 받아쓰기(0.3초). 비우면 [stt] model 만(멈추기까지 3초)
     },
     "dictate": {                    # 주먹 쥐고 말하기 — Claude 앱이 맨 앞이면 받아쓴 글을 그 입력창에 (desk/dictate.py)
         "enabled": True,

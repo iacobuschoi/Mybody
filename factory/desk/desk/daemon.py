@@ -55,7 +55,7 @@ class Desk:
         self._held: dict[int, tuple[int, str]] = {}  # 이어질 듯해 기다리는 구간 → (잠정 조각 칸 수, 받아쓴 글)
         self._stt_s = 0.0                            # 마지막 받아쓰기에 걸린 시간(로그용)
         st = cfg["stt"]
-        self.stt = WhisperSTT(st["model"], st["language"], st.get("prompt", ""))
+        self.stt = WhisperSTT(st["model"], st["language"], st.get("prompt", ""), cfg["bargein"].get("fast_model", ""))
         self.voice = mac.make_voice(cfg["tts"])
         b = cfg["brain"]
         self.brain = Brain(b["workdir"], b.get("model", ""), b.get("timeout_s", 180))
@@ -72,7 +72,7 @@ class Desk:
         self.barge_on = bool(bi.get("enabled", True)) and bool(bi.get("stop_words"))
         self.stop_words = list(bi.get("stop_words", []))
         self.barge = Listener(sr=sr, margin_db=bi.get("margin_db", 3.0), min_s=bi.get("min_s", 0.15),
-                              grace_s=bi.get("grace_s", 0.3))
+                              grace_s=bi.get("grace_s", 0.3), listen_s=bi.get("listen_s", (0.5, 0.9)))
         self._barged_at = 0.0                        # 멈춤 말로 말하기를 끊은 시각
         self._turn = 0                               # 멈출 때마다 +1 — 그 전에 받은 말의 답 · 밀린 말하기는 버림
         self._asking: int | None = None               # 지금 Claude 가 답하는 말의 _turn(없으면 None)
@@ -370,27 +370,37 @@ class Desk:
             self.board.log("barge", f"(이미 멈춤) {text}")
         return True
 
-    def _cut(self, heard: str) -> None:
+    def _cut(self, heard: str, timing: str = "") -> None:
         """끼어들기 — 말하기와 그 차례의 남은 답 · 밀린 말을 모두 버림. 백그라운드 세션은 그대로"""
         cancelled, dropped = self._hush()
-        log.info("끼어들기: 말하기 멈춤 (%s)%s%s", heard, " · Claude 답 취소" if cancelled else "",
-                 f" · 밀린 말 {dropped}개 버림" if dropped else "")
+        log.info("끼어들기: 말하기 멈춤 (%s)%s%s%s", heard, " · Claude 답 취소" if cancelled else "",
+                 f" · 밀린 말 {dropped}개 버림" if dropped else "", timing)
         self.board.log("barge", heard)
         self._show()
 
-    def _probe(self, audio: np.ndarray, spoken: str) -> None:
-        """말하는 도중 들린 소리를 받아써 멈춤 말인지 봄. 받아쓰기가 바쁘면 이번 건 건너뜀"""
+    def _probe(self, audio: np.ndarray, spoken: str, final: bool = True, t0: float | None = None) -> None:
+        """말하는 도중 들린 소리를 받아써 멈춤 말인지 봄 — 먼저 작은 모델, 마지막 차례(final)에 못 찾으면 큰 모델도.
+        t0: 큰 소리가 시작된 시각(로그용). 받아쓰기가 바쁘면 이번 건 건너뜀"""
         if not self._stt_lock.acquire(blocking=False):
+            log.info("끼어들기 받아쓰기 건너뜀 (받아쓰기 바쁨)")
             return
+        t0 = time.time() if t0 is None else t0
+        tried = []
         try:
-            text = self.stt.hear(audio)
+            for fast in ((True, False) if final and self.stt.fast_model else (True,)):
+                text = self.stt.hear(audio, fast=fast)
+                tried.append(f"{'작은' if fast else '큰'} 모델 {text.strip()!r}")
+                if not self.voice.busy():
+                    return
+                if text and has_stop_word(text, self.stop_words, spoken):
+                    self._cut(text, f" · 소리 시작부터 {time.time() - t0:.2f}초 ({' → '.join(tried)})")
+                    return
         except Exception as e:  # noqa: BLE001
             log.warning("끼어들기 받아쓰기 실패: %s", e)
             return
         finally:
             self._stt_lock.release()
-        if text and self.voice.busy() and has_stop_word(text, self.stop_words, spoken):
-            self._cut(text)
+        log.info("끼어들기 아님: 소리 시작부터 %.2f초 (%s)", time.time() - t0, " → ".join(tried))
 
     # ── 일꾼 스레드 ────────────────────────────────────────────────────────
     def _stt_worker(self) -> None:
@@ -606,7 +616,9 @@ class Desk:
                 for a in ears:
                     heard = self.barge.feed(a, speaking)
                     if heard is not None:
-                        threading.Thread(target=self._probe, args=(heard, self.voice.last_text), daemon=True).start()
+                        threading.Thread(target=self._probe, daemon=True,
+                                         args=(heard, self.voice.last_text, self.barge.final,
+                                               time.time() - self.barge.after_s)).start()
             if speaking:
                 self.seg.pause()                     # 스피커에서 나가는 제 목소리를 듣지 않게(멈춤 말은 위에서 따로)
                 return

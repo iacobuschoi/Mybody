@@ -48,8 +48,9 @@ def clean_transcript(text: str, segments: list[dict] | None = None,
 
 class WhisperSTT:
     def __init__(self, model: str = "mlx-community/whisper-large-v3-turbo", language: str = "ko",
-                 prompt: str = ""):
+                 prompt: str = "", fast_model: str = ""):
         self.model, self.language, self.prompt = model, language, prompt
+        self.fast_model = fast_model             # 끼어들기 첫 받아쓰기용 작은 모델(desk/bargein.py). 비우면 늘 model
         self._mlx = None
 
     def _load(self):
@@ -61,6 +62,8 @@ class WhisperSTT:
     def warmup(self) -> None:
         import numpy as np
         self.transcribe(np.zeros(16000, dtype=np.float32))
+        if self.fast_model:
+            self.hear(np.zeros(16000, dtype=np.float32), fast=True)
 
     def transcribe(self, audio, direct: bool = False) -> str:
         mw = self._load()
@@ -74,10 +77,12 @@ class WhisperSTT:
             r = mw.transcribe(audio, path_or_hf_repo=self.model, language=self.language)
         return clean_transcript(r.get("text", ""), r.get("segments"), direct=direct)
 
-    def hear(self, audio) -> str:
+    def hear(self, audio, fast: bool = False) -> str:
         """멈춤 말 찾기용(desk/bargein.py) — 힌트 문구 없이, 거르지 않은 글.
         짧은 낱말 하나를 스피커 소리 위에서 찾을 때는 힌트가 그쪽 낱말로 끌고 가고, 환각 거르기가 진짜 말도 버립니다
-        (방 녹음 시험: 힌트 · 거르기 있으면 24번 중 16번, 없으면 22번 찾음). 멈춤 말만 보므로 환각은 상관없음."""
-        r = self._load().transcribe(audio, path_or_hf_repo=self.model, language=self.language, temperature=0.0,
+        (방 녹음 시험: 힌트 · 거르기 있으면 24번 중 16번, 없으면 22번 찾음). 멈춤 말만 보므로 환각은 상관없음.
+        fast: 작은 모델로 — 2초 소리에 0.3초(큰 모델 1.4~1.8초). 대신 짧은 "그만" 을 더 놓쳐서(24번 중 20번) 큰 모델이 뒤를 받침."""
+        model = self.fast_model if fast and self.fast_model else self.model
+        r = self._load().transcribe(audio, path_or_hf_repo=model, language=self.language, temperature=0.0,
                                     condition_on_previous_text=False, verbose=None)
         return r.get("text", "")
