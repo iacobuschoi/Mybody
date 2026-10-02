@@ -107,11 +107,13 @@ class WhisperSTT:
         """멈춤 말 찾기용(desk/bargein.py) — 힌트 문구 없이, 거르지 않은 글.
         짧은 낱말 하나를 스피커 소리 위에서 찾을 때는 힌트가 그쪽 낱말로 끌고 가고, 환각 거르기가 진짜 말도 버립니다
         (방 녹음 시험: 힌트 · 거르기 있으면 24번 중 16번, 없으면 22번 찾음). 멈춤 말만 보므로 환각은 상관없음.
+        sample_len=40: 2초 소리엔 넉넉하고, 되먹임에 "다음은 다음은 …" 처럼 되풀이에 빠져도 224 토큰(4초)까지 붙잡지 않게
+        (10월 2일 15:21 — 그동안 뒤의 소리가 "받아쓰기 바쁨" 으로 건너뜀).
         fast: 작은 모델로 — 2초 소리에 0.3초(큰 모델 1.4~1.8초). 대신 짧은 "그만" 을 더 놓쳐서(24번 중 20번) 큰 모델이 뒤를 받침."""
         model = self.fast_model if fast and self.fast_model else self.model
         mw = self._load()
         with _gpu:
             self._use(model)
             r = mw.transcribe(audio, path_or_hf_repo=model, language=self.language, temperature=0.0,
-                              condition_on_previous_text=False, verbose=None)
+                              condition_on_previous_text=False, verbose=None, sample_len=40)
         return r.get("text", "")
