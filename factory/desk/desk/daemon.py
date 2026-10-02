@@ -405,6 +405,8 @@ class Desk:
             if me != self._probe_n and not final:
                 return                               # 더 새 소리가 기다리는 중
             for fast in ((True, False) if final and self.stt.fast_model else (True,)):
+                if not fast and me != self._probe_n:   # 더 새 소리가 기다림 — 큰 모델(1.5초)로 붙잡지 말고 그걸 먼저
+                    break                              # (15:15 큰 모델 도는 동안 새 소리 둘이 "바쁨" 으로 건너뜀)
                 text = self.stt.hear(audio, fast=fast)
                 tried.append(f"{'작은' if fast else '큰'} 모델 {text.strip()!r}")
                 if not self.voice.busy():
