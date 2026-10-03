@@ -1030,3 +1030,18 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
   (**0.2.21 업데이트 뒤에도 일수가 3 → 4 로 오름 — 기록 초기화 안 됨.** 「프로덕션 신청」 안 누름. 주인 크롬 창에서 Claude 탭을 약 20초 선택한 뒤 되돌림.)
 
 - **52 대기(10-04 01:27)**: itunes lookup(kr) `resultCount 0` — 가게 페이지 아직. 아무것도 안 바꿈. 30분마다 다시 보고, 0.2.21 이 뜨면 바로 `--appstore=0.2.21` 하고 "52 끝".
+
+---
+
+# 52 끝 (2026-10-04 02:03 KST) — 앱스토어 0.2.21 가게 페이지 뜸 · app-version appstore 0.2.21 02:02 · 아이폰 /get → App Store
+
+- **1. lookup**(itunes `lookup?id=6815144446&country=kr`, 로그인 없음): 01:27 `resultCount 0` → 30분 감시 중 **01:58:05 `resultCount 1 · version 0.2.21`**.
+  바로 다음 01:58:14 한 번은 0 이 나와(애플 쪽 퍼지는 중) 01:58:28~02:01:51 에 **6번 연달아 0.2.21** 확인 뒤 진행. 가게 웹페이지(apps.apple.com/kr)도 200.
+- **2. app-version 02:02**: `node tools/app-version.js --appstore=0.2.21` → 「앱스토어 최신판 0.2.21 ← 바꿈」 ·
+  **「서버(8080 포트)가 이 값을 내보내는 것을 확인했습니다.」 · 「아이폰 설치 링크(/get)도 App Store 로 가는 것을 확인했습니다.」**
+  testflight 0.2.20 · play 0.2.21 · apk 0.2.8 · 참여 링크 셋 · testing 은 그대로(안 건드림).
+- **3. 바깥 확인**(Funnel 주소):
+  - 아이폰 UA `/get` → **302** · Location 도메인 **apps.apple.com**.
+  - 안드로이드 크롬 UA `/get` → **200** · 「① 구글 그룹 가입」 「② 테스트 참여」 「③ Google Play 에서 설치」 그대로.
+  - 바깥 `/api/version` latest → **appstore 0.2.21** · testflight 0.2.20 · play 0.2.21 · apk 0.2.8 · testing true. (check-host `/get` 200 6/6.)
+- **4. 하지 않음**: TestFlight 공개 링크 · friends · 베타 심사 · 메일 · 플레이 프로덕션/액세스 신청 — 안 건드림.
