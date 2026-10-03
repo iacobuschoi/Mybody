@@ -1045,3 +1045,13 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
   - 안드로이드 크롬 UA `/get` → **200** · 「① 구글 그룹 가입」 「② 테스트 참여」 「③ Google Play 에서 설치」 그대로.
   - 바깥 `/api/version` latest → **appstore 0.2.21** · testflight 0.2.20 · play 0.2.21 · apk 0.2.8 · testing true. (check-host `/get` 200 6/6.)
 - **4. 하지 않음**: TestFlight 공개 링크 · friends · 베타 심사 · 메일 · 플레이 프로덕션/액세스 신청 — 안 건드림.
+
+---
+
+# 53 끝 (2026-10-04 06:54 KST) — TestFlight 칸 0.2.21 · 아이폰 /get 은 그대로 App Store
+
+- **06:54** `node tools/app-version.js --testflight=0.2.21` → 「TestFlight 최신판 0.2.21 ← 바꿈」 · 「서버(8080 포트)가 이 값을 내보내는 것을 확인했습니다.」 ·
+  「아이폰 설치 링크(/get)도 App Store 로 가는 것을 확인했습니다.」 appstore · play · 참여 링크 셋 · testing 은 그대로.
+- **바깥**: `/api/version` latest → **appstore 0.2.21 · testflight 0.2.21 · play 0.2.21 · apk 0.2.8** · testing true.
+  아이폰 UA `/get` → **302 → apps.apple.com** · 안드로이드 크롬 UA `/get` → **200** · ①②③ 그대로.
+- TestFlight 공개 링크 · friends 빌드 · 베타 심사 · 메일 · 플레이 프로덕션 안 건드림.
