@@ -1458,7 +1458,12 @@ release). 가게 페이지가 바깥에 뜨기까지 몇 시간 걸릴 수 있�
    - 파일 이름은 **UTC 날짜**입니다. 09시 전이면 어제 날짜가 붙습니다. 정확한 이름은 출력의 「백업했습니다: …」 에서 가져옵니다.
 4. **먼저 짧게 보고하고 push** 합니다. 맥이 이 줄을 보고 파일을 맞춰 봅니다:
    "57-나 백업 HH:MM · 계정 N · 친구 M · 주간 요약 K · 파일 mybody-<날짜>.db · 크기 B 바이트 · SHA256 <해시>". 해시는 비밀이 아닙니다.
-5. 주인에게 한 번에 부탁합니다. 두 일은 순서가 상관없습니다:
+5. **이름을 놓습니다(세션이 먼저 해 봄 · 10/5 M3 보고: 맥은 sudo 없이 `tailscale set` 이 됨).**
+   - `tailscale set --hostname=laptop` → 10초 뒤 `tailscale status` 에서 이 노트북 이름이 `laptop` 인지 봅니다.
+   - 되면 **곧바로** LOCAL-REPORT 에 「57-나 이름 놓음 HH:MM」 한 줄을 push 합니다. 맥이 이 줄을 보고 스스로 `desktop-il9c3if` 를 가져갑니다(M5 8).
+     그러면 아래 5-1(관리 화면)은 하지 않고, 주인에게는 5-2(scp)만 부탁합니다.
+   - 권한 거부거나 이름이 그대로면 5-1 · 5-2 를 주인에게 한 번에 부탁합니다.
+   주인에게 부탁할 것(두 일은 순서가 상관없습니다):
    1. **Tailscale 관리 화면**(<https://login.tailscale.com/admin/machines>)에서 이름 두 개를 바꿉니다. **순서가 중요합니다.**
       1. 노트북 `desktop-il9c3if` → ⋯ → Edit machine name → **`laptop`** 을 **먼저** 합니다.
       2. 그다음 `mybody-mac` → **`desktop-il9c3if`**. 「Auto-generate from OS hostname」 은 끕니다.

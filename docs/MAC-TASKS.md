@@ -290,7 +290,8 @@ N=/opt/homebrew/opt/node@24/bin/node
      - `curl -s localhost:8080/api/version` → latest 의 appstore · testflight · play 가 모두 0.2.21.
      - `$N tools/serve.js --show` 에서 네 줄만 봅니다: 내보낼 폴더 release · 가입 · 공개 주소 · 터널 뒤 예. 운영자 · 연락처 · 키 줄은 보고에 옮기지 않습니다.
    - 여기까지 되면 짧게 보고하고 push 합니다: "M5 안 200 HH:MM · 되돌린 숫자".
-8. 이름이 바뀌었는지 봅니다. 이름은 노트북 세션이 주인에게 부탁합니다.
+8. 이름을 가져옵니다. 30초마다 `git pull` 해서 LOCAL-REPORT 에 「57-나 이름 놓음」 이 보이면 세션이 `tailscale set --hostname=desktop-il9c3if` 를 칩니다(sudo 없이 됨 — M3 보고).
+   그 줄이 안 오면 노트북 세션이 주인에게 관리 화면 이름 바꾸기를 부탁한 것입니다. 아래처럼 기다립니다.
    - 10초마다 30분까지 「상태 한 줄」(M3 3)을 봅니다. 이름이 **`desktop-il9c3if.tail0a8f8f.ts.net.`** 이 되면 됩니다.
    - 10분이 지나도 그대로면 `M5 주인 필요 — 관리 화면 이름 두 개(노트북 → laptop 먼저)` 를 push 합니다.
    - `desktop-il9c3if-1` 이 되면 `M5 주인 필요 — 이름 -1` 을 push 합니다. 주인이 할 일은 둘입니다.
@@ -333,7 +334,7 @@ N=/opt/homebrew/opt/node@24/bin/node
 3. 맥 기록을 챙깁니다. **9(funnel)를 한 번이라도 했으면 늘 합니다:**
    - `cd ~/mybody-server && $N tools/backup.js` 를 칩니다.
    - 파일 이름과 계정 · 친구 · 주간 요약 수를 보고하고 push 합니다.
-4. **[주인 · 관리 화면]** **맥을 먼저** `mybody-mac` 으로, **그다음** 노트북을 `desktop-il9c3if` 로 바꿉니다.
+4. 이름을 되돌립니다. **맥을 먼저** `mybody-mac` 으로(세션: `tailscale set --hostname=mybody-mac`), **그다음** 노트북을 `desktop-il9c3if` 로(노트북 세션: `tailscale set --hostname=desktop-il9c3if`). 둘 중 하나라도 안 먹으면 **[주인 · 관리 화면]** 에서 같은 순서로 바꿉니다.
 5. 노트북은 57 의 「되돌리기」 를 합니다.
 - launchd 에서 내리기(`bootout` · `disable`)는 나중에 주인이 맥 앞에 있을 때 합니다. 그때까지 서버는 「설정 없음」 으로만 돕니다.
 
