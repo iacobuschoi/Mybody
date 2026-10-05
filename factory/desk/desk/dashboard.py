@@ -5,6 +5,10 @@
 /api/<명령> deskctl 이 부르는 곳: wake · sleep · brief · mute · unmute · stop · say · show
            그리고 「목소리」 설정 창: tts(지금 값) · tts_test(들어 보기) · tts_save(저장 → config.toml [tts])
            위쪽 모델 토글: model(고른 모델 → config.toml [brain] model, 빈 글이면 지금 모델)
+/handcam.jpg · /handcam.json  hand-mouse 카메라(손 인식 그림) 한 장 · 상태 줄 — 「손 카메라」 칸.
+           페이지가 한 장씩 계속 받아 감(긴 MJPEG 스트림은 deskd 가 다시 뜨면 사파리에서 오류 없이 마지막 장에 멈춰 있었다,
+           주인 15:47). 새 그림이 몇 초 안 오면 칸에 「멈춤」.
+           hand-mouse(overlay.py)는 HANDCAM/want 가 몇 초 안에 건드려졌을 때만 view.jpg · view.json 을 쓴다.
 
 오른쪽 칸의 「백그라운드 작업」 은 `claude agents --json` 을 몇 초마다 읽어 채웁니다(watch_agents).
 """
@@ -20,58 +24,83 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+HANDCAM = os.path.expanduser("~/.cache/hand-mouse")   # hand-mouse overlay.py DESK_DIR 와 같은 자리
+HANDCAM_STALE_S = 3.0   # 이만큼 새 그림이 없으면 「멈춤」
+HANDCAM_GONE_S = 60.0   # 이만큼 없으면 꺼진 것으로 (칸을 숨김 — hand-mouse off · 화면 꺼짐)
+
 PAGE = r"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>책상</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <style>
 :root{--bg:#0d1117;--panel:#161b22;--line:#262d36;--ink:#e6edf3;--dim:#8b949e;--acc:#56d4c1;--warn:#e3b341;--bad:#f47067}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:18px/1.55 "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;padding:32px 40px;height:100vh;display:grid;grid-template-rows:auto 1fr auto;gap:24px}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:23px/1.5 "Apple SD Gothic Neo","Noto Sans KR",system-ui,sans-serif;padding:32px 40px;height:100vh;display:grid;grid-template-rows:auto 1fr auto;gap:24px}
 header{display:flex;align-items:baseline;gap:24px;flex-wrap:wrap}
-#clock{font-size:64px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
-#date{color:var(--dim);font-size:22px}
-#state{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:24px;font-weight:600}
-#dot{width:18px;height:18px;border-radius:50%;background:var(--dim)}
+#clock{font-size:84px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+#date{color:var(--dim);font-size:30px}
+#state{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:32px;font-weight:600}
+#dot{width:22px;height:22px;border-radius:50%;background:var(--dim)}
 .listening #dot{background:var(--acc);box-shadow:0 0 0 0 var(--acc);animation:p 1.6s infinite}
 .thinking #dot{background:var(--warn)}.speaking #dot{background:#7aa2f7}.muted #dot{background:var(--bad)}
 @keyframes p{0%{box-shadow:0 0 0 0 rgba(86,212,193,.6)}70%{box-shadow:0 0 0 18px rgba(86,212,193,0)}100%{box-shadow:0 0 0 0 rgba(86,212,193,0)}}
 main{display:grid;grid-template-columns:1.4fr 1fr;grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:24px;min-height:0}
 #agentsCard{grid-column:2;grid-row:1/3}
+#handCard{display:none;grid-column:2;grid-row:1;flex-direction:column;padding:16px 20px;overflow:hidden}
+.cam #handCard{display:flex}.stuck #handImg{opacity:.35}.stuck #handText{color:var(--warn)}.cam #agentsCard{grid-row:2}
+#handImg{flex:1;min-height:0;width:100%;object-fit:contain;border-radius:8px;background:#000}
+#handText{margin-top:10px;font-size:26px;font-weight:600;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 세로 책상 화면(두 번째 모니터 640×1024, 사파리 창 — desk/deskwin.py): 한 줄로 쌓고 글자는 이 화면에 맞춤 */
+@media (orientation:portrait) and (max-width:900px){
+body{font-size:19px;padding:14px 16px;gap:12px;grid-template-rows:auto minmax(0,1fr)}footer{display:none}
+header{gap:6px 16px}#clock{font-size:56px}#date{font-size:21px}#state{font-size:23px;gap:8px}#dot{width:16px;height:16px}
+#models button,#voiceBtn{font-size:16px;padding:4px 10px}#models button small{font-size:12px}
+main{grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(0,1fr);grid-template-areas:"heard heard" "brief agents";gap:12px}
+.cam main{grid-template-rows:auto 24vh minmax(0,1fr);grid-template-areas:"heard heard" "brief brief" "cam agents"}
+.showing main{grid-template-rows:auto minmax(0,1fr);grid-template-areas:"heard heard" "show show"}
+.showing.cam main{grid-template-rows:auto minmax(0,1fr) 30vh;grid-template-areas:"heard heard" "show show" "cam agents"}
+#heardCard,.showing #heardCard{grid-area:heard;max-height:24vh}#briefCard{grid-area:brief}#handCard{grid-area:cam}#showCard{grid-area:show}
+#agentsCard,.cam #agentsCard{grid-area:agents}.showing #agentsCard{display:none}.showing.cam #agentsCard{display:block}
+section{padding:12px 14px}h2{font-size:14px;margin-bottom:6px}
+#heard{font-size:30px}#reply{font-size:21px;margin-top:8px}.showing #heard{font-size:22px}.showing #reply{font-size:17px}
+#panel{font-size:19px}#log{font-size:13px}#agents .row{font-size:16px;padding:4px 0}
+#handCard{padding:10px 12px}#handImg{flex:none;height:auto;aspect-ratio:4/3}#handText{font-size:18px;margin-top:6px;white-space:normal}
+}
 section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px 24px;overflow:auto;min-height:0}
-h2{margin:0 0 12px;font-size:14px;letter-spacing:.08em;color:var(--dim);font-weight:600}
-#heard{font-size:30px;font-weight:600;min-height:1.5em}#reply{font-size:22px;margin-top:14px;white-space:pre-wrap;color:#c9d1d9}
+h2{margin:0 0 12px;font-size:18px;letter-spacing:.08em;color:var(--dim);font-weight:600}
+#heard{font-size:40px;font-weight:600;min-height:1.5em}#reply{font-size:29px;margin-top:14px;white-space:pre-wrap;color:#c9d1d9}
 #showCard{display:none;grid-column:1;grid-row:2}#showCard h2 span{float:right;font-weight:400;letter-spacing:0}
-#panel{white-space:pre-wrap;font-size:19px;color:#c9d1d9}
+#panel{white-space:pre-wrap;font-size:25px;color:#c9d1d9}
 .showing main{grid-template-rows:auto minmax(0,1fr)}.showing #showCard{display:block}.showing #briefCard{display:none}
-.showing #heardCard{max-height:30vh}.showing #heard{font-size:22px}.showing #reply{font-size:18px;margin-top:6px}
+.showing #heardCard{max-height:30vh}.showing #heard{font-size:29px}.showing #reply{font-size:24px;margin-top:6px}
 .row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px dashed var(--line)}.row:last-child{border:0}
 .todo{color:var(--warn)}.bad{color:var(--bad)}
-#log{font-size:14px;color:var(--dim);font-family:ui-monospace,Menlo,monospace;max-height:22vh;overflow:auto}
+#log{font-size:18px;color:var(--dim);font-family:ui-monospace,Menlo,monospace;max-height:22vh;overflow:auto}
 #log div.ig{opacity:.5}
-footer{color:var(--dim);font-size:15px}
-#agents .row{font-size:16px;flex-wrap:wrap;row-gap:0}#agents .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+footer{color:var(--dim);font-size:20px}
+#agents .row{font-size:21px;flex-wrap:wrap;row-gap:0}#agents .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 #agents .st{margin-left:auto;white-space:nowrap;font-variant-numeric:tabular-nums}.ag-working{color:var(--acc)}.ag-waiting{color:var(--warn)}.ag-done{color:var(--dim)}
 #models{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
-#models button{background:none;border:0;border-left:1px solid var(--line);color:var(--dim);padding:6px 14px;font:inherit;font-size:16px;cursor:pointer}
+#models button{background:none;border:0;border-left:1px solid var(--line);color:var(--dim);padding:6px 14px;font:inherit;font-size:20px;cursor:pointer}
 #models button:first-child{border-left:0}#models button:hover{color:var(--ink)}
-#models button.on{background:var(--acc);color:#04201c;font-weight:600}#models button small{font-size:12px;opacity:.75;margin-left:6px}
-#voiceBtn{background:none;border:1px solid var(--line);color:var(--dim);border-radius:8px;padding:6px 14px;font:inherit;font-size:16px;cursor:pointer}
+#models button.on{background:var(--acc);color:#04201c;font-weight:600}#models button small{font-size:15px;opacity:.75;margin-left:6px}
+#voiceBtn{background:none;border:1px solid var(--line);color:var(--dim);border-radius:8px;padding:6px 14px;font:inherit;font-size:20px;cursor:pointer}
 #voiceBtn:hover{color:var(--ink);border-color:var(--dim)}
 #voiceDlg{position:fixed;inset:0;background:rgba(1,4,9,.72);display:flex;align-items:center;justify-content:center;z-index:10}
 #voiceDlg[hidden]{display:none}
-#voiceBox{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:28px 32px;width:min(560px,92vw)}
-#voiceBox h2{font-size:15px}#voiceBox label{display:block;margin:18px 0 6px;color:var(--dim);font-size:15px}
+#voiceBox{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:28px 32px;width:min(680px,92vw)}
+#voiceBox h2{font-size:19px}#voiceBox label{display:block;margin:18px 0 6px;color:var(--dim);font-size:19px}
 #voiceBox label b{float:right;color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums}
 #voiceBox select,#voiceBox input[type=range]{width:100%;accent-color:var(--acc)}
 #voiceBox select{background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit}
-#voiceBox .off{opacity:.4}#voiceBox small{color:var(--dim);font-size:13px}
-#voiceBox .btns{display:flex;gap:10px;margin-top:24px}#voiceBox button{font:inherit;font-size:16px;border-radius:8px;padding:8px 18px;cursor:pointer;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+#voiceBox .off{opacity:.4}#voiceBox small{color:var(--dim);font-size:16px}
+#voiceBox .btns{display:flex;gap:10px;margin-top:24px}#voiceBox button{font:inherit;font-size:20px;border-radius:8px;padding:8px 18px;cursor:pointer;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 #voiceBox button.pri{background:var(--acc);color:#04201c;border-color:var(--acc);font-weight:600}#voiceBox .btns span{margin-left:auto}
-#vMsg{margin-top:14px;min-height:1.4em;font-size:15px;color:var(--dim)}
+#vMsg{margin-top:14px;min-height:1.4em;font-size:19px;color:var(--dim)}
 </style></head><body class="sleep">
 <header><div id="clock">--:--</div><div id="date"></div><div id="state"><span id="dot"></span><span id="stateText">대기</span></div><div id="models" title="비서 모델 — 말로도: &quot;빠른 모드&quot; · &quot;정확한 모드&quot;"></div><button id="voiceBtn">목소리</button></header>
 <main>
  <section id="heardCard"><h2>들은 말</h2><div id="heard">—</div><div id="reply"></div></section>
  <section id="briefCard"><h2>지금 상태</h2><div id="brief"></div><h2 style="margin-top:20px">기록</h2><div id="log"></div></section>
  <section id="showCard"><h2>화면에 띄운 글<span>클릭 · Esc 로 닫기</span></h2><div id="panel"></div></section>
+ <section id="handCard"><h2>손 카메라</h2><img id="handImg" alt=""><div id="handText"></div></section>
  <section id="agentsCard"><h2>백그라운드 작업</h2><div id="agents"></div></section>
 </main>
 <div id="voiceDlg" hidden><div id="voiceBox"><h2>목소리 설정</h2>
@@ -100,8 +129,9 @@ setInterval(renderAgents,30000);
 const SHOW_MS=15*60000;let shown="",closedAt=-1,last={};
 function showing(){return !!last.panel&&last.panel_at!==closedAt&&Date.now()-(last.panel_at||0)<SHOW_MS}
 function closeShow(){closedAt=last.panel_at;render(last)}
+let camShown=false;
 function render(st){last=st;
- document.body.className=(st.mode||"sleep")+(showing()?" showing":"");stateText.textContent=S[st.mode]||st.mode;
+ document.body.className=(st.mode||"sleep")+(showing()?" showing":"")+(camShown?" cam":"");stateText.textContent=S[st.mode]||st.mode;
  heard.textContent=st.heard||"—";reply.textContent=st.reply||"";
  if(st.panel!==shown){shown=st.panel||"";panel.textContent=shown;showCard.scrollTop=0}
  const b=st.briefing||{},f=b.factory||{},l=b.lab||{};let h="";
@@ -152,10 +182,49 @@ vSave.onclick=()=>{vMsg.textContent="저장 중…";api("tts_save",vs).then(t=>v
 voiceBtn.onclick=vOpen;vClose.onclick=vHide;voiceDlg.onclick=e=>{if(e.target===voiceDlg)vHide()};
 showCard.onclick=closeShow;addEventListener("keydown",e=>{if(e.key==="Escape"){if(!voiceDlg.hidden)return vHide();closeShow()}});
 setInterval(()=>{if(last.panel)render(last)},30000);
-connect();renderAgents();
+// 손 카메라 — hand-mouse 가 켜져 있는 동안 칸이 보임. 그림은 한 장씩 계속 받아 감(3초 넘게 안 오면 끊고 다시),
+// 상태 줄은 짧게 물어봄. 새 그림이 3초 넘게 없으면(hand-mouse 쪽이든 받는 쪽이든) 「멈춤」
+let camOk=0,camUrl="";const nap=ms=>new Promise(r=>setTimeout(r,ms));
+async function camLoop(){for(;;){
+ if(!camShown){await nap(500);continue}
+ const ctl=new AbortController(),to=setTimeout(()=>ctl.abort(),3000);
+ try{const r=await fetch("/handcam.jpg?"+Date.now(),{cache:"no-store",signal:ctl.signal});
+  if(r.ok){const u=URL.createObjectURL(await r.blob());handImg.src=u;if(camUrl)URL.revokeObjectURL(camUrl);camUrl=u;camOk=Date.now()}
+  else await nap(1000)}
+ catch(e){await nap(1000)}finally{clearTimeout(to)}
+ await nap(60)}}
+function camPoll(){fetch("/handcam.json?"+Date.now(),{cache:"no-store"}).then(r=>r.json()).then(c=>{
+  if(c.shown!==camShown){camShown=c.shown;camOk=Date.now();render(last)}
+  const ago=Math.max(c.live?0:c.age,(Date.now()-camOk)/1000),stuck=camShown&&ago>=3;
+  handCard.classList.toggle("stuck",stuck);
+  handText.textContent=stuck?`멈춤 — ${Math.round(ago)}초째 새 그림 없음`:(c.text||"")}).catch(()=>{}).finally(()=>setTimeout(camPoll,300))}
+connect();renderAgents();camPoll();camLoop();
 </script></body></html>"""
 BUILD = hashlib.sha1(PAGE.encode()).hexdigest()[:12]
 PAGE = PAGE.replace("@BUILD@", BUILD)
+
+
+def handcam_touch(folder: str = "") -> None:
+    """hand-mouse 에게 「책상이 보고 있음」 — 이게 몇 초 안 건드려지면 hand-mouse 는 그림을 안 씁니다."""
+    folder = folder or HANDCAM
+    os.makedirs(folder, exist_ok=True)
+    p = os.path.join(folder, "want")
+    with open(p, "a"):
+        pass
+    os.utime(p)
+
+
+def handcam_state(folder: str = "", now: float | None = None) -> dict:
+    """{"shown": 칸을 보일까(HANDCAM_GONE_S 안), "live": 새 그림이 HANDCAM_STALE_S 안에 왔나, "age": 초, "text": 상태 줄}."""
+    folder = folder or HANDCAM
+    try:
+        with open(os.path.join(folder, "view.json"), encoding="utf-8") as f:
+            v = json.load(f)
+    except (OSError, ValueError):
+        return {"shown": False, "live": False, "age": None, "text": ""}
+    age = max(0.0, (now or time.time()) - float(v.get("t") or 0))
+    return {"shown": age < HANDCAM_GONE_S, "live": age < HANDCAM_STALE_S, "age": round(age, 1),
+            "text": str(v.get("text") or "")}
 
 
 class Board:
@@ -247,6 +316,16 @@ def serve(board: Board, commands: dict, host: str = "127.0.0.1", port: int = 707
                 return self._send(200, PAGE.encode(), "text/html; charset=utf-8")
             if u.path == "/state":
                 return self._send(200, json.dumps(board.get(), ensure_ascii=False).encode(), "application/json")
+            if u.path == "/handcam.json":
+                handcam_touch()
+                return self._send(200, json.dumps(handcam_state(), ensure_ascii=False).encode(), "application/json")
+            if u.path == "/handcam.jpg":
+                handcam_touch()
+                try:
+                    with open(os.path.join(HANDCAM, "view.jpg"), "rb") as f:
+                        return self._send(200, f.read(), "image/jpeg")
+                except OSError:
+                    return self._send(404, b"no frame")
             if u.path == "/events":
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")

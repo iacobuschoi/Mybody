@@ -3,7 +3,7 @@
 맥 미니의 Claude Code 를 `claude -p` 로 부르고, 하루 동안은 같은 대화를 `--resume` 으로 이어 갑니다
 (어제 한 말을 오늘 기억할 필요는 없고, 대화가 길어지면 느려지므로 날마다 새로).
 구독 로그인으로 돌고(API 열쇠 불필요), 작업 폴더의 CLAUDE.md · 훅 · 권한 규칙이 그대로 적용됩니다.
-권한 창이 뜨면 아무도 못 누르므로 `--permission-mode auto --permission-prompts none`.
+권한 창이 뜨면 아무도 못 누르므로 `--permission-mode bypassPermissions --permission-prompts none`.
 """
 from __future__ import annotations
 
@@ -56,7 +56,7 @@ class Brain:
         now = dt.datetime.now().strftime("%H:%M")
         prompt = f"[음성·주먹 {now}] {heard}" if direct else f"[음성 {now}] {heard}"
         cmd = [self.claude, "-p", prompt, "--output-format", "json",
-               "--permission-mode", "auto", "--permission-prompts", "none"]
+               "--permission-mode", "bypassPermissions", "--permission-prompts", "none"]
         if self.model:
             cmd += ["--model", self.model]
         sid = self._sid()

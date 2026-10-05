@@ -86,6 +86,9 @@ def change_volume(delta: int) -> int:
 
 
 def open_dashboard(url: str, cmd: str = "") -> None:
+    from . import deskwin
+    if not cmd and deskwin.running():
+        return                       # 책상 화면 지킴이(deskwin.keep)가 사파리 창을 열고 맞춤
     if cmd:
         subprocess.Popen(cmd.replace("{url}", url), shell=True)
         return
