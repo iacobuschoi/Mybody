@@ -355,6 +355,9 @@ node tools/test-selfhost.js
 - 서버 운영: 코드 반영, 재시작, 백업 확인 (7-3)
 - 스토어 콘솔에 올리기
 
+**맥 세션의 우편함은 `docs/MAC-TASKS.md`(과제) · `docs/MAC-REPORT.md`(보고)입니다.** 옮기는 동안은
+노트북 우편함(`LOCAL-TASKS.md`)과 따로 씁니다.
+
 **서버를 옮긴 뒤로는 맥 세션이 노트북 세션의 자리를 이어받는 것을 기본으로 합니다**(주인이 달리
 정하지 않으면). `docs/LOCAL-TASKS.md` 를 받아 하고 `docs/LOCAL-REPORT.md` 에 보고합니다.
 다른 세션과 같은 규칙을 따릅니다.
