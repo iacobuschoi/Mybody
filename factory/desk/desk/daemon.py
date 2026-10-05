@@ -1003,6 +1003,8 @@ class Desk:
             self.seg.reset()
             self.clap.reset()
             mac.cameras_off(self.cfg["camera_off"])
+            if self.cfg.get("screen_off", "blackout") == "blackout":
+                mac.display_off("blackout")        # macOS 가 진짜로 재운 화면 → 검은 화면으로 바꿔 깨움(폰에서 보이게)
             self.board.log("sleep", "화면 꺼짐")
             self._show()
 

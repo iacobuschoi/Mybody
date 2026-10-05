@@ -159,6 +159,7 @@ class DaemonFlow(unittest.TestCase):
         d._watch_display()
         self.assertEqual(d.mode, "sleep")
         self.assertIn("cameras_off", CALLS)             # 손 · 안전망으로 꺼져도 카메라는 끔
+        self.assertIn("display_off", CALLS)             # 진짜로 잠든 화면은 검은 화면으로 바꿔 폰에서 보이게
         DISPLAY["asleep"] = None
 
     def test_real_input_during_blackout_wakes_quietly(self):
