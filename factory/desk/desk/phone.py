@@ -196,6 +196,67 @@ def act(d: dict | None, ev: dict) -> str:
     return "ok"
 
 
+# ── 알림: 주인 확인이 필요한 일 → 폰 알림 ─────────────────────────────────────
+# 「작업 현황」 카드의 「주인 확인이 필요해요」(state needs) 와 같은 기준 + deskctl say 로 주인을 부르는 말.
+# 같은 일(id)은 한 번만. 폰 앱의 상주 서비스가 /notices 를 롱폴로 받아 안드로이드 알림으로 띄움.
+import re  # noqa: E402
+
+ASK_RE = re.compile(r"주세요|하세요|해 줘|확인|허용|승인|비밀번호|눌러|골라|정해|할까요|될까요|\?")
+SAY_KEEP_S = 6 * 3600                                   # 같은 말은 6시간 안에 다시 알리지 않음
+
+
+class Notices:
+    def __init__(self, now=time.time):
+        self.now = now
+        self.items: list[dict] = []                     # {seq, id, title, body, at}
+        self.seq = 0
+        self.boot = secrets.token_hex(4)                # deskd 가 다시 뜨면 바뀜 — 앱은 since 를 0 으로
+        self._sent: dict[str, float] = {}               # id → 마지막으로 알린 때
+        self._needs: set[str] = set()                   # 지금 주인 손을 기다리는 작업(id)
+        self.cv = threading.Condition()
+
+    def _add(self, nid: str, title: str, body: str) -> None:
+        with self.cv:
+            self.seq += 1
+            self.items.append({"seq": self.seq, "id": nid, "title": title, "body": body, "at": int(self.now())})
+            del self.items[:-50]
+            self._sent[nid] = self.now()
+            self.cv.notify_all()
+
+    def agents(self, rows: list[dict]) -> None:
+        """작업 현황 목록 — needs 로 새로 들어온 것만 알림. 빠졌다가 다시 들어오면 다시"""
+        cur = {}
+        for r in rows or []:
+            if r.get("state") == "needs":
+                cur[f"agent:{r.get('name')}:{r.get('why') or ''}"] = r
+        for nid, r in cur.items():
+            if nid not in self._needs:
+                why = r.get("why") or "확인이 필요해요"
+                body = " · ".join(x for x in (why, r.get("last") or r.get("detail") or "") if x)
+                self._add(nid, f"{r.get('name')} — 주인 확인 필요", body[:300])
+        self._needs = set(cur)
+
+    def said(self, text: str) -> None:
+        """deskctl say — 주인에게 무언가를 해 달라는 말이면 알림(같은 말은 6시간에 한 번)"""
+        t = (text or "").strip()
+        if not t or not ASK_RE.search(t):
+            return
+        nid = "say:" + hashlib.blake2b(t.encode(), digest_size=6).hexdigest()
+        if nid in self._sent and self.now() - self._sent[nid] < SAY_KEEP_S:
+            return
+        self._add(nid, "비서가 불러요", t[:300])
+
+    def since(self, seq: int, wait: float = 0) -> dict:
+        end = self.now() + wait
+        with self.cv:
+            while True:
+                new = [i for i in self.items if i["seq"] > seq]
+                left = end - self.now()
+                if new or left <= 0:
+                    return {"boot": self.boot, "seq": self.seq, "items": new}
+                self.cv.wait(min(left, 5))
+
+
 # ── 서버 ──────────────────────────────────────────────────────────────────
 class Phone:
     """desk: ask(text) -> dict · hear(pcm16) -> str 를 가진 것(deskd 의 Desk)"""
@@ -205,6 +266,20 @@ class Phone:
         self.token = token(token_file)
         self.servers: list[ThreadingHTTPServer] = []
         self._hash: dict[int, str] = {}
+        self.notices = Notices()
+
+    def watch(self, board, every_s: float = 5) -> None:
+        """상태판의 작업 현황(agents)을 보고 알림을 만듦"""
+        def loop():
+            while True:
+                try:
+                    rows = board.get().get("agents")
+                    if rows is not None:
+                        self.notices.agents(rows)
+                except Exception:  # noqa: BLE001
+                    log.exception("폰 알림: 작업 현황 읽기 실패")
+                time.sleep(every_s)
+        threading.Thread(target=loop, daemon=True, name="phone-notices").start()
 
     def start(self, hosts: list[str] | None = None) -> None:
         """127.0.0.1 은 바로, 테일넷 주소는 잡힐 때까지 30초마다 다시(Tailscale 이 늦게 뜰 때)"""
@@ -300,6 +375,10 @@ class Phone:
                     if (q.get("h") or [""])[0] == tag:
                         return self._send(204, extra={"X-Frame": tag})
                     return self._send(200, img, "image/jpeg", {"X-Frame": tag})
+                if u.path == "/notices":                      # 롱폴 — ?since=<seq>&wait=<초>
+                    seq = int((q.get("since") or ["0"])[0] or 0)
+                    wait = min(float((q.get("wait") or ["0"])[0] or 0), 55)
+                    return self._json(ph.notices.since(seq, wait))
                 if u.path == "/state":
                     return self._json(ph.desk.phone_state())
                 self._send(404, b"not found")
@@ -368,6 +447,8 @@ html,body{margin:0;height:100%;background:#0d1117;color:#e6edf3;font-family:syst
 #chat .me{background:#1f6feb33;margin-left:auto}
 #chat .ai{background:#21262d}
 #st{font-size:12px;color:#8b949e;padding:0 4px}
+#chat .need{background:#e3b34126;border:2px solid #e3b341;margin-right:auto}
+#chat .need b{color:#e3b341}
 </style></head><body>
 <div id="top"><button data-s="0" class="on">주 화면</button><button data-s="1">세로 모니터</button><button data-s="c">비서</button></div>
 <div id="view"><img id="scr" alt=""></div>
@@ -442,6 +523,11 @@ function showReply(r){
  if(app&&rep&&r.kind!=='local-silent')app.speak(rep)}
 window.deskReply=s=>{try{showReply(typeof s==='string'?JSON.parse(s):s)}catch(e){showReply({reply:String(s)})}};
 window.deskStatus=s=>{$('talk').textContent=s};
+// 알림을 눌러 앱이 열림 — 비서 탭으로 가서 무엇을 확인해야 하는지 보여 줌
+function showTab(k){document.querySelector(`#top button[data-s="${k}"]`).click()}
+function addNeed(n){const d=document.createElement('div');d.className='m need';const b=document.createElement('b');b.textContent=n.title||'주인 확인 필요';
+ d.appendChild(b);d.appendChild(document.createTextNode('\n'+(n.body||'')+(n.at?'\n'+new Date(n.at*1000).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'}):'')));$('chat').appendChild(d);$('chat').scrollTop=1e9}
+window.deskNotice=s=>{let n;try{n=typeof s==='string'?JSON.parse(s):s}catch(e){n={body:String(s)}}showTab('c');addNeed(n)};
 $('ask').onclick=async()=>{const v=$('txt').value.trim();if(!v)return;$('txt').value='';
  $('talk').classList.add('wait');$('talk').textContent='생각 중…';addMsg('me',v);
  try{const r=await (await fetch('/ask',{method:'POST',headers:{...H,'Content-Type':'application/json'},body:JSON.stringify({text:v})})).json();delete r.heard;showReply(r)}

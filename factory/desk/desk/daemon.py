@@ -110,6 +110,7 @@ class Desk:
         self._devs: tuple[str, str, str] | None = None   # 지금 쓰는 (마이크, 박수 · 끼어들기 마이크, 스피커) 실제 이름
         self._devs_want: tuple[str, str, str] | None = None   # 장치 감시가 고른 새 짝 — 듣기 고리가 다시 엶
         self._mic_warned = False
+        self.phone: Phone | None = None               # 폰 비서 앱 서버 (run 에서)
 
     def _own(self, voice):
         """주인이 말하는 동안(왼손 주먹을 쥐었거나 상시 듣기에 목소리가 들림) 말을 시작하지 않게 (주인 10월 2일 15:37 · 15:41)"""
@@ -285,6 +286,8 @@ class Desk:
         if self._asking is not None and self._asking != self._turn:
             log.info("멈춘 턴의 말하기 버림: %s", text[:40])
             return "dropped"
+        if self.phone:
+            self.phone.notices.said(text)            # 주인을 부르는 말이면 폰 알림도
         self.voice.say(text)
         return "ok"
 
@@ -841,7 +844,9 @@ class Desk:
               port=self.cfg["dashboard"]["port"])
         watch_agents(self.board)
         if self.cfg.get("phone", {}).get("enabled", True):
-            Phone(self, self.cfg["phone"].get("port", 7071)).start()
+            self.phone = Phone(self, self.cfg["phone"].get("port", 7071))
+            self.phone.start()
+            self.phone.watch(self.board)               # 주인 확인이 필요한 작업 → 폰 알림
         if self.cfg["dashboard"].get("keep_screen", True):
             deskwin.keep(f"http://127.0.0.1:{self.cfg['dashboard']['port']}/")   # 두 번째 모니터 = 책상 창
         threading.Thread(target=self._stt_worker, daemon=True).start()

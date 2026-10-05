@@ -9,6 +9,8 @@ import android.net.Network;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
 import android.media.MediaRecorder;
@@ -48,7 +50,7 @@ public class MainActivity extends Activity {
     String base;                                          // http://127.0.0.1:<프록시> — 테일넷으로 맥에 닿음
     final Handler ui = new Handler(Looper.getMainLooper());
     String shownLogin = "";
-    boolean loaded;
+    boolean loaded, pageReady;
 
     String home() { return base + "/?t=" + Secrets.TOKEN; }
 
@@ -61,31 +63,64 @@ public class MainActivity extends Activity {
         s.setMediaPlaybackRequiresUserGesture(false);
         web.addJavascriptInterface(new Bridge(), "DeskApp");
         web.setWebViewClient(new WebViewClient() {
+            @Override public void onPageFinished(WebView v, String url) {
+                pageReady = url != null && url.startsWith("http://127.0.0.1");
+                if (pageReady && notice != null) { js("deskNotice", notice); notice = null; }
+            }
+
             @Override public void onReceivedError(WebView v, WebResourceRequest req, WebResourceError err) {
                 if (req.isForMainFrame()) offline(String.valueOf(err.getDescription()));
             }
         });
         setContentView(web);
         tts = new TextToSpeech(this, st -> { if (st == TextToSpeech.SUCCESS) tts.setLanguage(Locale.KOREAN); });
+        java.util.List<String> ask = new java.util.ArrayList<>();
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
-            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, 1);
-        deskts.Deskts.setInterfaces(interfaces());
+            ask.add(Manifest.permission.RECORD_AUDIO);
+        if (android.os.Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            ask.add(Manifest.permission.POST_NOTIFICATIONS);
+        if (!ask.isEmpty()) requestPermissions(ask.toArray(new String[0]), 1);
+        notice = getIntent().getStringExtra("notice");
         try {
             ((ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE)).registerDefaultNetworkCallback(
                 new ConnectivityManager.NetworkCallback() {
-                    @Override public void onAvailable(Network n) { deskts.Deskts.setInterfaces(interfaces()); }
-                    @Override public void onLost(Network n) { deskts.Deskts.setInterfaces(interfaces()); }
+                    @Override public void onAvailable(Network n) { Net.refresh(); }
+                    @Override public void onLost(Network n) { Net.refresh(); }
                 });
         } catch (Exception ignored) { }
         try {
-            long port = deskts.Deskts.start(getFilesDir() + "/tailscale", "desk-phone", Secrets.TARGET);
-            base = "http://127.0.0.1:" + port;
+            base = Net.base(this);
         } catch (Exception e) {
             page("Tailscale 을 시작하지 못했어요", String.valueOf(e.getMessage()), "");
             return;
         }
         page("맥에 연결하는 중…", "", "");
         ui.post(this::watch);
+        NoticeService.start(this);                         // 앱을 꺼도 주인 확인 알림은 오게
+        askBattery();
+    }
+
+    /** 배터리 최적화에서 빼 달라고 한 번만 물음 — 안 빼면 화면이 꺼진 뒤 알림 연결이 끊김 */
+    void askBattery() {
+        PowerManager pm = getSystemService(PowerManager.class);
+        android.content.SharedPreferences p = getSharedPreferences("app", MODE_PRIVATE);
+        if (pm.isIgnoringBatteryOptimizations(getPackageName()) || p.getBoolean("askedBattery", false)) return;
+        p.edit().putBoolean("askedBattery", true).apply();
+        try {
+            startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName())));
+        } catch (Exception ignored) { }
+    }
+
+    /** 알림을 눌러 열림 — 비서 화면이 뜨면 무엇을 확인해야 하는지 보여 줌 */
+    String notice;
+
+    @Override protected void onNewIntent(Intent i) {
+        super.onNewIntent(i);
+        String n = i.getStringExtra("notice");
+        if (n == null) return;
+        notice = n;
+        if (pageReady) { js("deskNotice", notice); notice = null; }
     }
 
     /** 테일넷 상태를 보고 로그인 화면 · 비서 화면을 고름. 붙은 뒤에도 끊기면(키 만료 등) 다시 로그인 화면 */
@@ -121,26 +156,6 @@ public class MainActivity extends Activity {
             + "<body style='background:#0d1117;color:#e6edf3;font-family:sans-serif;padding:28px;font-size:18px'>"
             + "<h2>" + esc(title) + "</h2><p>" + esc(text) + "</p>" + btn + "</body></html>";
         web.loadDataWithBaseURL(null, html, "text/html", "utf-8", null);
-    }
-
-    /** 안드로이드는 Go 에 netlink 를 막아서 — 자바가 본 인터페이스 목록을 넘김 (deskts/ifaces.go 형식) */
-    static String interfaces() {
-        StringBuilder b = new StringBuilder();
-        try {
-            for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
-                b.append(ni.getName()).append(' ').append(ni.getIndex()).append(' ').append(ni.getMTU())
-                 .append(ni.isUp() ? " 1" : " 0").append(" 1").append(ni.isLoopback() ? " 1" : " 0")
-                 .append(ni.isPointToPoint() ? " 1" : " 0").append(ni.supportsMulticast() ? " 1" : " 0");
-                for (InterfaceAddress a : ni.getInterfaceAddresses()) {
-                    String ip = a.getAddress().getHostAddress();
-                    int z = ip.indexOf('%');
-                    if (z >= 0) ip = ip.substring(0, z);
-                    b.append(' ').append(ip).append('/').append(a.getNetworkPrefixLength());
-                }
-                b.append('\n');
-            }
-        } catch (Exception ignored) { }
-        return b.toString();
     }
 
     static String esc(String s) { return s.replace("&", "&amp;").replace("<", "&lt;"); }

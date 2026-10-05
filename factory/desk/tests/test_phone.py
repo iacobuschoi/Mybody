@@ -105,6 +105,13 @@ class Server(unittest.TestCase):
         open(phone.APK, "wb").write(b"PK")
         self.assertEqual(self.req("/app.apk", tok=False), (200, b"PK"))
 
+    def test_notices_endpoint(self):
+        self.p.notices.said("확인해 주세요")
+        c, b = self.req("/notices?since=0&wait=0")
+        r = json.loads(b)
+        self.assertEqual((c, r["items"][0]["body"]), (200, "확인해 주세요"))
+        self.assertEqual(self.req("/notices?since=0", tok=False)[0], 401)
+
     def test_page(self):
         c, b = self.req("/")
         self.assertIn("누르고 말하기", b.decode())
@@ -114,6 +121,53 @@ class Server(unittest.TestCase):
         self.assertNotIn("addEventListener('pointercancel',end)", page)   # 길게 누르기 제스처는 떼기가 아님
         self.assertNotIn("addEventListener('pointerleave',end)", page)
         self.assertIn("document.addEventListener('touchend'", page)
+
+
+class NoticeRules(unittest.TestCase):
+    def setUp(self):
+        self.t = [1000.0]
+        self.n = phone.Notices(now=lambda: self.t[0])
+
+    def test_agent_needs_once(self):
+        rows = [{"name": "MyBody_mac", "state": "needs", "why": "권한 확인", "last": "sudo 필요"},
+                {"name": "factory", "state": "working"}]
+        self.n.agents(rows)
+        self.n.agents(rows)                                     # 같은 건 반복 알림 없음
+        items = self.n.since(0)["items"]
+        self.assertEqual(len(items), 1)
+        self.assertIn("MyBody_mac", items[0]["title"])
+        self.assertIn("sudo 필요", items[0]["body"])
+        self.n.agents([])                                       # 풀렸다가
+        self.n.agents(rows)                                     # 다시 막히면 다시 알림
+        self.assertEqual(len(self.n.since(0)["items"]), 2)
+
+    def test_say_only_when_asking(self):
+        self.n.said("배포했어요.")
+        self.n.said("폰에서 설치 허용을 켜 주세요.")
+        self.n.said("폰에서 설치 허용을 켜 주세요.")
+        self.assertEqual([i["body"] for i in self.n.since(0)["items"]], ["폰에서 설치 허용을 켜 주세요."])
+        self.t[0] += 7 * 3600
+        self.n.said("폰에서 설치 허용을 켜 주세요.")
+        self.assertEqual(len(self.n.since(0)["items"]), 2)
+
+    def test_since_and_long_poll(self):
+        self.n.said("확인해 주세요")
+        r = self.n.since(1)
+        self.assertEqual(r["items"], [])
+        self.assertEqual(r["seq"], 1)
+        n = phone.Notices()
+        threading.Timer(0.2, lambda: n.said("승인해 주세요")).start()
+        self.assertEqual(len(n.since(0, wait=3)["items"]), 1)    # 기다리다 새 알림이 오면 바로
+
+
+class RemoteSayNotifies(unittest.TestCase):
+    def test_remote_say_feeds_phone(self):
+        d = make()
+        d.phone = phone.Phone.__new__(phone.Phone)
+        d.phone.notices = phone.Notices()
+        d.remote_say("맥에서 비밀번호를 넣어 주세요.")
+        self.assertEqual(d.voice.said, ["맥에서 비밀번호를 넣어 주세요."])
+        self.assertEqual(len(d.phone.notices.since(0)["items"]), 1)
 
 
 class Peers(unittest.TestCase):
