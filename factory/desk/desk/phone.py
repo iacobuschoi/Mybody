@@ -140,13 +140,19 @@ def point(d: dict, fx: float, fy: float) -> tuple[float, float]:
 
 def act(d: dict | None, ev: dict) -> str:
     import Quartz
+
+    from .blackout import PHONE_TAG
     Q = Quartz
     a = ev.get("action", "click")
+
+    def post(e):                                  # 폰이 넣은 입력 표시 — 검은 화면이 「방에서 누름」으로 알고 켜지 않게
+        Q.CGEventSetIntegerValueField(e, Q.kCGEventSourceUserData, PHONE_TAG)
+        Q.CGEventPost(Q.kCGHIDEventTap, e)
 
     def mouse(kind, p, button=Q.kCGMouseButtonLeft, clicks=1):
         e = Q.CGEventCreateMouseEvent(None, kind, p, button)
         Q.CGEventSetIntegerValueField(e, Q.kCGMouseEventClickState, clicks)
-        Q.CGEventPost(Q.kCGHIDEventTap, e)
+        post(e)
 
     if a == "type":
         text = str(ev.get("text", ""))
@@ -155,7 +161,7 @@ def act(d: dict | None, ev: dict) -> str:
             for down in (True, False):
                 e = Q.CGEventCreateKeyboardEvent(None, 0, down)
                 Q.CGEventKeyboardSetUnicodeString(e, len(chunk.encode("utf-16-le")) // 2, chunk)
-                Q.CGEventPost(Q.kCGHIDEventTap, e)
+                post(e)
             time.sleep(0.01)
         return "ok"
     if a == "key":
@@ -163,7 +169,7 @@ def act(d: dict | None, ev: dict) -> str:
         if code is None:
             return "모르는 키"
         for down in (True, False):
-            Q.CGEventPost(Q.kCGHIDEventTap, Q.CGEventCreateKeyboardEvent(None, code, down))
+            post(Q.CGEventCreateKeyboardEvent(None, code, down))
         return "ok"
     if d is None:
         return "화면 없음"
@@ -183,7 +189,7 @@ def act(d: dict | None, ev: dict) -> str:
         mouse(Q.kCGEventMouseMoved, p)
         dy, dx = int(float(ev.get("dy", 0))), int(float(ev.get("dx", 0)))
         e = Q.CGEventCreateScrollWheelEvent(None, Q.kCGScrollEventUnitPixel, 2, dy, dx)
-        Q.CGEventPost(Q.kCGHIDEventTap, e)
+        post(e)
     elif a == "drag":                                            # x,y → x2,y2
         q = point(d, float(ev.get("x2", 0.5)), float(ev.get("y2", 0.5)))
         mouse(Q.kCGEventMouseMoved, p)

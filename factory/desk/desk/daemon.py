@@ -232,7 +232,7 @@ class Desk:
         self._changed_at = time.time()
         self.seg.reset()
         self.clap.reset()
-        mac.display_off()
+        mac.display_off(self.cfg.get("screen_off", "blackout"))
         mac.cameras_off(self.cfg["camera_off"])
         self.board.log("sleep", why)
         self._show()
@@ -849,6 +849,7 @@ class Desk:
     def run(self) -> None:
         import sounddevice as sd
         mac.keep_system_awake()
+        mac.on_real_input = self._real_input
         serve(self.board, {"wake": self.wake, "sleep": self.sleep, "brief": self.say_brief, "mute": self.mute,
                            "unmute": self.unmute, "stop": self.stop,
                            "say": self.remote_say, "show": self.show,
@@ -993,15 +994,7 @@ class Desk:
             return
         if self.mode == "sleep" and not asleep:
             log.info("화면이 켜짐(키보드 · 마우스) → 듣는 중")
-            self._changed_at = time.time()
-            self.mode = "awake"
-            self.last_activity = time.time()
-            self.clap.reset()
-            self.seg.reset()
-            mac.sound("Tink")
-            self.board.log("wake", "키보드 · 마우스")
-            self._cameras_on("키보드 · 마우스")
-            self._show()
+            self._quiet_wake()
         elif self.mode in ("awake", "muted") and asleep and not self.voice.busy():
             log.info("화면이 꺼짐 → 자는 중")
             self._changed_at = time.time()
@@ -1012,6 +1005,26 @@ class Desk:
             mac.cameras_off(self.cfg["camera_off"])
             self.board.log("sleep", "화면 꺼짐")
             self._show()
+
+    def _quiet_wake(self) -> None:
+        """키보드 · 마우스로 깸 — 인사 · 브리핑 없이 딩만 · 카메라 켬"""
+        self._changed_at = time.time()
+        self.mode = "awake"
+        self.last_activity = time.time()
+        self.clap.reset()
+        self.seg.reset()
+        mac.display_on()
+        mac.sound("Tink")
+        self.board.log("wake", "키보드 · 마우스")
+        self._cameras_on("키보드 · 마우스")
+        self._show()
+
+    def _real_input(self) -> None:
+        """검은 화면 중에 방에서 진짜 키보드 · 클릭이 옴(폰 앱이 넣은 입력은 아님) → 화면 켜고 듣는 중.
+        끄자마자 2초는 무시(「화면 꺼」 하며 누른 키)"""
+        if self.mode == "sleep" and time.time() - self._changed_at > 2:
+            log.info("검은 화면 중 키보드 · 클릭 → 듣는 중")
+            self._quiet_wake()
 
     def _warmup(self) -> None:
         try:

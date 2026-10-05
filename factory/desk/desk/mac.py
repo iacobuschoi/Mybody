@@ -19,13 +19,58 @@ def _run(cmd: list[str], timeout: float = 5) -> str:
         return ""
 
 
+_blackout: subprocess.Popen | None = None      # 화면을 「꺼진 것처럼」 들고 있는 desk.blackout (없으면 None)
+_blackout_lock = threading.Lock()
+on_real_input = None                            # 검은 화면 중 진짜 키보드 · 클릭이 오면 부를 것(deskd 가 넣음)
+
+
+def blackout_on() -> bool:
+    return _blackout is not None and _blackout.poll() is None
+
+
 def display_on() -> None:
-    """꺼진 화면을 켭니다. `caffeinate -u` = 사용자가 뭔가 했다고 알림 → 두 모니터 다 켜짐."""
+    """화면을 켭니다 — 검은 화면(blackout)을 거두고, 진짜로 잠든 화면이면 `caffeinate -u`(사용자가 뭔가 했다고 알림)로 깨움."""
+    global _blackout
+    with _blackout_lock:
+        p, _blackout = _blackout, None
+    if p is not None and p.poll() is None:
+        p.stdin.close()                             # blackout 은 stdin 이 닫히면 감마를 되돌리고 끝남
+        try:
+            p.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            p.kill()
     subprocess.Popen(["caffeinate", "-u", "-t", "3"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-def display_off() -> None:
-    subprocess.Popen(["pmset", "displaysleepnow"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def display_off(how: str = "blackout") -> None:
+    """화면을 끕니다. blackout(기본) = 맥은 화면을 재우지 않고 모니터에 검은색만 보냄 — 폰 앱 화면 보기 · 조작은 그대로
+    (desk/blackout.py). sleep = 예전처럼 pmset displaysleepnow(캡처도 검게 나옴)."""
+    global _blackout
+    if how == "sleep":
+        subprocess.Popen(["pmset", "displaysleepnow"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return
+    import os
+    import sys
+    with _blackout_lock:
+        if blackout_on():
+            return
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        p = subprocess.Popen([sys.executable, "-m", "desk.blackout", "--parent", str(os.getpid())], cwd=here,
+                             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        _blackout = p
+
+    def read() -> None:
+        for line in p.stdout:
+            line = line.strip()
+            if line.startswith("black") and _displays_really_asleep():
+                # 이미 잠든 화면(macOS 10분 화면 끄기 등)은 검게 만든 뒤 깨움 — 폰에서 보이게
+                subprocess.Popen(["caffeinate", "-u", "-t", "1"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if line == "input":
+                if _blackout is p and on_real_input:
+                    on_real_input()
+            elif line:
+                log.info("검은 화면: %s", line)
+    threading.Thread(target=read, daemon=True, name="blackout").start()
 
 
 _camera_lock = threading.Lock()       # 카메라 끄기 · 켜기가 겹치면 순서대로(끄자마자 켜도 켠 쪽이 남게)
@@ -57,13 +102,19 @@ def cameras_on(cmds: list[str], report=None) -> None:
     _cameras(cmds, "cameras_on", report)
 
 
-def displays_asleep() -> bool | None:
-    """모르면 None. (pyobjc 가 있으면 실제 상태)"""
+def _displays_really_asleep() -> bool | None:
     try:
         import Quartz
         return bool(Quartz.CGDisplayIsAsleep(Quartz.CGMainDisplayID()))
     except Exception:
         return None
+
+
+def displays_asleep() -> bool | None:
+    """방에서 보기에 화면이 꺼져 있나 — 검은 화면(blackout) 중이거나 진짜로 잠들었으면 True. 모르면 None. (pyobjc 가 있으면 실제 상태)"""
+    if blackout_on():
+        return True
+    return _displays_really_asleep()
 
 
 def keep_system_awake() -> subprocess.Popen:

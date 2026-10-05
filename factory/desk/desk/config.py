@@ -37,6 +37,7 @@ DEFAULTS: dict = {
                       "터미널이랑 사파리, 카카오톡, 승인, 권한, 배포, 작업 공간, 클로드 세션, 깃허브, 앱스토어 심사, 마이바디도.",
             "keep_audio_days": 0},      # 받아쓴 소리를 ~/.local/share/desk/heard 에 이만큼(일) 남김(정확도 재기용). 기본 0 = 안 남김 — 주인이 켤 때만
     "idle_minutes": 15,             # 이만큼 아무 말 없으면 화면 끄고 박수 대기로
+    "screen_off": "blackout",       # 화면 끄기: blackout(검은 화면 — 맥은 깨어 있어 폰 앱에선 보임) · sleep(pmset 로 진짜 재움)
     "camera_off": ["~/.local/bin/hand-mouse off"],   # 화면을 끌 때(어느 길로든) 돌려 카메라를 끄는 명령들
     "camera_on": ["~/.local/bin/hand-mouse on --no-sweep"],   # 화면이 켜질 때(어느 길로든) 돌려 카메라를 켜는 명령들 — 끄기의 짝
     "tts": {"voice": "Yuna", "rate": 190, "device": "",   # device: 소리 낼 장치 이름(비우면 기본 출력)

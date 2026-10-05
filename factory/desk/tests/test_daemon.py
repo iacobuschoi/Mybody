@@ -161,6 +161,22 @@ class DaemonFlow(unittest.TestCase):
         self.assertIn("cameras_off", CALLS)             # 손 · 안전망으로 꺼져도 카메라는 끔
         DISPLAY["asleep"] = None
 
+    def test_real_input_during_blackout_wakes_quietly(self):
+        d = make()
+        d.wake("test")
+        d.sleep("test")
+        self.assertEqual(d.mode, "sleep")
+        CALLS.clear()
+        d._real_input()                           # 「화면 꺼」 바로 뒤 키는 무시
+        self.assertEqual(d.mode, "sleep")
+        d._changed_at = 0
+        said = len(d.voice.said)
+        d._real_input()                           # 방에서 키보드 · 클릭 → 조용히 켬
+        self.assertEqual(d.mode, "awake")
+        self.assertIn("display_on", CALLS)
+        self.assertIn("cameras_on", CALLS)
+        self.assertEqual(len(d.voice.said), said)
+
     def test_wake_when_already_awake_does_not_turn_cameras_on_again(self):
         d = make()
         d.wake("test")
