@@ -428,6 +428,20 @@ class Desk:
             box.update(reply="답이 너무 늦어요. 맥 상태판을 확인해 주세요.", kind="timeout")
         return box
 
+    def phone_wake(self) -> str:
+        """폰의 「맥 화면 켜기」 — 주인은 방에 없으니 인사 · 브리핑 · 카메라 없이 화면만 켬"""
+        log.info("폰에서 화면 켬 (지금 %s)", self.mode)
+        self._changed_at = time.time()                # 화면 감시가 키보드로 깬 줄 알고 인사하지 않게
+        if self.mode == "sleep":
+            self.mode = "awake"
+            self.clap.reset()
+            self.seg.reset()
+            self.board.log("wake", "폰")
+        self.last_activity = time.time()
+        mac.display_on()
+        self._show()
+        return "ok"
+
     def phone_state(self) -> dict:
         b = self.board.get()
         return {"mode": self.mode, "heard": b.get("heard", ""), "reply": b.get("reply", "")}

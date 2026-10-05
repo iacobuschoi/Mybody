@@ -57,6 +57,17 @@ class PhonePath(unittest.TestCase):
         self.assertEqual(self.d.voice.said, ["네, 가계부 시험을 돌렸어요."])
 
 
+class PhoneWake(unittest.TestCase):
+    def test_quiet_wake(self):
+        from tests.test_daemon import CALLS
+        d = make()
+        self.assertEqual(d.mode, "sleep")
+        d.phone_wake()
+        self.assertEqual(d.mode, "awake")
+        self.assertIn("display_on", CALLS)
+        self.assertEqual(d.voice.said, [])                       # 집에 없으니 인사 · 브리핑 없음
+
+
 class FakeDesk:
     def phone_ask(self, text):
         return {"heard": text, "reply": "네."}

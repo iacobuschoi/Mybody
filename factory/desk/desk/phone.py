@@ -74,14 +74,16 @@ def allowed_peer(ip: str) -> bool:
 
 # ── 화면 ──────────────────────────────────────────────────────────────────
 def displays() -> list[dict]:
-    """[{id, x, y, w, h(포인트), main, rotation}] — 주 화면이 먼저"""
+    """[{id, x, y, w, h(포인트), main, rotation, asleep}] — 주 화면이 먼저.
+    화면이 잠들면(deskd 「화면 꺼」 · 15분 조용) 활성 목록이 비어 폰이 404 를 받던 것 — 연결된(online) 목록으로 (주인 10월 5일 18:36)"""
     import Quartz
-    _, ids, n = Quartz.CGGetActiveDisplayList(8, None, None)
+    _, ids, n = Quartz.CGGetOnlineDisplayList(8, None, None)
     out = []
     for d in ids[:n]:
         b = Quartz.CGDisplayBounds(d)
         out.append({"id": int(d), "x": b.origin.x, "y": b.origin.y, "w": b.size.width, "h": b.size.height,
-                    "main": bool(Quartz.CGDisplayIsMain(d)), "rotation": int(Quartz.CGDisplayRotation(d))})
+                    "main": bool(Quartz.CGDisplayIsMain(d)), "rotation": int(Quartz.CGDisplayRotation(d)),
+                    "asleep": bool(Quartz.CGDisplayIsAsleep(d))})
     out.sort(key=lambda d: (not d["main"], d["x"]))
     return out
 
@@ -368,6 +370,8 @@ class Phone:
                         d = ds[int(u.path.split("/")[2].split(".")[0])]
                     except (ValueError, IndexError):
                         return self._send(404, b"no screen")
+                    if d.get("asleep"):
+                        return self._send(503, "맥 화면이 꺼져 있어요".encode(), extra={"X-Asleep": "1"})
                     img = frame(d, int((q.get("w") or ["1280"])[0]), int((q.get("q") or ["60"])[0]))
                     if img is None:
                         return self._send(503, b"capture failed")
@@ -407,7 +411,7 @@ class Phone:
                         i = int(ev.get("screen", 0))
                         return self._json({"r": act(ds[i] if 0 <= i < len(ds) else None, ev)})
                     if u.path == "/wake":
-                        return self._json({"r": ph.desk.wake("phone", greeting="폰에서 켰어요.")})
+                        return self._json({"r": ph.desk.phone_wake()})
                     if u.path == "/stop":
                         return self._json({"r": ph.desk.stop()})
                 except Exception as e:  # noqa: BLE001
@@ -480,8 +484,9 @@ async function loop(){
   try{
    const r=await fetch(`/screen/${s}.jpg?w=${w}&q=55&h=${tag}`,{headers:H,cache:'no-store'});
    if(r.status===200){const b=await r.blob();if(s===scr){tag=r.headers.get('X-Frame')||'';const u=URL.createObjectURL(b);const old=$('scr').src;$('scr').src=u;if(old.startsWith('blob:'))setTimeout(()=>URL.revokeObjectURL(old),1000)}}
+   else if(r.status===503&&r.headers.get('X-Asleep')){$('st').textContent='맥 화면이 꺼져 있어요 — 「맥 화면 켜기」';await sleep(1500)}
    else if(r.status!==204){$('st').textContent='화면 '+r.status;await sleep(1000)}
-   fails=0;if($('st').textContent.startsWith('연결'))$('st').textContent='';
+   fails=0;if(r.status===200||r.status===204)$('st').textContent='';
   }catch(e){fails++;$('st').textContent='연결 끊김 — 다시 시도';await sleep(Math.min(5000,500*fails))}
   await sleep(120);
  }}
@@ -510,7 +515,7 @@ let dragMode=false;
 $('drag').onclick=()=>{dragMode=!dragMode;$('drag').classList.toggle('on',dragMode)};
 $('zoom').onclick=()=>{V.classList.toggle('zoom');$('zoom').classList.toggle('on');tag=''};
 $('rclick').onclick=()=>{rightNext=!rightNext;$('rclick').classList.toggle('on',rightNext)};
-$('wake').onclick=()=>fetch('/wake',{method:'POST',headers:H});
+$('wake').onclick=()=>{$('st').textContent='켜는 중…';fetch('/wake',{method:'POST',headers:H})};
 $('typ').onclick=()=>{const v=$('txt').value;if(v){send({action:'type',text:v});$('txt').value=''}};
 document.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>send({action:'key',key:b.dataset.k}));
 function addMsg(cls,t){const d=document.createElement('div');d.className='m '+cls;d.textContent=t;$('chat').appendChild(d);$('chat').scrollTop=1e9}
