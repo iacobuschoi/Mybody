@@ -34,12 +34,17 @@ from . import deskwin
 from .dashboard import Board, serve, watch_agents
 from .router import normalize, route
 from .heard import Keeper
+from .phone import Phone
 from .stt import WhisperSTT
 from .talk import PushToTalk
 from .endpoint import looks_unfinished
 from .vad import Cut, Segmenter
 
 log = logging.getLogger("deskd")
+
+PHONE_LOCAL = {"mute": "조용히 모드로 바꿨어요.", "unmute": "다시 들어요.", "sleep": "맥 화면을 껐어요.", "stop": "멈췄어요.",
+               "brief": "맥에서 브리핑을 읽어요.", "louder": "맥 소리를 키웠어요.", "softer": "맥 소리를 줄였어요.",
+               "model": "모델을 바꿨어요. 다음 말부터 적용돼요."}
 
 
 class Desk:
@@ -95,7 +100,7 @@ class Desk:
         self.audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=400)
         self.utt_q: queue.Queue[Cut] = queue.Queue(maxsize=8)
         self._pending: list[Cut] = []                 # 받아쓰기 일꾼이 줄에서 꺼내 둔 조각(_next_cut 이 순서를 정함)
-        self.brain_q: queue.Queue[tuple[str, int, bool]] = queue.Queue(maxsize=8)   # (들은 말, 받은 때의 _turn, 주먹)
+        self.brain_q: queue.Queue[tuple] = queue.Queue(maxsize=8)   # (들은 말, 받은 때의 _turn, 주먹, 폰으로 답할 곳 또는 None)
         self._stop = threading.Event()
         self._dash_opened = False
         self._changed_at = 0.0                        # 우리가 화면을 켜고/끈 시각 — 화면 감시가 헷갈리지 않게
@@ -338,17 +343,20 @@ class Desk:
         return "ok"
 
     # ── 들은 말 처리 ───────────────────────────────────────────────────────
-    def handle(self, text: str, direct: bool = False) -> None:
-        """direct: 왼손 주먹을 쥐고 한 말 — 조용히 모드여도 받고, Claude 에게 비서에게 한 말이라고 알림"""
+    def handle(self, text: str, direct: bool = False, phone=None) -> None:
+        """direct: 왼손 주먹을 쥐고 한 말 — 조용히 모드여도 받고, Claude 에게 비서에게 한 말이라고 알림.
+        phone: 폰 비서 앱에서 한 말 — 주먹 말과 같은 길이고, Claude 답은 맥 스피커 대신 phone(말할 글, 전체 글) 로"""
         if self._speech_stop(text):
+            if phone:
+                phone("멈췄어요.", "")
             return
         a = route(text, muted=(self.mode == "muted" and not direct))
-        self.board.log(a.kind, ("(주먹) " if direct else "") + text)
-        if a.kind == "ignore":
+        self.board.log(a.kind, ("(폰) " if phone else "(주먹) " if direct else "") + text)
+        if a.kind == "ignore" and not phone:
             return
         self.last_activity = time.time()
         self.board.set(heard=text)
-        k = a.kind
+        k = "claude" if a.kind == "ignore" else a.kind   # 폰에서 누르고 한 말은 버리지 않음
         if k == "unmute":
             self.unmute()
         elif k == "mute":
@@ -362,6 +370,9 @@ class Desk:
         elif k in ("louder", "softer"):
             v = mac.change_volume(10 if k == "louder" else -10)
             self.voice.say(f"소리 {v}." if v >= 0 else "소리를 바꿨어요.")
+        elif k == "repeat" and phone:
+            phone(self.board.get().get("reply") or "아직 한 말이 없어요.", "")
+            return
         elif k == "repeat":
             self.voice.say(self.voice.last_text or "아직 한 말이 없어요.")
         elif k == "model":
@@ -369,14 +380,54 @@ class Desk:
             self.voice.say(f"{model_settings.spoken(a.arg)}로 바꿨어요. 다음 말부터 적용돼요.")
         elif k == "time":
             n = dt.datetime.now()
-            self.voice.say(f"{'오전' if n.hour < 12 else '오후'} {n.hour % 12 or 12}시 {n.minute}분이에요.")
+            said = f"{'오전' if n.hour < 12 else '오후'} {n.hour % 12 or 12}시 {n.minute}분이에요."
+            if phone:
+                phone(said, "")
+                return
+            self.voice.say(said)
         elif k == "claude":
-            mac.sound("Tink")                       # 들었다는 표시 — 말로 "잠시만요" 하면 매번 귀찮습니다
+            if not phone:
+                mac.sound("Tink")                   # 들었다는 표시 — 말로 "잠시만요" 하면 매번 귀찮습니다
             try:
-                self.brain_q.put_nowait((text, self._turn, direct))
+                self.brain_q.put_nowait((text, self._turn, direct, phone))
             except queue.Full:
-                self.voice.say("밀린 일이 많아요. 잠시 뒤에 다시 말해 주세요.")
+                if phone:
+                    phone("밀린 일이 많아요. 잠시 뒤에 다시 말해 주세요.", "")
+                else:
+                    self.voice.say("밀린 일이 많아요. 잠시 뒤에 다시 말해 주세요.")
+        elif phone:
+            phone(PHONE_LOCAL.get(k, "맥에서 했어요."), "")
         self._show()
+
+    # ── 폰 비서 앱 (desk/phone.py) ─────────────────────────────────────────
+    def phone_hear(self, audio: np.ndarray) -> str:
+        """폰에서 누르고 한 말 — 주먹 말처럼 받아씀(무시 판정 없음)"""
+        with self._stt_lock:
+            text = self.stt.transcribe(audio, direct=True)
+            raw = getattr(self.stt, "last_raw", "").strip()
+        self.heard.save(audio, self.sr, "phone", raw=raw, text=text)
+        log.info("들음(폰, %.1f초): %s", len(audio) / self.sr, text or f"(빈 말) {raw}")
+        return text
+
+    def phone_ask(self, text: str, wait_s: float | None = None) -> dict:
+        """폰에서 온 말을 왼손 주먹 말과 같은 길로. 답이 나올 때까지 기다려 {heard, reply, full, kind} 로"""
+        if not text:
+            return {"heard": "", "reply": "말이 비었어요.", "kind": "empty"}
+        done = threading.Event()
+        box: dict = {"heard": text, "kind": "claude"}
+
+        def reply(spoken: str | None, full: str) -> None:
+            box.update(reply=spoken or "", full=full or spoken or "")
+            done.set()
+        self.last_activity = time.time()
+        self.handle(text, direct=True, phone=reply)
+        if not done.wait(wait_s or self.brain.timeout_s + 30):
+            box.update(reply="답이 너무 늦어요. 맥 상태판을 확인해 주세요.", kind="timeout")
+        return box
+
+    def phone_state(self) -> dict:
+        b = self.board.get()
+        return {"mode": self.mode, "heard": b.get("heard", ""), "reply": b.get("reply", "")}
 
     # ── 끼어들기 (desk/bargein.py) ─────────────────────────────────────────
     def _speech_stop(self, text: str) -> bool:
@@ -626,8 +677,11 @@ class Desk:
 
     def _brain_worker(self) -> None:
         while not self._stop.is_set():
-            text, turn, direct = self.brain_q.get()
+            text, turn, direct, *rest = self.brain_q.get()
+            phone = rest[0] if rest else None
             if turn != self._turn:                   # 받은 뒤에 "멈춰" — 답하지 않음
+                if phone:
+                    phone("멈췄어요.", "")
                 continue
             self._asking = turn
             self._show("thinking")
@@ -635,7 +689,12 @@ class Desk:
                 spoken, full = self.brain.ask(text, direct=direct)
             finally:
                 self._asking = None
-            if turn != self._turn:
+            if phone:                                # 폰에서 한 말 — 답은 폰으로(맥 스피커로는 말하지 않음)
+                if spoken is not None:
+                    self.board.set(reply=full)
+                phone(mac.speakable(spoken) if spoken is not None and turn == self._turn else
+                      "멈췄어요." if turn != self._turn else "무슨 말인지 잘 모르겠어요. 다시 말해 주세요.", full)
+            elif turn != self._turn:
                 log.info("멈춘 뒤 온 답 버림: %s", text[:40])
                 self.board.log("barge", f"(멈춘 뒤 온 답 버림) {text}")
             elif spoken is None and direct:          # 주먹 쥐고 한 말은 무시하지 않음 — 그래도 무시했으면 되묻기
@@ -781,6 +840,8 @@ class Desk:
                            "model": self.model_set, "dial": self.dial, "talk": self.talk},
               port=self.cfg["dashboard"]["port"])
         watch_agents(self.board)
+        if self.cfg.get("phone", {}).get("enabled", True):
+            Phone(self, self.cfg["phone"].get("port", 7071)).start()
         if self.cfg["dashboard"].get("keep_screen", True):
             deskwin.keep(f"http://127.0.0.1:{self.cfg['dashboard']['port']}/")   # 두 번째 모니터 = 책상 창
         threading.Thread(target=self._stt_worker, daemon=True).start()

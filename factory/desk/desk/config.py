@@ -8,6 +8,7 @@ import re
 import tomllib
 
 DEFAULTS: dict = {
+    "phone": {"enabled": True, "port": 7071},   # 폰 비서 앱 — 테일넷 · 127.0.0.1 에만 (desk/phone.py)
     "owner": "",                    # 인사할 때 부를 이름 (비우면 이름 없이)
     "audio": {"device": "", "samplerate": 16000,   # device: 이름 하나 또는 목록(꽂힌 첫 장치, desk/devices.py)
               "side_device": ""},           # 박수 · 끼어들기를 들을 마이크(비우면 device 와 같음)

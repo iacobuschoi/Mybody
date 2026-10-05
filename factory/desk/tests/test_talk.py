@@ -159,7 +159,7 @@ class DaemonTalk(unittest.TestCase):
         d.utt_q.put(Cut(np.zeros(SR, np.float32), True, -1, 0, now - 1, now, direct=True))
         cut = d.utt_q.get()
         d._talked(cut, d._hear_cut(cut))
-        text, _, direct = d.brain_q.get_nowait()
+        text, _, direct, _ = d.brain_q.get_nowait()
         self.assertEqual((text, direct), ("응 해", True))
 
     def test_muted_still_hears_fist_and_sleep_does_not(self):

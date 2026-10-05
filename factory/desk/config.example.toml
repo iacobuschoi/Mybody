@@ -102,3 +102,7 @@ enabled = true                    # 상시 듣기는 그대로. 조용히 모드
 # sound = "Morse"
 # preroll_s = 0.4                 # 쥐기 바로 앞 소리도 붙임
 # tail_s = 0.25                   # 편 뒤 이만큼 더 받고 넘김
+
+[phone]                           # 폰 비서 앱 — 누르고 말하기(왼손 주먹과 같은 길, 답은 폰으로) · 두 화면 보기 · 터치. 테일넷(100.x) · 127.0.0.1 에만 열림
+enabled = true
+port = 7071                       # 열쇠: ~/.config/desk/phone_token
