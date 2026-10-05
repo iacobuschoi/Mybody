@@ -100,6 +100,11 @@ class Server(unittest.TestCase):
         c, b = self.req("/talk", b"\x00\x01" * 1600)
         self.assertEqual(json.loads(b)["heard"], "들은 말")
 
+    def test_apk_without_token(self):
+        phone.APK = os.path.join(self.tmp, "a.apk")
+        open(phone.APK, "wb").write(b"PK")
+        self.assertEqual(self.req("/app.apk", tok=False), (200, b"PK"))
+
     def test_page(self):
         c, b = self.req("/")
         self.assertIn("누르고 말하기", b.decode())

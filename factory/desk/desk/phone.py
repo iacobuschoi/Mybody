@@ -30,6 +30,7 @@ log = logging.getLogger("deskd")
 
 TOKEN_FILE = "~/.config/desk/phone_token"
 TAILNET = ipaddress.ip_network("100.64.0.0/10")
+APK = "~/.local/share/desk/desk-phone.apk"          # phone-app/build.sh 가 만든 것
 
 
 def token(path: str = TOKEN_FILE) -> str:
@@ -271,9 +272,16 @@ class Phone:
                 return self.rfile.read(n) if n else b""
 
             def do_GET(self):
+                u = urlparse(self.path)
+                if u.path == "/app.apk" and allowed_peer(self.client_address[0]):   # 설치 링크 — 테일넷 안에서만
+                    try:
+                        data = Path(os.path.expanduser(APK)).read_bytes()
+                    except OSError:
+                        return self._send(404, b"no apk")
+                    return self._send(200, data, "application/vnd.android.package-archive",
+                                      {"Content-Disposition": 'attachment; filename="desk-phone.apk"'})
                 if not self._ok():
                     return
-                u = urlparse(self.path)
                 q = parse_qs(u.query)
                 if u.path == "/":
                     return self._send(200, PAGE.encode(), "text/html; charset=utf-8")
