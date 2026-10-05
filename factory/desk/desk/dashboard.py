@@ -10,17 +10,20 @@
            주인 15:47). 새 그림이 몇 초 안 오면 칸에 「멈춤」.
            hand-mouse(overlay.py)는 HANDCAM/want 가 몇 초 안에 건드려졌을 때만 view.jpg · view.json 을 쓴다.
 
-오른쪽 칸의 「백그라운드 작업」 은 `claude agents --json` 을 몇 초마다 읽어 채웁니다(watch_agents).
+「작업 현황」 칸은 `claude agents --json` 과 ~/.claude/jobs/<id>/state.json · timeline.jsonl 을 몇 초마다 읽어 채웁니다
+(watch_agents). 주인 손이 필요한 것(권한 · 질문 · blocked)이 맨 위, 그다음 작업 중 · 멈춤(까닭 · 마지막 말) · 끝남.
 """
 from __future__ import annotations
 
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import threading
 import time
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -42,9 +45,9 @@ header{display:flex;align-items:baseline;gap:24px;flex-wrap:wrap}
 .thinking #dot{background:var(--warn)}.speaking #dot{background:#7aa2f7}.muted #dot{background:var(--bad)}
 @keyframes p{0%{box-shadow:0 0 0 0 rgba(86,212,193,.6)}70%{box-shadow:0 0 0 18px rgba(86,212,193,0)}100%{box-shadow:0 0 0 0 rgba(86,212,193,0)}}
 main{display:grid;grid-template-columns:1.4fr 1fr;grid-template-rows:minmax(0,1fr) minmax(0,1fr);gap:24px;min-height:0}
-#agentsCard{grid-column:2;grid-row:1/3}
+#heardCard{grid-column:1;grid-row:1/3}.showing #heardCard{grid-row:1}#taskCard{grid-column:2;grid-row:1/3}
 #handCard{display:none;grid-column:2;grid-row:1;flex-direction:column;padding:16px 20px;overflow:hidden}
-.cam #handCard{display:flex}.stuck #handImg{opacity:.35}.stuck #handText{color:var(--warn)}.cam #agentsCard{grid-row:2}
+.cam #handCard{display:flex}.stuck #handImg{opacity:.35}.stuck #handText{color:var(--warn)}.cam #taskCard{grid-row:2}
 #handImg{flex:1;min-height:0;width:100%;object-fit:contain;border-radius:8px;background:#000}
 #handText{margin-top:10px;font-size:26px;font-weight:600;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* 세로 책상 화면(두 번째 모니터 640×1024, 사파리 창 — desk/deskwin.py): 한 줄로 쌓고 글자는 이 화면에 맞춤 */
@@ -52,31 +55,44 @@ main{display:grid;grid-template-columns:1.4fr 1fr;grid-template-rows:minmax(0,1f
 body{font-size:19px;padding:14px 16px;gap:12px;grid-template-rows:auto minmax(0,1fr)}footer{display:none}
 header{gap:6px 16px}#clock{font-size:56px}#date{font-size:21px}#state{font-size:23px;gap:8px}#dot{width:16px;height:16px}
 #models button,#voiceBtn{font-size:16px;padding:4px 10px}#models button small{font-size:12px}
-main{grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(0,1fr);grid-template-areas:"heard heard" "brief agents";gap:12px}
-.cam main{grid-template-rows:auto 24vh minmax(0,1fr);grid-template-areas:"heard heard" "brief brief" "cam agents"}
-.showing main{grid-template-rows:auto minmax(0,1fr);grid-template-areas:"heard heard" "show show"}
-.showing.cam main{grid-template-rows:auto minmax(0,1fr) 30vh;grid-template-areas:"heard heard" "show show" "cam agents"}
-#heardCard,.showing #heardCard{grid-area:heard;max-height:24vh}#briefCard{grid-area:brief}#handCard{grid-area:cam}#showCard{grid-area:show}
-#agentsCard,.cam #agentsCard{grid-area:agents}.showing #agentsCard{display:none}.showing.cam #agentsCard{display:block}
+main{grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(0,1fr);grid-template-areas:"heard heard" "tasks tasks";gap:12px}
+/* 손 카메라가 켜지면 「들은 말」 과 한 줄에 나란히(왼쪽 말 · 오른쪽 카메라) — 주인 10월 5일 17:52 */
+.cam main{grid-template-columns:1.15fr 1fr;grid-template-rows:27vh minmax(0,1fr);grid-template-areas:"heard cam" "tasks tasks"}
+.showing main{grid-template-rows:auto minmax(0,1fr) minmax(0,34vh);grid-template-areas:"heard heard" "show show" "tasks tasks"}
+.showing.cam main{grid-template-rows:22vh minmax(0,1fr) minmax(0,30vh);grid-template-areas:"heard cam" "show show" "tasks tasks"}
+#heardCard,.showing #heardCard{grid-area:heard;max-height:20vh}#handCard{grid-area:cam}#showCard{grid-area:show}
+#taskCard,.cam #taskCard{grid-area:tasks}
 section{padding:12px 14px}h2{font-size:14px;margin-bottom:6px}
 #heard{font-size:30px}#reply{font-size:21px;margin-top:8px}.showing #heard{font-size:22px}.showing #reply{font-size:17px}
-#panel{font-size:19px}#log{font-size:13px}#agents .row{font-size:16px;padding:4px 0}
-#handCard{padding:10px 12px}#handImg{flex:none;height:auto;aspect-ratio:4/3}#handText{font-size:18px;margin-top:6px;white-space:normal}
+#panel{font-size:19px}
+#handCard{padding:10px 12px}#handText{font-size:17px;line-height:1.3;margin-top:6px;white-space:normal}
+.cam #heardCard{max-height:none}.cam #heard{font-size:28px;line-height:1.35}.cam #reply{font-size:20px}
 }
 section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px 24px;overflow:auto;min-height:0}
 h2{margin:0 0 12px;font-size:18px;letter-spacing:.08em;color:var(--dim);font-weight:600}
 #heard{font-size:40px;font-weight:600;min-height:1.5em}#reply{font-size:29px;margin-top:14px;white-space:pre-wrap;color:#c9d1d9}
 #showCard{display:none;grid-column:1;grid-row:2}#showCard h2 span{float:right;font-weight:400;letter-spacing:0}
 #panel{white-space:pre-wrap;font-size:25px;color:#c9d1d9}
-.showing main{grid-template-rows:auto minmax(0,1fr)}.showing #showCard{display:block}.showing #briefCard{display:none}
+.showing main{grid-template-rows:auto minmax(0,1fr)}.showing #showCard{display:block}
 .showing #heardCard{max-height:30vh}.showing #heard{font-size:29px}.showing #reply{font-size:24px;margin-top:6px}
 .row{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px dashed var(--line)}.row:last-child{border:0}
 .todo{color:var(--warn)}.bad{color:var(--bad)}
-#log{font-size:18px;color:var(--dim);font-family:ui-monospace,Menlo,monospace;max-height:22vh;overflow:auto}
-#log div.ig{opacity:.5}
 footer{color:var(--dim);font-size:20px}
-#agents .row{font-size:21px;flex-wrap:wrap;row-gap:0}#agents .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-#agents .st{margin-left:auto;white-space:nowrap;font-variant-numeric:tabular-nums}.ag-working{color:var(--acc)}.ag-waiting{color:var(--warn)}.ag-done{color:var(--dim)}
+/* 「작업 현황」 — 세로 화면에서 멀리서도 읽히게 큰 글씨. 주인 손이 필요한 것은 노란 테두리로 맨 위 */
+#taskCard h2 b{float:right;font-weight:600;letter-spacing:0;color:var(--ink)}
+#tasks h3{margin:14px 0 6px;font-size:17px;letter-spacing:.06em;color:var(--dim);font-weight:600}#tasks h3:first-child{margin-top:0}
+.tk{padding:8px 0;border-bottom:1px dashed var(--line)}.tk:last-child{border:0}
+.tk-top{display:flex;align-items:baseline;gap:12px}.tk-name{font-size:26px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tk-ago{margin-left:auto;white-space:nowrap;font-size:19px;color:var(--dim);font-variant-numeric:tabular-nums}
+.tk-detail{font-size:21px;line-height:1.35;margin-top:2px}.tk-why{font-size:22px;font-weight:600;color:var(--warn);margin-top:2px}
+.tk-last{font-size:18px;line-height:1.4;color:var(--dim);margin-top:3px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
+.tk.need{border:2px solid var(--warn);background:rgba(227,179,65,.12);border-radius:10px;padding:10px 14px;margin-bottom:10px}
+.tk.need .tk-name{color:var(--warn)}.tk.need .tk-last{color:#c9d1d9;-webkit-line-clamp:3}
+.tk.working .tk-name{color:var(--acc)}.tk.working .tk-last{-webkit-line-clamp:1}
+.tk.stopped .tk-name{color:var(--bad)}.tk.stopped .tk-why{color:var(--bad)}
+.tk.done{padding:5px 0}.tk.done .tk-name{font-size:19px;font-weight:600;color:var(--dim);flex:none;max-width:45%}
+.tk.done .tk-detail{font-size:17px;color:var(--dim);margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.badge{font-size:16px;font-weight:700;background:var(--warn);color:#2b1d00;border-radius:6px;padding:1px 8px;white-space:nowrap}
 #models{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
 #models button{background:none;border:0;border-left:1px solid var(--line);color:var(--dim);padding:6px 14px;font:inherit;font-size:20px;cursor:pointer}
 #models button:first-child{border-left:0}#models button:hover{color:var(--ink)}
@@ -98,10 +114,9 @@ footer{color:var(--dim);font-size:20px}
 <header><div id="clock">--:--</div><div id="date"></div><div id="state"><span id="dot"></span><span id="stateText">대기</span></div><div id="models" title="비서 모델 — 말로도: &quot;빠른 모드&quot; · &quot;정확한 모드&quot;"></div><button id="voiceBtn">목소리</button></header>
 <main>
  <section id="heardCard"><h2>들은 말</h2><div id="heard">—</div><div id="reply"></div></section>
- <section id="briefCard"><h2>지금 상태</h2><div id="brief"></div><h2 style="margin-top:20px">기록</h2><div id="log"></div></section>
  <section id="showCard"><h2>화면에 띄운 글<span>클릭 · Esc 로 닫기</span></h2><div id="panel"></div></section>
  <section id="handCard"><h2>손 카메라</h2><img id="handImg" alt=""><div id="handText"></div></section>
- <section id="agentsCard"><h2>백그라운드 작업</h2><div id="agents"></div></section>
+ <section id="taskCard"><h2>작업 현황<b id="taskSum"></b></h2><div id="mic"></div><div id="tasks"></div></section>
 </main>
 <div id="voiceDlg" hidden><div id="voiceBox"><h2>목소리 설정</h2>
  <label>목소리</label><select id="vSel"></select>
@@ -118,14 +133,28 @@ const W="일월화수목금토";
 function tick(){const d=new Date();clock.textContent=d.toTimeString().slice(0,5);date.textContent=`${d.getMonth()+1}월 ${d.getDate()}일 ${W[d.getDay()]}요일`}
 setInterval(tick,1000);tick();
 function esc(s){return String(s??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]))}
-const AG={working:"작업 중",done:"완료",waiting:"대기"};
 function ago(ms){const m=Math.max(0,Math.floor((Date.now()-ms)/60000));return m<60?`${m}분`:m<1440?`${Math.floor(m/60)}시간 ${m%60}분`:`${Math.floor(m/1440)}일`}
 let agentsNow=null;
+// 「작업 현황」 — 주인 손 필요(needs) · 작업 중 · 멈춤 · 끝남(최근 4개만) 순서
+const DONE_MAX=4;
+function tkRow(x){const t=x.state==="working"?x.started:x.updated;
+ const top=`<div class="tk-top"><span class="tk-name">${esc(x.name)}</span>${x.state==="needs"?'<span class="badge">확인 필요</span>':""}<span class="tk-ago">${t?ago(t)+(x.state==="working"?"째":" 전"):""}</span></div>`;
+ if(x.state==="done")return `<div class="tk done"><div class="tk-top"><span class="tk-name">${esc(x.name)}</span><span class="tk-detail">${esc(x.detail)}</span><span class="tk-ago">${t?ago(t)+" 전":""}</span></div></div>`;
+ const why=x.state==="working"?"":(x.why||(x.state==="stopped"?"멈춤":""));
+ const last=x.last&&x.last!==x.detail?`<div class="tk-last">${esc(x.last)}</div>`:"";
+ return `<div class="tk ${x.state}">${top}${why?`<div class="tk-why">${esc(why)}</div>`:""}${x.detail?`<div class="tk-detail">${esc(x.detail)}</div>`:""}${last}</div>`}
 function renderAgents(){const a=agentsNow;
- if(a===null){agents.innerHTML='<span style="color:var(--dim)">읽는 중…</span>';return}
- agents.innerHTML=a.length?a.map(x=>`<div class="row ag-${x.state}"><span class="nm">${esc(x.name)}</span><span class="st">${AG[x.state]||esc(x.state)} · ${x.started?ago(x.started):"—"}</span></div>`).join(""):'<span style="color:var(--dim)">없음</span>'}
+ if(a===null){tasks.innerHTML='<span style="color:var(--dim)">읽는 중…</span>';return}
+ const g=k=>a.filter(x=>x.state===k),need=g("needs"),work=g("working"),stop=g("stopped"),done=g("done");
+ taskSum.textContent=[need.length&&`확인 ${need.length}`,`작업 중 ${work.length}`,stop.length&&`멈춤 ${stop.length}`].filter(Boolean).join(" · ");
+ let h="";
+ if(need.length)h+=`<h3>주인 확인이 필요해요</h3>`+need.map(tkRow).join("");
+ if(work.length)h+=`<h3>작업 중</h3>`+work.map(tkRow).join("");
+ if(stop.length)h+=`<h3>멈춤</h3>`+stop.map(tkRow).join("");
+ if(done.length)h+=`<h3>끝남${done.length>DONE_MAX?` (최근 ${DONE_MAX}개 / ${done.length})`:""}</h3>`+done.slice(0,DONE_MAX).map(tkRow).join("");
+ tasks.innerHTML=h||'<span style="color:var(--dim)">백그라운드 작업 없음</span>'}
 setInterval(renderAgents,30000);
-// deskctl show 로 온 긴 글은 「지금 상태」 자리에 크게 — 클릭 · Esc 로 닫거나 15분 지나면 원래대로
+// deskctl show 로 온 긴 글은 「들은 말」 아래에 크게 — 클릭 · Esc 로 닫거나 15분 지나면 원래대로
 const SHOW_MS=15*60000;let shown="",closedAt=-1,last={};
 function showing(){return !!last.panel&&last.panel_at!==closedAt&&Date.now()-(last.panel_at||0)<SHOW_MS}
 function closeShow(){closedAt=last.panel_at;render(last)}
@@ -134,18 +163,9 @@ function render(st){last=st;
  document.body.className=(st.mode||"sleep")+(showing()?" showing":"")+(camShown?" cam":"");stateText.textContent=S[st.mode]||st.mode;
  heard.textContent=st.heard||"—";reply.textContent=st.reply||"";
  if(st.panel!==shown){shown=st.panel||"";panel.textContent=shown;showCard.scrollTop=0}
- const b=st.briefing||{},f=b.factory||{},l=b.lab||{};let h="";
- if(st.mic==="blocked")h+=`<div class="row bad"><span>마이크 막힘</span><span>설정 → 개인정보 보호 및 보안 → 마이크 → deskd 켜기</span></div>`;
- if(b.weather)h+=`<div class="row"><span>날씨</span><span>${esc(b.weather)}</span></div>`;
- (f.apps||[]).forEach(a=>h+=`<div class="row"><span>${esc(a.name)}</span><span>${esc(a.stage)}</span></div>`);
- if(f.waiting_approvals)h+=`<div class="row todo"><span>출시 승인 대기</span><span>${f.waiting_approvals}건</span></div>`;
- (f.owner_todo||[]).forEach(t=>h+=`<div class="row todo"><span>할 일</span><span>${esc(t)}</span></div>`);
- if(f.red_main)h+=`<div class="row bad"><span>실패한 빌드</span><span>${f.red_main}</span></div>`;
- if(l.runner!==undefined)h+=`<div class="row"><span>실험실</span><span>러너 ${l.runner?"켜짐":"꺼짐"} · 아이폰 ${l.iphone?"연결":"없음"} · 안드로이드 ${l.android||0} · 디스크 ${esc(l.disk_free||"")}</span></div>`;
- brief.innerHTML=h||'<span style="color:var(--dim)">박수 두 번이면 브리핑합니다</span>';
+ mic.innerHTML=st.mic==="blocked"?`<div class="tk need"><div class="tk-name">마이크 막힘</div><div class="tk-detail">설정 → 개인정보 보호 및 보안 → 마이크 → deskd 켜기</div></div>`:"";
  if(st.agents!==undefined&&JSON.stringify(st.agents)!==JSON.stringify(agentsNow)){agentsNow=st.agents;renderAgents()}
  drawModels(st);
- log.innerHTML=(st.log||[]).slice().reverse().map(x=>`<div class="${x.kind==='ignore'?'ig':''}">${esc(x.t)} ${esc(x.kind)} · ${esc(x.text)}</div>`).join("");
 }
 // 위쪽 모델 토글 — 누르면 config.toml [brain] model 에 쓰고 다음 말부터 그 모델 (말로는 "빠른 모드" 등)
 let modelsKey="";
@@ -259,8 +279,81 @@ class Board:
             return self._ver
 
 
-def read_agents(run=subprocess.run) -> list[dict] | None:
-    """`claude agents --json` 에서 kind 가 background 인 것만 — 이름 · 상태(working/done/waiting) · 시작 시각(ms).
+JOBS = os.path.expanduser("~/.claude/jobs")   # 백그라운드 작업마다 <id>/state.json · timeline.jsonl
+STATE = {"blocked": "needs", "waiting": "needs", "needs_input": "needs",
+         "working": "working", "running": "working", "busy": "working",
+         "done": "done", "idle": "done", "completed": "done",
+         "stopped": "stopped", "failed": "stopped", "error": "stopped", "killed": "stopped"}
+ORDER = {"needs": 0, "working": 1, "stopped": 2, "done": 3}
+# 끝난 작업이라도 끝 보고가 주인을 기다리면(「announcement pending owner」 · 「주인 확인」) 하루 동안은 맨 위로
+OWNER_RE = re.compile(r"\b(owner|user)\b|go-ahead|approv|주인|승인|확인 요청", re.I)
+OWNER_FRESH_MS = 24 * 3600 * 1000
+
+
+def _ms(iso) -> int:
+    """'2026-10-05T08:40:37.913Z' → ms (못 읽으면 0)."""
+    if not isinstance(iso, str) or not iso:
+        return 0
+    try:
+        return int(datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp() * 1000)
+    except ValueError:
+        return 0
+
+
+def _gist(text: str, limit: int = 160) -> str:
+    """마지막 메시지에서 마지막 문단 한 줄 — 마크다운 기호를 걷고 짧게."""
+    paras = [p for p in re.split(r"\n\s*\n", text or "") if p.strip()]
+    if not paras:
+        return ""
+    s = re.sub(r"[*`#>]|^\s*[-•]\s*|\[([^\]]*)\]\([^)]*\)", lambda m: m.group(1) or "", paras[-1], flags=re.M)
+    s = " ".join(s.split())
+    return s if len(s) <= limit else s[:limit - 1].rstrip() + "…"
+
+
+def _tail_text(path: str, max_bytes: int = 65536) -> str:
+    """timeline.jsonl 끝에서부터 글(text)이 있는 마지막 줄의 글 — 지금 상태가 이어진 구간 안에서만
+    (새로 작업 중인데 지난번 끝 보고가 「마지막 말」로 보이지 않게)."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - max_bytes))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+    except OSError:
+        return ""
+    now = None
+    for ln in reversed(lines):
+        try:
+            e = json.loads(ln)
+            state, t = e.get("state"), e.get("text")
+        except (ValueError, AttributeError):
+            continue
+        if now is None:
+            now = state
+        elif state != now:
+            return ""
+        if isinstance(t, str) and t.strip():
+            return t
+    return ""
+
+
+def _job(jid: str, jobs: str) -> dict:
+    if not jid:
+        return {}
+    try:
+        with open(os.path.join(jobs, jid, "state.json"), encoding="utf-8") as f:
+            st = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(st, dict):
+        return {}
+    st["_last"] = _tail_text(os.path.join(jobs, jid, "timeline.jsonl"))
+    return st
+
+
+def read_agents(run=subprocess.run, jobs: str = JOBS) -> list[dict] | None:
+    """「작업 현황」 — `claude agents --json` 의 background 작업마다 ~/.claude/jobs/<id>/state.json 을 붙여 읽음.
+    state: needs(주인 손 필요: 권한 · 질문 · blocked) · working · stopped(멈춤) · done.
+    detail 은 지금 하는 일(state.json detail), why 는 멈춘 · 기다리는 까닭(waitingFor · needs), last 는 마지막 메시지 한 줄.
     못 읽으면 None(화면은 직전 목록을 그대로 둠)."""
     exe = shutil.which("claude") or os.path.expanduser("~/.local/bin/claude")
     try:
@@ -274,13 +367,24 @@ def read_agents(run=subprocess.run) -> list[dict] | None:
     for a in items:
         if not isinstance(a, dict) or a.get("kind") != "background":
             continue
-        st = a.get("state") or a.get("status") or ""
-        state = ("done" if st in ("done", "idle") else
-                 "working" if st in ("working", "busy") else "waiting")   # blocked · waiting · 그 밖
-        rows.append({"name": a.get("name") or a.get("id") or str(a.get("pid", "")), "state": state,
-                     "started": a.get("startedAt") or 0})
-    order = {"working": 0, "waiting": 1, "done": 2}
-    rows.sort(key=lambda r: (order[r["state"]], -r["started"]))
+        job = _job(a.get("id") or "", jobs)
+        waiting = a.get("waitingFor") or job.get("waitingFor") or ""
+        needs = job.get("needs") or a.get("needs") or ""
+        raw = job.get("state") or a.get("state") or a.get("status") or ""
+        state = STATE.get(raw, "stopped" if raw else "done")
+        if waiting or needs or a.get("status") == "waiting" or job.get("tempo") == "blocked":
+            state = "needs"
+        why = " · ".join(str(x) for x in (needs, waiting) if x)
+        updated = _ms(job.get("updatedAt")) or a.get("startedAt") or 0
+        if (state == "done" and OWNER_RE.search(job.get("detail") or "")
+                and time.time() * 1000 - updated < OWNER_FRESH_MS):
+            state, why = "needs", "끝났지만 주인 확인이 필요해요"
+        rows.append({"name": a.get("name") or job.get("name") or a.get("id") or str(a.get("pid", "")),
+                     "state": state, "started": a.get("startedAt") or 0,
+                     "updated": updated,
+                     "detail": _gist(job.get("detail") or "", 120), "why": why,
+                     "last": _gist(job.get("_last") or "")})
+    rows.sort(key=lambda r: (ORDER[r["state"]], -r["updated"]))
     return rows
 
 
