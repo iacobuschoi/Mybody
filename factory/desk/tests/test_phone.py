@@ -133,6 +133,7 @@ class NoticeRules(unittest.TestCase):
                 {"name": "factory", "state": "working"}]
         self.n.agents(rows)
         self.n.agents(rows)                                     # 같은 건 반복 알림 없음
+        self.n.agents([{**rows[0], "why": "다른 까닭"}])         # 막힌 채 까닭 글만 바뀌어도 다시 안 알림
         items = self.n.since(0)["items"]
         self.assertEqual(len(items), 1)
         self.assertIn("MyBody_mac", items[0]["title"])

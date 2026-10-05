@@ -12,6 +12,7 @@ final class Net {
 
     /** http://127.0.0.1:<프록시> — 테일넷으로 맥에 닿음 */
     static synchronized String base(Context c) throws Exception {
+        if (!Secrets.DIRECT.isEmpty()) return Secrets.DIRECT;   // 에뮬레이터 시험 빌드만 — 테일넷 없이 맥으로 바로
         if (base == null) {
             deskts.Deskts.setInterfaces(interfaces());
             long port = deskts.Deskts.start(c.getFilesDir() + "/tailscale", "desk-phone", Secrets.TARGET);
@@ -19,6 +20,9 @@ final class Net {
         }
         return base;
     }
+
+    /** "Running" 이면 맥에 닿음, "NeedsLogin" 이면 로그인 */
+    static String status() { return Secrets.DIRECT.isEmpty() ? deskts.Deskts.status() : "Running"; }
 
     static void refresh() { deskts.Deskts.setInterfaces(interfaces()); }
 

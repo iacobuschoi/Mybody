@@ -228,7 +228,7 @@ class Notices:
         cur = {}
         for r in rows or []:
             if r.get("state") == "needs":
-                cur[f"agent:{r.get('name')}:{r.get('why') or ''}"] = r
+                cur[f"agent:{r.get('name')}"] = r       # 막힌 동안 까닭 글이 바뀌어도 한 번만
         for nid, r in cur.items():
             if nid not in self._needs:
                 why = r.get("why") or "확인이 필요해요"

@@ -62,9 +62,16 @@ public class MainActivity extends Activity {
         s.setDomStorageEnabled(true);
         s.setMediaPlaybackRequiresUserGesture(false);
         web.addJavascriptInterface(new Bridge(), "DeskApp");
+        web.setWebChromeClient(new android.webkit.WebChromeClient() {
+            @Override public boolean onConsoleMessage(android.webkit.ConsoleMessage m) {
+                android.util.Log.i("desk", "js: " + m.message() + " @" + m.lineNumber());
+                return true;
+            }
+        });
         web.setWebViewClient(new WebViewClient() {
             @Override public void onPageFinished(WebView v, String url) {
-                pageReady = url != null && url.startsWith("http://127.0.0.1");
+                pageReady = url != null && base != null && url.startsWith(base);
+                android.util.Log.i("desk", "pageFinished " + url + " ready=" + pageReady);
                 if (pageReady && notice != null) { js("deskNotice", notice); notice = null; }
             }
 
@@ -118,6 +125,7 @@ public class MainActivity extends Activity {
     @Override protected void onNewIntent(Intent i) {
         super.onNewIntent(i);
         String n = i.getStringExtra("notice");
+        android.util.Log.i("desk", "onNewIntent notice=" + (n != null) + " pageReady=" + pageReady);
         if (n == null) return;
         notice = n;
         if (pageReady) { js("deskNotice", notice); notice = null; }
@@ -126,7 +134,7 @@ public class MainActivity extends Activity {
     /** 테일넷 상태를 보고 로그인 화면 · 비서 화면을 고름. 붙은 뒤에도 끊기면(키 만료 등) 다시 로그인 화면 */
     void watch() {
         new Thread(() -> {
-            String st = deskts.Deskts.status();
+            String st = Net.status();
             String url = "NeedsLogin".equals(st) ? deskts.Deskts.authURL() : "";
             ui.post(() -> {
                 if ("Running".equals(st)) {

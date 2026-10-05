@@ -67,7 +67,7 @@ public class NoticeService extends Service {
         while (run) {
             try {
                 String base = Net.base(this);
-                if (!"Running".equals(deskts.Deskts.status())) { Thread.sleep(5000); continue; }
+                if (!"Running".equals(Net.status())) { Thread.sleep(5000); continue; }
                 String boot = p.getString("boot", "");
                 long since = p.getLong("since", 0);
                 JSONObject r = new JSONObject(get(base + "/notices?since=" + since + "&wait=50"));

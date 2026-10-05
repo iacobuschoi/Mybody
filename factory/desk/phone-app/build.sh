@@ -16,7 +16,7 @@ PATH=$HOME/go/bin:$JAVA_HOME/bin:$PATH ANDROID_HOME=$SDK ANDROID_NDK_HOME=$NDK \
 (cd build/ts && unzip -q deskts.aar && cp jni/arm64-v8a/libgojni.so ../apk/lib/arm64-v8a/)
 cat > build/gen/lab/desk/phone/Secrets.java <<J
 package lab.desk.phone;
-final class Secrets { static final String TARGET = "$TARGET"; static final String TOKEN = "$TOKEN"; }
+final class Secrets { static final String TARGET = "$TARGET"; static final String TOKEN = "$TOKEN"; static final String DIRECT = "${DESK_PHONE_DIRECT:-}"; }
 J
 $BT/aapt2 compile --dir res -o build/flat
 $BT/aapt2 link -o build/base.apk -I $JAR --manifest AndroidManifest.xml --java build/gen build/flat/*.flat
@@ -32,5 +32,8 @@ if [ ! -f $KS ]; then
 fi
 $BT/apksigner sign --ks $KS --ks-pass pass:desk-phone --key-pass pass:desk-phone --out build/desk-phone.apk build/aligned.apk
 $BT/apksigner verify build/desk-phone.apk
+if [ -n "${DESK_PHONE_DIRECT:-}" ]; then   # 에뮬레이터 시험 빌드(테일넷 없이 $DESK_PHONE_DIRECT 로) — 주인에게 주는 APK 와 섞지 않음
+  cp build/desk-phone.apk build/desk-phone-direct.apk; ls -la build/desk-phone-direct.apk; exit 0
+fi
 mkdir -p ~/.local/share/desk && cp build/desk-phone.apk ~/.local/share/desk/desk-phone.apk
 ls -la ~/.local/share/desk/desk-phone.apk
