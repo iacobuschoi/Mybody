@@ -109,6 +109,12 @@ class Server(unittest.TestCase):
         c, b = self.req("/")
         self.assertIn("누르고 말하기", b.decode())
 
+    def test_talk_ends_only_on_release(self):
+        page = phone.PAGE
+        self.assertNotIn("addEventListener('pointercancel',end)", page)   # 길게 누르기 제스처는 떼기가 아님
+        self.assertNotIn("addEventListener('pointerleave',end)", page)
+        self.assertIn("document.addEventListener('touchend'", page)
+
 
 class Peers(unittest.TestCase):
     def test_tailnet_only(self):

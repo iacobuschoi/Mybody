@@ -358,7 +358,7 @@ html,body{margin:0;height:100%;background:#0d1117;color:#e6edf3;font-family:syst
 #keys button,#tools button{padding:9px 10px;border-radius:8px;border:1px solid #30363d;background:#21262d;color:#e6edf3;font-size:14px}
 #tools{display:flex;gap:6px;margin-bottom:6px}
 #tools button.on{background:#1f6feb;border-color:#1f6feb}
-#talk{width:100%;padding:16px;border-radius:14px;border:0;background:#1f6feb;color:#fff;font-size:19px;font-weight:600}
+#talk{width:100%;padding:16px;border-radius:14px;border:0;background:#1f6feb;color:#fff;font-size:19px;font-weight:600;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 #talk.rec{background:#da3633}
 #talk.wait{background:#6e7681}
 #reply{font-size:15px;line-height:1.45;max-height:30vh;overflow:auto;margin-bottom:6px;white-space:pre-wrap}
@@ -448,9 +448,18 @@ $('ask').onclick=async()=>{const v=$('txt').value.trim();if(!v)return;$('txt').v
  catch(e){showReply({reply:'연결이 안 돼요. Tailscale 이 켜져 있는지 봐 주세요.'})}};
 const tk=$('talk');
 if(!app){tk.textContent='누르고 말하기 (앱에서만)';tk.disabled=true}
-tk.addEventListener('pointerdown',e=>{if(!app||tk.classList.contains('wait'))return;e.preventDefault();app.stopSpeak();tk.classList.add('rec');tk.textContent='듣는 중… 떼면 보냄';app.startTalk()});
-const end=e=>{if(!app||!tk.classList.contains('rec'))return;tk.classList.remove('rec');tk.classList.add('wait');tk.textContent='받아쓰고 생각 중…';app.stopTalk()};
-tk.addEventListener('pointerup',end);tk.addEventListener('pointercancel',end);tk.addEventListener('pointerleave',end);
+// 누르고 있는 동안 계속 녹음 — 손가락을 뗄 때(touchend · pointerup)만 보냄. 길게 누르기 · 스크롤 제스처가 만드는
+// pointercancel · pointerleave 는 떼기가 아님(주인 10월 5일 18:12: 누르고 있는데 「생각 중」 으로 넘어가던 것)
+let recTimer=null;
+const begin=e=>{e.preventDefault();if(!app||tk.classList.contains('wait')||tk.classList.contains('rec'))return;
+ app.stopSpeak();tk.classList.add('rec');tk.textContent='듣는 중… 떼면 보냄';app.startTalk();
+ recTimer=setTimeout(end,90000)};
+function end(){clearTimeout(recTimer);if(!app||!tk.classList.contains('rec'))return;tk.classList.remove('rec');tk.classList.add('wait');tk.textContent='받아쓰고 생각 중…';app.stopTalk()}
+tk.addEventListener('touchstart',begin,{passive:false});
+tk.addEventListener('mousedown',begin);
+tk.addEventListener('contextmenu',e=>e.preventDefault());
+document.addEventListener('touchend',e=>{if(!e.touches.length)end()});
+document.addEventListener('mouseup',end);
 loop();
 </script></body></html>
 """
