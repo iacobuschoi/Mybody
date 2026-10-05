@@ -56,15 +56,17 @@ body{font-size:19px;padding:14px 16px;gap:12px;grid-template-rows:auto minmax(0,
 header{gap:6px 16px}#clock{font-size:56px}#date{font-size:21px}#state{font-size:23px;gap:8px}#dot{width:16px;height:16px}
 #models button,#voiceBtn{font-size:16px;padding:4px 10px}#models button small{font-size:12px}
 main{grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(0,1fr);grid-template-areas:"heard heard" "tasks tasks";gap:12px}
-.cam main{grid-template-rows:auto 22vh minmax(0,1fr);grid-template-areas:"heard heard" "cam cam" "tasks tasks"}
+/* 손 카메라가 켜지면 「들은 말」 과 한 줄에 나란히(왼쪽 말 · 오른쪽 카메라) — 주인 10월 5일 17:52 */
+.cam main{grid-template-columns:1.15fr 1fr;grid-template-rows:27vh minmax(0,1fr);grid-template-areas:"heard cam" "tasks tasks"}
 .showing main{grid-template-rows:auto minmax(0,1fr) minmax(0,34vh);grid-template-areas:"heard heard" "show show" "tasks tasks"}
-.showing.cam main{grid-template-rows:auto minmax(0,1fr) 30vh;grid-template-areas:"heard heard" "show show" "cam tasks"}
+.showing.cam main{grid-template-rows:22vh minmax(0,1fr) minmax(0,30vh);grid-template-areas:"heard cam" "show show" "tasks tasks"}
 #heardCard,.showing #heardCard{grid-area:heard;max-height:20vh}#handCard{grid-area:cam}#showCard{grid-area:show}
 #taskCard,.cam #taskCard{grid-area:tasks}
 section{padding:12px 14px}h2{font-size:14px;margin-bottom:6px}
 #heard{font-size:30px}#reply{font-size:21px;margin-top:8px}.showing #heard{font-size:22px}.showing #reply{font-size:17px}
 #panel{font-size:19px}
-#handCard{padding:10px 12px}#handText{font-size:18px;margin-top:6px;white-space:normal}
+#handCard{padding:10px 12px}#handText{font-size:17px;line-height:1.3;margin-top:6px;white-space:normal}
+.cam #heardCard{max-height:none}.cam #heard{font-size:28px;line-height:1.35}.cam #reply{font-size:20px}
 }
 section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px 24px;overflow:auto;min-height:0}
 h2{margin:0 0 12px;font-size:18px;letter-spacing:.08em;color:var(--dim);font-weight:600}
