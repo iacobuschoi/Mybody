@@ -110,11 +110,13 @@ cd ~/lab/desk && .venv/bin/python -m desk calibrate   # 박수를 쳐 보고 ★
 
 ## 폰 비서 앱 (집 밖에서)
 
-주인 안드로이드 폰 전용 APK(스토어 아님, `phone-app/`). 폰 Tailscale → 이 맥 `100.83.32.36:7071`.
+주인 안드로이드 폰 전용 APK(스토어 아님, `phone-app/`). **폰에 Tailscale 앱은 필요 없음** — 앱 안에 Tailscale(tsnet, `phone-app/deskts/`)이 들어 있어
+처음 한 번 앱에서 「Tailscale 로그인」(맥과 같은 계정)만 하면 테일넷 기기 `desk-phone` 으로 붙어 이 맥 `100.83.32.36:7071` 로 감.
+키 만료(기본 180일)가 오면 앱이 다시 로그인 화면을 띄움 — 관리 화면(login.tailscale.com/admin/machines)에서 desk-phone 「Disable key expiry」로 끌 수 있음.
 - **누르고 말하기** = 왼손 주먹 말과 같은 길(같은 세션 · CLAUDE.md · 권한, `[음성·주먹]`). 답은 맥 스피커가 아니라 폰에서 글 · 소리로
 - **주 화면 · 세로 모니터** 실시간 보기, 탭 = 클릭 · 두 번 = 더블클릭 · 길게 = 오른쪽 클릭 · 끌기 = 스크롤, 글자 입력
 - 테일넷(100.64.0.0/10) · 127.0.0.1 에만 열고 열쇠(`~/.config/desk/phone_token`)가 맞아야 받음. funnel 안 씀
-- 빌드: `phone-app/build.sh` → `~/.local/share/desk/desk-phone.apk`, 설치 링크 `http://100.83.32.36:7071/app.apk`(테일넷 안에서만).
+- 빌드(JDK 17 · Android SDK · NDK 26 · Go · gomobile): `phone-app/build.sh` → `~/.local/share/desk/desk-phone.apk`, 설치 링크 `http://100.83.32.36:7071/app.apk`(테일넷 안에서만).
   같은 서명 열쇠(`~/.config/desk/phone-app.keystore`)로 빌드해야 폰에서 덮어 설치됨. 끄기: config `[phone] enabled = false`
 
 ## 알아둘 것
