@@ -1324,3 +1324,32 @@ release). 가게 페이지가 바깥에 뜨기까지 몇 시간 걸릴 수 있�
    다른 게 크면 이름 · 크기만 보고. 서버 · 터널은 재시작하지 않음(돌고 있으면 그대로).
 
 보고: "54 끝" + 위 8개(이름 · GB) · 남은 메모리 · 서버 자체 응답 시간 3번 · 한 일(있으면).
+
+## 55. ★급함 · 주인 승인 — 노트북 재부팅 (10/5 14:57 · 주인 "재부팅해")
+
+14:52 · 14:54 깃허브 바깥 확인에서 health · /api/version · /get · /inbox 가 **모두 000**(15초 넘게 응답 없음)이었습니다. 54 에서 본
+커널/드라이버 메모리 누수(남은 RAM 0.07 GB · 비페이징 풀 계속 늚) 때문으로 봅니다. 주인이 노트북 재부팅을 승인했습니다.
+**아래 1~3 은 5분 안에 끝내고 바로 재부팅합니다.** 내려받기는 하지 않습니다(RAMMap 안 씀).
+
+1. 재부팅 전에 읽기만(재부팅 뒤와 견주려고):
+   - `Get-Counter '\Memory\Available MBytes','\Memory\Pool Nonpaged Bytes'` → 남은 메모리 · 비페이징 풀(GB).
+   - 안에서 `curl -s -m 20 -o NUL -w "%{http_code} %{time_total}" http://127.0.0.1:8080/api/health` 한 번.
+   - **아무도 안 만져도 서버가 다시 뜨는지**: 「Mybody 서버」 작업은 로그온 30초 뒤에 뜹니다. 자동 로그온인지
+     `reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon" /v AutoAdminLogon` 으로 **이 값 하나만** 봅니다
+     (DefaultPassword 같은 다른 값은 읽지도 적지도 않음). 설정은 바꾸지 않습니다.
+   - 밀린 윈도우 업데이트가 있는지(있으면 재부팅이 길어짐): `Test-Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired'`.
+   - 전원: 충전기 꽂힘 여부 · 배터리 %.
+2. **저장 안 된 작업 확인**: `Get-Process | ? MainWindowTitle | select Name, MainWindowTitle` 로 창 제목에 저장 안 됨 표시(`*` · `●` ·
+   「저장되지 않음」 · Unsaved)가 있는 앱이 있는지 봅니다(제목은 보고에 적지 말고 앱 이름 · 개수만).
+   - 있으면 **재부팅하지 말고** "55 멈춤 — 저장 안 된 창: 앱 이름 N개" 만 보고 · push 하고 기다립니다(클라우드가 주인에게 물어봄).
+   - 없으면 3 으로.
+3. 보고 "55 재부팅 직전 HH:MM" + 1 의 숫자들 · 자동 로그온 값 · 업데이트 대기 여부 · 전원 → commit · push
+   (메모리 때문에 push 가 안 되면 한 번만 다시 해 보고, 그래도 안 되면 그냥 재부팅).
+   그리고 `shutdown /r /t 60 /c "Mybody: 메모리 정리를 위해 1분 뒤 재부팅합니다 (주인 승인)"`.
+   (주인이 노트북 앞에 있다가 멈추고 싶으면 `shutdown /a`.)
+4. 재부팅 뒤 이 세션이 다시 켜졌으면: 「Mybody 서버」 가 돌고 있나 · 안 `/api/health` 응답 시간 · 남은 메모리 · 비페이징 풀 ·
+   바깥 check-host `/api/health` · 인스타 UA `/get` 에 「크롬으로 열기」. 터널이 안 붙었으면 49 처럼 `tailscale debug rebind` · `restun`
+   → 그래도 안 되면 「Mybody 서버」 끝냈다 다시. 세션이 다시 안 켜져도 괜찮습니다 — 클라우드가 바깥에서 5분마다 봅니다.
+**test-selfhost 는 돌리지 않음.** 실제 DB 안 건드림. 서버 코드 · 작업 스케줄러 · 로그온 설정은 바꾸지 않음. 프로덕션 신청 안 함.
+
+보고: "55 재부팅 직전" (1 의 숫자들) → 재부팅 뒤 "55 끝" + 다시 뜬 시각 · 안/바깥 health · 남은 메모리 · 비페이징 풀.
