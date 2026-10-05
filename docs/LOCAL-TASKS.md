@@ -421,7 +421,7 @@ v0.2.0 이 나갔습니다: https://github.com/iacobuschoi/Mybody/releases/tag/v
 
 끝나면 "17 끝" + 올린 빌드 번호(애플) · versionCode(구글) · 안 맞는 것.
 
-## 18. 서버를 맥미니로 옮기기 — 노트북 쪽 (맥 준비가 끝나고 주인이 "18 해" 라고 할 때)
+## 18. 서버를 맥미니로 옮기기 — 노트북 쪽 (맥 준비가 끝나고 주인이 "18 해" 라고 할 때) → **57 이 대신함**
 
 주인이 중고 맥미니(M1 · 16GB)를 사서 **서버를 노트북에서 맥으로 옮깁니다.** 전체 순서는
 `docs/MAC.md` 7절이고, 여기는 노트북이 할 몫입니다. **이 절이 15(오라클)를 대신합니다** — 오라클은
@@ -1325,7 +1325,7 @@ release). 가게 페이지가 바깥에 뜨기까지 몇 시간 걸릴 수 있�
 
 보고: "54 끝" + 위 8개(이름 · GB) · 남은 메모리 · 서버 자체 응답 시간 3번 · 한 일(있으면).
 
-## 55. ★급함 · 주인 승인 — 노트북 재부팅 (10/5 14:57 · 주인 "재부팅해")
+## 55. ★급함 · 주인 승인 — 노트북 재부팅 (10/5 14:57 · 주인 "재부팅해") — **끝(10/5 15:05 재부팅됨) · ⛔ 풀림 · 56 없음 → 57**
 
 > **⛔ 15:05 고침 — 아직 재부팅하지 마세요.** 주인: "클로드는 자동으로 켜지게 해놓고 해". 재부팅 뒤 이 노트북 Claude 세션도
 > 저절로 다시 켜지게 하는 과제(56)를 곧 이 파일에 적습니다. **56 을 먼저 끝낸 뒤** 55 의 재부팅(3번)을 합니다.
@@ -1357,3 +1357,166 @@ release). 가게 페이지가 바깥에 뜨기까지 몇 시간 걸릴 수 있�
 **test-selfhost 는 돌리지 않음.** 실제 DB 안 건드림. 서버 코드 · 작업 스케줄러 · 로그온 설정은 바꾸지 않음. 프로덕션 신청 안 함.
 
 보고: "55 재부팅 직전" (1 의 숫자들) → 재부팅 뒤 "55 끝" + 다시 뜬 시각 · 안/바깥 health · 남은 메모리 · 비페이징 풀.
+
+## 57. 서버를 맥으로 — 노트북 쪽 (LOCAL-TASKS 18 을 대신함 · 주인이 연구실에서 로그인하는 날(10/6 예정)에 바로)
+
+(10/5 · 주인 "맥미니 M1 으로 서버 옮길거에요")
+
+**주인이 노트북에 직접 로그인한 뒤 시작합니다.**
+- 자동 로그온은 꺼져 있습니다(55 보고 `AutoAdminLogon=0`). 로그인 전에는 아무것도 안 돕니다.
+- 이 Claude 세션도 주인이 손으로 다시 켭니다.
+- 그날 주인이 「옮겨」 라고 하면 백업 → 맥으로 보내기 → 맥 서버 켜기까지 쉬지 않고 이어 갑니다(주인 결정 · MAC-REPORT M1).
+- 그래서 57-가 가 끝나면 메시지를 기다리지 않고 57-나 로 갑니다. 57-나 0 의 조건만 지킵니다.
+
+알아 둘 것:
+- **로그인하면 30초 뒤 「Mybody 서버」 가 옛 서버를 저절로 띄웁니다. 그대로 둡니다.** 57-나 전까지 사용자들이 서비스를 다시 받습니다.
+- **55 는 끝났습니다.** 10/5 15:05 에 재부팅됐습니다. 56 은 쓰지 않으니 55 의 ⛔ 는 무시합니다.
+- **18 은 이 절이 대신합니다.**
+  - 18 · 19 의 「서버 창에서 Ctrl+C」 와 「자동 시작 없음」 은 옛 이야기입니다.
+  - 지금은 창 없는 작업이 돌고, 실패하면 1분 간격으로 3번 다시 띄웁니다.
+- 맥 쪽 일은 `docs/MAC-TASKS.md` 의 M5 입니다. 맥 계정 이름(`OWNER`)은 MAC-REPORT 의 M4 보고에 있습니다.
+- **이 저장소는 공개입니다.** 보고에는 개수 · 상태 · 시각만 적습니다.
+  - config 값 · 비밀번호 · 이메일 · DB 파일은 적지도, 올리지도 않습니다.
+  - 100.x 주소와 경로도 적지 않습니다.
+- **하지 않는 것:** test-selfhost · 플레이 프로덕션 · 프로덕션 액세스 신청.
+
+### 57-가. 로그인 직후 — 읽기만 (서버는 그대로)
+
+1. `git pull`.
+2. 서버가 돌아왔는지 봅니다:
+   - `(Get-ScheduledTask -TaskName "Mybody 서버").State` → Running.
+   - `curl.exe -s -m 20 -o NUL -w "%{http_code} %{time_total}" http://127.0.0.1:8080/api/health` → 200.
+   - 바깥: check-host 로 `/api/health` 가 200 인지 봅니다.
+     - 안은 200 인데 바깥만 안 되면 49 처럼 `tailscale debug rebind` · `restun`.
+     - 로그인하고 5분이 지나도 안이 안 되면 `Stop-ScheduledTask -TaskName "Mybody 서버"; Start-ScheduledTask -TaskName "Mybody 서버"`.
+   - 메모리: `Get-CimInstance Win32_PerfFormattedData_PerfOS_Memory | select AvailableMBytes, @{n='NonpagedGB';e={[math]::Round($_.PoolNonpagedBytes/1GB,2)}}`.
+3. 작업을 끌 권한이 있는지 봅니다. 이미 켜진 작업을 한 번 더 켜는 것이라 바뀌는 것은 없습니다:
+   `Enable-ScheduledTask -TaskName "Mybody 서버" | Out-Null; "권한 있음"`
+   - 「권한 있음」 이면 57-나 1 을 이 세션이 합니다.
+   - 액세스 거부 오류면 57-나 1 은 **[주인]** 이 관리자 터미널에서 합니다.
+4. 보낼 준비:
+   - `Get-Command scp, ssh` → 둘 다 있어야 합니다.
+   - `Test-Path "$HOME\.mybody\config.json", "$HOME\.mybody\fcm-service-account.json"` → True · True. **값은 열지 않습니다.**
+   - `tailscale ip -4 mybody-mac` 으로 **맥 주소(100.x)** 를 읽습니다.
+     - 이 세션 안에서만 기억하고, 보고에는 적지 않습니다.
+     - 이 주소는 이름이 바뀌어도 그대로입니다. 그래서 아래 scp · ssh 는 모두 이 주소로 합니다.
+   - `tailscale ping -c 2 mybody-mac` → pong.
+   - `Test-NetConnection <맥 100.x> -Port 22` → TcpTestSucceeded True.
+5. 다른 자동 시작이 없는지 봅니다:
+   `Get-ScheduledTask | ? { ($_.Actions | % { "$($_.Execute) $($_.Arguments)" }) -match 'launch\.js|serve\.js|mybody' } | select TaskName, State`
+   - 「Mybody 서버」 하나뿐이어야 합니다.
+   - 시작프로그램 폴더(`shell:startup`)에 mybody 나 node 가 있으면 이름만 적습니다.
+   - 저장소의 `mybody-autostart.cmd` 는 등록 안 된 파일입니다. 그대로 둡니다.
+
+보고(짧게 push): "57-가 끝" + 아래를 한 줄씩.
+- 서버가 다시 뜬 시각 · 안/바깥 health
+- 남은 메모리 · 비페이징 풀
+- 3 의 결과
+- 4 의 준비 상태(맥 주소는 「읽음」 이라고만)
+- 5 의 작업 목록
+
+**4 가 하나라도 안 맞으면** 57-나 로 가지 않고 보고만 합니다. 서버는 노트북에서 계속 돕니다.
+
+### 57-나. 옮기기 — 서버가 10분쯤 멈춥니다 (맥 M5 와 같이)
+
+0. `git pull` 을 하고 `docs/MAC-REPORT.md` 맨 아래를 봅니다. 아래 둘이 맞아야 합니다.
+   - 오늘 날짜의 「M5 대기」 가 있습니다.
+   - 그 뒤에 「M5 멈춤」 이 없습니다.
+   - 아니면 **서버를 끄지 않습니다.** 「맥 대기 없음」 만 보고하고 push 합니다.
+   - 그다음 2분마다 다시 봅니다(30분까지). 그래도 없으면 기다립니다. 서버는 노트북에서 계속 돕니다.
+1. 주인에게 "지금 서버 멈춥니다(10분)" 라고 말합니다. **끄기 전에 먼저, 다시 못 뜨게** 합니다(PowerShell):
+   ```powershell
+   Disable-ScheduledTask -TaskName "Mybody 서버" | Out-Null
+   Stop-ScheduledTask -TaskName "Mybody 서버"
+   ```
+   - 57-가 3 이 거부였으면 **[주인]** 이 Win+X → 터미널(관리자)에 이 두 줄을 붙여 넣습니다.
+2. 남은 것을 없앱니다. 작업을 끝내도 아래 프로세스가 남을 수 있습니다:
+   ```powershell
+   $q = { Get-CimInstance Win32_Process | ? { ($_.Name -eq 'node.exe' -and $_.CommandLine -match 'tools[\\/](launch|serve)\.js|server[\\/]server\.js') -or ($_.Name -eq 'tailscale.exe' -and $_.CommandLine -match 'funnel') } }
+   & $q | select ProcessId, Name
+   & $q | % { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+   Start-Sleep 10
+   & $q | select ProcessId, Name                       # 비어 있어야 합니다
+   curl.exe -s -m 5 http://127.0.0.1:8080/api/health   # 응답이 없어야 합니다
+   (Get-ScheduledTask -TaskName "Mybody 서버").State    # Disabled
+   tailscale funnel reset
+   ```
+   - 작업을 먼저 Disabled 로 했으므로, 실패 뒤 다시 띄우기는 일어나지 않습니다. 10초 뒤 한 번 더 보는 것으로 충분합니다.
+   - **다시 본 `& $q` 에 하나라도 남았거나 `curl.exe` 가 응답하면 3 으로 가지 않습니다.**
+     - 관리자 권한으로 뜬 프로세스라서 못 끈 것입니다.
+     - **[주인]** 이 Win+X → 터미널(관리자)에 위 블록을 그대로 붙여 넣고, 빈 것을 다시 확인합니다.
+     - 서버가 켜진 채로 뜬 백업은 그 뒤의 기록을 잃습니다.
+   - `tailscaled` 서비스, 트레이 앱, 다른 node(Claude · VS Code)는 건드리지 않습니다.
+3. 마지막 백업을 뜹니다. 서버를 끈 **뒤에** 합니다:
+   ```powershell
+   cd E:\MyBody\Mybody
+   node tools/backup.js --out="$HOME\mybody-move"
+   node tools/backup.js --out="$HOME\mybody-move" --list
+   $f = "$HOME\mybody-move\mybody-<날짜>.db"
+   (Get-Item $f).Length; (Get-FileHash $f -Algorithm SHA256).Hash
+   ```
+   - 파일 이름은 **UTC 날짜**입니다. 09시 전이면 어제 날짜가 붙습니다. 정확한 이름은 출력의 「백업했습니다: …」 에서 가져옵니다.
+4. **먼저 짧게 보고하고 push** 합니다. 맥이 이 줄을 보고 파일을 맞춰 봅니다:
+   "57-나 백업 HH:MM · 계정 N · 친구 M · 주간 요약 K · 파일 mybody-<날짜>.db · 크기 B 바이트 · SHA256 <해시>". 해시는 비밀이 아닙니다.
+5. 주인에게 한 번에 부탁합니다. 두 일은 순서가 상관없습니다:
+   1. **Tailscale 관리 화면**(<https://login.tailscale.com/admin/machines>)에서 이름 두 개를 바꿉니다. **순서가 중요합니다.**
+      1. 노트북 `desktop-il9c3if` → ⋯ → Edit machine name → **`laptop`** 을 **먼저** 합니다.
+      2. 그다음 `mybody-mac` → **`desktop-il9c3if`**. 「Auto-generate from OS hostname」 은 끕니다.
+      - 순서가 반대면 맥이 `desktop-il9c3if-1` 이 되어, 앱에 박힌 주소와 달라집니다.
+   2. **[주인]** 새 PowerShell 창에 아래 한 줄을 붙여 넣고 **맥 비밀번호**를 넣습니다. 세션은 `<날짜>` · `OWNER` · `<맥 100.x>` 를 채워서 보여 주기만 하고, 비밀번호는 치지 않습니다:
+      ```powershell
+      scp -o StrictHostKeyChecking=accept-new "$HOME\.mybody\config.json" "$HOME\.mybody\fcm-service-account.json" "$HOME\mybody-move\mybody-<날짜>.db" OWNER@<맥 100.x>:
+      ```
+   - **git · 메신저 · 클라우드 드라이브 · USB 로는 보내지 않습니다.** 건강 정보와 비밀 키가 들어 있습니다.
+6. 맥을 지켜봅니다. 30초마다 `git pull` 을 하고 MAC-REPORT 맨 아래를 봅니다(40분까지).
+   - 「M5 주인 필요 … <명령>」 이 보이면 주인에게 이렇게 전합니다.
+     1. PowerShell 에서 `ssh -t OWNER@<맥 100.x>` → 맥 비밀번호
+     2. 그 줄을 붙여 넣고 → 맥 비밀번호(sudo)
+     3. `exit`
+   - 「M5 끝」 이 보이면 57-나 를 끝냅니다. 「M5 멈춤」 이나 40분이 지나면 보고하고 기다립니다.
+
+보고: "57-나 끝 HH:MM" + 멈춘 시각 · 남은 프로세스 0 · 작업 Disabled · 백업 숫자 · 보낸 시각 · 전한 「주인 필요」 줄 수.
+
+### 57-다. 맥이 열린 뒤 — 이름 확인 · 되돌리기 사본
+
+1. 이름을 확인합니다. 1분마다 30분까지 `tailscale status` 를 봅니다.
+   - 이 노트북 이름이 **`laptop`** 이어야 합니다.
+   - `desktop-il9c3if` 의 주소가 맥 주소(100.x)와 같아야 합니다. 세션 안에서만 견주고 보고에는 적지 않습니다.
+2. **이 노트북에서는 다시 서버를 띄우지 않습니다.**
+   - 「Mybody 서버」 는 Disabled 그대로 둡니다.
+   - `start.cmd` 더블클릭, `launch.js`, `serve.js` 모두 하지 않습니다.
+   - 두 곳에서 서버가 돌면 기록이 갈라집니다.
+3. 되돌리기 사본은 **옮긴 날부터 2주**(10/6 에 옮기면 10/20 까지) 둡니다. 클라우드가 지우라는 과제를 따로 보내기 전에는 지우지 않습니다:
+   - `$HOME\mybody-move\`
+   - `E:\MyBody\Mybody\server\mybody.db` (+ `-wal` · `-shm`)
+   - `$HOME\.mybody\config.json`
+   - `$HOME\.mybody\fcm-service-account.json`
+   - 28 의 「노트북 사본 지우기」 도 이때까지 미룹니다.
+4. 41(테스터 수 확인)은 하던 대로 합니다. 서버 일(코드 반영 · 안내 값 · 재시작)은 이제 맥 세션이 맡습니다.
+
+보고: "57 끝" + 이 노트북의 새 이름 · `desktop-il9c3if` 가 맥인지 · 작업 상태 · 사본 목록(이름 · 크기만).
+
+**되돌리기: 클라우드가 「57 되돌리기」 라고 할 때만**
+1. 맥 쪽 「M5 되돌리기」 1~3 이 먼저입니다.
+   - 그다음 **[주인 · 관리 화면]** **맥을 먼저** `mybody-mac` 으로 바꿉니다.
+   - **그다음** 이 노트북을 `desktop-il9c3if` 로 바꿉니다.
+2. `tailscale status` 에서 이 노트북 이름이 `desktop-il9c3if` 인지 봅니다.
+   - 아직 `laptop` 이면 3 · 4 를 하지 않고 기다립니다.
+   - 그 상태로 켜면 launch.js 가 설정의 origin 을 laptop 주소로 덮어씁니다.
+3. 맥 기록을 받습니다. 맥이 funnel 을 한 번이라도 켰으면(M5 9) **늘** 합니다. 맥 기록은 「노트북 마지막 백업 + 맥에서 쌓인 것」 입니다.
+   ```powershell
+   mkdir -Force "$HOME\mybody-from-mac" | Out-Null
+   scp OWNER@<맥 100.x>:mybody-backups/mybody-<날짜>.db "$HOME\mybody-from-mac\"
+   cd E:\MyBody\Mybody
+   node tools/backup.js --restore "$HOME\mybody-from-mac\mybody-<날짜>.db"
+   ```
+   - scp 는 **[주인]** 이 맥 비밀번호를 넣습니다. 파일 이름은 맥의 「M5 되돌리기」 보고에 있습니다.
+   - 따로 받는 폴더를 쓰는 까닭: 같은 UTC 날짜면 `mybody-move` 의 노트북 백업을 덮어쓰기 때문입니다.
+   - 건너뛰는 것은 M5 9 전에 되돌릴 때뿐입니다. 그때는 노트북 기록이 그대로 최신입니다.
+4. 다시 켭니다: `Enable-ScheduledTask -TaskName "Mybody 서버" | Out-Null; Start-ScheduledTask -TaskName "Mybody 서버"`.
+   - 57-가 3 이 거부였으면 **[주인]** 이 관리자 터미널에서 합니다.
+   - 2~3분 뒤 안과 바깥 health 를 봅니다.
+- **맥이 아예 안 닿으면:**
+  - 관리 화면 이름 바꾸기는 맥이 offline 이어도 됩니다. 맥 먼저 `mybody-mac`, 그다음 노트북 `desktop-il9c3if`.
+  - 3 은 건너뛰고 2 → 4 로 갑니다. 노트북 마지막 상태가 기준입니다.
+  - 맥이 돌아오면 맥이 「M5 되돌리기」 1~3 을 합니다. 그 백업은 클라우드가 노트북 기록과 어떻게 합칠지 정할 때까지 지우지 않습니다.
