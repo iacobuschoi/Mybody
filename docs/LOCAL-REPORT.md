@@ -1105,3 +1105,5 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
 # 57-나 백업 11:26 · 계정 25 · 친구 24 · 주간 요약 24 · 파일 mybody-2026-10-06.db · 크기 4976640 바이트 · SHA256 50FAF0FBF32FCE680C4D26F993B67B1F0F7C1E1D9B227B5F7FE425CE406949A0
 
 - 서버 멈춤 11:25 · 남은 프로세스 0 · 안 health 응답 없음 · 작업 Disabled · funnel reset 함
+
+# 57-나 이름 놓음 11:26 — 노트북 tailscale 이름 laptop(laptop.tail0a8f8f.ts.net) · 맥이 desktop-il9c3if 가져가면 됨 · 주인에게 scp 두 줄 부탁 중
