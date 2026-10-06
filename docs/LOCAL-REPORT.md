@@ -1090,3 +1090,14 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
 - **저장 안 된 창**: 제목에 표시(`*` · `●` · 저장되지 않음 · Unsaved) 있는 창 **0개**. 열린 창 앱: chrome · claude · Code · KakaoTalk · MATLAB · NVIDIA Overlay ·
   Photos(7) · POWERPNT · 설정 · 터미널 등 — 파워포인트는 새 문서 이름이 아님, VS Code · MATLAB 에도 표시 없음.
 - 이제 `shutdown /r /t 60 /c "Mybody: 메모리 정리를 위해 1분 뒤 재부팅합니다 (주인 승인)"` — 노트북 앞에서 멈추려면 `shutdown /a`.
+
+---
+
+# 57-가 끝 (2026-10-06 11:23 KST) — 다 됨 · 57-나 로 바로 갑니다
+
+- **서버**: 「Mybody 서버」 Running · 마지막 다시 뜬 시각 11:15(터널 11:16) · 안 health 200(0.003초) · 바깥 health check-host 10/10 200
+- **메모리**: 남은 14,929 MB · 비페이징 풀 0.87 GB
+- **권한**: 권한 있음(작업 끄기 · 켜기는 이 세션이 함)
+- **준비**: scp · ssh 있음(윈도우 OpenSSH) · 설정 파일 2개 있음(안 열어 봄) · 맥 주소 읽음 · tailscale ping pong(DERP 중계) · 맥 22번 포트 열림
+- **자동 시작**: 「Mybody 서버」 하나뿐 · 시작 폴더에 mybody/node 항목 없음
+- **57-나 0**: 맥 보고 끝 「M5 대기 11:18」 · 그 뒤 「M5 멈춤」 없음 → 조건 맞음
