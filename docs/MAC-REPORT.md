@@ -81,3 +81,14 @@
   - 고친 칸: 없음(BOM·db·알림 열쇠 칸·static·origin 다 이미 맞음) · 포트 8080 · origin https://desktop-il9c3if.tail0a8f8f.ts.net · trustProxy true
   - **M5 4 보류(주인 결정 대기):** 알림 열쇠 파일은 맥 홈에 와 있음(권한 600), 맥 세션 훅이 옮기기를 막아 제자리에 못 둠 → 서버는 **앱 알림(FCM) 꺼짐** 으로 떠 있음. 주인이 정하면 제자리에 두고 pkill 로 다시 띄워 「켜짐」 확인.
   - /api/version latest 0.2.21 셋 · --show: 내보낼 폴더 release · 가입 누구나 · 공개 주소 desktop-il9c3if · 터널 뒤 예. 바깥 check-host 는 이어서.
+
+## M5 끝 11:34 (앱 알림만 남음)
+
+- 파일 받은 시각 11:30 · 해시 일치
+- 되돌린 계정 25 · 친구 24 · 주간 요약 24
+- 고친 칸 이름: 없음
+- 접근 토큰 결과: **아직 안 봄** — 알림 열쇠가 제자리에 없어서(M5 4 주인 결정 대기). 서버 로그 「앱 알림(FCM) 꺼짐 — 열쇠 파일 없음」.
+- 안 200 11:31 · 이름 바뀐 시각 11:27
+- funnel status: https://desktop-il9c3if.tail0a8f8f.ts.net (Funnel on) · / proxy http://127.0.0.1:8080
+- check-host: 첫 번 7/8(1곳 Broken pipe) → rebind · restun → 1분 뒤 **8/8 200**
+- 남은 일: 주인이 알림 열쇠 자리를 정하면 → 열쇠를 `.mybody/` 에 두고 `pkill -f "$HOME/mybody-server/tools/[s]erve.js"` 로 다시 띄워 「켜짐 — 프로젝트 mybody-fdbe7」 · 접근 토큰 확인 후 보고.
