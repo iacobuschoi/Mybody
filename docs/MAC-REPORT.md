@@ -92,3 +92,11 @@
 - funnel status: https://desktop-il9c3if.tail0a8f8f.ts.net (Funnel on) · / proxy http://127.0.0.1:8080
 - check-host: 첫 번 7/8(1곳 Broken pipe) → rebind · restun → 1분 뒤 **8/8 200**
 - 남은 일: 주인이 알림 열쇠 자리를 정하면 → 열쇠를 `.mybody/` 에 두고 `pkill -f "$HOME/mybody-server/tools/[s]erve.js"` 로 다시 띄워 「켜짐 — 프로젝트 mybody-fdbe7」 · 접근 토큰 확인 후 보고.
+
+## M6 끝 11:41 (1 · 2 는 주인 폰 확인 뒤)
+
+- 1 주인 답: **아직** — LTE 앱 확인을 주인에게 부탁함(소리 · 책상 비서).
+- 2 정리: **보류** — 1 이 되면 맥 홈의 백업 사본을 지움(과제 순서대로; 하루 넘게 답이 없으면 그때 지움). 되돌리기 전 빈 DB 사본(before-…)도 같이 정리 대상.
+- 3 돌아온 초: **2초** — sudo 없이 pkill → launchd 가 새 프로세스로 곧바로 띄움(새 PID · 시작 11:40:07 확인), 안 health 200 · 바깥 주소 200 · funnel 그대로.
+- 4 은 내일 04:00 뒤 「M6-4」, 5 재부팅은 주인 한가할 때.
+- 알림 열쇠: 계속 주인 결정 대기 — 세션은 옮기지 않음. 제자리(.mybody/)에 놓이면 감시가 깨워서 3 의 pkill 로 다시 띄워 「켜짐」 만 확인.
