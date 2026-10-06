@@ -1470,10 +1470,9 @@ release). 가게 페이지가 바깥에 뜨기까지 몇 시간 걸릴 수 있�
       - 순서가 반대면 맥이 `desktop-il9c3if-1` 이 되어, 앱에 박힌 주소와 달라집니다.
    2. **[주인]** 새 PowerShell 창에 아래 한 줄을 붙여 넣고 **맥 비밀번호**를 넣습니다. 세션은 `<날짜>` · `OWNER` · `<맥 100.x>` 를 채워서 보여 주기만 하고, 비밀번호는 치지 않습니다:
       ```powershell
-      scp -o StrictHostKeyChecking=accept-new "$HOME\.mybody\fcm-service-account.json" OWNER@<맥 100.x>:.mybody/
-      scp "$HOME\.mybody\config.json" "$HOME\mybody-move\mybody-<날짜>.db" OWNER@<맥 100.x>:
+      scp -o StrictHostKeyChecking=accept-new "$HOME\.mybody\config.json" "$HOME\.mybody\fcm-service-account.json" "$HOME\mybody-move\mybody-<날짜>.db" OWNER@<맥 100.x>:
       ```
-      - **두 줄입니다(10/6 11:19 맥 보고 d09da25).** 맥 세션의 안전 장치가 알림 열쇠 파일을 옮기지 못하게 막아서, 알림 열쇠는 맥의 `.mybody/` 로 **바로** 보냅니다. 설정 · DB 는 홈으로. 맥 비밀번호를 두 번 넣습니다.
+      - **한 줄 그대로입니다(10/6 11:22 정정).** 세 파일 모두 맥의 홈으로 보냅니다. 맥 쪽에서 알림 열쇠를 `.mybody/` 에 두는 일은 맥 세션의 안전 장치가 막은 일이라 우회하지 않고 **주인이 정합니다**(맥 보고 9cb5091). 노트북은 이 일에 손대지 않습니다.
    - **git · 메신저 · 클라우드 드라이브 · USB 로는 보내지 않습니다.** 건강 정보와 비밀 키가 들어 있습니다.
 6. 맥을 지켜봅니다. 30초마다 `git pull` 을 하고 MAC-REPORT 맨 아래를 봅니다(40분까지).
    - 「M5 주인 필요 … <명령>」 이 보이면 주인에게 이렇게 전합니다.
