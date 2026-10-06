@@ -1101,3 +1101,7 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
 - **준비**: scp · ssh 있음(윈도우 OpenSSH) · 설정 파일 2개 있음(안 열어 봄) · 맥 주소 읽음 · tailscale ping pong(DERP 중계) · 맥 22번 포트 열림
 - **자동 시작**: 「Mybody 서버」 하나뿐 · 시작 폴더에 mybody/node 항목 없음
 - **57-나 0**: 맥 보고 끝 「M5 대기 11:18」 · 그 뒤 「M5 멈춤」 없음 → 조건 맞음
+
+# 57-나 백업 11:26 · 계정 25 · 친구 24 · 주간 요약 24 · 파일 mybody-2026-10-06.db · 크기 4976640 바이트 · SHA256 50FAF0FBF32FCE680C4D26F993B67B1F0F7C1E1D9B227B5F7FE425CE406949A0
+
+- 서버 멈춤 11:25 · 남은 프로세스 0 · 안 health 응답 없음 · 작업 Disabled · funnel reset 함
