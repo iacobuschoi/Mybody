@@ -1117,3 +1117,13 @@ App Store Connect 에 저장한 것: 이름 「MyBody 체성분 플래너」 · 
 - 「M5 주인 필요」 전달: 0줄
 - 남은 일(맥 쪽): 알림 열쇠 자리 — 주인 결정 대기(맥 서버는 앱 알림 꺼짐으로 떠 있음)
 - 이제 57-다(30분 동안 1분마다 이름 확인)
+
+# 57 끝 (2026-10-06 12:05 KST) — 노트북 이름 laptop · desktop-il9c3if 는 맥 · 노트북 서버 Disabled
+
+- 57-다 이름 확인: 11:35~12:04 1분마다 30번 · 30/30 맞음(노트북 = laptop · desktop-il9c3if = 맥 주소 · 작업 Disabled) · 틀린 번 0
+- 노트북 서버는 다시 안 띄움(start.cmd · launch.js · serve.js 안 돌림 · 작업 Disabled 그대로)
+- 되돌리기용 사본(10/20 까지 둠, 이름 · 크기만):
+  - mybody-move\mybody-2026-10-06.db 4976640 바이트
+  - server\mybody.db 4993024 바이트 (wal · shm 은 멈출 때 합쳐져 없음)
+  - .mybody\config.json 1476 바이트 · .mybody\fcm-service-account.json 2364 바이트
+- 41(테스터 수 21시)은 그대로 이어 함 · 되돌리기는 클라우드 「57 되돌리기」 때만
