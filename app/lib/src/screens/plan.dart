@@ -33,6 +33,7 @@ import '../workout/prefs.dart';
 import '../workout/scheme.dart';
 import 'gym_settings.dart';
 import 'sources.dart' show kMedicalShort;
+import 'workout_history.dart';
 
 /// 진행 규칙 한 줄. 엔진의 「더블 프로그레션 — 목표 반복 상단에 도달하면 다음
 /// 세션에 중량 2.5~5kg 증가」 는 맞는 말이지만 용어부터 배워야 읽힙니다.
@@ -169,6 +170,16 @@ class _PlanScreenState extends State<PlanScreen> {
       return ListView(padding: const EdgeInsets.all(16), children: [
         picker,
         AdherenceBody(go: go),
+        /* 달성률은 "며칠 지켰나" 이고, 무엇을 몇 kg 몇 개 했는지는 지난 기록 화면 — 헬스 화면의
+           시계 아이콘과 같은 곳. 플랜 탭에도 두는 것은 운동 화면에 안 들어가도 찾을 수 있게. */
+        const SizedBox(height: 8),
+        OutlinedButton.icon(
+          key: const ValueKey('plan-history'),
+          onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const WorkoutHistoryScreen())),
+          icon: const Icon(LucideIcons.history, size: 18),
+          label: const Text('지난 운동 기록 보기'),
+        ),
       ]);
     }
     final plan = (st['plan'] as Map).cast<String, Object?>();

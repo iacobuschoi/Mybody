@@ -266,12 +266,12 @@ class _WorkoutTutorialState extends State<WorkoutTutorial> {
   }
 
   void _onSet(GymExercise e) {
-    setState(() => e.done++);
+    setState(() => e.addSet());
     if (_step == 0) _complete();
   }
 
   void _onUndo(GymExercise e) {
-    if (e.done > 0) setState(() => e.done--);
+    if (e.done > 0) setState(() => e.popSet());
   }
 
   /// 실제 화면과 같은 스테퍼 시트. 2단계는 「확인」 으로 닫아야(답이 있어야) 끝납니다 —

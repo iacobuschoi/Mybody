@@ -84,8 +84,12 @@ import '../workout/planner.dart';
 import '../workout/prefs.dart';
 import '../workout/routines.dart';
 import '../workout/scheme.dart';
+import '../workout/sets.dart';
+import '../workout/voice_set.dart';
 import 'exercise_picker.dart';
+import 'workout_history.dart';
 import 'workout_tutorial.dart';
+import 'workout_voice.dart';
 
 /// 화면 종류. 셸이 `go('workout', (dateKey: …, type: …))` 로 넘깁니다.
 const kWorkoutTypes = ['gym', 'cardio', 'bodyweight'];
@@ -290,7 +294,28 @@ class GymExercise {
   double? kg;
   /// 사용자가 스테퍼로 정했는가 — 정했으면 '추천' 을 떼고 숫자만 보여 줍니다.
   bool kgSet;
-  int done = 0;
+
+  /// 오늘 한 세트들 — 세트마다 무게 · 횟수(workout/sets.dart). 「세트」 단추는 지금 무게로 한
+  /// 칸을 더하고(횟수는 안 적음), 누르고 말하기 · 세트 시트는 무게 · 횟수를 같이 적습니다.
+  final List<SetEntry> log = [];
+
+  /// 한 세트 수. 쓰기는 시험 · 튜토리얼이 숫자로 맞출 때만 — 모자라면 지금 무게로 채우고
+  /// 넘치면 뒤에서 자릅니다.
+  int get done => log.length;
+  set done(int n) {
+    while (log.length > n && log.isNotEmpty) {
+      log.removeLast();
+    }
+    while (log.length < n) {
+      log.add(SetEntry(kg: kg));
+    }
+  }
+
+  /// 한 세트 더 — [entry] 가 없으면 지금 무게 · 횟수 모름.
+  void addSet([SetEntry? entry]) => log.add(entry ?? SetEntry(kg: kg));
+
+  /// 마지막 세트 빼기.
+  SetEntry? popSet() => log.isEmpty ? null : log.removeLast();
 
   bool get complete => done >= sets;
 
@@ -468,6 +493,136 @@ Future<KgPick?> showKgStepper(BuildContext context, GymExercise e) async {
   );
 }
 
+/// 세트 시트의 답. [delete] 면 그 세트를 지우라는 뜻, 아니면 [entry] 로 바꾸거나(기존) 더합니다(새).
+class SetEdit {
+  const SetEdit(this.entry, {this.delete = false});
+  final SetEntry? entry;
+  final bool delete;
+}
+
+/// 세트 하나의 무게 · 횟수 시트 — 세트 칩을 누르면(기존, [index]) · 「세트」 를 길게 누르면(새).
+/// 무게는 스테퍼(맨몸 종목이면 없음), 횟수는 − · 숫자 · + 와 계획 구간의 빠른 칩(8-12 → 8 · 10 · 12).
+/// 시간 종목(플랭크)은 횟수 자리에 초. 답은 [SetEdit] — null 은 "닫았다".
+Future<SetEdit?> showSetEditor(BuildContext context, GymExercise e, {SetEntry? entry, int? index}) async {
+  final isNew = entry == null;
+  final cur = entry?.copy() ?? SetEntry(kg: e.kg, reps: e.log.isEmpty ? null : e.log.last.reps, src: 'edit');
+  final step = e.load.step > 0 ? e.load.step : 2.5;
+  final timed = e.seconds != null;
+  /* 계획 구간의 빠른 칩 — '8-12' → 8 · 10 · 12, '10' → 10, '30초' → 30. */
+  final quick = <int>{};
+  final m = RegExp(r'(\d+)\s*-\s*(\d+)').firstMatch(e.reps);
+  if (m != null) {
+    final lo = int.parse(m.group(1)!), hi = int.parse(m.group(2)!);
+    quick.addAll({lo, (lo + hi) ~/ 2, hi});
+  } else {
+    final one = RegExp(r'\d+').firstMatch(e.reps);
+    if (one != null) quick.add(int.parse(one.group(0)!));
+  }
+  return showModalBottomSheet<SetEdit>(
+    context: context,
+    showDragHandle: true,
+    isScrollControlled: true,
+    builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+      final t = Theme.of(ctx);
+      final kg = cur.kg;
+      final stepNow = kg == null ? step : (stepFor(e.equip, kg) > 0 ? stepFor(e.equip, kg) : step);
+      Widget stepper({
+        required Key minusKey,
+        required Key plusKey,
+        required Key valueKey,
+        required String value,
+        required VoidCallback? onMinus,
+        required VoidCallback onPlus,
+      }) =>
+          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            IconButton.filledTonal(key: minusKey, onPressed: onMinus, icon: const Icon(LucideIcons.minus)),
+            SizedBox(
+              width: 150,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(value,
+                    key: valueKey,
+                    maxLines: 1,
+                    textAlign: TextAlign.center,
+                    style: t.textTheme.headlineMedium?.copyWith(
+                        fontWeight: FontWeight.w800, fontFeatures: const [FontFeature.tabularFigures()])),
+              ),
+            ),
+            IconButton.filledTonal(key: plusKey, onPressed: onPlus, icon: const Icon(LucideIcons.plus)),
+          ]);
+      return _Sheet(children: [
+        Text('${e.name} · ${isNew ? '새 세트' : '${(index ?? 0) + 1}세트'}', style: t.textTheme.titleMedium),
+        Text(isNew ? '무게와 횟수를 넣고 세트 완료' : '이 세트의 무게 · 횟수를 고칩니다',
+            style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+        if (e.weighted) ...[
+          const SizedBox(height: 12),
+          Text('무게', style: t.textTheme.labelMedium?.copyWith(color: t.hintColor)),
+          stepper(
+            minusKey: const ValueKey('set-kg-minus'),
+            plusKey: const ValueKey('set-kg-plus'),
+            valueKey: const ValueKey('set-kg-value'),
+            value: kg == null ? '맨몸' : '${kgText(kg)} kg',
+            onMinus: kg == null
+                ? null
+                : () => setSheet(() {
+                      final s = stepFor(e.equip, kg - 0.001) > 0 ? stepFor(e.equip, kg - 0.001) : step;
+                      final next = kg - s;
+                      cur.kg = next <= 0 ? null : next;
+                    }),
+            onPlus: () => setSheet(() => cur.kg = (cur.kg ?? 0) + stepNow),
+          ),
+        ],
+        const SizedBox(height: 12),
+        Text(timed ? '초' : '횟수', style: t.textTheme.labelMedium?.copyWith(color: t.hintColor)),
+        stepper(
+          minusKey: const ValueKey('set-reps-minus'),
+          plusKey: const ValueKey('set-reps-plus'),
+          valueKey: const ValueKey('set-reps-value'),
+          value: cur.reps == null ? '—' : '${cur.reps}${timed ? '초' : '회'}',
+          onMinus: cur.reps == null
+              ? null
+              : () => setSheet(() {
+                    final n = cur.reps! - (timed ? 5 : 1);
+                    cur.reps = n <= 0 ? null : n;
+                  }),
+          onPlus: () => setSheet(() => cur.reps = (cur.reps ?? 0) + (timed ? 5 : 1)),
+        ),
+        if (quick.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, alignment: WrapAlignment.center, children: [
+            for (final q in quick.toList()..sort())
+              ChoiceChip(
+                key: ValueKey('set-reps-$q'),
+                label: Text('$q${timed ? '초' : '회'}'),
+                selected: cur.reps == q,
+                onSelected: (_) => setSheet(() => cur.reps = q),
+              ),
+          ]),
+        ],
+        const SizedBox(height: 14),
+        SizedBox(
+          height: 52,
+          child: FilledButton(
+            key: const ValueKey('set-ok'),
+            onPressed: () => Navigator.pop(ctx, SetEdit(cur..src = 'edit')),
+            child: Text(isNew ? '세트 완료' : '확인'),
+          ),
+        ),
+        if (!isNew) ...[
+          const SizedBox(height: 6),
+          Center(
+            child: TextButton(
+              key: const ValueKey('set-delete'),
+              onPressed: () => Navigator.pop(ctx, const SetEdit(null, delete: true)),
+              child: Text('이 세트 지우기', style: TextStyle(color: mb(ctx).bad)),
+            ),
+          ),
+        ],
+      ]);
+    }),
+  );
+}
+
 class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
   /* --- 시계 -------------------------------------------------------------- */
   DateTime? _startedAt;                    // 지금 도는 구간의 시작. null 이면 멈춤
@@ -591,11 +746,12 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     }
   }
 
-  /// 한 세트. 계획을 다 채운 뒤에도 됩니다(4/3) — 더 한 것도 기록입니다.
-  void _completeSet(GymExercise e) {
+  /// 한 세트. 계획을 다 채운 뒤에도 됩니다(4/3) — 더 한 것도 기록입니다. [entry] 가 있으면
+  /// 그 무게 · 횟수로(세트 시트 · 누르고 말하기), 없으면 지금 무게로 횟수 없이(세트 단추).
+  void _completeSet(GymExercise e, {SetEntry? entry}) {
     _start();   // 시작을 잊었어도 세트를 누르면 시간이 갑니다
     setState(() {
-      e.done++;
+      e.addSet(entry);
       final allDone = _gym!.every((x) => x.complete);
       if (!allDone && e.restSec > 0) {
         _restEndsAt = _now().add(Duration(seconds: e.restSec));
@@ -609,7 +765,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
 
   void _undoSet(GymExercise e) {
     if (e.done <= 0) return;
-    setState(() => e.done--);
+    setState(() => e.popSet());
   }
 
   void _skipRest() {
@@ -661,7 +817,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     for (final e in next) {
       final o = old[e.id];
       if (o == null) continue;
-      e.done = o.done;
+      e.log.addAll(o.log);
       if (o.kgSet) {
         e.kg = o.kg;
         e.kgSet = true;
@@ -803,6 +959,80 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
       ));
   }
 
+  /// 세트 칩 → 그 세트의 무게 · 횟수 시트. 지우면 그 칸만 빠집니다(뒤 번호가 당겨집니다).
+  Future<void> _editSetAt(GymExercise e, int i) async {
+    if (i < 0 || i >= e.log.length) return;
+    final r = await showSetEditor(context, e, entry: e.log[i], index: i);
+    if (r == null || !mounted) return;
+    setState(() {
+      if (r.delete) {
+        e.log.removeAt(i);
+      } else if (r.entry != null) {
+        e.log[i] = r.entry!;
+      }
+    });
+  }
+
+  /// 「세트」 길게 → 무게 · 횟수를 넣고 완료. 넣은 무게는 그 줄의 「오늘 무게」 도 됩니다 —
+  /// 다음 세트를 짧게 눌러도 같은 무게로 가게.
+  Future<void> _newSetDetail(GymExercise e) async {
+    final r = await showSetEditor(context, e);
+    if (r == null || r.entry == null || !mounted) return;
+    if (e.weighted && r.entry!.kg != e.kg) {
+      e.kg = r.entry!.kg;
+      e.kgSet = true;
+    }
+    _completeSet(e, entry: r.entry);
+  }
+
+  /* --- 누르고 말하기 ---------------------------------------------------------- */
+
+  /// 받아쓴 글(또는 글로 넣은 것) → 파서 → 확인 시트 → 세트 기록. 종목이 오늘 목록에 없으면
+  /// 줄을 더하고 거기에 적습니다. 말한 무게는 그 줄의 「오늘 무게」 가 됩니다.
+  Future<void> _onSpokenText(AppState app, String text) async {
+    final list = _gym ??= _initialGym(app);
+    final entry = parseSpokenSets(text, today: [for (final e in list) e.name]);
+    final prefs = GymPrefs.fromSettings((app.state['settings'] as Map?)?.cast<String, Object?>());
+    if (!mounted) return;
+    final r = await showSpokenConfirm(
+      context,
+      entry,
+      pickOther: () => pickExercise(context, equip: _bw ? null : prefs.equipment, familiar: prefs.familiar, title: '종목 고르기'),
+    );
+    if (r == null || !mounted) return;
+    if (r.retypeText != null) return _onSpokenText(app, r.retypeText!);
+    final sets = r.sets;
+    if (sets == null || sets.isEmpty) return;
+    final ctx = _loadsOf(app);
+    var added = 0;
+    final names = <String>{};
+    for (final s in sets) {
+      final ex = s.exercise;
+      if (ex == null) continue;
+      var row = list.where((g) => g.id == ex.id).firstOrNull;
+      if (row == null) {
+        final m = _bw
+            ? bodyweightRowFor(ex, profile: app.profile ?? core.kSeedProfile, restSec: _bwRestSec(app))
+            : schemeRowFor(ex, trainingAge: trainingAgeOf(app.state), goalKind: goalKindOf(app.state, widget.dateKey));
+        row = _exOf(m, ctx);
+        setState(() => list.add(row!));
+      }
+      final kg = row.weighted ? s.kg : null;
+      if (row.weighted && kg != null && kg != row.kg) {
+        row.kg = kg;
+        row.kgSet = true;
+      }
+      for (var i = 0; i < s.count; i++) {
+        _completeSet(row, entry: SetEntry(kg: kg ?? (row.weighted ? row.kg : null), reps: s.reps, src: 'voice'));
+        added++;
+      }
+      names.add(row.name);
+    }
+    if (added > 0 && mounted) {
+      toast(context, '${names.join(' · ')} — $added세트 기록했습니다');
+    }
+  }
+
   /// 무게 단추 → 스테퍼(showKgStepper). 정하면 '추천' 이 떨어지고 숫자만 남습니다.
   Future<void> _editKg(GymExercise e) async {
     final r = await showKgStepper(context, e);
@@ -897,6 +1127,17 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
             Text(dateK(widget.dateKey),
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).hintColor)),
           ]),
+          /* 지난 기록 — 헬스장에서 「지난번에 몇 kg 했더라」 를 보는 길. 무게 단추의 「지난번 55kg」 은
+             30일 안의 마지막 한 번뿐이고, 날짜별 · 종목별로 거슬러 보는 건 이 화면입니다. */
+          actions: [
+            IconButton(
+              key: const ValueKey('workout-history'),
+              tooltip: '지난 운동 기록',
+              icon: const Icon(LucideIcons.history),
+              onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => WorkoutHistoryScreen(type: widget.type))),
+            ),
+          ],
         ),
         body: SafeArea(
           child: widget.type == 'cardio' ? _cardioBody(context, app, future) : _setsBody(context, app, future),
@@ -1043,6 +1284,27 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
           ]),
         ),
       ),
+      /* 「누르고 말하기」 는 목록 밖, 화면 아래에 **늘 보이게** — 종목이 대여섯이면 목록 끝은 스크롤
+         너머라 세트 사이에 말하려고 끌어내려야 했습니다(에뮬레이터 시험에서 바로 보임). 오른쪽은
+         세트 단추들과 같은 쪽이라 한 손 엄지로 닿습니다. 꾹 누른 채 「벤치 80키로 4개」, 떼면 확인
+         시트. 짧게 누르면 글로 넣는 칸(마이크가 안 되는 곳 · 시끄러운 헬스장). 앞날에는 없습니다. */
+      if (!future)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
+          child: Row(children: [
+            Expanded(
+              child: Text('꾹 누른 채 「벤치 80키로 4개」 — 떼면 확인하고 기록',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+            ),
+            const SizedBox(width: 8),
+            VoiceSetButton(
+              key: const ValueKey('voice-set'),
+              onText: (text) => _onSpokenText(app, text),
+            ),
+          ]),
+        ),
     ]);
   }
 
@@ -1104,6 +1366,8 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
       onSet: () => _completeSet(e),
       onUndo: () => _undoSet(e),
       onKg: () => _editKg(e),
+      onEditSet: (i) => _editSetAt(e, i),
+      onSetDetail: () => _newSetDetail(e),
     );
     return Dismissible(
       key: ValueKey('dismiss-${e.id}'),
@@ -1262,6 +1526,8 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
                   'name': e.name, 'sets': e.done, 'of': e.sets, 'reps': e.reps, 'restSec': e.restSec, 'kg': e.kg,
                   if (e.seconds != null) 'seconds': e.seconds,
                   if (e.perSide) 'perSide': true,
+                  /* 세트마다 무게 · 횟수(workout/sets.dart). 옛 칸(sets · kg)은 그대로 — 읽는 쪽이 많습니다. */
+                  'setLog': [for (final s in e.log) s.toMap()],
                 },
             ],
     });
@@ -1862,12 +2128,18 @@ class ExerciseRow extends StatelessWidget {
     required this.onSet,
     required this.onUndo,
     required this.onKg,
+    this.onEditSet,
+    this.onSetDetail,
     this.highlightKg = false,
   });
   final GymExercise ex;
   final VoidCallback onSet;
   final VoidCallback onUndo;
   final VoidCallback onKg;
+  /// 세트 칩(「80×5」)을 눌렀을 때 — 그 세트의 무게 · 횟수를 고치는 시트. 없으면 칩만 보입니다.
+  final void Function(int index)? onEditSet;
+  /// 「세트」 를 길게 눌렀을 때 — 무게 · 횟수를 넣고 완료하는 시트. 없으면 긴 누름은 짧은 누름과 같습니다.
+  final VoidCallback? onSetDetail;
   /// 무게 단추에 눈길을 모읍니다(강조색 테두리 + 몇 번 두근) — 튜토리얼의 「무게를 눌러
   /// 보세요」 단계만 켭니다. 실제 헬스 화면에서는 늘 false.
   final bool highlightKg;
@@ -1940,11 +2212,13 @@ class ExerciseRow extends StatelessWidget {
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap),
                     icon: const Icon(LucideIcons.minus, size: 18),
                   ),
+                /* 길게 누르면 무게 · 횟수를 넣고 완료(onSetDetail) — 짧게 누르면 전처럼 바로 한 세트. */
                 if (done)
                   IconButton.filledTonal(
                     key: ValueKey('set-$slug'),
-                    tooltip: '세트 추가',
+                    tooltip: '세트 추가 (길게: 무게 · 횟수 넣기)',
                     onPressed: onSet,
+                    onLongPress: onSetDetail,
                     style: IconButton.styleFrom(
                         padding: EdgeInsets.zero,
                         minimumSize: const Size(36, 36),
@@ -1958,6 +2232,7 @@ class ExerciseRow extends StatelessWidget {
                     child: FilledButton.tonalIcon(
                       key: ValueKey('set-$slug'),
                       onPressed: onSet,
+                      onLongPress: onSetDetail,
                       style: FilledButton.styleFrom(
                           padding: const EdgeInsets.fromLTRB(12, 0, 14, 0),
                           minimumSize: const Size(0, 40)),
@@ -1966,6 +2241,22 @@ class ExerciseRow extends StatelessWidget {
                     ),
                   ),
               ]),
+              /* 한 세트들 — 「1 80×5」 「2 85×3」. 횟수를 안 적은 세트는 무게만(「80kg」), 맨몸은 「맨몸」.
+                 누르면 그 세트를 고칩니다. 점(_SetDots)은 진행, 칩은 내용 — 둘 다 둡니다: 점은 멀리서
+                 몇 세트 남았는지, 칩은 가까이서 무엇을 했는지. */
+              if (ex.log.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(left: 32, top: 6),
+                  child: Wrap(spacing: 6, runSpacing: 6, children: [
+                    for (var i = 0; i < ex.log.length; i++)
+                      _SetChip(
+                        key: ValueKey('setchip-$slug-$i'),
+                        index: i,
+                        entry: ex.log[i],
+                        onTap: onEditSet == null ? null : () => onEditSet!(i),
+                      ),
+                  ]),
+                ),
             /* 무게는 「단추」 로 — 예전 알약(Pill)은 글자 딱지처럼 보여서 튜토리얼이
                "무게 칩을 눌러 보세요" 라고 해도 주인이 "좀 비직관적이야" 라고 했습니다
                (피드백 38). 덤벨 · 무게 · ▾ 에 테두리 — 누르면 뭔가 열린다는 모양입니다.
@@ -2188,6 +2479,43 @@ class _WeightButtonState extends State<WeightButton> with SingleTickerProviderSt
 /// 세트 점 — 세트 하나에 점 하나, 한 점씩 채웁니다. '1/3' 보다 빨리 읽히고 줄 높이를
 /// 안 잡아먹습니다. 점이 여섯을 넘으면 이름 자리를 밀어내므로 그때는 숫자로 쓰고,
 /// 계획보다 더 했으면('4/3') 점으로는 못 그리니 강조색 숫자로 씁니다.
+/// 세트 칩 — 번호 작게, 내용(「80×5」) 크게. 말로 넣은 세트는 작은 마이크가 붙습니다.
+class _SetChip extends StatelessWidget {
+  const _SetChip({super.key, required this.index, required this.entry, this.onTap});
+  final int index;
+  final SetEntry entry;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = Theme.of(context);
+    final voice = entry.src == 'voice';
+    return Material(
+      color: t.colorScheme.secondaryContainer.withValues(alpha: 0.55),
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Text('${index + 1}',
+                style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, fontWeight: FontWeight.w700)),
+            const SizedBox(width: 5),
+            Text(entry.label,
+                style: t.textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.w700, fontFeatures: const [FontFeature.tabularFigures()])),
+            if (voice) ...[
+              const SizedBox(width: 4),
+              Icon(LucideIcons.mic, size: 11, color: t.hintColor),
+            ],
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
 class _SetDots extends StatelessWidget {
   const _SetDots({required this.done, required this.total});
   final int done;
