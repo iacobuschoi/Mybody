@@ -3,6 +3,7 @@
 /          상태판 (전체 화면 크롬 앱 창)
 /events    상태가 바뀔 때마다 보내는 스트림(SSE) — 화면 판(build)이 바뀌면 열린 페이지가 스스로 새로고침
 /api/<명령> deskctl 이 부르는 곳: wake · sleep · brief · mute · unmute · stop · say · show
+           · screen_off · screen_on (위쪽 「화면 끄기」 · 「화면 켜기」 버튼 — 끄기는 sleep 과 같은 길, 둘 다 hand-mouse 를 함께)
            그리고 「목소리」 설정 창: tts(지금 값) · tts_test(들어 보기) · tts_save(저장 → config.toml [tts])
            위쪽 모델 토글: model(고른 모델 → config.toml [brain] model, 빈 글이면 지금 모델)
 /handcam.jpg · /handcam.json  hand-mouse 카메라(손 인식 그림) 한 장 · 상태 줄 — 「손 카메라」 칸.
@@ -54,7 +55,7 @@ main{display:grid;grid-template-columns:1.4fr 1fr;grid-template-rows:minmax(0,1f
 @media (orientation:portrait) and (max-width:900px){
 body{font-size:19px;padding:14px 16px;gap:12px;grid-template-rows:auto minmax(0,1fr)}footer{display:none}
 header{gap:6px 16px}#clock{font-size:56px}#date{font-size:21px}#state{font-size:23px;gap:8px}#dot{width:16px;height:16px}
-#models button,#voiceBtn{font-size:16px;padding:4px 10px}#models button small{font-size:12px}
+#models button,#voiceBtn,#offBtn,#onBtn{font-size:16px;padding:4px 10px}#models button small{font-size:12px}
 main{grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(0,1fr);grid-template-areas:"heard heard" "tasks tasks";gap:12px}
 /* 손 카메라가 켜지면 「들은 말」 과 한 줄에 나란히(왼쪽 말 · 오른쪽 카메라) — 주인 10월 5일 17:52 */
 .cam main{grid-template-columns:1.15fr 1fr;grid-template-rows:27vh minmax(0,1fr);grid-template-areas:"heard cam" "tasks tasks"}
@@ -97,8 +98,9 @@ footer{color:var(--dim);font-size:20px}
 #models button{background:none;border:0;border-left:1px solid var(--line);color:var(--dim);padding:6px 14px;font:inherit;font-size:20px;cursor:pointer}
 #models button:first-child{border-left:0}#models button:hover{color:var(--ink)}
 #models button.on{background:var(--acc);color:#04201c;font-weight:600}#models button small{font-size:15px;opacity:.75;margin-left:6px}
-#voiceBtn{background:none;border:1px solid var(--line);color:var(--dim);border-radius:8px;padding:6px 14px;font:inherit;font-size:20px;cursor:pointer}
-#voiceBtn:hover{color:var(--ink);border-color:var(--dim)}
+#voiceBtn,#offBtn,#onBtn{background:none;border:1px solid var(--line);color:var(--dim);border-radius:8px;padding:6px 14px;font:inherit;font-size:20px;cursor:pointer}
+#voiceBtn:hover,#offBtn:hover,#onBtn:hover{color:var(--ink);border-color:var(--dim)}
+body.sleep #offBtn{display:none}body:not(.sleep) #onBtn{display:none}
 #voiceDlg{position:fixed;inset:0;background:rgba(1,4,9,.72);display:flex;align-items:center;justify-content:center;z-index:10}
 #voiceDlg[hidden]{display:none}
 #voiceBox{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:28px 32px;width:min(680px,92vw)}
@@ -111,7 +113,7 @@ footer{color:var(--dim);font-size:20px}
 #voiceBox button.pri{background:var(--acc);color:#04201c;border-color:var(--acc);font-weight:600}#voiceBox .btns span{margin-left:auto}
 #vMsg{margin-top:14px;min-height:1.4em;font-size:19px;color:var(--dim)}
 </style></head><body class="sleep">
-<header><div id="clock">--:--</div><div id="date"></div><div id="state"><span id="dot"></span><span id="stateText">대기</span></div><div id="models" title="비서 모델 — 말로도: &quot;빠른 모드&quot; · &quot;정확한 모드&quot;"></div><button id="voiceBtn">목소리</button></header>
+<header><div id="clock">--:--</div><div id="date"></div><div id="state"><span id="dot"></span><span id="stateText">대기</span></div><div id="models" title="비서 모델 — 말로도: &quot;빠른 모드&quot; · &quot;정확한 모드&quot;"></div><button id="offBtn" title="화면과 hand-mouse 카메라를 끔 (deskctl sleep 과 같음)">화면 끄기</button><button id="onBtn" title="화면과 hand-mouse 를 켬">화면 켜기</button><button id="voiceBtn">목소리</button></header>
 <main>
  <section id="heardCard"><h2>들은 말</h2><div id="heard">—</div><div id="reply"></div></section>
  <section id="showCard"><h2>화면에 띄운 글<span>클릭 · Esc 로 닫기</span></h2><div id="panel"></div></section>
@@ -126,7 +128,7 @@ footer{color:var(--dim);font-size:20px}
  <small id="vNote">비서 목소리에만 — 시스템 음량과 따로예요.</small>
  <div class="btns"><button id="vTest">들어 보기</button><button id="vSave" class="pri">저장</button><span></span><button id="vClose">닫기</button></div>
  <div id="vMsg"></div></div></div>
-<footer>명령 예: "브리핑" · "조용히" · "다시 들어" · "화면 꺼" · "멈춰" · "빠른 모드" · 그 밖의 말은 Claude 에게</footer>
+<footer>명령 예: "브리핑" · "조용히" · "다시 들어" · "화면 꺼"(또는 박수 두 번) · "멈춰" · "빠른 모드" · 그 밖의 말은 Claude 에게</footer>
 <script>
 const S={sleep:"자는 중",listening:"듣는 중",thinking:"생각 중",speaking:"말하는 중",muted:"조용히 모드"};
 const W="일월화수목금토";
@@ -199,6 +201,8 @@ vPitch.oninput=()=>{vs.pitch=Number(vPitch.value);vDraw()};
 vVol.oninput=()=>{vs.volume=Number(vVol.value)/100;vDraw()};
 vTest.onclick=()=>{vMsg.textContent="들려 드릴게요…";api("tts_test",vs).then(t=>vMsg.textContent=t==="ok"?"":t).catch(e=>vMsg.textContent=e.message)};
 vSave.onclick=()=>{vMsg.textContent="저장 중…";api("tts_save",vs).then(t=>vMsg.textContent=t).catch(e=>vMsg.textContent="저장 못 함: "+e.message)};
+offBtn.onclick=()=>{offBtn.disabled=true;api("screen_off").catch(e=>alert("화면을 못 껐어요: "+e.message)).finally(()=>offBtn.disabled=false)};
+onBtn.onclick=()=>{onBtn.disabled=true;api("screen_on").catch(e=>alert("화면을 못 켰어요: "+e.message)).finally(()=>onBtn.disabled=false)};
 voiceBtn.onclick=vOpen;vClose.onclick=vHide;voiceDlg.onclick=e=>{if(e.target===voiceDlg)vHide()};
 showCard.onclick=closeShow;addEventListener("keydown",e=>{if(e.key==="Escape"){if(!voiceDlg.hidden)return vHide();closeShow()}});
 setInterval(()=>{if(last.panel)render(last)},30000);

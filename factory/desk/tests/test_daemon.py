@@ -207,6 +207,91 @@ class DaemonFlow(unittest.TestCase):
         d.sleep("idle")
         self.assertIn("cameras_off", CALLS)
 
+    # ── 깨어 있을 때 박수 두 번 = 화면 끄기 (주인 10월 15일) ──────────────────
+    def _awake(self):
+        d = make()
+        d.wake("test")
+        d._changed_at = 0                           # 켠 직후 보호 시간은 지남
+        CALLS.clear()
+        return d
+
+    def _settle(self, d, mode, wait=1.0):
+        for _ in range(int(wait / 0.02)):
+            if d.mode == mode:
+                break
+            time.sleep(0.02)
+        return d.mode
+
+    def test_double_clap_when_awake_turns_screen_and_cameras_off(self):
+        d = self._awake()
+        feed(d, np.concatenate([silence(1.0), clap(), silence(0.3), clap(), silence(1.5)]))
+        self.assertEqual(self._settle(d, "sleep"), "sleep")
+        self.assertIn("display_off", CALLS)
+        self.assertIn("cameras_off", CALLS)            # hand-mouse 카메라도 같이 (deskctl sleep 과 같은 길)
+        self.assertTrue(any("화면 끌게요" in s for s in d.voice.said))
+
+    def test_double_clap_off_can_be_disabled(self):
+        d = self._awake()
+        d.cfg["wake"]["clap_when_awake"] = "none"
+        feed(d, np.concatenate([silence(1.0), clap(), silence(0.3), clap(), silence(1.5)]))
+        self.assertEqual(self._settle(d, "sleep", 0.3), "awake")
+
+    def test_weak_double_clap_does_not_turn_off(self):
+        d = self._awake()                           # 세기 0.027 — 켜는 박수(abs_min 0.02)는 되지만 끄는 박수(0.035)엔 못 미침
+        feed(d, np.concatenate([silence(1.0), clap(amp=0.04), silence(0.3), clap(amp=0.04), silence(1.5)]))
+        self.assertEqual(self._settle(d, "sleep", 0.3), "awake")
+        self.assertNotIn("display_off", CALLS)
+
+    def test_slow_or_uneven_double_clap_does_not_turn_off(self):
+        d = self._awake()
+        feed(d, np.concatenate([silence(1.0), clap(), silence(0.7), clap(), silence(1.5)]))   # 간격 0.78초 — 너무 느림
+        self.assertEqual(self._settle(d, "sleep", 0.3), "awake")
+        feed(d, np.concatenate([silence(1.0), clap(amp=0.8), silence(0.3), clap(amp=0.05), silence(1.5)]))   # 한쪽만 「짝」
+        self.assertEqual(self._settle(d, "sleep", 0.3), "awake")
+        self.assertNotIn("display_off", CALLS)
+        self.assertTrue(any(x["kind"] == "clap" and "무시" in x["text"] for x in d.board.get()["log"]))
+
+    def test_double_clap_right_after_wake_is_ignored(self):
+        d = make()
+        d.wake("test")                              # _changed_at = 지금 — 켠 직후 5초는 안 끔
+        CALLS.clear()
+        feed(d, np.concatenate([silence(1.0), clap(), silence(0.3), clap(), silence(1.5)]))
+        self.assertEqual(self._settle(d, "sleep", 0.3), "awake")
+
+    def test_double_clap_while_muted_still_unmutes(self):
+        d = self._awake()
+        d.mute()
+        feed(d, np.concatenate([silence(1.0), clap(), silence(0.3), clap(), silence(1.5)]))
+        self.assertEqual(self._settle(d, "sleep", 0.3), "awake")
+        self.assertNotIn("display_off", CALLS)
+
+    # ── 「화면 끄기」 · 「화면 켜기」 버튼 (책상 탭 · 폰) ───────────────────────
+    def test_screen_off_button_is_same_path_as_sleep(self):
+        d = self._awake()
+        self.assertEqual(d.screen_off("버튼"), "ok")
+        self.assertEqual(d.mode, "sleep")
+        self.assertIn("display_off", CALLS)
+        self.assertIn("cameras_off", CALLS)
+        self.assertLess(CALLS.index("display_off"), CALLS.index("cameras_off"))
+        CALLS.clear()
+        self.assertEqual(d.screen_off("버튼"), "이미 꺼져 있음")   # 다시 눌러도 말없이 화면 · 카메라만 확인
+        self.assertIn("cameras_off", CALLS)
+
+    def test_screen_on_button_turns_display_and_cameras_on_quietly(self):
+        d = make()
+        d.wake("test")
+        d.sleep("test")
+        CALLS.clear()
+        said = len(d.voice.said)
+        self.assertEqual(d.screen_on("버튼"), "ok")
+        self.assertEqual(d.mode, "awake")
+        self.assertIn("display_on", CALLS)
+        self.assertIn("cameras_on", CALLS)             # 켤 때는 hand-mouse 도 같이
+        self.assertEqual(len(d.voice.said), said)      # 인사 · 브리핑 없음
+        CALLS.clear()
+        d.screen_on("버튼")                            # 이미 켜져 있어도 카메라는 다시 확인(hand-mouse on 은 켜져 있으면 그대로)
+        self.assertIn("cameras_on", CALLS)
+
     def test_mic_blocked_when_only_zeros(self):
         # 권한이 없으면 macOS 는 정확히 0 만 보냄 → 6초 뒤 막힘으로 보고 한 번만 말함, 소리가 오면 풀림
         d = make()

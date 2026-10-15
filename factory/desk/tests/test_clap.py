@@ -101,6 +101,23 @@ class ClapTest(unittest.TestCase):
         hiss = (rng.standard_normal(int(SR * 0.4)) * 0.3).astype(np.float32)
         self.assertEqual(run(seq(hiss, silence(0.3), hiss)), [])
 
+    def test_burst_detail_has_gap_peaks_floor(self):
+        # 깨어 있을 때 끄는 쪽이 간격 · 세기를 따로 보게 — 묶음마다 상세를 남김
+        d = ClapDetector()
+        sig = seq(clap(amp=0.5), silence(0.3), clap(amp=0.25))
+        details = []
+        for i in range(0, len(sig), 480):
+            d.feed(sig[i:i + 480])
+            details += d.last_bursts
+        self.assertEqual([x["n"] for x in details], [2])
+        b = details[0]
+        self.assertEqual(len(b["gaps"]), 1)
+        self.assertAlmostEqual(b["gaps"][0], 0.38, delta=0.06)     # 박수 0.08초 + 쉼 0.3초
+        self.assertEqual(len(b["peaks"]), 2)
+        self.assertGreater(b["peaks"][0], b["peaks"][1])           # 첫 박수가 더 셈
+        self.assertGreater(b["peaks"][1], 0.03)
+        self.assertLess(b["floor"], 0.01)                          # 바닥 소음(0.002 안팎)
+
     def test_steady_beat_music_is_not_double(self):
         # 일정한 박자의 높은 소리가 계속 — 묶음이 길게 이어지므로 2 가 아님
         beat = []

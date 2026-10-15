@@ -8,6 +8,8 @@
 
 묶음: 박수 사이 간격이 min_gap_s ~ max_gap_s 이면 같은 묶음. 마지막 박수 뒤 burst_end_s 동안 조용하면
 묶음이 끝나고 박수 수를 돌려준다. 몇 번이 "켜기" 인지는 부르는 쪽(데몬)이 정한다(밤에는 3번 등).
+묶음마다 간격 · 세기(최고 RMS) · 그때 바닥 소음도 `last_bursts` 에 남긴다 — 깨어 있을 때 박수로 화면을 끄는 쪽은
+켜는 쪽보다 까다롭게(간격이 고르고 충분히 센 두 번만) 보려고(주인 10월 15일).
 
 크기는 칸마다 평균(직류, DC)을 빼고 잽니다. Brio 100 은 +0.008 쯤 섞여 나와, 안 빼면 바닥 소음이 두 배로
 부풀어 침대에서 치는 약한 두 번째 박수가 문턱에 못 미칩니다.
@@ -50,6 +52,11 @@ class ClapDetector:
         self._prev: deque[float] = deque([0.0, 0.0], maxlen=2)
         self._cand: tuple[float, float, int] | None = None   # (시작 시각, 최고 RMS, 지난 칸 수)
         self._burst: list[float] = []
+        self._peaks: list[float] = []                          # _burst 와 짝 — 박수마다 최고 RMS
+        self._burst_floor = 0.0                                # 묶음이 시작될 때의 바닥 소음
+        self._floor = 0.0
+        self._details: list[dict] = []
+        self.last_bursts: list[dict] = []                      # 마지막 feed 에서 끝난 묶음들 {n, times, gaps, peaks, floor}
         self._tainted = False
         self._last_loud = -1e9
         self._win = np.hanning(self.hop).astype(np.float32)
@@ -60,6 +67,7 @@ class ClapDetector:
     def feed(self, x: np.ndarray) -> list[int]:
         """오디오 조각(float32 mono, -1~1)을 넣고, 이번 조각에서 끝난 묶음의 박수 수를 돌려준다."""
         out: list[int] = []
+        self._details = []
         self._buf = np.concatenate([self._buf, np.asarray(x, dtype=np.float32).reshape(-1)])
         while len(self._buf) >= self.hop:
             frame, self._buf = self._buf[: self.hop], self._buf[self.hop:]
@@ -67,11 +75,13 @@ class ClapDetector:
             if n:
                 out.append(n)
             self._t += self.cfg.hop_s
+        self.last_bursts = self._details
         return out
 
     def reset(self) -> None:
         self._cand = None
         self._burst = []
+        self._peaks = []
         self._tainted = False
 
     # ── 한 칸(10ms) ──────────────────────────────────────────────────────
@@ -85,6 +95,7 @@ class ClapDetector:
         frame = frame - frame.mean()                       # 직류(DC) 빼기
         rms = float(np.sqrt(np.mean(frame.astype(np.float64) ** 2))) + 1e-9
         floor = max(float(np.median(self._hist)) if self._hist else rms, 1e-4)
+        self._floor = floor
         thr = max(floor * 10 ** (c.rise_db / 20), c.abs_min)
         emitted = 0
 
@@ -93,7 +104,7 @@ class ClapDetector:
             n += 1
             peak = max(peak, rms)
             if rms < peak * c.decay_ratio:
-                self._on_clap(t0)
+                self._on_clap(t0, peak)
                 self._cand = None
             elif n * c.hop_s > c.max_len_s:
                 self._cand = None            # 오래 끄는 소리 — 박수 아님
@@ -115,7 +126,12 @@ class ClapDetector:
         # 묶음 끝?
         if self._burst and self._cand is None and t - self._burst[-1] > c.burst_end_s:
             emitted = 0 if self._tainted else len(self._burst)
+            if emitted:
+                ts = list(self._burst)
+                self._details.append({"n": emitted, "times": ts, "gaps": [b - a for a, b in zip(ts, ts[1:])],
+                                      "peaks": list(self._peaks), "floor": self._burst_floor})
             self._burst = []
+            self._peaks = []
             self._tainted = False
 
         self._hist.append(rms)
@@ -129,19 +145,24 @@ class ClapDetector:
             self._tainted = True
         self._last_loud = t
 
-    def _on_clap(self, t0: float) -> None:
+    def _on_clap(self, t0: float, peak: float = 0.0) -> None:
         c = self.cfg
         if self._burst:
             gap = t0 - self._burst[-1]
             if gap < c.min_gap_s:
-                return                         # 같은 박수의 울림
+                self._peaks[-1] = max(self._peaks[-1], peak)   # 같은 박수의 울림
+                return
             if gap <= c.max_gap_s:
                 self._burst.append(t0)
+                self._peaks.append(peak)
                 return
             # 너무 멀면 앞 묶음은 _step 에서 이미 끝났어야 함 — 안전하게 새로 시작
             self._burst = []
+            self._peaks = []
             self._tainted = False
         if t0 - self._last_loud < c.quiet_before_s:
             return                             # 시끄러운 중에 난 소리 — 묶음을 시작하지 않음
         self._burst = [t0]
+        self._peaks = [peak]
+        self._burst_floor = self._floor
         self._tainted = False

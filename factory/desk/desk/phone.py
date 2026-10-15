@@ -4,6 +4,7 @@
         누르고 말하기 → 받아쓰기(deskd 와 같은 whisper) → 왼손 주먹 말과 같은 길(같은 세션 · CLAUDE.md · 권한)
                         → 답은 맥 스피커가 아니라 폰으로(글 · 폰이 소리로 읽음)
         두 화면 보기 → /screen/<i>.jpg (바뀐 게 없으면 304)
+        화면 끄기 · 켜기 → /screen_off · /screen_on (끄기는 deskctl sleep 과 같은 길 — hand-mouse 도 함께, 켜기도 hand-mouse 함께)
         터치 → /input  클릭 · 두 번 · 오른쪽 · 스크롤 · 끌기 · 글자 입력
 
 테일넷 주소(100.64.0.0/10)와 127.0.0.1 에만 열고, 공개 인터넷(funnel)에는 내지 않습니다.
@@ -418,6 +419,10 @@ class Phone:
                         return self._json({"r": act(ds[i] if 0 <= i < len(ds) else None, ev)})
                     if u.path == "/wake":
                         return self._json({"r": ph.desk.phone_wake()})
+                    if u.path == "/screen_on":                # 「화면 켜기」 — 화면 + hand-mouse (주인 10월 15일)
+                        return self._json({"r": ph.desk.screen_on("폰")})
+                    if u.path == "/screen_off":               # 「화면 끄기」 — deskctl sleep 과 같은 길(hand-mouse 도 끔)
+                        return self._json({"r": ph.desk.screen_off("폰")})
                     if u.path == "/stop":
                         return self._json({"r": ph.desk.stop()})
                 except Exception as e:  # noqa: BLE001
@@ -465,7 +470,7 @@ html,body{margin:0;height:100%;background:#0d1117;color:#e6edf3;font-family:syst
 <div id="chat"></div>
 <div id="bar">
  <div id="reply"></div>
- <div id="tools"><button id="zoom">확대</button><button id="drag">끌기</button><button id="rclick">오른쪽 클릭</button><button id="wake">맥 화면 켜기</button><span id="st"></span></div>
+ <div id="tools"><button id="zoom">확대</button><button id="drag">끌기</button><button id="rclick">오른쪽 클릭</button><button id="soff">화면 끄기</button><button id="son">화면 켜기</button><span id="st"></span></div>
  <div id="keys"><input id="txt" placeholder="글 입력"><button id="ask">비서에게</button><button id="typ">맥에 입력</button><button data-k="enter">⏎</button><button data-k="delete">⌫</button></div>
  <button id="talk">누르고 말하기</button>
 </div>
@@ -490,7 +495,7 @@ async function loop(){
   try{
    const r=await fetch(`/screen/${s}.jpg?w=${w}&q=55&h=${tag}`,{headers:H,cache:'no-store'});
    if(r.status===200){const b=await r.blob();if(s===scr){tag=r.headers.get('X-Frame')||'';const u=URL.createObjectURL(b);const old=$('scr').src;$('scr').src=u;if(old.startsWith('blob:'))setTimeout(()=>URL.revokeObjectURL(old),1000)}}
-   else if(r.status===503&&r.headers.get('X-Asleep')){$('st').textContent='맥 화면이 꺼져 있어요 — 「맥 화면 켜기」';await sleep(1500)}
+   else if(r.status===503&&r.headers.get('X-Asleep')){$('st').textContent='맥 화면이 꺼져 있어요 — 「화면 켜기」';await sleep(1500)}
    else if(r.status!==204){$('st').textContent='화면 '+r.status;await sleep(1000)}
    fails=0;if(r.status===200||r.status===204)$('st').textContent='';
   }catch(e){fails++;$('st').textContent='연결 끊김 — 다시 시도';await sleep(Math.min(5000,500*fails))}
@@ -521,7 +526,9 @@ let dragMode=false;
 $('drag').onclick=()=>{dragMode=!dragMode;$('drag').classList.toggle('on',dragMode)};
 $('zoom').onclick=()=>{V.classList.toggle('zoom');$('zoom').classList.toggle('on');tag=''};
 $('rclick').onclick=()=>{rightNext=!rightNext;$('rclick').classList.toggle('on',rightNext)};
-$('wake').onclick=()=>{$('st').textContent='켜는 중…';fetch('/wake',{method:'POST',headers:H})};
+// 화면 끄기 = deskctl sleep 과 같은 길(hand-mouse 카메라도 끔) · 화면 켜기 = 화면 + hand-mouse (인사 · 브리핑 없음)
+$('soff').onclick=()=>{$('st').textContent='화면 끄는 중…';fetch('/screen_off',{method:'POST',headers:H}).then(()=>$('st').textContent='맥 화면을 꺼요').catch(()=>$('st').textContent='연결 안 됨')};
+$('son').onclick=()=>{$('st').textContent='켜는 중…';fetch('/screen_on',{method:'POST',headers:H}).then(()=>$('st').textContent='').catch(()=>$('st').textContent='연결 안 됨')};
 $('typ').onclick=()=>{const v=$('txt').value;if(v){send({action:'type',text:v});$('txt').value=''}};
 document.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>send({action:'key',key:b.dataset.k}));
 function addMsg(cls,t){const d=document.createElement('div');d.className='m '+cls;d.textContent=t;$('chat').appendChild(d);$('chat').scrollTop=1e9}

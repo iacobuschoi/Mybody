@@ -16,7 +16,14 @@ DEFAULTS: dict = {
         "claps": 2,                 # 켜는 박수 수
         "night_claps": 3,           # 밤에는 더 (침대 앞 책상 — 기침 · 뒤척임에 켜지지 않게)
         "night": ["01:00", "07:00"],
-        "clap_when_awake": "none",  # none · sleep (깨어 있을 때 박수로 끄기)
+        "clap_when_awake": "sleep", # none · sleep (깨어 있을 때 박수 두 번으로 화면 끄기 — hand-mouse 도 함께, 주인 10월 15일)
+        # 끄는 박수는 켜는 박수보다 까다롭게(헛박수에 화면이 꺼지면 더 짜증) — 거른 까닭은 로그 · 상태판 「박수 두 번 무시」
+        "off_min_gap_s": 0.18,      # 두 박수 사이 간격(초) — 이 안이어야
+        "off_max_gap_s": 0.65,
+        "off_min_rms": 0.035,       # 두 번 다 이 세기(RMS, 전체 1.0 기준) 이상 — 켜는 박수 abs_min 0.02 보다 세게
+        "off_rise_db": 22.0,        # 두 번 다 바닥 소음보다 이만큼 커야(켜는 박수 rise_db 18 보다)
+        "off_even_ratio": 5.0,      # 센 박수가 약한 박수의 이 배수를 넘으면(한쪽만 「짝」) 안 끔
+        "off_guard_s": 5.0,         # 화면을 켠 직후 이 초 동안은 안 끔
     },
     "clap": {},                     # ClapConfig 값 덮어쓰기 (rise_db · min_centroid_hz · max_gap_s …)
     "listen": {"end_silence_s": 0.8, "min_utt_s": 0.3, "max_utt_s": 20.0,   # min_utt_s: 0.4 는 "응" · "꺼" 같은 짧은 말을 버림(10월 2일)

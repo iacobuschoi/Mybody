@@ -17,7 +17,14 @@ samplerate = 16000
 claps = 2                         # 켜는 박수 수
 night_claps = 3                   # 밤에는 3번 (침대 앞 책상 — 기침 · 뒤척임에 켜지지 않게)
 night = ["01:00", "07:00"]
-clap_when_awake = "none"          # "sleep" 이면 깨어 있을 때 박수 두 번으로 끔
+clap_when_awake = "sleep"         # 깨어 있을 때 박수 두 번 = 화면 끄기(hand-mouse 도 함께). "none" 이면 안 끔
+# 끄는 박수는 켜는 박수보다 까다롭게 봅니다 — 안 꺼지면 상태판 · 로그의 「박수 두 번 무시: …」 까닭을 보고 조정
+off_min_gap_s = 0.18              # 두 박수 사이 간격(초)
+off_max_gap_s = 0.65
+off_min_rms = 0.035               # 두 번 다 이 세기 이상 (RMS, 1.0 기준 — 켜는 박수 abs_min 0.02 보다 세게)
+off_rise_db = 22.0                # 두 번 다 바닥 소음보다 이만큼 커야
+off_even_ratio = 5.0              # 센 박수가 약한 박수의 이 배수를 넘으면 안 끔
+off_guard_s = 5.0                 # 화면을 켠 직후 이 초 동안은 안 끔
 
 [clap]                            # python -m desk calibrate 로 실제 값을 보고 조정
 # rise_db = 18.0                  # 바닥 소음보다 이만큼 커야 (시끄러운 방이면 낮추고, 오작동하면 올림)

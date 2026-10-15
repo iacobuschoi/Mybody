@@ -238,6 +238,34 @@ class Desk:
         self._show()
         return "ok"
 
+    def screen_off(self, why: str = "버튼") -> str:
+        """「화면 끄기」 버튼(책상 탭 · 폰) · deskctl screen_off — deskctl sleep 과 같은 길(화면 + hand-mouse 카메라를 함께 끔).
+        이미 꺼져 있으면 말없이 화면 · 카메라만 다시 확인. 맥 잠그기는 넣지 않음(주인 보류)."""
+        why = why or "버튼"
+        if self.mode == "sleep":
+            mac.display_off(self.cfg.get("screen_off", "blackout"))
+            mac.cameras_off(self.cfg["camera_off"])
+            return "이미 꺼져 있음"
+        return self.sleep(why)
+
+    def screen_on(self, why: str = "버튼") -> str:
+        """「화면 켜기」 버튼(책상 탭 · 폰) · deskctl screen_on — 인사 · 브리핑 없이 화면을 켜고 hand-mouse 도 같이 켬(끄기의 짝).
+        이미 켜져 있어도 카메라는 다시 확인(hand-mouse on 은 켜져 있으면 그대로)."""
+        why = why or "버튼"
+        log.info("화면 켬 (%s, 지금 %s)", why, self.mode)
+        self._changed_at = time.time()                # 화면 감시가 키보드로 깬 줄 알고 또 켜지 않게
+        if self.mode == "sleep":
+            self.mode = "awake"
+            self.clap.reset()
+            self.seg.reset()
+            mac.sound("Tink")
+        self.last_activity = time.time()
+        mac.display_on()
+        self._cameras_on(why)
+        self.board.log("wake", why)
+        self._show()
+        return "ok"
+
     def _cameras_on(self, why: str) -> None:
         """화면이 켜질 때(어느 길로든) 카메라 쓰는 것들을 켬 — 끌 때 cameras_off 의 짝. hand-mouse on 은 이미 켜져 있으면 그대로"""
         def report(cmd: str, out: str) -> None:
@@ -429,18 +457,8 @@ class Desk:
         return box
 
     def phone_wake(self) -> str:
-        """폰의 「맥 화면 켜기」 — 주인은 방에 없으니 인사 · 브리핑 · 카메라 없이 화면만 켬"""
-        log.info("폰에서 화면 켬 (지금 %s)", self.mode)
-        self._changed_at = time.time()                # 화면 감시가 키보드로 깬 줄 알고 인사하지 않게
-        if self.mode == "sleep":
-            self.mode = "awake"
-            self.clap.reset()
-            self.seg.reset()
-            self.board.log("wake", "폰")
-        self.last_activity = time.time()
-        mac.display_on()
-        self._show()
-        return "ok"
+        """폰의 「화면 켜기」 — 인사 · 브리핑 없이 화면을 켬. 켤 때는 hand-mouse 도 같이(끄기의 짝, 주인 10월 15일)"""
+        return self.screen_on("폰")
 
     def phone_state(self) -> dict:
         b = self.board.get()
@@ -760,19 +778,59 @@ class Desk:
         night = (a <= now < b) if a < b else (now >= a or now < b)
         return int(w["night_claps"] if night else w["claps"])
 
+    def _clap_off_ok(self, b: dict) -> bool:
+        """깨어 있을 때 박수 두 번으로 화면을 끌지(주인 10월 15일). 켜는 박수보다 까다롭게 — 헛박수가 화면을 꺼 버리면 더 짜증:
+        [wake] off_min_gap_s ~ off_max_gap_s 안의 고른 간격 · 두 번 다 off_min_rms 이상이고 바닥보다 off_rise_db 이상 ·
+        두 박수 세기가 off_even_ratio 배 안 · 주인이나 비서가 말하는 중이 아니고 켠 직후(off_guard_s)도 아님.
+        거른 까닭은 로그 · 상태판에 남겨 값을 맞출 수 있게."""
+        w = self.cfg["wake"]
+        if w.get("clap_when_awake") != "sleep":
+            return False
+        gap = b["gaps"][0] if b.get("gaps") else 0.0
+        peaks = b.get("peaks") or [0.0, 0.0]
+        weak, strong = min(peaks), max(peaks)
+        floor = max(float(b.get("floor") or 0.0), 1e-4)
+        rise_db = float(20 * np.log10(max(weak, 1e-9) / floor))
+        why = None
+        if not float(w.get("off_min_gap_s", 0.18)) <= gap <= float(w.get("off_max_gap_s", 0.65)):
+            why = f"간격 {gap:.2f}초"
+        elif weak < float(w.get("off_min_rms", 0.035)):
+            why = f"세기 {weak:.3f}"
+        elif rise_db < float(w.get("off_rise_db", 22.0)):
+            why = f"바닥보다 {rise_db:.0f}dB 뿐"
+        elif strong > weak * float(w.get("off_even_ratio", 5.0)):
+            why = "두 박수 세기가 너무 다름"
+        elif self.seg.in_speech or self.ptt.active:
+            why = "주인이 말하는 중"
+        elif self.voice.sounding(self.echo_s):
+            why = "비서가 말하는 중"
+        elif time.time() - self._changed_at < float(w.get("off_guard_s", 5.0)):
+            why = "화면을 켠 직후"
+        desc = f"간격 {gap:.2f}초 · 세기 {peaks[0]:.3f}/{peaks[-1]:.3f} · 바닥 {floor:.4f}(+{rise_db:.0f}dB)"
+        if why:
+            log.info("박수 두 번(깨어 있음) 무시 — %s (%s)", why, desc)
+            self.board.log("clap", f"박수 두 번 무시: {why}")
+            return False
+        log.info("박수 두 번(깨어 있음) → 화면 끔 (%s)", desc)
+        return True
+
     def _on_audio(self, x: np.ndarray, side: list[np.ndarray] | None = None) -> None:
         """side: 박수 · 끼어들기를 듣는 마이크가 따로면(side_device) 그 사이 들어온 조각들. 없으면 x 로 둘 다 봄."""
         ears = [x] if side is None else side
-        bursts = [n for a in ears for n in self.clap.feed(a)]
+        bursts: list[dict] = []
+        for a in ears:
+            self.clap.feed(a)
+            bursts += self.clap.last_bursts
         if self.mode == "sleep":
-            if any(n == self._required_claps() for n in bursts):
+            if any(b["n"] == self._required_claps() for b in bursts):
                 self.clap_wake()
             return
-        if bursts and any(n == 2 for n in bursts):
+        two = [b for b in bursts if b["n"] == 2]
+        if two:
             if self.mode == "muted":
                 self.unmute()
                 return
-            if self.cfg["wake"].get("clap_when_awake") == "sleep" and not self.seg.in_speech:
+            if self._clap_off_ok(two[0]):
                 threading.Thread(target=self.sleep, args=("clap",), daemon=True).start()
                 return
         if self.mode == "awake" or self.mode == "muted":
@@ -852,6 +910,7 @@ class Desk:
         mac.on_real_input = self._real_input
         serve(self.board, {"wake": self.wake, "sleep": self.sleep, "brief": self.say_brief, "mute": self.mute,
                            "unmute": self.unmute, "stop": self.stop,
+                           "screen_on": self.screen_on, "screen_off": self.screen_off,
                            "say": self.remote_say, "show": self.show,
                            "enroll": self.enroll, "face": self.face_test,
                            "tts": self.tts_view, "tts_test": self.tts_test, "tts_save": self.tts_save,

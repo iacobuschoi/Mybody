@@ -65,6 +65,7 @@ class PhoneWake(unittest.TestCase):
         d.phone_wake()
         self.assertEqual(d.mode, "awake")
         self.assertIn("display_on", CALLS)
+        self.assertIn("cameras_on", CALLS)                       # 켤 때는 hand-mouse 도 같이 (주인 10월 15일)
         self.assertEqual(d.voice.said, [])                       # 집에 없으니 인사 · 브리핑 없음
 
 
@@ -77,6 +78,14 @@ class FakeDesk:
 
     def phone_state(self):
         return {"mode": "awake"}
+
+    def screen_on(self, why=""):
+        self.last = ("on", why)
+        return "ok"
+
+    def screen_off(self, why=""):
+        self.last = ("off", why)
+        return "ok"
 
 
 class Server(unittest.TestCase):
@@ -126,6 +135,15 @@ class Server(unittest.TestCase):
     def test_page(self):
         c, b = self.req("/")
         self.assertIn("누르고 말하기", b.decode())
+        self.assertIn("화면 끄기", b.decode())
+        self.assertIn("화면 켜기", b.decode())
+
+    def test_screen_buttons(self):
+        c, b = self.req("/screen_off", b"")
+        self.assertEqual((c, json.loads(b)["r"], self.p.desk.last), (200, "ok", ("off", "폰")))
+        c, b = self.req("/screen_on", b"")
+        self.assertEqual((c, json.loads(b)["r"], self.p.desk.last), (200, "ok", ("on", "폰")))
+        self.assertEqual(self.req("/screen_off", b"", tok=False)[0], 401)
 
     def test_talk_ends_only_on_release(self):
         page = phone.PAGE
