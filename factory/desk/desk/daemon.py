@@ -825,6 +825,9 @@ class Desk:
             if any(b["n"] == self._required_claps() for b in bursts):
                 self.clap_wake()
             return
+        for b in bursts:                             # 깨어 있을 때 들린 박수는 다 남김 — 끄기 값(off_*)을 맞추는 근거
+            log.info("박수 %d번 들림(깨어 있음): 간격 %s · 세기 %s · 바닥 %.4f", b["n"],
+                     " ".join(f"{g:.2f}" for g in b["gaps"]) or "-", "/".join(f"{p:.3f}" for p in b["peaks"]), b["floor"])
         two = [b for b in bursts if b["n"] == 2]
         if two:
             if self.mode == "muted":
