@@ -37,6 +37,8 @@ CAPTIONS = [
     ('progress', '체중 · 골격근 · 체지방 추이'),
     ('social',   '친구와 서로 응원합니다'),
     ('friend',   '친구와의 스트릭 — 원하는 정보만 공유합니다'),
+    ('workout',  '꾹 누르고 말하면 세트가 기록됩니다'),
+    ('history',  '지난 운동 기록 — 세트마다 무게 · 횟수'),
 ]
 
 def caption_for(name):
