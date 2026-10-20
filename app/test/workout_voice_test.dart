@@ -380,6 +380,31 @@ void main() {
       expect(ys, orderedEquals([...ys]..sort()), reason: '원래 순서 그대로');
     });
 
+    testWidgets('확인 시트에서 고쳐 기록하면 피드백으로 남고(서버가 없으면 쌓임), 그대로면 안 남는다', (t) async {
+      final app = await seeded();
+      await open(t, app, const WorkoutSessionScreen(dateKey: _todayKey, type: 'gym'));
+      await typeSpoken(t, '벤치 80키로 4개');
+      expect(find.byKey(const ValueKey('voice-beta-note')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('spoken-ok')));
+      await t.pumpAndSettle();
+      final p = await SharedPreferences.getInstance();
+      expect(p.getStringList('voiceFeedbackQueue') ?? const [], isEmpty, reason: '그대로 기록 — 보낼 것 없음');
+      await t.pump(const Duration(seconds: 6));   // 「기록했습니다」 알림이 막대를 덮지 않게
+      await t.pumpAndSettle();
+      await typeSpoken(t, '벤치 80키로 4개');
+      await t.tap(find.descendant(of: find.byKey(const ValueKey('spoken-0')), matching: find.byIcon(LucideIcons.plus)).first);
+      await t.pumpAndSettle();
+      await t.tap(find.byKey(const ValueKey('spoken-ok')));
+      await t.pumpAndSettle();
+      /* 보내기는 화면을 막지 않고 뒤에서 — 판 읽기(플랫폼 채널)까지 끝나게 진짜 시간을 조금. */
+      await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 300)));
+      await t.pumpAndSettle();
+      final q = p.getStringList('voiceFeedbackQueue') ?? const [];
+      expect(q, hasLength(1), reason: '고친 무게 — 서버(가짜는 404)에 못 닿아 쌓임');
+      expect(q.single, contains('"transcript":"벤치 80키로 4개"'));
+      expect(q.single, isNot(contains('audio')));
+    });
+
     testWidgets('말로 새로 넣은 종목은 비우기에서 남는다', (t) async {
       final app = await seeded();
       await open(t, app, const WorkoutSessionScreen(dateKey: _todayKey, type: 'gym'));

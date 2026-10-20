@@ -369,6 +369,15 @@ class Api extends ChangeNotifier {
     });
   }
 
+  /// 누르고 말하기에서 사용자가 알아들은 결과를 고쳐 기록했을 때(workout/voice_feedback.dart).
+  /// 「의견 보내기」 처럼 **로그인 없이도** 갑니다. 받아쓴 글 · 알아들은 세트 · 고른 세트 · 판만 —
+  /// 목소리(녹음)는 싣지 않습니다(서버도 받지 않습니다).
+  Future<ApiResult> sendVoiceFeedback(Map<String, dynamic> body) => _send('POST', '/voice/feedback', body);
+
+  /// 받아쓰기 별칭 사전(「벤치」 → bench-press 같은 것) — 서버가 고쳐 두면 앱 출시 없이 반영됩니다.
+  /// `{ok, version, aliases:{말: 종목 id}}`.
+  Future<ApiResult> voiceAliases() => _send('GET', '/voice/aliases');
+
   /// [askMerge] — 이 기기에 주인 없는 기록이 있으면 이 계정에 합칠지 묻는 창(없으면 안 합칩니다).
   /// [beforeToken] — 서버가 받아 준 뒤, 새 토큰을 알리기 **전에** 기다립니다. 가입의 복구 코드 창이
   /// 씁니다: 알린 뒤에 띄우면 셸이 로그인 화면을 내리면서 창을 띄울 자리가 사라질 수 있습니다.

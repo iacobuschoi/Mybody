@@ -477,6 +477,23 @@ Future<SpokenConfirm?> showSpokenConfirm(
                 style: t.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800, height: 1.25)),
           ]),
         ),
+        /* 시험 중인 기능이라는 것 · 틀리면 직접 고르면 된다는 것 · 고른 것이 어디에 쓰이는지 — 한 줄로.
+           고쳐서 기록하면 그 고친 것이 서버로 갑니다(workout/voice_feedback.dart, 녹음은 안 감). */
+        Padding(
+          key: const ValueKey('voice-beta-note'),
+          padding: const EdgeInsets.only(top: 8),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Icon(LucideIcons.flaskConical, size: 16, color: t.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text('시험 중인 기능이라 틀릴 수 있어요. 잘못 들었으면 운동을 직접 골라 주세요 — 고르신 건 더 잘 알아듣게 고치는 데 써요.',
+                  style: t.textTheme.bodySmall?.copyWith(color: t.colorScheme.onSurfaceVariant, height: 1.45)),
+            ),
+          ]),
+        ),
         if (heardNothing)
           Padding(
             padding: const EdgeInsets.only(top: 8),
