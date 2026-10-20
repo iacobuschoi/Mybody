@@ -238,7 +238,8 @@ void seedWorkouts(AppState app) {
 }
 
 /// 가짜 사람의 인바디 세 장 + 목표 · 계획 · 이번 주 운동 · 오늘 식단.
-Future<AppState> rich() async {
+/// [lunch] 가 false 면 오늘은 아침만 적은 상태 — 홈 첫 장의 「점심 기록할 시간」.
+Future<AppState> rich({bool lunch = true}) async {
   SharedPreferences.setMockInitialValues({});
   final app = await AppState.boot();
   app.store.set({'profile': kDemoProfile, 'scans': demoScans(), 'onboarded': true, 'disclaimerAccepted': true});
@@ -269,6 +270,7 @@ Future<AppState> rich() async {
       {'name': n, 'unit': u, 'g': 100, 'mult': 1, 'kcal': kcal, 'p': p, 'c': c, 'f': f};
   app.store.addFoodLog({'date': today, 'meal': '아침', 'source': 'manual', 'items': [
     item('오트밀', '1그릇', 310, 11, 54, 6), item('삶은 계란', '2개', 155, 13, 1, 11)]});
+  if (!lunch) return app;
   app.store.addFoodLog({'date': today, 'meal': '점심', 'source': 'manual', 'items': [
     item('닭가슴살', '1팩', 165, 31, 0, 3.6), item('현미밥', '1공기', 330, 7, 72, 2), item('김치', '1접시', 20, 1, 3, 0)]});
   app.store.addFoodLog({'date': today, 'meal': '간식', 'source': 'manual', 'items': [
@@ -336,14 +338,33 @@ void main() {
     restore();
   });
 
-  testWidgets('탭 다섯 — 홈 · 식단 · 플랜 · 추이 · 친구', (t) async {
+  /* 스토어 첫 장 — 홈 맨 위 브리핑(체크인 카드)에 「오늘 운동」 과 「밥 기록」 알림이 같이 뜬 모습.
+     시계를 오늘 낮 12시 30분에 세우고, 오늘을 헬스 날(아직 안 함) · 아침만 적은 날로 둡니다. */
+  testWidgets('홈 — 오늘 운동 · 점심 기록 알림', (t) async {
+    phone(t);
+    final app = await rich(lunch: false);
+    final d = DateTime.now();
+    app.store.now = () => DateTime(d.year, d.month, d.day, 12, 30);
+    final today = app.store.dayKey();
+    app.store.setSchedulePlan(today, 'gym', true);
+    app.store.setScheduleDone(today, 'gym', false);
+    final api = await signedIn(friendsClient());
+    await t.pumpWidget(host(app, api, const Shell()));
+    await settle(t);
+    expect(find.byType(ErrorWidget), findsNothing);
+    expect(find.textContaining('하는 날'), findsWidgets);
+    expect(find.textContaining('점심 기록할 시간'), findsOneWidget);
+    await shot(t, '01-home');
+    restore();
+  });
+
+  testWidgets('탭 넷 — 식단 · 플랜 · 추이 · 친구', (t) async {
     phone(t);
     final app = await rich();
     final api = await signedIn(friendsClient());
     await t.pumpWidget(host(app, api, const Shell()));
     await settle(t);
     expect(find.byType(ErrorWidget), findsNothing);
-    await shot(t, '01-home');
     for (final (label, name) in [('식단', '06-food'), ('플랜', '05-plan'), ('추이', '07-progress'), ('친구', '08-social')]) {
       await t.tap(find.text(label).last);
       await settle(t);
