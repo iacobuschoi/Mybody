@@ -11,6 +11,8 @@
            주인 15:47). 새 그림이 몇 초 안 오면 칸에 「멈춤」.
            hand-mouse(overlay.py)는 HANDCAM/want 가 몇 초 안에 건드려졌을 때만 view.jpg · view.json 을 쓴다.
 
+위쪽 「Claude 사용량」 칸은 desk/usage.py — Claude Code 상태줄이 넘겨 준 rate_limits(5시간 · 주간)만, 모르면 「모름」.
+
 「작업 현황」 칸은 `claude agents --json` 과 ~/.claude/jobs/<id>/state.json · timeline.jsonl 을 몇 초마다 읽어 채웁니다
 (watch_agents). 주인 손이 필요한 것(권한 · 질문 · blocked)이 맨 위, 그다음 작업 중 · 멈춤(까닭 · 마지막 말) · 끝남.
 """
@@ -111,9 +113,18 @@ body.sleep #offBtn{display:none}body:not(.sleep) #onBtn{display:none}
 #voiceBox .off{opacity:.4}#voiceBox small{color:var(--dim);font-size:16px}
 #voiceBox .btns{display:flex;gap:10px;margin-top:24px}#voiceBox button{font:inherit;font-size:20px;border-radius:8px;padding:8px 18px;cursor:pointer;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
 #voiceBox button.pri{background:var(--acc);color:#04201c;border-color:var(--acc);font-weight:600}#voiceBox .btns span{margin-left:auto}
+@media (orientation:portrait) and (max-width:900px){#usage{gap:8px;font-size:15px}.us{padding:4px 8px}.us-top{gap:6px}.us-top b{font-size:19px}.us-top span{font-size:13px}.us-note{font-size:12px}}
 #vMsg{margin-top:14px;min-height:1.4em;font-size:19px;color:var(--dim)}
+/* 「Claude 사용량」 — 상태줄 rate_limits 에서 온 값만(desk/usage.py). 모르면 「모름」 */
+#usage{display:flex;gap:18px;width:100%;font-size:20px;color:var(--dim)}
+.us{flex:1;min-width:0;border:1px solid var(--line);border-radius:8px;padding:6px 12px}
+.us-top{display:flex;align-items:baseline;gap:10px;white-space:nowrap}.us-top b{color:var(--ink);font-size:24px;font-variant-numeric:tabular-nums}
+.us-top span{margin-left:auto;font-size:17px;overflow:hidden;text-overflow:ellipsis}
+.us-bar{height:6px;border-radius:3px;background:var(--line);margin-top:4px;overflow:hidden}.us-bar i{display:block;height:100%;background:var(--acc)}
+.us.low b{color:var(--warn)}.us.low .us-bar i{background:var(--warn)}.us.out b{color:var(--bad)}.us.out .us-bar i{background:var(--bad)}
+.us.unk b{color:var(--dim)}.us-note{font-size:15px;color:var(--warn)}
 </style></head><body class="sleep">
-<header><div id="clock">--:--</div><div id="date"></div><div id="state"><span id="dot"></span><span id="stateText">대기</span></div><div id="models" title="비서 모델 — 말로도: &quot;빠른 모드&quot; · &quot;정확한 모드&quot;"></div><button id="offBtn" title="화면과 hand-mouse 카메라를 끔 (deskctl sleep 과 같음)">화면 끄기</button><button id="onBtn" title="화면과 hand-mouse 를 켬">화면 켜기</button><button id="voiceBtn">목소리</button></header>
+<header><div id="clock">--:--</div><div id="date"></div><div id="state"><span id="dot"></span><span id="stateText">대기</span></div><div id="models" title="비서 모델 — 말로도: &quot;빠른 모드&quot; · &quot;정확한 모드&quot;"></div><button id="offBtn" title="화면과 hand-mouse 카메라를 끔 (deskctl sleep 과 같음)">화면 끄기</button><button id="onBtn" title="화면과 hand-mouse 를 켬">화면 켜기</button><button id="voiceBtn">목소리</button><div id="usage" title="Claude 사용량 — Claude Code 상태줄이 넘겨 준 값(5시간 · 주간 한도). 못 받았으면 모름"></div></header>
 <main>
  <section id="heardCard"><h2>들은 말</h2><div id="heard">—</div><div id="reply"></div></section>
  <section id="showCard"><h2>화면에 띄운 글<span>클릭 · Esc 로 닫기</span></h2><div id="panel"></div></section>
@@ -161,13 +172,18 @@ const SHOW_MS=15*60000;let shown="",closedAt=-1,last={};
 function showing(){return !!last.panel&&last.panel_at!==closedAt&&Date.now()-(last.panel_at||0)<SHOW_MS}
 function closeShow(){closedAt=last.panel_at;render(last)}
 let camShown=false;
+// 「Claude 사용량」 — 남은 비율 · 초기화까지 남은 시간. 서버(desk/usage.py view)가 모르면 known=false → 「모름」
+function drawUsage(rows){usage.innerHTML=(rows||[{label:"5시간"},{label:"주간"}]).map(r=>{
+ if(!r.known)return `<div class="us unk"><div class="us-top">${esc(r.label)} <b>모름</b><span>${esc(r.note||"상태줄 값 없음")}</span></div><div class="us-bar"></div></div>`;
+ const c=r.left<=10?" out":r.left<=25?" low":"";
+ return `<div class="us${c}"><div class="us-top">${esc(r.label)} <b>${r.left}% 남음</b><span>${r.resets?esc(r.resets)+" 뒤 초기화":"초기화 시각 모름"}</span></div><div class="us-bar"><i style="width:${r.left}%"></i></div>${r.note?`<div class="us-note">${esc(r.note)}</div>`:""}</div>`}).join("")}
 function render(st){last=st;
  document.body.className=(st.mode||"sleep")+(showing()?" showing":"")+(camShown?" cam":"");stateText.textContent=S[st.mode]||st.mode;
  heard.textContent=st.heard||"—";reply.textContent=st.reply||"";
  if(st.panel!==shown){shown=st.panel||"";panel.textContent=shown;showCard.scrollTop=0}
  mic.innerHTML=st.mic==="blocked"?`<div class="tk need"><div class="tk-name">마이크 막힘</div><div class="tk-detail">설정 → 개인정보 보호 및 보안 → 마이크 → deskd 켜기</div></div>`:"";
  if(st.agents!==undefined&&JSON.stringify(st.agents)!==JSON.stringify(agentsNow)){agentsNow=st.agents;renderAgents()}
- drawModels(st);
+ drawModels(st);drawUsage(st.usage);
 }
 // 위쪽 모델 토글 — 누르면 config.toml [brain] model 에 쓰고 다음 말부터 그 모델 (말로는 "빠른 모드" 등)
 let modelsKey="";

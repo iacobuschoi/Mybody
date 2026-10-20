@@ -32,6 +32,7 @@ from .clap import ClapConfig, ClapDetector
 from .dictate import Dictation, can_post_keys
 from . import deskwin
 from .dashboard import Board, serve, watch_agents
+from .usage import watch_usage
 from .router import normalize, route
 from .heard import Keeper
 from .phone import Phone
@@ -920,6 +921,7 @@ class Desk:
                            "model": self.model_set, "dial": self.dial, "talk": self.talk},
               port=self.cfg["dashboard"]["port"])
         watch_agents(self.board)
+        watch_usage(self.board)
         if self.cfg.get("phone", {}).get("enabled", True):
             self.phone = Phone(self, self.cfg["phone"].get("port", 7071))
             self.phone.start()
