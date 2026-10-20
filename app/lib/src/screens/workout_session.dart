@@ -295,6 +295,10 @@ class GymExercise {
   /// 사용자가 스테퍼로 정했는가 — 정했으면 '추천' 을 떼고 숫자만 보여 줍니다.
   bool kgSet;
 
+  /// 플랜(맨몸은 15분 루틴)이 추천해 넣은 줄인가. 「종목 추가」 · 누르고 말하기 · 내 루틴으로
+  /// 들어온 줄은 false — 「추천 종목 비우기」 는 이 줄 중 아직 한 세트도 안 한 것만 뺍니다.
+  bool suggested = false;
+
   /// 오늘 한 세트들 — 세트마다 무게 · 횟수(workout/sets.dart). 「세트」 단추는 지금 무게로 한
   /// 칸을 더하고(횟수는 안 적음), 누르고 말하기 · 세트 시트는 무게 · 횟수를 같이 적습니다.
   final List<SetEntry> log = [];
@@ -799,7 +803,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     final ctx = _loadsOf(app);
     if (_bw) {
       final xs = ((_routineFor(app)['exercises'] as List?) ?? const []).cast<Map>();
-      return [for (final m in xs) _exOf(m.cast<String, Object?>(), ctx)];
+      return [for (final m in xs) _exOf(m.cast<String, Object?>(), ctx)..suggested = true];
     }
     final r = routineForLabel(app, _sessionLabel(app));
     if (r != null) {
@@ -807,7 +811,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
       _routineId = '${r['id'] ?? ''}';
       return [for (final m in routineExercises(r)) _exOf(m, ctx)];
     }
-    return [for (final m in gymExercisesFor(app.state, widget.dateKey)) _exOf(m, ctx)];
+    return [for (final m in gymExercisesFor(app.state, widget.dateKey)) _exOf(m, ctx)..suggested = true];
   }
 
   /// 목록을 바꿉니다 — 같은 종목의 한 세트 수와 정한 무게는 이어받습니다.
@@ -840,7 +844,42 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
 
   void _resetToPlan(AppState app) {
     final ctx = _loadsOf(app);
-    _swapList([for (final m in gymExercisesFor(app.state, widget.dateKey)) _exOf(m, ctx)]);
+    _swapList([for (final m in gymExercisesFor(app.state, widget.dateKey)) _exOf(m, ctx)..suggested = true]);
+  }
+
+  /// 「추천 종목 비우기」 — 플랜이 넣은 줄 중 **아직 한 세트도 안 한 것**만 한 번에 뺍니다. 직접 넣은
+  /// 줄 · 이미 한 세트가 있는 줄은 그대로. 확인창 대신 5초 「되돌리기」(줄 밀어 빼기와 같은 손짓) —
+  /// 운동 중에 창을 하나 더 닫게 하지 않으면서, 잘못 누른 손가락은 되살립니다.
+  void _clearSuggested() {
+    final list = _gym;
+    if (list == null) return;
+    final removed = <(int, GymExercise)>[
+      for (var i = 0; i < list.length; i++)
+        if (list[i].suggested && list[i].done == 0) (i, list[i]),
+    ];
+    if (removed.isEmpty) return;
+    setState(() => list.removeWhere((e) => e.suggested && e.done == 0));
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+        content: Text('추천 종목 ${removed.length}개를 뺐습니다'),
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 5),
+        action: SnackBarAction(
+          label: '되돌리기',
+          onPressed: () {
+            /* 그 사이 같은 종목을 다시 넣었으면 그 줄은 건너뜁니다. 원래 자리에 — 앞에서부터. */
+            final cur = _gym;
+            if (!mounted || cur == null) return;
+            setState(() {
+              for (final (at, e) in removed) {
+                if (cur.any((x) => x.id == e.id)) continue;
+                cur.insert(at > cur.length ? cur.length : at, e);
+              }
+            });
+          },
+        ),
+      ));
   }
 
   /// 「루틴 불러오기」 — 고르면 그 구성으로, 길게 누르면 지웁니다.
@@ -1177,6 +1216,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     final routines = _bw ? const <Map<String, Object?>>[] : routinesOf(app);
     final bwRoutine = _bw ? _routineFor(app) : null;
     final bwNow = bwRoutine == null ? null : _bodyweightNow(app, bwRoutine, list);
+    final clearable = future ? 0 : list.where((e) => e.suggested && e.done == 0).length;
     final title = bwNow != null
         ? bwNow.title
         : (session == null ? '오늘 플랜에 없는 날 — 전신 기본 종목' : '${session['label']}');
@@ -1246,7 +1286,7 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
                   child: LinearProgressIndicator(
                       value: totalSets == 0 ? 0 : (doneSets / totalSets).clamp(0.0, 1.0), minHeight: 4),
                 ),
-                if (_routineName != null || routines.isNotEmpty)
+                if (_routineName != null || routines.isNotEmpty || clearable > 0)
                   Padding(
                     padding: const EdgeInsets.only(top: 8),
                     child: Wrap(spacing: 8, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
@@ -1272,6 +1312,16 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
                           visualDensity: VisualDensity.compact,
                           onPressed: () => _pickRoutine(app),
                         ),
+                      /* 플랜이 넣은 종목을 한 번에 — 오늘은 내 식으로 하려는 사람. 한 세트라도 한
+                         줄 · 직접 넣은 줄은 남습니다(그래서 그런 줄이 없으면 칩도 없습니다). */
+                      if (clearable > 0)
+                        ActionChip(
+                          key: const ValueKey('clear-suggested'),
+                          avatar: const Icon(LucideIcons.eraser, size: 16),
+                          label: Text('추천 종목 비우기 ($clearable)'),
+                          visualDensity: VisualDensity.compact,
+                          onPressed: _clearSuggested,
+                        ),
                     ]),
                   ),
               ]),
@@ -1285,25 +1335,16 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
         ),
       ),
       /* 「누르고 말하기」 는 목록 밖, 화면 아래에 **늘 보이게** — 종목이 대여섯이면 목록 끝은 스크롤
-         너머라 세트 사이에 말하려고 끌어내려야 했습니다(에뮬레이터 시험에서 바로 보임). 오른쪽은
-         세트 단추들과 같은 쪽이라 한 손 엄지로 닿습니다. 꾹 누른 채 「벤치 80키로 4개」, 떼면 확인
+         너머라 세트 사이에 말하려고 끌어내려야 했습니다(에뮬레이터 시험에서 바로 보임). 폭 가득한 큰
+         막대라 숨찬 채 땀 난 엄지로 대충 눌러도 닿습니다. 꾹 누른 채 「벤치 80키로 4개」, 떼면 확인
          시트. 짧게 누르면 글로 넣는 칸(마이크가 안 되는 곳 · 시끄러운 헬스장). 앞날에는 없습니다. */
       if (!future)
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 6, 16, 10),
-          child: Row(children: [
-            Expanded(
-              child: Text('꾹 누른 채 「벤치 80키로 4개」 — 떼면 확인하고 기록',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
-            ),
-            const SizedBox(width: 8),
-            VoiceSetButton(
-              key: const ValueKey('voice-set'),
-              onText: (text) => _onSpokenText(app, text),
-            ),
-          ]),
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 10),
+          child: VoiceSetButton(
+            key: const ValueKey('voice-set'),
+            onText: (text) => _onSpokenText(app, text),
+          ),
         ),
     ]);
   }
