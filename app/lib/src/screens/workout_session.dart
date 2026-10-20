@@ -85,6 +85,7 @@ import '../workout/prefs.dart';
 import '../workout/routines.dart';
 import '../workout/scheme.dart';
 import '../workout/sets.dart';
+import '../workout/voice_feedback.dart';
 import '../workout/voice_set.dart';
 import 'exercise_picker.dart';
 import 'workout_history.dart';
@@ -699,6 +700,8 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     if (_tutorialChecked) return;
     _tutorialChecked = true;
     final app = Scope.of(context);
+    /* 누르고 말하기의 서버 별칭 사전 · 못 보낸 피드백(workout/voice_feedback.dart). 화면을 막지 않습니다. */
+    if (widget.type != 'cardio') unawaited(refreshVoiceAliases(Scope.apiOf(context)));
     if (widget.type != 'gym' || WorkoutTutorial.seen(app.state)) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _showTutorial(app);
@@ -1042,6 +1045,9 @@ class _WorkoutSessionScreenState extends State<WorkoutSessionScreen> {
     if (r.retypeText != null) return _onSpokenText(app, r.retypeText!);
     final sets = r.sets;
     if (sets == null || sets.isEmpty) return;
+    /* 알아들은 것을 고쳐서 기록했으면 그게 곧 피드백 — 받아쓴 글 · 알아들은 것 · 고른 것만(녹음 없음). */
+    final fix = voiceCorrection(entry, sets);
+    if (fix != null) unawaited(sendVoiceCorrection(Scope.apiOf(context), fix));
     final ctx = _loadsOf(app);
     var added = 0;
     final names = <String>{};

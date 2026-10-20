@@ -108,6 +108,19 @@ const Map<String, String> kSpokenShortNames = {
   '페이스풀': 'face-pull', '슈러그': 'db-shrug', '쉬러그': 'db-shrug',
 };
 
+/// 서버 사전(GET /api/voice/aliases)의 말 → 종목 id. 짧은 말 표보다 먼저 봅니다. 사전에 없는
+/// 종목 id 는 버립니다 — 옛 앱이 모르는 새 종목을 서버가 가리켜도 엉뚱한 줄이 생기지 않게.
+final Map<String, String> _aliasOverrides = {};
+
+void setSpokenAliasOverrides(Map<String, String> m) {
+  _aliasOverrides
+    ..clear()
+    ..addAll({
+      for (final e in m.entries)
+        if (_loose(e.key).isNotEmpty && exerciseById(e.value) != null) _loose(e.key): e.value,
+    });
+}
+
 /* ---------------------------------------------------------------------------
  * 숫자 읽기
  * ------------------------------------------------------------------------ */
@@ -339,8 +352,9 @@ Exercise? matchSpokenExercise(String spoken, {List<String> today = const []}) {
   for (final e in todayEx) {
     if (_loose(e.name).contains(q) || e.aliases.any((a) => _loose(a) == q)) return e;
   }
-  /* 2. 짧은 말 표 — 같은 계열이 오늘 목록에 있으면 그것(「벤치」 → 오늘의 스미스 벤치프레스). */
-  final short = kSpokenShortNames[q];
+  /* 2. 짧은 말 표 — 같은 계열이 오늘 목록에 있으면 그것(「벤치」 → 오늘의 스미스 벤치프레스).
+        서버 사전(spokenAliasOverrides)이 먼저 — 받아쓰기가 자주 틀리는 말을 출시 없이 고칩니다. */
+  final short = _aliasOverrides[q] ?? kSpokenShortNames[q];
   if (short != null) {
     final base = exerciseById(short);
     if (base != null) {
