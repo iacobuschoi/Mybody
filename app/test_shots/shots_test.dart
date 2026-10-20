@@ -34,6 +34,7 @@ import 'package:mybody/src/screens/upload.dart';
 import 'package:mybody/src/screens/workout_history.dart';
 import 'package:mybody/src/screens/workout_session.dart';
 import 'package:mybody/src/screens/workout_tutorial.dart';
+import 'package:mybody/src/screens/workout_voice.dart';
 import 'package:mybody/src/sheet_history.dart';
 import 'package:mybody/src/shell.dart';
 import 'package:mybody/src/theme.dart';
@@ -94,12 +95,13 @@ const _sheet = 'test_shots/demo-sheet.png';
 /// 아이폰 크기로 찍을 때는 화면도 iOS 로 그립니다(스크롤 · 「테스트 기간」 문구 등).
 final _ios = _sizeSpec != '1080x2400';
 
-Future<void> shot(WidgetTester t, String name) async {
+Future<void> shot(WidgetTester t, String name, {String? dir}) async {
+  final out = dir ?? _out;
   final boundary = t.renderObject<RenderRepaintBoundary>(find.byKey(_shotKey));
   final image = await t.runAsync(() => boundary.toImage(pixelRatio: 3.0));
   final bytes = await t.runAsync(() => image!.toByteData(format: ui.ImageByteFormat.png));
-  Directory(_out).createSync(recursive: true);
-  File('$_out/$name.png').writeAsBytesSync(bytes!.buffer.asUint8List());
+  Directory(out).createSync(recursive: true);
+  File('$out/$name.png').writeAsBytesSync(bytes!.buffer.asUint8List());
 }
 
 Widget host(AppState app, Api api, Widget child) => RepaintBoundary(
@@ -313,6 +315,35 @@ MockClient friendsClient() => MockClient((req) async {
   return http.Response('{"ok":false}', 404);
 });
 
+/// 미리 보기용 가짜 인식기 — [say] 를 부르면 중간 결과를 내놓고, [holdFinal] 이면 떼어도 최종 결과를
+/// 늦게(받아쓰는 중이 보이게) 줍니다.
+class _HoldSpeech implements SpeechInput {
+  _HoldSpeech(this.text);
+  final String text;
+  bool holdFinal = false;
+  bool _on = false;
+  void Function(String text, bool isFinal)? _cb;
+  @override
+  Future<bool> init() async => true;
+  @override
+  Future<void> start(void Function(String text, bool isFinal) onResult, {void Function(String? error)? onEnd}) async {
+    _on = true;
+    _cb = onResult;
+  }
+
+  void say() => _cb?.call(text, false);
+  @override
+  Future<void> stop() async {
+    _on = false;
+    if (!holdFinal) _cb?.call(text, true);
+  }
+
+  @override
+  Future<void> cancel() async => _on = false;
+  @override
+  bool get listening => _on;
+}
+
 Future<Api> signedIn(MockClient client) async {
   final api = Api(baseUrl: 'https://x.test', client: client);
   await api.setToken('tok');
@@ -459,6 +490,53 @@ void main() {
     }
     await settle(t);
     await shot(t, '10-workout');
+    restore();
+  });
+
+  /* 누르고 말하기 상태 미리 보기 — 스토어용이 아니라 검토용(build/preview/). 기다림 · 눌림 · 듣는 중 ·
+     받아쓰는 중 · 확인 시트 · 추천 종목 비우기. */
+  testWidgets('누르고 말하기 상태들 — 검토용 미리 보기', (t) async {
+    phone(t);
+    final speech = _HoldSpeech('벤치 80키로 4개');
+    VoiceSetButton.speechFactory = () => speech;
+    final app = await rich();
+    seedWorkouts(app);
+    WorkoutTutorial.markSeen(app);
+    WorkoutTutorial.markSwipeHintSeen(app);
+    final api = await signedIn(friendsClient());
+    await t.pumpWidget(host(app, api, WorkoutSessionScreen(dateKey: app.store.dayKey(), type: 'gym')));
+    await settle(t);
+    for (var i = 0; i < 2; i++) {
+      await t.tap(find.text('세트').first);
+      await t.pump(const Duration(milliseconds: 600));
+    }
+    await settle(t);
+    await shot(t, 'v1-idle', dir: 'build/preview');
+    final bar = find.byKey(const ValueKey('voice-set'));
+    final g = await t.startGesture(t.getCenter(bar));
+    await t.pump(const Duration(milliseconds: 120));
+    await shot(t, 'v2-pressed', dir: 'build/preview');
+    await t.pump(const Duration(milliseconds: 300));
+    await t.pump(const Duration(milliseconds: 400));
+    speech.say();
+    await t.pump(const Duration(milliseconds: 400));
+    await shot(t, 'v3-listening', dir: 'build/preview');
+    speech.holdFinal = true;
+    await g.up();
+    await t.pump();
+    await t.pump(const Duration(milliseconds: 400));
+    await shot(t, 'v4-transcribing', dir: 'build/preview');
+    await t.pump(const Duration(milliseconds: 1500));
+    await settle(t);
+    await shot(t, 'v5-confirm', dir: 'build/preview');
+    await t.tap(find.byKey(const ValueKey('spoken-ok')));
+    await settle(t);
+    await t.pump(const Duration(seconds: 5));   // 「1세트 기록했습니다」 가 걷힌 뒤
+    await settle(t);
+    await t.tap(find.byKey(const ValueKey('clear-suggested')));
+    await t.pump(const Duration(milliseconds: 600));
+    await shot(t, 'v6-cleared', dir: 'build/preview');
+    VoiceSetButton.speechFactory = null;
     restore();
   });
 

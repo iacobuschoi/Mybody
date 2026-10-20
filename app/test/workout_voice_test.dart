@@ -335,6 +335,69 @@ void main() {
     });
   });
 
+  group('말하기 막대 · 추천 종목 비우기', () {
+    testWidgets('말하기 단추는 화면 아래 폭 가득한 큰 막대 — 들을 때 위로 커진다', (t) async {
+      final slow = _SlowSpeech()..ready.complete(true);
+      VoiceSetButton.speechFactory = () => slow;
+      final app = await seeded();
+      await open(t, app, const WorkoutSessionScreen(dateKey: _todayKey, type: 'gym'), size: const Size(390, 844));
+      final idle = t.getRect(find.byKey(const ValueKey('voice-set')));
+      expect(idle.width, greaterThan(390 - 40), reason: '폭 가득');
+      expect(idle.height, greaterThanOrEqualTo(88), reason: '땀 난 엄지로도 대충 닿게');
+      expect(idle.bottom, greaterThan(844 - 40), reason: '엄지 닿는 아래');
+      final g = await t.startGesture(t.getCenter(find.byKey(const ValueKey('voice-set'))));
+      await t.pump(const Duration(milliseconds: 400));
+      await t.pumpAndSettle();
+      expect(slow.started, 1);
+      expect(find.text('듣는 중…'), findsOneWidget);
+      final on = t.getRect(find.byKey(const ValueKey('voice-set')));
+      expect(on.height, greaterThan(idle.height + 30), reason: '듣는 중엔 위로 커집니다');
+      expect(on.bottom, closeTo(idle.bottom, 1));
+      await g.up();
+      await t.pumpAndSettle();
+    });
+
+    testWidgets('추천 종목 비우기 — 한 세트 한 줄은 남고, 되돌리기로 원래 자리에', (t) async {
+      final app = await seeded();
+      await open(t, app, const WorkoutSessionScreen(dateKey: _todayKey, type: 'gym'));
+      final plan = [for (final m in gymExercisesFor(app.state, _todayKey)) '${m['name']}'];
+      expect(plan.length, greaterThan(2));
+      final kept = slugOf(plan[1]);
+      await t.tap(find.byKey(ValueKey('set-$kept')));
+      await t.pumpAndSettle();
+      expect(find.text('추천 종목 비우기 (${plan.length - 1})'), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('clear-suggested')));
+      await t.pumpAndSettle();
+      expect(find.byKey(ValueKey('ex-$kept')), findsOneWidget, reason: '이미 한 세트는 지우지 않습니다');
+      for (final n in [plan[0], ...plan.skip(2)]) {
+        expect(find.byKey(ValueKey('ex-${slugOf(n)}')), findsNothing, reason: n);
+      }
+      expect(find.byKey(const ValueKey('clear-suggested')), findsNothing, reason: '더 뺄 것이 없으면 칩도 없습니다');
+      expect(find.text('추천 종목 ${plan.length - 1}개를 뺐습니다'), findsOneWidget);
+      await t.tap(find.text('되돌리기'));
+      await t.pumpAndSettle();
+      final ys = [for (final n in plan) t.getTopLeft(find.byKey(ValueKey('ex-${slugOf(n)}'))).dy];
+      expect(ys, orderedEquals([...ys]..sort()), reason: '원래 순서 그대로');
+    });
+
+    testWidgets('말로 새로 넣은 종목은 비우기에서 남는다', (t) async {
+      final app = await seeded();
+      await open(t, app, const WorkoutSessionScreen(dateKey: _todayKey, type: 'gym'));
+      final plan = {for (final m in gymExercisesFor(app.state, _todayKey)) '${m['name']}'};
+      final (said, extra) = [('벤치', '바벨 벤치프레스'), ('스쿼트', '바벨 스쿼트')].firstWhere((p) => !plan.contains(p.$2));
+      await typeSpoken(t, '$said 60키로 5개');
+      await t.tap(find.byKey(const ValueKey('spoken-ok')));
+      await t.pumpAndSettle();
+      expect(find.byKey(ValueKey('ex-${slugOf(extra)}')), findsOneWidget);
+      await t.tap(find.byKey(const ValueKey('clear-suggested')));
+      await t.pumpAndSettle();
+      expect(find.byKey(ValueKey('ex-${slugOf(extra)}')), findsOneWidget);
+      for (final n in plan) {
+        expect(find.byKey(ValueKey('ex-${slugOf(n)}')), findsNothing, reason: n);
+      }
+    });
+  });
+
   group('세트별 무게 · 횟수', () {
     testWidgets('「세트」 길게 → 무게 · 횟수 넣고 완료 → 칩 · 다음 세트는 그 무게로', (t) async {
       final app = await seeded();

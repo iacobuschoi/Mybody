@@ -15,6 +15,7 @@
  * ========================================================================== */
 import 'dart:async';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
@@ -116,6 +117,14 @@ class PluginSpeechInput implements SpeechInput {
  * ------------------------------------------------------------------------ */
 
 /// 누르고 말하기 단추. 꾹 누르면 듣고, 떼면 [onText] 에 받아쓴 글. 짧게 누르면 글로 넣는 칸.
+///
+/// 헬스장에서 숨이 찬 채, 땀 난 손으로 대충 눌러도 되게 **화면 아래 폭 가득한 큰 막대**입니다
+/// (엄지가 닿는 자리). 상태는 색 · 크기 · 큰 글자로 멀리서도 갈립니다:
+///   · 기다림 — 보라, 「꾹 누르고 말하기」
+///   · 손가락이 닿음 — 살짝 눌려 들어감(긴 누름이 잡히기 전에도 「눌렸다」 가 보이게)
+///   · 듣는 중 — 빨강, 막대가 위로 커지고 받아쓴 글이 크게
+///   · 받아쓰는 중(떼고 최종 결과를 기다림) — 주황, 「받아쓰는 중…」
+/// 그다음 확인 시트(초록 머리)가 뜹니다 — [showSpokenConfirm].
 class VoiceSetButton extends StatefulWidget {
   const VoiceSetButton({super.key, required this.onText});
 
@@ -124,6 +133,9 @@ class VoiceSetButton extends StatefulWidget {
 
   /// 시험이 가짜 인식기를 꽂는 구멍. null 이면 플러그인.
   static SpeechInput Function()? speechFactory;
+
+  /// 긴 누름으로 잡는 시간. 기본(0.5초)보다 짧게 — 힘들 때 손가락을 오래 붙들고 있지 않아도 되게.
+  static const holdDelay = Duration(milliseconds: 300);
 
   @override
   State<VoiceSetButton> createState() => _VoiceSetButtonState();
@@ -136,6 +148,10 @@ class _VoiceSetButtonState extends State<VoiceSetButton> {
   /// 손가락이 지금 눌려 있는가. 권한 창이 뜨는 동안 손을 떼면 — 돌아와서 듣기를 시작하면 안 됩니다
   /// (실기기 시험에서 그렇게 「듣는 중」 에 갇혔습니다).
   bool _held = false;
+  /// 손가락이 닿아 있는가(긴 누름이 잡히기 전부터) — 눌린 모양만 그립니다.
+  bool _down = false;
+  /// 손을 뗀 뒤 최종 결과를 기다리는 동안.
+  bool _transcribing = false;
   String _partial = '';
   Completer<String>? _final;
 
@@ -155,7 +171,7 @@ class _VoiceSetButtonState extends State<VoiceSetButton> {
 
   Future<void> _begin() async {
     _held = true;
-    if (_busy || _listening) return;
+    if (_busy || _listening || _transcribing) return;
     _busy = true;
     final ok = await speech.init();
     _busy = false;
@@ -168,7 +184,7 @@ class _VoiceSetButtonState extends State<VoiceSetButton> {
     }
     /* 권한 창이 뜨는 사이 손을 뗐으면 여기서 끝 — 다음 누름부터 바로 듣습니다. */
     if (!_held) return;
-    HapticFeedback.mediumImpact();
+    HapticFeedback.heavyImpact();
     setState(() {
       _listening = true;
       _partial = '';
@@ -201,13 +217,16 @@ class _VoiceSetButtonState extends State<VoiceSetButton> {
   }
 
   /// 듣기를 마치고 글을 넘깁니다. [stopPlugin] 은 우리가 멈추는 경우(손을 뗌) — 기기가 먼저 끝낸
-  /// 경우는 false. 최종 결과를 잠깐 기다리고, 안 오면 마지막 중간 결과를 씁니다.
+  /// 경우는 false. 최종 결과를 잠깐 기다리고(그동안 「받아쓰는 중」), 안 오면 마지막 중간 결과를 씁니다.
   Future<void> _finish({required bool stopPlugin, String? error}) async {
     final waiter = _final;
-    setState(() => _listening = false);
+    setState(() {
+      _listening = false;
+      _transcribing = error == null;
+    });
     if (stopPlugin) {
       await speech.stop();
-      HapticFeedback.lightImpact();
+      HapticFeedback.mediumImpact();
     }
     var text = _partial;
     if (waiter != null && error == null) {
@@ -218,6 +237,7 @@ class _VoiceSetButtonState extends State<VoiceSetButton> {
       }
     }
     if (!mounted) return;
+    setState(() => _transcribing = false);
     if (text.trim().isEmpty) {
       final why = switch (error) {
         null => '',
@@ -233,43 +253,125 @@ class _VoiceSetButtonState extends State<VoiceSetButton> {
     await widget.onText(text.trim());
   }
 
+  void _setDown(bool v) {
+    if (_down != v && mounted) setState(() => _down = v);
+  }
+
   @override
   Widget build(BuildContext context) {
     final t = Theme.of(context);
+    final c = mb(context);
     final on = _listening;
-    final bg = on ? t.colorScheme.error : t.colorScheme.primary;
-    final fg = on ? t.colorScheme.onError : t.colorScheme.onPrimary;
-    return Semantics(
-      button: true,
-      label: '누르고 말하기 — 꾹 누른 채 「벤치 80키로 4개」',
-      child: GestureDetector(
-        onTap: _listening ? null : () => _typed(),
-        onLongPressStart: (_) => _begin(),
-        onLongPressEnd: (_) => _end(),
-        onLongPressCancel: () => _end(cancelled: true),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 160),
-          height: 44,
-          constraints: BoxConstraints(maxWidth: MediaQuery.sizeOf(context).width - 32 - 130),
-          padding: EdgeInsets.symmetric(horizontal: on ? 14 : 12),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(22),
-            boxShadow: on ? [BoxShadow(color: bg.withValues(alpha: 0.35), blurRadius: 14, spreadRadius: 2)] : null,
-          ),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(on ? LucideIcons.mic : LucideIcons.mic, size: 20, color: fg),
-            const SizedBox(width: 8),
-            Flexible(
-              child: Text(
-                on ? (_partial.isEmpty ? '듣는 중…' : _partial) : '꾹 누르고 말하기',
-                key: const ValueKey('voice-label'),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: t.textTheme.labelLarge?.copyWith(color: fg, fontWeight: FontWeight.w700),
-              ),
+    final wait = _transcribing;
+    final bg = on ? c.bad : (wait ? c.warn : t.colorScheme.primary);
+    final fg = on || wait ? Colors.white : t.colorScheme.onPrimary;
+    final title = on ? (_partial.isEmpty ? '듣는 중…' : _partial) : (wait ? '받아쓰는 중…' : '꾹 누르고 말하기');
+    final sub = on ? '말하고 손을 떼면 확인해요' : (wait ? '잠깐만요' : '「벤치 80키로 4개」 · 짧게 누르면 글로');
+    /* 낮은 화면(SE 급)이나 글자를 크게 키운 폰에서는 막대를 조금 줄이고 둘째 줄을 뺍니다 — 목록이
+       첫 종목 하나 못 보일 만큼 줄면 안 됩니다. 그래도 높이 64 · 폭 가득이라 옛 단추(44)보다 큽니다. */
+    final compact = MediaQuery.sizeOf(context).height < 760 || MediaQuery.textScalerOf(context).scale(10) >= 15;
+    final idleH = compact ? 64.0 : 92.0, onH = compact ? 104.0 : 148.0;
+    final micIdle = compact ? 48.0 : 64.0, micOn = compact ? 60.0 : 76.0;
+    /* 막대는 이미 큽니다 — 글자를 2배로 키운 폰에서 화면을 다 먹지 않게 1.3배까지만. */
+    return MediaQuery.withClampedTextScaling(
+      maxScaleFactor: 1.3,
+      child: Semantics(
+        button: true,
+        label: '누르고 말하기 — 꾹 누른 채 「벤치 80키로 4개」',
+        child: RawGestureDetector(
+          gestures: {
+            TapGestureRecognizer: GestureRecognizerFactoryWithHandlers<TapGestureRecognizer>(
+              TapGestureRecognizer.new,
+              (r) => r
+                ..onTapDown = ((_) => _setDown(true))
+                ..onTapCancel = (() => _setDown(false))
+                ..onTap = () {
+                  _setDown(false);
+                  if (!_listening && !_transcribing) _typed();
+                },
             ),
-          ]),
+            LongPressGestureRecognizer: GestureRecognizerFactoryWithHandlers<LongPressGestureRecognizer>(
+              () => LongPressGestureRecognizer(duration: VoiceSetButton.holdDelay),
+              (r) => r
+                ..onLongPressStart = ((_) {
+                  _setDown(false);
+                  _begin();
+                })
+                ..onLongPressEnd = ((_) => _end())
+                ..onLongPressCancel = () {
+                  _setDown(false);
+                  _end(cancelled: true);
+                },
+            ),
+          },
+          child: AnimatedScale(
+            scale: _down ? 0.95 : 1,
+            duration: const Duration(milliseconds: 90),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOut,
+              constraints: BoxConstraints(minHeight: on ? onH : idleH),
+              padding: EdgeInsets.fromLTRB(compact ? 10 : 14, compact ? 8 : 12, 20, compact ? 8 : 12),
+              decoration: BoxDecoration(
+                color: _down ? Color.lerp(bg, Colors.black, 0.28) : bg,
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(
+                      color: bg.withValues(alpha: on ? 0.45 : 0.25),
+                      blurRadius: on ? 28 : 14,
+                      spreadRadius: on ? 4 : 0,
+                      offset: const Offset(0, 4)),
+                ],
+              ),
+              child: Row(children: [
+                /* 마이크 원 — 듣는 중엔 흰 원에 옅은 고리를 둘러 멀리서도 「켜졌다」 가 보이게. */
+                AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  width: on ? micOn : micIdle,
+                  height: on ? micOn : micIdle,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: on ? Colors.white : fg.withValues(alpha: 0.18),
+                    border: on
+                        ? Border.all(
+                            color: Colors.white.withValues(alpha: 0.4),
+                            width: 6,
+                            strokeAlign: BorderSide.strokeAlignOutside)
+                        : null,
+                  ),
+                  child: wait
+                      ? Padding(
+                          padding: EdgeInsets.all(compact ? 14 : 18),
+                          child: CircularProgressIndicator(strokeWidth: 3.5, color: fg),
+                        )
+                      : Icon(LucideIcons.mic, size: (on ? micOn : micIdle) * 0.53, color: on ? bg : fg),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+                    Text(
+                      title,
+                      key: const ValueKey('voice-label'),
+                      maxLines: on ? 2 : 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: (on ? t.textTheme.headlineSmall : t.textTheme.titleLarge)
+                          ?.copyWith(color: fg, fontWeight: FontWeight.w800, height: 1.2),
+                    ),
+                    if (!compact) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        sub,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                        style: t.textTheme.bodySmall
+                            ?.copyWith(color: fg.withValues(alpha: 0.85), fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ]),
+                ),
+              ]),
+            ),
+          ),
         ),
       ),
     );
@@ -352,16 +454,29 @@ Future<SpokenConfirm?> showSpokenConfirm(
       final c = mb(ctx);
       final ready = sets.isNotEmpty && sets.every((s) => s.exercise != null);
       final heardNothing = entry.empty;
+      /* 머리 — 초록(알아들음) · 주황(못 알아들음) 띠에 받아쓴 글을 크게. 「듣는 중」(빨강)과
+         색으로 갈려서 폰을 벤치에 놓고 봐도 지금 무엇을 확인하는지 보입니다. */
+      final tone = heardNothing ? c.warn : c.ok;
+      final toneBg = heardNothing ? c.warnBg : c.okBg;
       return _VoiceSheet(children: [
-        Row(children: [
-          Icon(LucideIcons.mic, size: 18, color: t.colorScheme.primary),
-          const SizedBox(width: 8),
-          Expanded(child: Text(heardNothing ? '잘 못 알아들었어요' : '이렇게 들었어요', style: t.textTheme.titleMedium)),
-        ]),
-        const SizedBox(height: 4),
-        Text('"${entry.transcript}"',
-            key: const ValueKey('voice-transcript'),
-            style: t.textTheme.bodySmall?.copyWith(color: t.hintColor, fontStyle: FontStyle.italic)),
+        Container(
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+          decoration: BoxDecoration(color: toneBg, borderRadius: BorderRadius.circular(18)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(children: [
+              Icon(heardNothing ? LucideIcons.helpCircle : LucideIcons.checkCircle2, size: 22, color: tone),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(heardNothing ? '잘 못 알아들었어요' : '이렇게 들었어요',
+                    style: t.textTheme.titleMedium?.copyWith(color: tone, fontWeight: FontWeight.w800)),
+              ),
+            ]),
+            const SizedBox(height: 6),
+            Text('"${entry.transcript}"',
+                key: const ValueKey('voice-transcript'),
+                style: t.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800, height: 1.25)),
+          ]),
+        ),
         if (heardNothing)
           Padding(
             padding: const EdgeInsets.only(top: 8),
@@ -396,12 +511,19 @@ Future<SpokenConfirm?> showSpokenConfirm(
           ),
         ),
         const SizedBox(height: 8),
+        /* 기록 — 시트 맨 아래, 폭 가득 · 크게(말하기 막대와 같은 자리라 엄지가 그대로 닿습니다). */
         SizedBox(
-          height: 52,
+          height: 68,
           child: FilledButton.icon(
             key: const ValueKey('spoken-ok'),
+            style: FilledButton.styleFrom(
+              backgroundColor: c.ok,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              textStyle: t.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+            ),
             onPressed: ready ? () => Navigator.pop(ctx, SpokenConfirm(sets: sets)) : null,
-            icon: const Icon(LucideIcons.check, size: 18),
+            icon: const Icon(LucideIcons.check, size: 26),
             label: Text(ready ? '${sets.fold<int>(0, (a, s) => a + s.count)}세트 기록' : '종목을 골라 주세요'),
           ),
         ),
@@ -462,11 +584,11 @@ class _SpokenSetCard extends StatelessWidget {
           Row(mainAxisSize: MainAxisSize.min, children: [
             _Tiny(icon: LucideIcons.minus, onTap: onMinus),
             SizedBox(
-              width: 68,
+              width: 76,
               child: Text(value,
                   key: key,
                   textAlign: TextAlign.center,
-                  style: t.textTheme.titleMedium?.copyWith(
+                  style: t.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w800, fontFeatures: const [FontFeature.tabularFigures()])),
             ),
             _Tiny(icon: LucideIcons.plus, onTap: onPlus),
@@ -571,10 +693,10 @@ class _Tiny extends StatelessWidget {
         onPressed: onTap,
         style: IconButton.styleFrom(
             padding: EdgeInsets.zero,
-            minimumSize: const Size(32, 32),
-            fixedSize: const Size(32, 32),
+            minimumSize: const Size(44, 44),
+            fixedSize: const Size(44, 44),
             tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-        icon: Icon(icon, size: 16),
+        icon: Icon(icon, size: 20),
       );
 }
 
