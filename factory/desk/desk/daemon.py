@@ -42,6 +42,7 @@ from .endpoint import looks_unfinished
 from .vad import Cut, Segmenter
 
 log = logging.getLogger("deskd")
+SLEEP_SAY_MAX_S = 8.0   # 「화면 끌게요」를 이만큼까지만 기다리고 화면을 끔 — 스피커가 멈춰도 화면 끄기는 되게
 
 PHONE_LOCAL = {"mute": "조용히 모드로 바꿨어요.", "unmute": "다시 들어요.", "sleep": "맥 화면을 껐어요.", "stop": "멈췄어요.",
                "brief": "맥에서 브리핑을 읽어요.", "louder": "맥 소리를 키웠어요.", "softer": "맥 소리를 줄였어요.",
@@ -228,7 +229,10 @@ class Desk:
         why = why or "deskctl"
         log.info("잠듦 (%s)", why)
         self.brain.cancel()
-        self.voice.say("화면 끌게요. 박수 두 번이면 다시 켜요.", block=True)
+        self.voice.say("화면 끌게요. 박수 두 번이면 다시 켜요.")
+        t0 = time.time()                           # 말을 다 듣고 끄되, 스피커가 멈춰도 화면은 꼭 끔(주인 10월 21일)
+        while self.voice.busy() and time.time() - t0 < SLEEP_SAY_MAX_S:
+            time.sleep(0.05)
         self.mode = "sleep"
         self._changed_at = time.time()
         self.seg.reset()

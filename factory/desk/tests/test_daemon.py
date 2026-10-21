@@ -277,6 +277,21 @@ class DaemonFlow(unittest.TestCase):
         self.assertEqual(d.screen_off("버튼"), "이미 꺼져 있음")   # 다시 눌러도 말없이 화면 · 카메라만 확인
         self.assertIn("cameras_off", CALLS)
 
+    def test_screen_off_does_not_wait_forever_for_stuck_speaker(self):
+        """스피커가 멈춰 「화면 끌게요」가 안 끝나도(busy 가 계속 True) 화면은 꺼짐 (주인 10월 21일)"""
+        d = self._awake()
+        d.voice.busy = lambda: True
+        saved, daemon.SLEEP_SAY_MAX_S = daemon.SLEEP_SAY_MAX_S, 0.2
+        try:
+            t0 = time.time()
+            self.assertEqual(d.screen_off("버튼"), "ok")
+            self.assertLess(time.time() - t0, 2)
+        finally:
+            daemon.SLEEP_SAY_MAX_S = saved
+        self.assertEqual(d.mode, "sleep")
+        self.assertIn("display_off", CALLS)
+        self.assertIn("cameras_off", CALLS)
+
     def test_screen_on_button_turns_display_and_cameras_on_quietly(self):
         d = make()
         d.wake("test")

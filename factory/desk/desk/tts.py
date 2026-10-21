@@ -16,6 +16,8 @@ import time
 
 from . import devices, mac
 
+STUCK_S = 10.0     # 말하는 중인데 이만큼 아무 진척(합성 · 스피커에 쓰기)이 없으면 스피커가 멈춘 것으로 봄
+
 
 def sentences(text: str) -> list[str]:
     parts = re.split(r"(?<=[.!?。…])\s+", text.strip())
@@ -57,6 +59,10 @@ class NeuralVoice(mac.Voice):
         self._gen = 0                   # 말 하나마다 +1 — stop() 도 올려서 하던 말을 멈추게
         self._speaking = False
         self._out_gen = -1              # 스피커로 소리를 내기 시작한 말의 _gen
+        self._beat = 0.0                # 하던 말이 마지막으로 나아간 시각(합성 · 스피커에 쓰기)
+        # CoreAudio 가 이 프로세스 안에서 교착되면(스피커 열기 · 닫기가 영영 안 돌아옴) 다시 열어도 또 멈춤 —
+        # 그 뒤로는 따로 프로세스인 say 로 말함. deskd 를 다시 켜면 돌아옴 (주인 10월 21일 「화면 끄기 버튼이 안 돼」)
+        self.audio_stuck = False
         self.ready = threading.Event()
         self.error = ""
         threading.Thread(target=self._load, daemon=True).start()
@@ -91,11 +97,29 @@ class NeuralVoice(mac.Voice):
         self.pitch = float(c.get("pitch", self.pitch))
 
     def busy(self) -> bool:
-        return self._speaking or super().busy()
+        return self._speaking_alive() or super().busy()
+
+    def _speaking_alive(self) -> bool:
+        """말하는 중인가 — 스피커가 STUCK_S 넘게 꼼짝 않으면 멈춘 것으로 보고 놓아줌(busy 가 영영 True 로 남아
+        화면 끄기 · 박수 · 브리핑이 다 기다리던 것)."""
+        if not self._speaking:
+            return False
+        if time.time() - self._beat < STUCK_S:
+            return True
+        with self._lock:
+            if not self._speaking:
+                return False
+            self._gen += 1                          # 멈춘 말은 버림(돌아오더라도 더 틀지 않게)
+            self._speaking = False
+            self.audio_stuck = True
+            self.ended = time.time()
+            self._until = self.ended
+        mac.log.warning("스피커가 %.0f초째 멈춤(CoreAudio 교착) — 이제 say 로 말함, deskd 를 다시 켜면 돌아옴", STUCK_S)
+        return False
 
     def sounding(self, echo_s: float = 0.2) -> bool:
         """합성하는 동안(아직 소리 없음)은 False — 그때 주인이 한 말도 듣게"""
-        return (self._speaking and self._out_gen == self._gen) or super().sounding(echo_s)
+        return (self._speaking_alive() and self._out_gen == self._gen) or super().sounding(echo_s)
 
     def say(self, text: str, block: bool = False, opts: dict | None = None) -> None:
         """opts: 이번 말에만 쓸 설정(설정 창의 「들어 보기」) — engine · style · speed · pitch · volume · voice · rate."""
@@ -103,7 +127,7 @@ class NeuralVoice(mac.Voice):
         if not text:
             return
         o = opts or {}
-        if self._tts is None or o.get("engine", self.use) == "say":
+        if self._tts is None or o.get("engine", self.use) == "say" or self.audio_stuck:
             return super().say(text, block, opts)
         try:
             p = {"style": self._style_of(o.get("style", self.style_name)), "speed": float(o.get("speed", self.speed)),
@@ -116,10 +140,12 @@ class NeuralVoice(mac.Voice):
         with self._lock:
             self._gen += 1
             gen, self._speaking = self._gen, True
+            self._beat = time.time()
         t = threading.Thread(target=self._speak, args=(text, gen, p), daemon=True)
         t.start()
-        if block:
-            t.join()
+        if block:                                   # 스피커가 멈추면(busy 가 놓아줌) 더 기다리지 않음
+            while t.is_alive() and self._gen == gen and self._speaking_alive():
+                t.join(0.1)
 
     def stop(self) -> None:
         with self._lock:
@@ -146,12 +172,17 @@ class NeuralVoice(mac.Voice):
                     print(f"[말하기] 합성 실패: {e}", flush=True)
                     break
                 wav = shift_pitch(np.asarray(wav, dtype=np.float32).reshape(-1), p["pitch"])
+                self._beat = time.time()
                 parts.put(np.clip(wav * p["volume"], -1, 1).astype(np.float32))
             parts.put(None)
 
         threading.Thread(target=make, daemon=True).start()   # 기다리는 동안에도 미리 만들어 둠
-        if self.wait_turn(alive) and alive():
+        def waiting() -> bool:                      # 주인 말을 기다리는 동안은 멈춘 게 아님
+            self._beat = time.time()
+            return alive()
+        if self.wait_turn(waiting) and alive():
             self.said_at = time.time()
+        self._beat = time.time()
         played = False
         try:
             with devices.pa_lock:                   # 장치 목록을 새로 읽는 중엔 기다렸다 엶(desk/devices.py)
@@ -164,6 +195,7 @@ class NeuralVoice(mac.Voice):
                         if not alive():
                             break
                         out.write(wav[i:i + sr // 10])
+                        self._beat = time.time()
                         played = True
                     if alive():
                         out.write(gap)

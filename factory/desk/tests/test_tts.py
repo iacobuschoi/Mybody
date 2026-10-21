@@ -115,6 +115,34 @@ class NeuralVoiceTest(unittest.TestCase):
         v._until = 0
         self.assertFalse(v.busy())
 
+    def test_stuck_speaker_releases_busy_and_falls_back_to_say(self):
+        """CoreAudio 교착으로 스피커 쓰기가 안 돌아오면: block 말하기도 풀리고 busy 도 False, 다음 말은 say 로 (주인 10월 21일)"""
+        FakeStream.slow = 5.0                                    # 첫 쓰기에서 「멈춤」
+        saved, tts.STUCK_S = tts.STUCK_S, 0.3
+        try:
+            v = self.voice()
+            t0 = time.time()
+            v.say("화면 끌게요.", block=True)
+            self.assertLess(time.time() - t0, 2)
+            self.assertFalse(v.busy())
+            self.assertTrue(v.audio_stuck)
+            v.say("다음 말.")
+            self.assertEqual(SAID, [["Yuna", "다음 말."]])
+        finally:
+            tts.STUCK_S = saved
+            FakeStream.slow = 0.0
+
+    def test_slow_but_moving_speech_is_not_stuck(self):
+        FakeStream.slow = 0.05
+        saved, tts.STUCK_S = tts.STUCK_S, 0.3
+        try:
+            v = self.voice()
+            v.say("하나. 둘. 셋. 넷. 다섯. 여섯.", block=True)       # 0.1초 조각마다 진척 — 0.3초 넘게 말해도 멈춤 아님
+            self.assertFalse(v.audio_stuck)
+            self.assertEqual(SAID, [])
+        finally:
+            tts.STUCK_S = saved
+
     def test_falls_back_to_say_without_model(self):
         FakeTTS.fail = True
         v = self.voice()
