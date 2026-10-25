@@ -140,6 +140,16 @@ class Segmenter:
         return self._utt is not None
 
     @property
+    def open_s(self) -> float:
+        """열린 구간이 지금까지 이어진 길이(앞 preroll 포함). 안 열렸으면 0 — 박수가 연 구간인지 가리는 데 씀"""
+        u = self._utt
+        return len(u) * self.frame_s if u is not None else 0.0
+
+    @property
+    def preroll_s(self) -> float:
+        return self._ring.maxlen * self.frame_s
+
+    @property
     def talking(self) -> bool:
         """지금 말하는 중 — 구간이 열려 있고 말 끝 침묵(end_silence_s)에 아직 못 미침. 조사로 끝나 더 기다리는 동안은 아님"""
         return self._utt is not None and not self._paused and self._silence < self.end_silence_s
