@@ -621,8 +621,9 @@ class _WeekCard extends StatelessWidget {
 
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        /* 오른쪽 끝의 작은 시계는 지난 운동 기록 — 운동을 다 한 날은 이 카드에서 운동 화면으로 가는
-           단추가 사라지므로(아래), 그 날 무엇을 몇 kg 했는지 다시 보는 길은 여기와 설정뿐입니다. */
+        /* 오른쪽 끝의 작은 달력은 지난 운동 기록(달력부터) — 이 카드는 이번 주 일곱 칸뿐이라 지난주 ·
+           지난달 칸은 거기서 넘겨 봅니다(의견 84). 운동을 다 한 날은 이 카드에서 운동 화면으로 가는
+           단추가 사라지므로(아래), 그 날 무엇을 몇 kg 했는지 다시 보는 길도 여기와 설정입니다. */
         SectionTitle('이번 주 운동',
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
               Text(
@@ -632,15 +633,15 @@ class _WeekCard extends StatelessWidget {
               const SizedBox(width: 2),
               IconButton(
                 key: const ValueKey('home-workout-history'),
-                tooltip: '지난 운동 기록',
+                tooltip: '지난 기록 달력',
                 visualDensity: VisualDensity.compact,
                 style: IconButton.styleFrom(
                     padding: EdgeInsets.zero,
                     minimumSize: const Size(32, 32),
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-                icon: Icon(LucideIcons.history, size: 18, color: Theme.of(context).colorScheme.primary),
+                icon: Icon(LucideIcons.calendarDays, size: 18, color: Theme.of(context).colorScheme.primary),
                 onPressed: () => Navigator.of(context)
-                    .push(MaterialPageRoute(builder: (_) => const WorkoutHistoryScreen())),
+                    .push(MaterialPageRoute(builder: (_) => const WorkoutHistoryScreen(calendar: true))),
               ),
             ])),
         Row(children: [

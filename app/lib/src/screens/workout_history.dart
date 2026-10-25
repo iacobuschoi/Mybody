@@ -8,6 +8,7 @@
  *
  *   날짜별  최근 날부터. 날마다 헬스(종목 · 세트별 무게 × 횟수 · 시간 · kcal) · 맨몸 · 유산소.
  *   종목별  종목마다 몇 번 · 마지막 날 · 최고 무게 → 누르면 그 종목의 날짜별 세트.
+ *   달력    한 달씩 넘겨 처음 기록까지(workout_calendar.dart). 홈 「이번 주 운동」 에서 열면 이것부터.
  *
  * 세트별 무게 · 횟수는 setLog(workout/sets.dart)에서 읽고, 그 칸이 없는 옛 기록은
  * 「60kg ×3세트」 처럼 횟수 없이 보입니다 — 지어내지 않습니다. 이 화면은 읽기만 합니다.
@@ -22,6 +23,7 @@ import '../ui/fmt.dart';
 import '../ui/widgets.dart';
 import '../workout/kcal.dart';
 import '../workout/sets.dart';
+import 'workout_calendar.dart';
 
 /// 하루의 기록 — 그 날짜에 헬스(또는 맨몸) · 유산소 중 있는 것.
 class HistoryDay {
@@ -120,17 +122,20 @@ String historyDate(String key) {
 }
 
 /// 지난 운동 기록 화면. [type] 은 연 화면의 종류 — 유산소에서 열면 유산소 날을 먼저 펼칠 뿐,
-/// 어느 쪽이든 전부 보입니다.
+/// 어느 쪽이든 전부 보입니다. [calendar] 면 달력부터 — 홈의 요일 칸에서 온 사람은 "지난주 ·
+/// 지난달 그 칸" 을 찾습니다.
 class WorkoutHistoryScreen extends StatefulWidget {
-  const WorkoutHistoryScreen({super.key, this.type = 'gym'});
+  const WorkoutHistoryScreen({super.key, this.type = 'gym', this.calendar = false});
   final String type;
+  final bool calendar;
 
   @override
   State<WorkoutHistoryScreen> createState() => _WorkoutHistoryScreenState();
 }
 
 class _WorkoutHistoryScreenState extends State<WorkoutHistoryScreen> {
-  bool _byExercise = false;
+  /* 'calendar' · 'date' · 'exercise' */
+  late String _mode = widget.calendar ? 'calendar' : 'date';
 
   @override
   Widget build(BuildContext context) {
@@ -139,40 +144,47 @@ class _WorkoutHistoryScreenState extends State<WorkoutHistoryScreen> {
     final t = Theme.of(context);
     return Scaffold(
       appBar: AppBar(title: const Text('지난 운동 기록')),
+      /* 달력은 기록(log) 없이 체크만 한 날도 그리므로 빈 안내보다 먼저 — 목록 둘만 기록이 없으면 비어 있습니다. */
       body: SafeArea(
-        child: days.isEmpty
-            ? const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(24),
-                  child: EmptyState(
-                    title: '아직 운동 기록이 없습니다',
-                    detail: '헬스 · 맨몸 · 유산소 화면에서 저장하면 여기에 날짜별로 쌓입니다',
-                  ),
-                ),
-              )
-            : Column(children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                  child: SegmentedButton<bool>(
-                    key: const ValueKey('history-mode'),
-                    segments: const [
-                      ButtonSegment(value: false, label: Text('날짜별'), icon: Icon(LucideIcons.calendar, size: 16)),
-                      ButtonSegment(value: true, label: Text('종목별'), icon: Icon(LucideIcons.dumbbell, size: 16)),
-                    ],
-                    selected: {_byExercise},
-                    onSelectionChanged: (s) => setState(() => _byExercise = s.first),
-                    showSelectedIcon: false,
-                  ),
-                ),
-                Expanded(
-                  child: _byExercise ? _ByExercise(app: app) : _ByDate(days: days, weightKg: _weightKg(app)),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-                  child: Text('기록은 이 기기에만 있습니다. 세트별 무게 · 횟수는 0.2.22 부터 남습니다 — 그 전 기록은 세트 수와 무게만 보입니다.',
-                      style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.4)),
-                ),
-              ]),
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: SegmentedButton<String>(
+              key: const ValueKey('history-mode'),
+              segments: const [
+                ButtonSegment(value: 'calendar', label: Text('달력'), icon: Icon(LucideIcons.calendarDays, size: 16)),
+                ButtonSegment(value: 'date', label: Text('날짜별'), icon: Icon(LucideIcons.list, size: 16)),
+                ButtonSegment(value: 'exercise', label: Text('종목별'), icon: Icon(LucideIcons.dumbbell, size: 16)),
+              ],
+              selected: {_mode},
+              onSelectionChanged: (s) => setState(() => _mode = s.first),
+              showSelectedIcon: false,
+            ),
+          ),
+          Expanded(
+            child: _mode == 'calendar'
+                ? WorkoutCalendar(detail: (key) => _DayCard(day: days.firstWhere((d) => d.key == key)))
+                : days.isEmpty
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(24),
+                          child: EmptyState(
+                            title: '아직 운동 기록이 없습니다',
+                            detail: '헬스 · 맨몸 · 유산소 화면에서 저장하면 여기에 날짜별로 쌓입니다',
+                          ),
+                        ),
+                      )
+                    : _mode == 'exercise'
+                        ? _ByExercise(app: app)
+                        : _ByDate(days: days, weightKg: _weightKg(app)),
+          ),
+          if (_mode != 'calendar' && days.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
+              child: Text('기록은 이 기기에만 있습니다. 세트별 무게 · 횟수는 0.2.22 부터 남습니다 — 그 전 기록은 세트 수와 무게만 보입니다.',
+                  style: t.textTheme.labelSmall?.copyWith(color: t.hintColor, height: 1.4)),
+            ),
+        ]),
       ),
     );
   }
@@ -221,7 +233,12 @@ class _DayCard extends StatelessWidget {
           Row(children: [
             Text(historyDate(day.key), style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
             const SizedBox(width: 8),
-            Text(dateK(day.key), style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+            /* 360 폭 · 글자 1.3배에서 넘쳤습니다 — 덧붙인 날짜는 줄어들어도 됩니다. */
+            Flexible(
+              child: Text(dateK(day.key),
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: t.textTheme.labelSmall?.copyWith(color: t.hintColor)),
+            ),
           ]),
           if (g != null) ...[
             const SizedBox(height: 8),
