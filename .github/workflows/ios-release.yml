@@ -40,6 +40,14 @@ on:
       version:
         description: '판 번호 (예: v0.2.4) — 기록용'
         required: true
+      store:
+        description: 'build = 빌드해서 TestFlight · store-preview / store-apply = 빌드 없이 그 판의 등록정보만(tools/asc-store.js, 심사 제출 안 함)'
+        type: choice
+        options: [build, store-preview, store-apply]
+        default: build
+      build_number:
+        description: 'store-* 일 때 붙일 빌드 번호'
+        required: false
 
 concurrency:
   group: ios-release
@@ -52,6 +60,7 @@ env:
 
 jobs:
   testflight:
+    if: ${{ (inputs.store || 'build') == 'build' }}
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
@@ -695,3 +704,23 @@ jobs:
           rm -rf ~/private_keys "$RUNNER_TEMP/sign" 2>/dev/null || true
           # 러너는 어차피 버려지지만, 앱 알림 설정 파일도 남기지 않습니다.
           rm -f app/ios/Runner/GoogleService-Info.plist 2>/dev/null || true
+
+  # 빌드 없이 앱스토어 새 판의 설명 · 새로운 기능 · 스크린샷 · 빌드를 채움. 심사 제출은 주인이 콘솔에서.
+  store:
+    if: ${{ inputs.store == 'store-preview' || inputs.store == 'store-apply' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+      - name: 등록정보 채우기
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          v="${{ inputs.version }}"; v="${v#v}"
+          node tools/asc-store.js --version "$v" --build "${{ inputs.build_number }}" \
+            --desc "appstore/$v/description.txt" --notes "appstore/$v/whats-new.txt" \
+            --shots "appstore/그림/스크린샷-6.9" --wait-build 40 \
+            ${{ inputs.store == 'store-apply' && '--apply' || '' }}
