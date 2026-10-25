@@ -11,7 +11,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from desk import briefing, config, daemon, mac  # noqa: E402
-from tests.test_clap import clap, silence  # noqa: E402
+from tests.test_clap import clap, silence, speech  # noqa: E402
 
 CALLS: list[str] = []
 DISPLAY = {"asleep": None}
@@ -229,6 +229,20 @@ class DaemonFlow(unittest.TestCase):
         self.assertIn("display_off", CALLS)
         self.assertIn("cameras_off", CALLS)            # hand-mouse 카메라도 같이 (deskctl sleep 과 같은 길)
         self.assertTrue(any("화면 끌게요" in s for s in d.voice.said))
+
+    def test_double_clap_that_opens_listen_segment_still_turns_off(self):
+        # 방 울림이 붙은 박수는 그 자체로 상시 듣기 구간을 엶 — 예전엔 「주인이 말하는 중」으로 막힘 (10/25 주인: 감도 ↑)
+        d = self._awake()
+        tail = lambda: (np.random.default_rng(1).standard_normal(int(16000 * 0.25)) * 0.01).astype(np.float32)
+        feed(d, np.concatenate([silence(1.0), clap(), tail(), silence(0.1), clap(), tail(), silence(1.5)]))
+        self.assertEqual(self._settle(d, "sleep"), "sleep")
+        self.assertIn("display_off", CALLS)
+
+    def test_double_clap_right_after_owner_speech_is_ignored(self):
+        d = self._awake()                           # 말하다 잠깐 멈추고 친 박수 — 구간이 박수 전부터 열려 있음
+        feed(d, np.concatenate([silence(1.0), speech(8), silence(0.5), clap(), silence(0.3), clap(), silence(1.2)]))
+        self.assertEqual(self._settle(d, "sleep", 0.3), "awake")
+        self.assertNotIn("display_off", CALLS)
 
     def test_double_clap_off_can_be_disabled(self):
         d = self._awake()

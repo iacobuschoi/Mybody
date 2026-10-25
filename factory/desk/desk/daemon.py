@@ -811,7 +811,7 @@ class Desk:
             why = f"바닥보다 {rise_db:.0f}dB 뿐"
         elif strong > weak * float(w.get("off_even_ratio", 5.0)):
             why = "두 박수 세기가 너무 다름"
-        elif self.seg.in_speech or self.ptt.active:
+        elif self.ptt.active or self._talking_before(b):
             why = "주인이 말하는 중"
         elif self.voice.sounding(self.echo_s):
             why = "비서가 말하는 중"
@@ -824,6 +824,16 @@ class Desk:
             return False
         log.info("박수 두 번(깨어 있음) → 화면 끔 (%s)", desc)
         return True
+
+    def _talking_before(self, b: dict) -> bool:
+        """박수 묶음 전부터 말 구간이 열려 있었나. 박수 소리 자체도 상시 듣기 구간을 열어(바닥보다 6dB · 「감사합니다」로
+        받아써져 걸러짐) 끄는 박수가 「주인이 말하는 중」으로 막혔음 — 로그 10/20~25 7번 (10/25 주인: 감도 ↑).
+        구간 길이가 박수 묶음(첫 박수 ~ 묶음 끝 burst_end_s) + preroll 보다 margin 넘게 길 때만 박수 전부터 말한 것"""
+        if not self.seg.in_speech:
+            return False
+        times = b.get("times") or [0.0]
+        span = (times[-1] - times[0]) + self.clap.cfg.burst_end_s + self.seg.preroll_s
+        return self.seg.open_s > span + 0.6
 
     def _on_audio(self, x: np.ndarray, side: list[np.ndarray] | None = None) -> None:
         """side: 박수 · 끼어들기를 듣는 마이크가 따로면(side_device) 그 사이 들어온 조각들. 없으면 x 로 둘 다 봄."""
