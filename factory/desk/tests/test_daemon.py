@@ -4,6 +4,7 @@
 """
 import os
 import sys
+import tempfile
 import time
 import unittest
 
@@ -70,8 +71,14 @@ def make():
     cfg["wake"]["night"] = ["00:00", "00:00"]      # 시험 중엔 밤이 아니게
     cfg["stt"]["keep_audio_days"] = 0              # 시험 소리를 ~/.local/share/desk/heard 에 남기지 않게
     cfg["face"]["enabled"] = False                 # 이 맥에 얼굴이 등록돼 있어도 시험이 카메라를 켜지 않게
+    cfg["handmouse_hold"] = os.path.join(tempfile.mkdtemp(), "handmouse-off")   # 진짜 「버튼으로 꺼 둠」 파일을 안 건드리게
+    cfg["handmouse_status"] = ""                   # 시험이 진짜 hand-mouse status 를 안 돌리게
     d = daemon.Desk(cfg)
     return d
+
+
+def make_again_held(cfg) -> bool:
+    return daemon.Desk(cfg).handmouse_held()
 
 
 def feed(d, sig):
@@ -320,6 +327,59 @@ class DaemonFlow(unittest.TestCase):
         CALLS.clear()
         d.screen_on("버튼")                            # 이미 켜져 있어도 카메라는 다시 확인(hand-mouse on 은 켜져 있으면 그대로)
         self.assertIn("cameras_on", CALLS)
+
+    def test_handmouse_off_button_keeps_it_off_through_wake_until_on_button(self):
+        # 버튼으로 끈 동안은 박수 · 키보드 · 화면 켜기가 hand-mouse 를 다시 켜지 않음, 켜기 버튼을 누르면 원래대로 (주인 10월 25일)
+        d = make()
+        d.wake("test")
+        CALLS.clear()
+        self.assertEqual(d.handmouse_off("버튼"), "ok")
+        self.assertIn("cameras_off", CALLS)
+        self.assertTrue(d.handmouse_held())
+        self.assertEqual(d.mode, "awake")              # 화면은 그대로
+        d.sleep("test")
+        CALLS.clear()
+        d.wake("test")
+        d.sleep("test")
+        d.screen_on("버튼")
+        d.sleep("test")
+        d._quiet_wake()
+        self.assertNotIn("cameras_on", CALLS)
+        self.assertTrue(make_again_held(d.cfg))        # deskd 를 다시 켜도 꺼 둔 채
+        self.assertEqual(d.handmouse_on("버튼"), "ok")
+        self.assertIn("cameras_on", CALLS)
+        self.assertFalse(d.handmouse_held())
+        d.sleep("test")
+        CALLS.clear()
+        d.screen_on("버튼")
+        self.assertIn("cameras_on", CALLS)             # 다시 화면 따라 켜짐
+
+    def test_handmouse_view_follows_status(self):
+        d = make()
+        saved = mac.handmouse_running
+        try:
+            mac.handmouse_running = lambda cmd: True
+            d._handmouse_check()
+            self.assertEqual(d.board.get()["handmouse"], {"on": True, "held": False})
+            self.assertEqual(d.phone_state()["handmouse"], {"on": True, "held": False})
+            mac.handmouse_running = lambda cmd: False
+            d.handmouse_off("버튼")
+            self.assertEqual(d.board.get()["handmouse"], {"on": False, "held": True})
+        finally:
+            mac.handmouse_running = saved
+
+    def test_handmouse_running_reads_status_words(self):
+        saved = mac._run
+        try:
+            mac._run = lambda argv, timeout=5: "켜짐 (종결판, pid 12)"
+            self.assertTrue(mac.handmouse_running("hand-mouse status"))
+            mac._run = lambda argv, timeout=5: "꺼짐 (종결판)"
+            self.assertFalse(mac.handmouse_running("hand-mouse status"))
+            mac._run = lambda argv, timeout=5: ""
+            self.assertIsNone(mac.handmouse_running("hand-mouse status"))
+            self.assertIsNone(mac.handmouse_running(""))
+        finally:
+            mac._run = saved
 
     def test_mic_blocked_when_only_zeros(self):
         # 권한이 없으면 macOS 는 정확히 0 만 보냄 → 6초 뒤 막힘으로 보고 한 번만 말함, 소리가 오면 풀림

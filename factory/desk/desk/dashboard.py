@@ -4,6 +4,8 @@
 /events    상태가 바뀔 때마다 보내는 스트림(SSE) — 화면 판(build)이 바뀌면 열린 페이지가 스스로 새로고침
 /api/<명령> deskctl 이 부르는 곳: wake · sleep · brief · mute · unmute · stop · say · show
            · screen_off · screen_on (위쪽 「화면 끄기」 · 「화면 켜기」 버튼 — 끄기는 sleep 과 같은 길, 둘 다 hand-mouse 를 함께)
+           · handmouse_on · handmouse_off (위쪽 「핸드마우스」 버튼 — 켜짐 · 꺼짐이 보이고 누르면 반대로. 버튼으로 끈 동안은
+             화면이 켜져도 hand-mouse 를 다시 켜지 않음)
            그리고 「목소리」 설정 창: tts(지금 값) · tts_test(들어 보기) · tts_save(저장 → config.toml [tts])
            위쪽 모델 토글: model(고른 모델 → config.toml [brain] model, 빈 글이면 지금 모델)
 /handcam.jpg · /handcam.json  hand-mouse 카메라(손 인식 그림) 한 장 · 상태 줄 — 「손 카메라」 칸.
@@ -57,7 +59,7 @@ main{display:grid;grid-template-columns:1.4fr 1fr;grid-template-rows:minmax(0,1f
 @media (orientation:portrait) and (max-width:900px){
 body{font-size:19px;padding:14px 16px;gap:12px;grid-template-rows:auto minmax(0,1fr)}footer{display:none}
 header{gap:6px 16px}#clock{font-size:56px}#date{font-size:21px}#state{font-size:23px;gap:8px}#dot{width:16px;height:16px}
-#models button,#voiceBtn,#offBtn,#onBtn{font-size:16px;padding:4px 10px}#models button small{font-size:12px}
+#models button,#voiceBtn,#offBtn,#onBtn,#hmBtn{font-size:16px;padding:4px 10px}#models button small{font-size:12px}
 main{grid-template-columns:1fr 1fr;grid-template-rows:auto minmax(0,1fr);grid-template-areas:"heard heard" "tasks tasks";gap:12px}
 /* 손 카메라가 켜지면 「들은 말」 과 한 줄에 나란히(왼쪽 말 · 오른쪽 카메라) — 주인 10월 5일 17:52 */
 .cam main{grid-template-columns:1.15fr 1fr;grid-template-rows:27vh minmax(0,1fr);grid-template-areas:"heard cam" "tasks tasks"}
@@ -100,8 +102,9 @@ footer{color:var(--dim);font-size:20px}
 #models button{background:none;border:0;border-left:1px solid var(--line);color:var(--dim);padding:6px 14px;font:inherit;font-size:20px;cursor:pointer}
 #models button:first-child{border-left:0}#models button:hover{color:var(--ink)}
 #models button.on{background:var(--acc);color:#04201c;font-weight:600}#models button small{font-size:15px;opacity:.75;margin-left:6px}
-#voiceBtn,#offBtn,#onBtn{background:none;border:1px solid var(--line);color:var(--dim);border-radius:8px;padding:6px 14px;font:inherit;font-size:20px;cursor:pointer}
-#voiceBtn:hover,#offBtn:hover,#onBtn:hover{color:var(--ink);border-color:var(--dim)}
+#voiceBtn,#offBtn,#onBtn,#hmBtn{background:none;border:1px solid var(--line);color:var(--dim);border-radius:8px;padding:6px 14px;font:inherit;font-size:20px;cursor:pointer}
+#voiceBtn:hover,#offBtn:hover,#onBtn:hover,#hmBtn:hover{color:var(--ink);border-color:var(--dim)}
+#hmBtn.on{color:var(--ink);border-color:var(--acc)}#hmBtn.on b{color:var(--acc)}#hmBtn b{font-weight:600}
 body.sleep #offBtn{display:none}body:not(.sleep) #onBtn{display:none}
 #voiceDlg{position:fixed;inset:0;background:rgba(1,4,9,.72);display:flex;align-items:center;justify-content:center;z-index:10}
 #voiceDlg[hidden]{display:none}
@@ -124,7 +127,7 @@ body.sleep #offBtn{display:none}body:not(.sleep) #onBtn{display:none}
 .us.low b{color:var(--warn)}.us.low .us-bar i{background:var(--warn)}.us.out b{color:var(--bad)}.us.out .us-bar i{background:var(--bad)}
 .us.unk b{color:var(--dim)}.us-note{font-size:15px;color:var(--warn)}
 </style></head><body class="sleep">
-<header><div id="clock">--:--</div><div id="date"></div><div id="state"><span id="dot"></span><span id="stateText">대기</span></div><div id="models" title="비서 모델 — 말로도: &quot;빠른 모드&quot; · &quot;정확한 모드&quot;"></div><button id="offBtn" title="화면과 hand-mouse 카메라를 끔 (deskctl sleep 과 같음)">화면 끄기</button><button id="onBtn" title="화면과 hand-mouse 를 켬">화면 켜기</button><button id="voiceBtn">목소리</button><div id="usage" title="Claude 사용량 — Claude Code 상태줄이 넘겨 준 값(5시간 · 주간 한도). 못 받았으면 모름"></div></header>
+<header><div id="clock">--:--</div><div id="date"></div><div id="state"><span id="dot"></span><span id="stateText">대기</span></div><div id="models" title="비서 모델 — 말로도: &quot;빠른 모드&quot; · &quot;정확한 모드&quot;"></div><button id="offBtn" title="화면과 hand-mouse 카메라를 끔 (deskctl sleep 과 같음)">화면 끄기</button><button id="onBtn" title="화면과 hand-mouse 를 켬">화면 켜기</button><button id="hmBtn" title="hand-mouse 켜기 · 끄기 — 버튼으로 끈 동안은 화면이 켜져도 안 켬">핸드마우스 <b>…</b></button><button id="voiceBtn">목소리</button><div id="usage" title="Claude 사용량 — Claude Code 상태줄이 넘겨 준 값(5시간 · 주간 한도). 못 받았으면 모름"></div></header>
 <main>
  <section id="heardCard"><h2>들은 말</h2><div id="heard">—</div><div id="reply"></div></section>
  <section id="showCard"><h2>화면에 띄운 글<span>클릭 · Esc 로 닫기</span></h2><div id="panel"></div></section>
@@ -183,7 +186,7 @@ function render(st){last=st;
  if(st.panel!==shown){shown=st.panel||"";panel.textContent=shown;showCard.scrollTop=0}
  mic.innerHTML=st.mic==="blocked"?`<div class="tk need"><div class="tk-name">마이크 막힘</div><div class="tk-detail">설정 → 개인정보 보호 및 보안 → 마이크 → deskd 켜기</div></div>`:"";
  if(st.agents!==undefined&&JSON.stringify(st.agents)!==JSON.stringify(agentsNow)){agentsNow=st.agents;renderAgents()}
- drawModels(st);drawUsage(st.usage);
+ drawModels(st);drawUsage(st.usage);drawHm(st.handmouse);
 }
 // 위쪽 모델 토글 — 누르면 config.toml [brain] model 에 쓰고 다음 말부터 그 모델 (말로는 "빠른 모드" 등)
 let modelsKey="";
@@ -219,6 +222,15 @@ vTest.onclick=()=>{vMsg.textContent="들려 드릴게요…";api("tts_test",vs).
 vSave.onclick=()=>{vMsg.textContent="저장 중…";api("tts_save",vs).then(t=>vMsg.textContent=t).catch(e=>vMsg.textContent="저장 못 함: "+e.message)};
 offBtn.onclick=()=>{offBtn.disabled=true;api("screen_off").catch(e=>alert("화면을 못 껐어요: "+e.message)).finally(()=>offBtn.disabled=false)};
 onBtn.onclick=()=>{onBtn.disabled=true;api("screen_on").catch(e=>alert("화면을 못 켰어요: "+e.message)).finally(()=>onBtn.disabled=false)};
+// 「핸드마우스」 — 켜짐 · 꺼짐을 보이고 누르면 반대로. 바뀔 때까지(최대 8초) 「켜는 중 · 끄는 중」
+let hmNow=null,hmWant=null,hmT=0;
+function drawHm(h){hmNow=h||hmNow;const on=hmNow?hmNow.on:null;
+ if(hmWant!==null&&(on===hmWant||Date.now()-hmT>8000))hmWant=null;
+ hmBtn.classList.toggle("on",on===true);hmBtn.disabled=hmWant!==null;
+ hmBtn.querySelector("b").textContent=hmWant!==null?(hmWant?"켜는 중…":"끄는 중…"):on===true?"켜짐":on===false?"꺼짐":"모름"}
+hmBtn.onclick=()=>{const want=!(hmNow&&hmNow.on);hmWant=want;hmT=Date.now();drawHm();
+ api(want?"handmouse_on":"handmouse_off").catch(e=>{hmWant=null;drawHm();alert("핸드마우스를 못 바꿨어요: "+e.message)});
+ setTimeout(()=>drawHm(),8500)};
 voiceBtn.onclick=vOpen;vClose.onclick=vHide;voiceDlg.onclick=e=>{if(e.target===voiceDlg)vHide()};
 showCard.onclick=closeShow;addEventListener("keydown",e=>{if(e.key==="Escape"){if(!voiceDlg.hidden)return vHide();closeShow()}});
 setInterval(()=>{if(last.panel)render(last)},30000);

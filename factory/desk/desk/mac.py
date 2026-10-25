@@ -91,15 +91,25 @@ def _cameras(cmds: list[str], name: str, report=None) -> None:
         threading.Thread(target=run, daemon=True, name=name).start()
 
 
-def cameras_off(cmds: list[str]) -> None:
+def cameras_off(cmds: list[str], report=None) -> None:
     """화면을 끌 때 카메라 쓰는 것들을 끕니다(hand-mouse off 등). 뒤에서 돌아 잠들기를 막지 않습니다."""
-    _cameras(cmds, "cameras_off")
+    _cameras(cmds, "cameras_off", report)
 
 
 def cameras_on(cmds: list[str], report=None) -> None:
     """화면이 켜질 때 카메라 쓰는 것들을 켭니다(hand-mouse on 등) — 끄기의 짝. 뒤에서 돌아 인사 · 브리핑을 늦추지 않습니다.
     명령 자체가 '이미 켜져 있으면 다시 안 켬'이어야 합니다(hand-mouse on 은 pid 로 봄). report(명령, 출력) 로 결과를 알립니다."""
     _cameras(cmds, "cameras_on", report)
+
+
+def handmouse_running(cmd: str) -> bool | None:
+    """hand-mouse 가 켜져 있나 — `hand-mouse status` 가 「켜짐 …」 · 「꺼짐 …」 으로 답함. 못 물어보면 None(모름)"""
+    import os
+    import shlex
+    if not cmd:
+        return None
+    out = _run([os.path.expanduser(a) for a in shlex.split(cmd)], timeout=5)
+    return True if out.startswith("켜짐") else False if out.startswith("꺼짐") else None
 
 
 def _displays_really_asleep() -> bool | None:

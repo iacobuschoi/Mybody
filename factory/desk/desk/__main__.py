@@ -7,6 +7,7 @@
   face <명령>  얼굴 인증: models(모델 받기) · enroll(등록) · verify(확인) · forget(지우기) · status
   ctl <명령> [글]  실행 중인 데몬에 명령: wake · sleep · brief · mute · unmute · stop · say · show · model [이름]
                    · enroll(얼굴 등록) · face(얼굴 확인만)
+                   · handmouse_on · handmouse_off(핸드마우스 — 끄면 다시 켤 때까지 화면이 켜져도 안 켬)
 """
 from __future__ import annotations
 

@@ -5,6 +5,7 @@
                         → 답은 맥 스피커가 아니라 폰으로(글 · 폰이 소리로 읽음)
         두 화면 보기 → /screen/<i>.jpg (바뀐 게 없으면 304)
         화면 끄기 · 켜기 → /screen_off · /screen_on (끄기는 deskctl sleep 과 같은 길 — hand-mouse 도 함께, 켜기도 hand-mouse 함께)
+        핸드마우스 → /handmouse_on · /handmouse_off (상태는 GET /state 의 handmouse — 버튼으로 끈 동안은 화면을 켜도 안 켬)
         터치 → /input  클릭 · 두 번 · 오른쪽 · 스크롤 · 끌기 · 글자 입력
 
 테일넷 주소(100.64.0.0/10)와 127.0.0.1 에만 열고, 공개 인터넷(funnel)에는 내지 않습니다.
@@ -423,6 +424,10 @@ class Phone:
                         return self._json({"r": ph.desk.screen_on("폰")})
                     if u.path == "/screen_off":               # 「화면 끄기」 — deskctl sleep 과 같은 길(hand-mouse 도 끔)
                         return self._json({"r": ph.desk.screen_off("폰")})
+                    if u.path == "/handmouse_on":             # 「핸드마우스」 버튼 — 책상 탭과 같은 길 (주인 10월 25일)
+                        return self._json({"r": ph.desk.handmouse_on("폰")})
+                    if u.path == "/handmouse_off":
+                        return self._json({"r": ph.desk.handmouse_off("폰")})
                     if u.path == "/stop":
                         return self._json({"r": ph.desk.stop()})
                 except Exception as e:  # noqa: BLE001
@@ -450,7 +455,7 @@ html,body{margin:0;height:100%;background:#0d1117;color:#e6edf3;font-family:syst
 #keys{display:flex;gap:6px;margin-bottom:6px}
 #keys input{flex:1;min-width:0;padding:9px;border-radius:8px;border:1px solid #30363d;background:#0d1117;color:#e6edf3;font-size:15px}
 #keys button,#tools button{padding:9px 10px;border-radius:8px;border:1px solid #30363d;background:#21262d;color:#e6edf3;font-size:14px}
-#tools{display:flex;gap:6px;margin-bottom:6px}
+#tools{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:6px}
 #tools button.on{background:#1f6feb;border-color:#1f6feb}
 #talk{width:100%;padding:16px;border-radius:14px;border:0;background:#1f6feb;color:#fff;font-size:19px;font-weight:600;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 #talk.rec{background:#da3633}
@@ -470,7 +475,7 @@ html,body{margin:0;height:100%;background:#0d1117;color:#e6edf3;font-family:syst
 <div id="chat"></div>
 <div id="bar">
  <div id="reply"></div>
- <div id="tools"><button id="zoom">확대</button><button id="drag">끌기</button><button id="rclick">오른쪽 클릭</button><button id="soff">화면 끄기</button><button id="son">화면 켜기</button><span id="st"></span></div>
+ <div id="tools"><button id="zoom">확대</button><button id="drag">끌기</button><button id="rclick">오른쪽 클릭</button><button id="soff">화면 끄기</button><button id="son">화면 켜기</button><button id="hm">핸드마우스 …</button><span id="st"></span></div>
  <div id="keys"><input id="txt" placeholder="글 입력"><button id="ask">비서에게</button><button id="typ">맥에 입력</button><button data-k="enter">⏎</button><button data-k="delete">⌫</button></div>
  <button id="talk">누르고 말하기</button>
 </div>
@@ -529,6 +534,13 @@ $('rclick').onclick=()=>{rightNext=!rightNext;$('rclick').classList.toggle('on',
 // 화면 끄기 = deskctl sleep 과 같은 길(hand-mouse 카메라도 끔) · 화면 켜기 = 화면 + hand-mouse (인사 · 브리핑 없음)
 $('soff').onclick=()=>{$('st').textContent='화면 끄는 중…';fetch('/screen_off',{method:'POST',headers:H}).then(()=>$('st').textContent='맥 화면을 꺼요').catch(()=>$('st').textContent='연결 안 됨')};
 $('son').onclick=()=>{$('st').textContent='켜는 중…';fetch('/screen_on',{method:'POST',headers:H}).then(()=>$('st').textContent='').catch(()=>$('st').textContent='연결 안 됨')};
+// 핸드마우스 — 지금 상태(켜짐 · 꺼짐)를 3초마다 /state 로 보고, 누르면 반대로
+let hmOn=null;
+function hmDraw(on){hmOn=on;$('hm').textContent='핸드마우스 '+(on===true?'켜짐':on===false?'꺼짐':'모름');$('hm').classList.toggle('on',on===true)}
+function hmPoll(){fetch('/state',{headers:H}).then(r=>r.json()).then(s=>{if(s.handmouse)hmDraw(s.handmouse.on)}).catch(()=>{}).finally(()=>setTimeout(hmPoll,3000))}
+$('hm').onclick=()=>{const want=hmOn!==true;$('hm').textContent=want?'켜는 중…':'끄는 중…';
+ fetch(want?'/handmouse_on':'/handmouse_off',{method:'POST',headers:H}).then(()=>$('st').textContent='').catch(()=>$('st').textContent='연결 안 됨')};
+hmPoll();
 $('typ').onclick=()=>{const v=$('txt').value;if(v){send({action:'type',text:v});$('txt').value=''}};
 document.querySelectorAll('[data-k]').forEach(b=>b.onclick=()=>send({action:'key',key:b.dataset.k}));
 function addMsg(cls,t){const d=document.createElement('div');d.className='m '+cls;d.textContent=t;$('chat').appendChild(d);$('chat').scrollTop=1e9}

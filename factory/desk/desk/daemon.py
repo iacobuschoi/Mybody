@@ -17,6 +17,7 @@ import contextlib
 import datetime as dt
 import json
 import logging
+import os
 import queue
 import threading
 import time
@@ -110,6 +111,7 @@ class Desk:
         self._stop = threading.Event()
         self._dash_opened = False
         self._changed_at = 0.0                        # 우리가 화면을 켜고/끈 시각 — 화면 감시가 헷갈리지 않게
+        self._hm: dict = {"on": None, "held": self.handmouse_held()}   # 「핸드마우스」 버튼에 보일 상태
         self.mic_blocked = False
         self._mic_heard = time.time()                 # 마지막으로 0 이 아닌 소리가 들어온 시각
         self.side_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=400)   # 박수 · 끼어들기 마이크가 따로일 때
@@ -276,11 +278,76 @@ class Desk:
         return "ok"
 
     def _cameras_on(self, why: str) -> None:
-        """화면이 켜질 때(어느 길로든) 카메라 쓰는 것들을 켬 — 끌 때 cameras_off 의 짝. hand-mouse on 은 이미 켜져 있으면 그대로"""
+        """화면이 켜질 때(어느 길로든) 카메라 쓰는 것들을 켬 — 끌 때 cameras_off 의 짝. hand-mouse on 은 이미 켜져 있으면 그대로.
+        주인이 「핸드마우스」 버튼으로 꺼 두었으면 안 켬(다시 켜기 버튼까지, 주인 10월 25일)"""
+        if self.handmouse_held():
+            log.info("카메라 안 켬(%s): 핸드마우스를 버튼으로 꺼 둠", why)
+            return
+        mac.cameras_on(self.cfg.get("camera_on", []), self._camera_report("켬", why))
+
+    def _camera_report(self, what: str, why: str):
         def report(cmd: str, out: str) -> None:
-            log.info("카메라 켬(%s): %s → %s", why, cmd, out.splitlines()[0] if out else "(출력 없음)")
+            log.info("카메라 %s(%s): %s → %s", what, why, cmd, out.splitlines()[0] if out else "(출력 없음)")
             self.board.log("camera", f"{cmd}: {out.splitlines()[0] if out else '출력 없음'}")
-        mac.cameras_on(self.cfg.get("camera_on", []), report)
+            self._handmouse_check()
+        return report
+
+    # ── 「핸드마우스」 버튼 (책상 탭 · 폰 · deskctl handmouse_on/off) ──────────
+    def handmouse_held(self) -> bool:
+        """버튼으로 꺼 둠 — 파일로 남겨 deskd 를 다시 켜도 이어짐"""
+        p = self.cfg.get("handmouse_hold", "")
+        return bool(p) and os.path.exists(os.path.expanduser(p))
+
+    def _handmouse_hold(self, on: bool) -> None:
+        p = os.path.expanduser(self.cfg.get("handmouse_hold", ""))
+        if not p:
+            return
+        if on:
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w") as f:
+                f.write(time.strftime("%Y-%m-%d %H:%M 버튼으로 끔\n"))
+        elif os.path.exists(p):
+            os.remove(p)
+
+    def handmouse_on(self, why: str = "버튼") -> str:
+        """「핸드마우스 켜기」 — 꺼 둔 표시를 지우고(화면 켜짐에 다시 따라감) camera_on 을 돌림. 화면이 꺼져 있어도 켬"""
+        why = why or "버튼"
+        log.info("핸드마우스 켬 (%s)", why)
+        self._handmouse_hold(False)
+        mac.cameras_on(self.cfg.get("camera_on", []), self._camera_report("켬", why))
+        self.board.log("camera", f"핸드마우스 켬 ({why})")
+        self._handmouse_check()
+        return "ok"
+
+    def handmouse_off(self, why: str = "버튼") -> str:
+        """「핸드마우스 끄기」 — 끄고, 다시 켜기 전까지는 화면이 켜져도(박수 · 키보드 · 깨우기) 안 켬"""
+        why = why or "버튼"
+        log.info("핸드마우스 끔 (%s)", why)
+        self._handmouse_hold(True)
+        mac.cameras_off(self.cfg["camera_off"], self._camera_report("끔", why))
+        self.board.log("camera", f"핸드마우스 끔 ({why})")
+        self._handmouse_check()
+        return "ok"
+
+    def handmouse_view(self) -> dict:
+        """버튼에 보일 것: on(켜짐 True · 꺼짐 False · 모름 None) · held(버튼으로 꺼 둠)"""
+        return dict(self._hm)
+
+    def _handmouse_check(self) -> None:
+        on = mac.handmouse_running(self.cfg.get("handmouse_status", ""))
+        hm = {"on": on, "held": self.handmouse_held()}
+        if hm != self._hm:
+            self._hm = hm
+            self.board.set(handmouse=hm)
+
+    def _watch_handmouse(self) -> None:
+        """켜짐 · 꺼짐을 몇 초마다 — 말 · 손으로 끄고 켠 것도 버튼에 보이게"""
+        while True:
+            try:
+                self._handmouse_check()
+            except Exception:  # noqa: BLE001
+                log.exception("핸드마우스 상태 확인 실패")
+            time.sleep(2)
 
     def mute(self, _: str = "") -> str:
         self.mode = "muted"
@@ -472,7 +539,7 @@ class Desk:
 
     def phone_state(self) -> dict:
         b = self.board.get()
-        return {"mode": self.mode, "heard": b.get("heard", ""), "reply": b.get("reply", "")}
+        return {"mode": self.mode, "heard": b.get("heard", ""), "reply": b.get("reply", ""), "handmouse": self.handmouse_view()}
 
     # ── 끼어들기 (desk/bargein.py) ─────────────────────────────────────────
     def _speech_stop(self, text: str) -> bool:
@@ -935,11 +1002,13 @@ class Desk:
         serve(self.board, {"wake": self.wake, "sleep": self.sleep, "brief": self.say_brief, "mute": self.mute,
                            "unmute": self.unmute, "stop": self.stop,
                            "screen_on": self.screen_on, "screen_off": self.screen_off,
+                           "handmouse_on": self.handmouse_on, "handmouse_off": self.handmouse_off,
                            "say": self.remote_say, "show": self.show,
                            "enroll": self.enroll, "face": self.face_test,
                            "tts": self.tts_view, "tts_test": self.tts_test, "tts_save": self.tts_save,
                            "model": self.model_set, "dial": self.dial, "talk": self.talk},
               port=self.cfg["dashboard"]["port"])
+        threading.Thread(target=self._watch_handmouse, daemon=True, name="handmouse").start()
         watch_agents(self.board)
         watch_usage(self.board)
         if self.cfg.get("phone", {}).get("enabled", True):

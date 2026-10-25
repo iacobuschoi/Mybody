@@ -47,6 +47,8 @@ DEFAULTS: dict = {
     "screen_off": "blackout",       # 화면 끄기: blackout(검은 화면 — 맥은 깨어 있어 폰 앱에선 보임) · sleep(pmset 로 진짜 재움)
     "camera_off": ["~/.local/bin/hand-mouse off"],   # 화면을 끌 때(어느 길로든) 돌려 카메라를 끄는 명령들
     "camera_on": ["~/.local/bin/hand-mouse on --no-sweep"],   # 화면이 켜질 때(어느 길로든) 돌려 카메라를 켜는 명령들 — 끄기의 짝
+    "handmouse_status": "~/.local/bin/hand-mouse status",   # 「핸드마우스」 버튼이 켜짐 · 꺼짐을 보는 명령
+    "handmouse_hold": "~/.local/state/desk/handmouse-off",  # 이 파일이 있으면 버튼으로 끈 것 — 화면이 켜져도 camera_on 을 안 돌림
     "tts": {"voice": "Yuna", "rate": 190, "device": "",   # device: 소리 낼 장치 이름(비우면 기본 출력)
             "engine": "say",                                # say · supertonic(신경망, desk/tts.py — 못 쓰면 say)
             "style": "F1", "model": "supertonic-3", "speed": 1.05, "steps": 5,
