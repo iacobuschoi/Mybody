@@ -152,6 +152,10 @@ void main() {
     await t.fling(find.byKey(const ValueKey('cal-day-2026-08-12')), const Offset(-300, 0), 1000);
     await t.pumpAndSettle();
     expect(month(t), '2026년 9월');
+    /* 천천히 밀고 멈춰도(끝 속도 0) 거리로 넘어갑니다. */
+    await t.drag(find.byKey(const ValueKey('cal-day-2026-09-16')), const Offset(150, 0));
+    await t.pumpAndSettle();
+    expect(month(t), '2026년 8월');
   });
 
   testWidgets('기록이 하나도 없어도 달력은 이번 달을 그린다', (t) async {

@@ -97,6 +97,7 @@ class WorkoutCalendar extends StatefulWidget {
 class _WorkoutCalendarState extends State<WorkoutCalendar> {
   CalMonth? _month;
   String? _selected;
+  double _dragDx = 0;
 
   void _go(CalMonth m) => setState(() {
         _month = m;
@@ -163,13 +164,16 @@ class _WorkoutCalendarState extends State<WorkoutCalendar> {
                 ),
             ]),
             const SizedBox(height: 4),
-            /* 옆으로 밀어도 한 달씩 — 오른쪽으로 밀면 지난달. */
+            /* 옆으로 밀어도 한 달씩 — 오른쪽으로 밀면 지난달. 천천히 밀고 멈추면 속도가 0 이라
+               민 거리(칸 하나 남짓)로도 봅니다. */
             GestureDetector(
               behavior: HitTestBehavior.translucent,
+              onHorizontalDragStart: (_) => _dragDx = 0,
+              onHorizontalDragUpdate: (e) => _dragDx += e.delta.dx,
               onHorizontalDragEnd: (e) {
                 final v = e.primaryVelocity ?? 0;
-                if (v > 200 && canPrev) _go(calShift(m, -1));
-                if (v < -200 && canNext) _go(calShift(m, 1));
+                if ((v > 200 || _dragDx > 60) && canPrev) _go(calShift(m, -1));
+                if ((v < -200 || _dragDx < -60) && canNext) _go(calShift(m, 1));
               },
               child: Column(children: [
                 for (var r = 0; r < cells.length; r += 7)
