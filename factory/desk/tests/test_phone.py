@@ -31,7 +31,7 @@ class PhonePath(unittest.TestCase):
 
     def test_same_path_as_left_fist(self):
         seen = []
-        self.d.brain.ask = lambda text, direct=False: (seen.append(direct), ("네.", "네."))[1]
+        self.d.brain.ask = lambda text, direct=False, away=False: (seen.append(direct), ("네.", "네."))[1]
         self.d.phone_ask("오늘 승인할 거 있어?", wait_s=3)
         self.assertEqual(seen, [True])                          # [음성·주먹] — 무시 판정 없이 답함
 
@@ -40,7 +40,7 @@ class PhonePath(unittest.TestCase):
         self.assertEqual(self.d.phone_ask("오늘 승인할 거 있어?", wait_s=3)["reply"], "네, 가계부 시험을 돌렸어요.")
 
     def test_ignored_reply_asks_again(self):
-        self.d.brain.ask = lambda text, direct=False: (None, "")
+        self.d.brain.ask = lambda text, direct=False, away=False: (None, "")
         self.assertIn("다시 말해", self.d.phone_ask("음", wait_s=3)["reply"])
 
     def test_time_is_answered_on_phone(self):

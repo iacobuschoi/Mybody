@@ -51,10 +51,12 @@ class Brain:
                 return True
         return False
 
-    def ask(self, heard: str, direct: bool = False) -> tuple[str | None, str]:
-        """(말할 글 또는 None=무시, 화면에 보일 전체 글). direct: 왼손 주먹을 쥐고 한 말 — 비서에게 한 말이 확실함"""
+    def ask(self, heard: str, direct: bool = False, away: bool = False) -> tuple[str | None, str]:
+        """(말할 글 또는 None=무시, 화면에 보일 전체 글). direct: 왼손 주먹을 쥐고 한 말 — 비서에게 한 말이 확실함.
+        away: 손 카메라에 주인이 안 보일 때 한 말(desk/away.py) — 주먹 말처럼 비서에게 한 말로, TV · 노래만 빼고"""
         now = dt.datetime.now().strftime("%H:%M")
-        prompt = f"[음성·주먹 {now}] {heard}" if direct else f"[음성 {now}] {heard}"
+        tag = "음성·주먹" if direct else "음성·자리비움" if away else "음성"
+        prompt = f"[{tag} {now}] {heard}"
         cmd = [self.claude, "-p", prompt, "--output-format", "json",
                "--permission-mode", "bypassPermissions", "--permission-prompts", "none"]
         if self.model:

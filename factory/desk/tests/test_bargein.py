@@ -142,7 +142,7 @@ class DaemonStop(unittest.TestCase):
         d.voice.said.clear()
         started, release = threading.Event(), threading.Event()
 
-        def ask(text, direct=False):
+        def ask(text, direct=False, away=False):
             started.set()
             d.remote_say("패치노트는 이렇습니다")                              # 턴 도중 말하기(끊기 전) — 말함
             release.wait(2)

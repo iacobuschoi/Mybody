@@ -92,6 +92,15 @@ DEFAULTS: dict = {
         "join_s": 60.0,             # 이 안에 이어 넣으면 앞에 띄어쓰기
         "erase_window_s": 120.0,    # 왼손 지우기 다이얼이 먹는 시간 (넣거나 지운 뒤, 그 뒤엔 커서가 옮겨졌을 수 있어 안 함)
     },
+    "away": {                       # 손 카메라에 주인이 안 보이면 주먹 없이 한 말도 비서에게 한 말로 — [음성·자리비움 HH:MM] (desk/away.py)
+        "enabled": True,
+        "away_s": 8.0,              # 얼굴도 움직임도 이만큼 계속 없어야 자리 비움 (깜빡임 방지)
+        "every_s": 1.0,             # 손 카메라 그림을 보는 간격
+        "stale_s": 3.0,             # 새 그림이 이만큼 없으면(hand-mouse 꺼짐) 모름 → 예전처럼
+        "min_face_px": 20,          # 이보다 작은 얼굴은 안 봄
+        "face_score": 0.6,          # 얼굴 찾기 문턱(YuNet)
+        "motion": 0.005,            # 1초 사이 바뀐 칸이 이 비율 이상이면 사람이 움직인 것 (빈 방 0 · 앉은 주인 0.009~0.13)
+    },
     "talk": {                       # 왼손 주먹 = 비서에게 말하기 (desk/talk.py, hand-mouse 가 POST /api/talk)
         "enabled": True,
         "sound": "Morse",           # 쥐는 순간 내는 짧은 소리 (/System/Library/Sounds)

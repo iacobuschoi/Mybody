@@ -25,6 +25,7 @@ from collections import deque
 import numpy as np
 
 from . import briefing, config, devices, mac, model_settings, voice_settings
+from .away import Away
 from .face import Gate
 from .bargein import Listener, has_stop_word, is_stop_utterance, only_stop_words, strip_echo
 from .brain import Brain
@@ -80,6 +81,9 @@ class Desk:
         self.board = Board()
         self.board.set(model=model_settings.current(self.brain.model), models=model_settings.options())
         self.face = Gate(cfg["face"])
+        self.away = Away(cfg.get("away", {}), wanted=lambda: self.mode == "awake",
+                         on_change=lambda on: self.board.log("away", "자리 비움 — 주먹 없이 한 말도 비서에게" if on
+                                                             else "주인 보임 — 주먹 말만 직접"))
         self.dictation = Dictation(cfg.get("dictate", {}))   # 주먹 쥐고 말하기 → 초점이 있는 글 칸 (desk/dictate.py)
         tk = cfg.get("talk", {})
         self.talk_on = bool(tk.get("enabled", True))
@@ -102,7 +106,7 @@ class Desk:
         self.audio_q: queue.Queue[np.ndarray] = queue.Queue(maxsize=400)
         self.utt_q: queue.Queue[Cut] = queue.Queue(maxsize=8)
         self._pending: list[Cut] = []                 # 받아쓰기 일꾼이 줄에서 꺼내 둔 조각(_next_cut 이 순서를 정함)
-        self.brain_q: queue.Queue[tuple] = queue.Queue(maxsize=8)   # (들은 말, 받은 때의 _turn, 주먹, 폰으로 답할 곳 또는 None)
+        self.brain_q: queue.Queue[tuple] = queue.Queue(maxsize=8)   # (들은 말, 받은 때의 _turn, 주먹, 폰으로 답할 곳 또는 None, 자리 비움)
         self._stop = threading.Event()
         self._dash_opened = False
         self._changed_at = 0.0                        # 우리가 화면을 켜고/끈 시각 — 화면 감시가 헷갈리지 않게
@@ -387,7 +391,8 @@ class Desk:
                 phone("멈췄어요.", "")
             return
         a = route(text, muted=(self.mode == "muted" and not direct))
-        self.board.log(a.kind, ("(폰) " if phone else "(주먹) " if direct else "") + text)
+        away = not direct and not phone and self.mode == "awake" and self.away.away()   # 손 카메라에 주인이 안 보임
+        self.board.log(a.kind, ("(폰) " if phone else "(주먹) " if direct else "(자리 비움) " if away else "") + text)
         if a.kind == "ignore" and not phone:
             return
         self.last_activity = time.time()
@@ -425,7 +430,7 @@ class Desk:
             if not phone:
                 mac.sound("Tink")                   # 들었다는 표시 — 말로 "잠시만요" 하면 매번 귀찮습니다
             try:
-                self.brain_q.put_nowait((text, self._turn, direct, phone))
+                self.brain_q.put_nowait((text, self._turn, direct, phone, away))
             except queue.Full:
                 if phone:
                     phone("밀린 일이 많아요. 잠시 뒤에 다시 말해 주세요.", "")
@@ -719,6 +724,7 @@ class Desk:
         while not self._stop.is_set():
             text, turn, direct, *rest = self.brain_q.get()
             phone = rest[0] if rest else None
+            away = len(rest) > 1 and bool(rest[1])
             if turn != self._turn:                   # 받은 뒤에 "멈춰" — 답하지 않음
                 if phone:
                     phone("멈췄어요.", "")
@@ -726,7 +732,7 @@ class Desk:
             self._asking = turn
             self._show("thinking")
             try:
-                spoken, full = self.brain.ask(text, direct=direct)
+                spoken, full = self.brain.ask(text, direct=direct, away=away)
             finally:
                 self._asking = None
             if phone:                                # 폰에서 한 말 — 답은 폰으로(맥 스피커로는 말하지 않음)
@@ -741,7 +747,7 @@ class Desk:
                 self.board.log("ignore", f"(Claude 가 주먹 말을 무시함) {text}")
                 self.voice.say("무슨 말인지 잘 모르겠어요. 다시 말해 주세요.")
             elif spoken is None:
-                self.board.log("ignore", f"(Claude: 나한테 한 말 아님) {text}")
+                self.board.log("ignore", f"(Claude: {'자리 비움이지만 TV · 노래로 봄' if away else '나한테 한 말 아님'}) {text}")
             else:
                 self.board.set(reply=full)
                 if self.mode != "sleep":
@@ -935,6 +941,7 @@ class Desk:
         threading.Thread(target=self._stt_worker, daemon=True).start()
         threading.Thread(target=self._brain_worker, daemon=True).start()
         threading.Thread(target=self._warmup, daemon=True).start()
+        self.away.start()                               # 손 카메라에 주인이 안 보이면 그냥 한 말도 비서에게 (desk/away.py)
 
         def cb(indata, frames, t, status):  # noqa: ARG001
             try:
