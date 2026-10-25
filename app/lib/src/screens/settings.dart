@@ -81,6 +81,7 @@ import 'sources.dart';
 import 'sync_settings.dart';
 import 'tester_welcome.dart' show showTesterWelcome;
 import 'user_list.dart' show OperatorUsersRow;
+import 'workout_history.dart';
 import 'workout_tutorial.dart';
 import '../ui/edge.dart';
 import '../ui/widgets.dart';
@@ -196,6 +197,18 @@ class _SettingsScreenState extends State<SettingsScreen> {
               title: const Text(kGymTutorialTitle),
               trailing: const Icon(LucideIcons.chevronRight, size: 18),
               onTap: () => WorkoutTutorial.show(context),
+            ),
+            /* 지난 운동 기록 — 헬스 화면 상단 · 홈 「이번 주 운동」 의 시계와 같은 화면. 운동을 다 한
+               날은 홈에서 운동 화면으로 가는 단추가 없어서, 설정에도 길을 둡니다. */
+            ListTile(
+              key: const ValueKey('settings-workout-history'),
+              contentPadding: EdgeInsets.zero,
+              dense: true,
+              title: const Text('지난 운동 기록'),
+              subtitle: const Text('날짜별 · 종목별 세트 무게 × 횟수'),
+              trailing: const Icon(LucideIcons.chevronRight, size: 18),
+              onTap: () => Navigator.of(context)
+                  .push(MaterialPageRoute(builder: (_) => const WorkoutHistoryScreen())),
             ),
           ]),
         ),

@@ -18,6 +18,11 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
+    <!-- 헬스 화면의 「누르고 말하기」 — 꾹 누른 동안만 기기의 음성 인식(SpeechRecognizer)이
+         듣습니다. 소리는 서버로 가지 않고, 받아쓴 글만 확인 시트에 보입니다. 처음 누를 때
+         묻고, 거절하면 글로 넣는 칸만 씁니다. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+
     <!-- 결과지를 **찍어서** 넣을 때 씁니다. 앨범에서 고르는 길은 권한이
          필요 없습니다 (안드로이드가 고른 한 장만 건네줍니다).
          카메라가 없는 기기에서도 앱이 깔려야 하므로 required=false 입니다. -->
@@ -146,6 +151,11 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- 안드로이드 11+ 에서 음성 인식 서비스(구글 앱)가 보이게 — 없으면 「누르고 말하기」 가
+             "인식기 없음" 으로 끝납니다. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
         </intent>
     </queries>
 </manifest>

@@ -39,6 +39,7 @@ import 'adherence.dart' show DayMark, DayMarkLegend, dayMarkState;
 import 'estimate_sheet.dart';
 import 'plan.dart' show cardioBelowWho, cardioStat, kWhoActivityHint;
 import 'update_banner.dart';
+import 'workout_history.dart';
 
 /* 아래쪽에 자리를 둡니다 — 떠 있는 "인바디" 버튼이 마지막 줄을 가렸습니다.
    실제로 "칸을 눌러서 정하세요" 의 뒷부분이 버튼에 덮여 있었습니다. */
@@ -620,11 +621,29 @@ class _WeekCard extends StatelessWidget {
 
     return MbCard(
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        /* 오른쪽 끝의 작은 달력은 지난 운동 기록(달력부터) — 이 카드는 이번 주 일곱 칸뿐이라 지난주 ·
+           지난달 칸은 거기서 넘겨 봅니다(의견 84). 운동을 다 한 날은 이 카드에서 운동 화면으로 가는
+           단추가 사라지므로(아래), 그 날 무엇을 몇 kg 했는지 다시 보는 길도 여기와 설정입니다. */
         SectionTitle('이번 주 운동',
-            trailing: Text(
-                planned > 0 ? '${n0(kept)}/${n0(planned)}일 완료' : '아직 정한 날이 없습니다',
-                style: Theme.of(context).textTheme.labelSmall
-                    ?.copyWith(color: Theme.of(context).hintColor))),
+            trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+              Text(
+                  planned > 0 ? '${n0(kept)}/${n0(planned)}일 완료' : '아직 정한 날이 없습니다',
+                  style: Theme.of(context).textTheme.labelSmall
+                      ?.copyWith(color: Theme.of(context).hintColor)),
+              const SizedBox(width: 2),
+              IconButton(
+                key: const ValueKey('home-workout-history'),
+                tooltip: '지난 기록 달력',
+                visualDensity: VisualDensity.compact,
+                style: IconButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(32, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                icon: Icon(LucideIcons.calendarDays, size: 18, color: Theme.of(context).colorScheme.primary),
+                onPressed: () => Navigator.of(context)
+                    .push(MaterialPageRoute(builder: (_) => const WorkoutHistoryScreen(calendar: true))),
+              ),
+            ])),
         Row(children: [
           for (final d in days) Expanded(child: _DayCell(day: d, today: app.store.dayKey())),
         ]),

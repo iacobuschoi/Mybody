@@ -73,6 +73,12 @@
 	<string>인바디 결과지를 찍어 기록에 붙이는 데 씁니다. 사진은 이 기기에 저장되고, 「사진에서 읽기」를 누를 때만 숫자 판독을 위해 전송됩니다.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>앨범에서 인바디 결과지 사진을 골라 기록에 붙이는 데 씁니다. 사진은 이 기기에 저장되고, 「사진에서 읽기」를 누를 때만 숫자 판독을 위해 전송됩니다.</string>
+	<!-- 헬스 화면의 「누르고 말하기」 — 꾹 누른 동안만 듣고, 받아쓴 글을 확인한 뒤 세트로 기록합니다.
+	     iOS 의 음성 인식(SFSpeechRecognizer)은 애플 서버를 거칠 수 있어 그 사실을 문구에 적습니다. -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>헬스 화면에서 「누르고 말하기」 단추를 꾹 누른 동안만 마이크로 듣습니다. 「벤치 80키로 4개」처럼 말하면 세트로 기록합니다.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>말한 운동 이름 · 무게 · 횟수를 글로 받아쓰는 데 씁니다. 받아쓴 글은 저장 전에 확인 화면에 보이고, 음성 인식은 기기 또는 애플의 음성 인식을 거칩니다.</string>
 	<!-- 앱이 꺼져 있거나 뒤에 있을 때 온 친구 알림(FCM → APNs)을 받습니다. 설정 파일
 	     (GoogleService-Info.plist)이 없는 빌드에서는 등록 자체를 안 해서 무해합니다. -->
 	<key>UIBackgroundModes</key>
