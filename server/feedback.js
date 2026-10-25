@@ -194,4 +194,4 @@ function makeThrottle(gapMs, now) {
 
 module.exports = { TEXT_MAX, IMAGES_MAX, IMAGE_BYTES_MAX, IMAGE_B64_MAX, APP_VERSION_MAX, SCREEN_MAX,
                    BODY_LIMIT, PER_DAY, PER_DAY_TOTAL, KEEP_DAYS, NOTIFY_GAP_MS, TYPES,
-                   parseFeedback, cleanText, extFor, pseudonym, makeThrottle };
+                   parseFeedback, cleanText, codePoints, extFor, pseudonym, makeThrottle };

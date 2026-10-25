@@ -82,6 +82,8 @@ Mybody 서버 실행 중
 | `FEEDBACK_PER_DAY` | `20` | 의견을 하루에 받는 개수 — 로그인했으면 **사람마다**, 아니면 **보낸 주소(IP)마다** |
 | `FEEDBACK_PER_DAY_TOTAL` | `300` | **서버 전체** 하루 의견 개수. 로그인 없이도 받는 길이라 디스크를 채우는 남용을 막는 울타리입니다 |
 | `FEEDBACK_NOTIFY_GAP_MS` | `600000` | 주인 알림 사이 최소 간격(10분). 시험이 줄여 쓰는 값이라 운영에서는 그대로 두세요 |
+| `VOICE_ALIASES` | `server/voice-aliases.json` | 「누르고 말하기」 별칭 사전 파일 경로(`GET /api/voice/aliases`). 설정 파일의 `voiceAliases` 로도 됩니다. 내용은 고치면 바로 나가고, 경로만 기동할 때 정해집니다 — 아래 "누르고 말하기" |
+| `VOICE_FEEDBACK_PER_DAY` · `VOICE_FEEDBACK_PER_DAY_TOTAL` | `200` · `3000` | 「누르고 말하기」 고침을 하루에 받는 개수 — 사람(주소)마다 · 서버 전체 |
 | `FCM_BASE_URL` · `FCM_TOKEN_URL` | 구글 주소 | 시험(`tools/test-fcm.js`)이 가짜 서버로 바꿀 때만 씁니다. `https` 이면서 localhost(127.0.0.1)이거나 `NODE_ENV=test` 일 때만 받고, 받으면 뜰 때 "시험용 FCM 주소 사용 중" 을 찍습니다. 운영 서버에 새면 진짜 접근 토큰과 알림 본문이 그 주소로 가기 때문입니다 |
 
 ```bash
@@ -213,6 +215,57 @@ node tools/feedback.js --no-export        # 화면을 파일로 꺼내지 않음
 `tools/feedback.js` 는 돌릴 때마다 DB 에서 지워진 의견의 `~/.mybody/feedback/<번호>-<n>.*` 를 지웁니다
 (의견 번호는 다시 쓰이지 않습니다).
 
+### 누르고 말하기 — 고친 것 받기 · 별칭 사전
+
+헬스 「누르고 말하기」 가 말을 틀리게 알아들어 사람이 확인 시트에서 고치면, 앱이 **받아쓴 글 ·
+알아들은 세트(heard) · 고른 세트(chosen)** 를 보냅니다. 목소리(소리 파일)는 받지 않고, 알림도 없습니다.
+검사 규칙은 `server/voice-feedback.js`, 표는 `voice_feedback` 입니다.
+
+```
+POST /api/voice/feedback   로그인 선택(의견과 같음 — 틀린 토큰도 익명) · 본문 64KB 까지
+  {"appVersion": "0.2.22+330", "platform": "android",          // 둘 다 선택 · platform 은 android|ios|web
+   "transcript": "벤치 육십 킬로 열 개 세 세트",                  // 필수 · 1~300자(코드 포인트)
+   "heard":  [{"exercise": null, "spoken": "벤치", "kg": 60, "reps": 10, "count": 3}],   // 0~10묶음
+   "chosen": [{"exercise": "bench-press", "name": "벤치프레스", "spoken": "벤치",
+               "kg": 60, "reps": 10, "count": 3}]}                                        // 1~10묶음
+  → 200 {"ok": true, "id": 17}
+  → 400/413/429 {"ok": false, "error": "<한국어>", "reason": "<같은 말>"}
+  세트 칸(전부 선택): exercise /^[a-z0-9-]{1,64}$/ 또는 null · name · spoken ≤64자 ·
+  kg 0~1000 숫자 또는 null · reps 0~1000 정수 또는 null · count 1~20 정수(기본 1).
+  모르는 칸(audio 포함)은 본문에서든 세트 안에서든 400.
+
+GET /api/voice/aliases      누구나 · Cache-Control: public, max-age=3600
+  → 200 {"ok": true, "version": "3f2a9c0d1b7e", "aliases": {"벤치": "bench-press", ...}}
+  → 503 (사전을 한 번도 못 읽었을 때만)
+```
+
+막는 것 — 하루 200개(로그인했으면 사람마다, 아니면 주소마다 — 메모리에서만 셈) + 서버 전체 3000개.
+본문을 받기 전과 저장 직전에 두 번 셉니다. 제어 · 글자 방향 뒤집기 문자는 저장할 때 뺍니다.
+지우는 것 — 의견과 같습니다: 계정을 지우면 같이, 받은 지 1년이면 서버가 뜰 때와 하루 한 번.
+
+별칭 사전 파일 — 기본 `server/voice-aliases.json`, 다른 곳에 두려면 설정의 `voiceAliases`(또는
+`VOICE_ALIASES`)에 경로를 적고 서버를 다시 띄웁니다. 모양은 하나뿐입니다:
+
+```json
+{ "aliases": { "벤치": "bench-press", "스쿼트": "squat" } }
+```
+
+말(키)은 1~32자(공백 한 칸 · 앞뒤 공백 빼고 · 소문자로 맞춤), 종목 id(값)는 `^[a-z0-9-]{1,64}$`.
+틀린 줄은 그 줄만 건너뛰고, 2000줄까지 냅니다. **파일을 고치면 서버를 다시 띄우지 않아도** 다음 요청부터
+나갑니다(수정 시각을 봅니다). 고친 파일이 JSON 이 아니면 지난번에 읽은 것을 그대로 내보내고 로그에 한 줄
+남깁니다. `version` 은 내보내는 사전(걸러 낸 뒤)의 sha256 앞 12자 — 앱은 같으면 그대로 씁니다.
+
+보기 — 서버 컴퓨터에서 (DB 는 `tools/feedback.js` 와 같은 규칙으로 찾음, 보낸 사람은 가명 6자):
+
+```bash
+node tools/voice-feedback.js                      # 처리 안 한 고침, 새것부터
+node tools/voice-feedback.js --summary            # "말 → 알아들은 것 → 고른 것" 을 많은 순서로
+node tools/voice-feedback.js --mark-done=12,13    # 사전에 반영한 것을 처리함으로
+node tools/voice-feedback.js --all                # 처리한 것까지
+node tools/voice-feedback.js --since=2026-10-20   # 그날(한국 시각)부터 · ISO 시각(2026-10-20T03:00:00Z)도 됨
+node tools/voice-feedback.js --json               # JSON 으로 (--summary 와 같이 써도 됨)
+```
+
 ## 계정
 
 카카오·애플 같은 외부 로그인을 쓰지 않습니다. 이 서버가 직접 관리합니다.
@@ -316,7 +369,7 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 
 ## API
 
-전부 `/api` 아래이고, 로그인 · `/api/health` · `/api/version` · `/api/feedback` 외에는
+전부 `/api` 아래이고, 로그인 · `/api/health` · `/api/version` · `/api/feedback` · `/api/voice/feedback` · `/api/voice/aliases` 외에는
 `Authorization: Bearer <token>` 이 필요합니다. `/api` 밖에는 친구 초대 링크 페이지(`GET /i/<코드>`)와
 설치 링크(`GET /get`), 초대 링크를 폰이 앱으로 바로 열게 하는 앱 링크 파일 둘(`GET /.well-known/assetlinks.json` ·
 `GET /.well-known/apple-app-site-association`), 컴퓨터 브라우저로 보는 의견함 페이지(`GET /inbox`)가 있습니다 —
@@ -329,6 +382,8 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 | `GET` | `/api/health` | 살아 있는지 (로그인 불필요) |
 | `GET` | `/api/version` | `{latest:{appstore,testflight,play,apk}, min, urls:{…}, join:{ios?, android?, androidGroup?}, testing}` 앱 안 업데이트 안내용. 빈 값이면 안내 없음. `latest` 는 그 길로 깐 사람이 지금 받을 수 있는 판 — `testflight` 는 friends(공개 링크) 베타 심사 승인판, `play` 는 비공개(나중엔 프로덕션) 트랙 게시판(내부 테스트 판은 안 적음). `join` 은 시험판 참여 링크(TestFlight 공개 링크 · 플레이 비공개 테스트 · 그 테스트의 구글 그룹) — **적힌 https 만** 나가고 비었으면 `{}`. `testing` 은 비공개 시험 기간인가(참/거짓) — **안 적었으면 `true`**, 분명히 끈 것(`--testing=off`)만 `false`. `tools/app-version.js`(`--join-ios` · `--join-android` · `--join-android-group` · `--testing=on\|off`)로 고치고, 부를 때마다 설정을 새로 읽습니다. 설정 파일이 망가졌으면 빈 값 대신 503 (로그인 불필요) |
 | `POST` | `/api/feedback` | `{text?, images?:[{type:'image/png'\|'image/jpeg', data:<base64>}], appVersion?, platform?:'android'\|'ios', screen?}` 앱 안 의견 보내기 → `{ok, id}`. 글(≤2000자)이나 사진(≤3장, 한 장 ≤1.5MB) 중 하나는 있어야 함. 로그인 선택 — 유효한 토큰이면 그 계정에 묶고, 없거나 틀리면 익명(401 없음). 틀리면 400 `{ok:false, error}`, 본문 6.2MB 초과 413, 하루 20개(사람 · 주소마다)를 넘으면 429, 동시에 받는 것이 넘치면 503 |
+| `POST` | `/api/voice/feedback` | 헬스 「누르고 말하기」 고침 `{appVersion?, platform?, transcript, heard?, chosen}` → `{ok, id}`. 로그인 선택(의견과 같음), 본문 64KB, 하루 200개(사람 · 주소마다) · 전체 3000개, 모르는 칸(audio 포함)은 400 — 위 "누르고 말하기" |
+| `GET` | `/api/voice/aliases` | 「누르고 말하기」 별칭 사전 `{ok, version, aliases:{"말":"종목-id"}}` (로그인 불필요 · `max-age=3600`) |
 | `POST` | `/api/auth/signup` | `{handle, password, displayName, pairSecret, healthConsent}` → `{token, user, recoveryCode}` (로그인 불필요) |
 | `POST` | `/api/auth/signin` | `{handle, password}` → `{token, user}` (로그인 불필요) |
 | `POST` | `/api/auth/signout` | 이 토큰만 폐기 |
@@ -338,7 +393,7 @@ cp server/mybody.db ~/backup/mybody-$(date +%F).db
 | `POST` | `/api/auth/recovery-code` | `{password}` 복구 코드 재발급 → `{recoveryCode}` |
 | `GET` | `/api/me` | 내 정보 + 기록 수 |
 | `PATCH` | `/api/me` | `{displayName}` |
-| `DELETE` | `/api/me` | 계정 삭제 (친구·공유·스냅샷·기록 · 보낸 의견과 화면 연쇄 삭제) |
+| `DELETE` | `/api/me` | 계정 삭제 (친구·공유·스냅샷·기록 · 보낸 의견과 화면 · 「누르고 말하기」 고침 연쇄 삭제) |
 | `POST` | `/api/me/consent` | `{healthConsent}` 현재 판으로 건강정보 동의를 다시 받음 → `{user}` |
 | `GET` | `/api/operator/users` | **운영자만**(아니면 403 `{ok:false, error:'운영자만 볼 수 있어요'}`) 앱 설정의 「가입자 목록」 → `{total, users:[{handle, displayName, createdAt, me?}]}`. 새 가입부터 · `?limit=` 1~1000(기본 1000) · `total` 은 전체 수 · `me:true` 는 운영자 본인 줄에만. 아이디 · 표시 이름 · 가입 시각 말고는 싣지 않음(비밀번호 · 복구 코드 · 토큰 · 초대 코드 · 내부 id 없음). `Cache-Control: private, no-store` |
 | `GET` | `/api/friends` | 친구 · 받은 요청 · 보낸 요청 · 차단 |
@@ -492,6 +547,7 @@ node tools/test-social.js        # 친구·공유 권한 (서버를 띄워 실�
 node tools/test-ocr.js           # 판독 프록시 (가짜 모델 API 로)
 node tools/test-fcm.js           # 앱 알림 (가짜 OAuth · FCM 으로 — JWT 서명까지 검증)
 node tools/test-feedback.js      # 의견 보내기 (검사 · 한도 · 탈퇴 · 1년 · 주인 알림 · 노트북 도구)
+node tools/test-voice-feedback.js # 누르고 말하기 고침 · 별칭 사전 (검사 · 소리 거절 · 한도 · 탈퇴 · 1년 · 파일 다시 읽기 · 노트북 도구)
 node tools/test-operator-users.js # 운영자의 「가입자 목록」 (운영자만 · 비밀 칸 없음 · 새 가입부터 · 1000명 상한)
 node tools/test-sync-owner.js    # 다른 계정의 기록 사본 · 주간 요약은 409 (행 안 바뀜 · owner 없는 옛 앱은 받음)
 node tools/test-find-mixed.js    # 섞인 계정 찾기 도구 (믿을 수 있는 id 만 · 씨앗 · scan-h 제외 · DB 에 안 씀)

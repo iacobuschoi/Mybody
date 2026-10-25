@@ -111,7 +111,11 @@ const DEFAULTS = {
   /* 앱 안 「의견 보내기」 로 새 의견이 오면 알림을 받을 계정의 **아이디**(로그인할 때
      치는 것). 비워 두면 알림 없이 쌓이기만 하고, 노트북에서 tools/feedback.js 로 봅니다.
      알림은 10분에 한 번까지이고 "새 의견이 왔어요" 뿐입니다 — 내용은 안 실립니다. */
-  feedbackNotify: ''
+  feedbackNotify: '',
+  /* 헬스 「누르고 말하기」 의 별칭 사전 파일(GET /api/voice/aliases) **경로**. 비워 두면
+     server/voice-aliases.json. 서버는 파일이 바뀌면 다시 띄우지 않아도 새로 읽습니다 —
+     경로만 기동할 때 정해집니다. 모양은 server/voice-feedback.js 「별칭 사전」. */
+  voiceAliases: ''
 };
 
 /* 윈도우에서 손으로 고친 설정 파일은 앞에 UTF-8 BOM(\uFEFF)이 붙어 올 수 있습니다 — PowerShell 5 의
@@ -164,6 +168,7 @@ function load() {
   take('origin', 'ORIGIN');
   take('fcmServiceAccount', 'FCM_SERVICE_ACCOUNT');
   take('feedbackNotify', 'FEEDBACK_NOTIFY');
+  take('voiceAliases', 'VOICE_ALIASES');
   /* 서버는 이 둘을 loadSavedConfig 로 옮기지 않고 부를 때마다 직접 읽습니다(환경변수가 먼저) —
      server/server.js 의 "앱 링크 파일" 참고. */
   take('androidCertSha256', 'ANDROID_CERT_SHA256');

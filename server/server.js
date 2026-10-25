@@ -7,8 +7,9 @@
  * 권한은 전부 서버에서 겁니다. 클라이언트가 보내는 "나는 누구다"를 믿지 않고
  * 토큰으로만 판단합니다.
  *
- * 가입 · 로그인 · 복구 말고 로그인 없이 받는 길은 셋뿐입니다 — /health · /version,
- * 그리고 앱 안 「의견 보내기」(POST /api/feedback). 의견은 로그인 없이 쓰는 사람도 보낼 수 있어야 해서
+ * 가입 · 로그인 · 복구 말고 로그인 없이 받는 길은 이것뿐입니다 — /health · /version,
+ * 앱 안 「의견 보내기」(POST /api/feedback), 그리고 헬스 「누르고 말하기」 의 고침
+ * (POST /api/voice/feedback)과 별칭 사전(GET /api/voice/aliases — 아래 handleVoiceFeedback). 의견은 로그인 없이 쓰는 사람도 보낼 수 있어야 해서
  * 토큰이 없거나 틀려도 401 이 아니라 익명으로 받습니다. 그 대신 하루 개수(사람마다 ·
  * 주소마다 · 서버 전체 — 본문을 받기 전과 저장 직전에 두 번), 동시에 받는 수, 사진
  * 검사(server/feedback.js)로 막습니다. 설정에
@@ -63,6 +64,7 @@ const PUSH = require('./push.js');
 const FCMLIB = require('./fcm.js');
 const APPVER = require('./appversion.js');
 const FEEDBACK = require('./feedback.js');
+const VOICE = require('./voice-feedback.js');
 const { serveInboxPage } = require('./inbox-page.js');
 
 /* --- 저장해 둔 설정을 읽어 옵니다 ------------------------------------------
@@ -105,6 +107,8 @@ const { serveInboxPage } = require('./inbox-page.js');
   put('DB', cfg.db);
   /* 새 의견이 오면 알림을 받을 계정의 **아이디**. 비워 두면 알림 없음. */
   put('FEEDBACK_NOTIFY', cfg.feedbackNotify);
+  /* 「누르고 말하기」 별칭 사전 파일의 경로. 비워 두면 server/voice-aliases.json. */
+  put('VOICE_ALIASES', cfg.voiceAliases);
   if (cfg.openSignup && !(process.env.OPEN_SIGNUP || '').trim()) process.env.OPEN_SIGNUP = '1';
   if (cfg.trustProxy && !(process.env.TRUST_PROXY || '').trim()) process.env.TRUST_PROXY = '1';
 })();
@@ -951,6 +955,87 @@ async function handleFeedback(req, res, ip) {
   return send(res, 200, { ok: true, id });
 }
 
+/* --- 헬스 「누르고 말하기」 — 고친 것 받기 · 별칭 사전 ------------------------
+ *
+ * 약속 (앱: 헬스 「누르고 말하기」 확인 시트)
+ *   POST /api/voice/feedback   {appVersion?, platform?, transcript, heard:[세트…], chosen:[세트…]}
+ *         세트 = {exercise?:id|null, name?, spoken?, kg?:0~1000|null, reps?:0~1000|null, count?:1~20}
+ *         → 200 {ok:true, id} · 400/413/429 {ok:false, error, reason}
+ *         로그인은 의견과 같이 **있으면 묶고, 없어도 받습니다**(틀린 토큰도 익명).
+ *   GET  /api/voice/aliases    → 200 {ok:true, version, aliases:{"말":"종목-id", …}}
+ *         누구나 · Cache-Control: public, max-age=3600 · 사전을 못 읽었으면 503
+ *
+ * 검사 규칙(글 300자 · 세트 10묶음 · 모르는 칸 거절 · 소리 안 받음)과 사전 파일 모양은
+ * server/voice-feedback.js, 저장은 db.js 입니다. 여기서는 누가 보냈나 · 오늘 몇 개째인가만 봅니다.
+ * 알림은 없습니다(주인이 정함) — 노트북에서 tools/voice-feedback.js --summary 로 모아 봅니다.
+ * 내용은 로그에 안 남습니다(경로와 상태만 — logLine).
+ * -------------------------------------------------------------------------- */
+const VOICE_PER_DAY = Number(process.env.VOICE_FEEDBACK_PER_DAY || VOICE.PER_DAY);
+const VOICE_PER_DAY_TOTAL = Number(process.env.VOICE_FEEDBACK_PER_DAY_TOTAL || VOICE.PER_DAY_TOTAL);
+/* 익명의 하루 개수 — 의견(anonFeedback)과 같은 까닭으로 메모리에서만, 주소마다. */
+const anonVoice = new Map();   // 'ip|YYYY-MM-DD' → 개수
+function anonVoiceCount(ip, day) { return anonVoice.get(ip + '|' + day) || 0; }
+function anonVoiceBump(ip, day) {
+  const k = ip + '|' + day;
+  anonVoice.set(k, anonVoiceCount(ip, day) + 1);
+  if (anonVoice.size > 5000) {
+    for (const key of anonVoice.keys()) { if (!key.endsWith('|' + day)) anonVoice.delete(key); }
+  }
+}
+function voiceOverLimit(uid, ip, day) {
+  const since = day + 'T00:00:00.000Z';
+  if (api.countVoiceFeedbackSince(null, since) >= VOICE_PER_DAY_TOTAL) {
+    return '오늘은 이 서버가 고친 기록을 더 받을 수 없습니다. 내일 다시 보내 주세요';
+  }
+  const mine = uid ? api.countVoiceFeedbackSince(uid, since) : anonVoiceCount(ip, day);
+  if (mine >= VOICE_PER_DAY) {
+    return '오늘은 고친 기록을 ' + VOICE_PER_DAY + '개까지 보낼 수 있습니다. 내일 다시 보내 주세요';
+  }
+  return null;
+}
+
+async function handleVoiceFeedback(req, res, ip) {
+  const fail = (status, msg) => send(res, status, { ok: false, error: msg, reason: msg });
+  const who = api.userForToken(bearer(req));
+  const uid = who ? who.id : null;
+  const day = ocrDay();
+  const over = voiceOverLimit(uid, ip, day);
+  if (over) return fail(429, over);
+  let body;
+  try {
+    body = await readBody(req, VOICE.BODY_LIMIT);
+  } catch (e) {
+    if (!e || !e.status) throw e;
+    return fail(e.status, e.status === 413 ? '보낸 내용이 너무 큽니다' : e.message);
+  }
+  const r = VOICE.parseVoiceFeedback(body);
+  if (!r.ok) return fail(400, r.reason);
+  /* 본문을 받는 사이 같은 사람의 다른 요청이 먼저 저장됐을 수 있어 한 번 더(handleFeedback 과 같음). */
+  const late = voiceOverLimit(uid, ip, day);
+  if (late) return fail(429, late);
+  const id = api.addVoiceFeedback(uid, r.value);
+  if (!uid) anonVoiceBump(ip, day);
+  return send(res, 200, { ok: true, id });
+}
+
+/* 별칭 사전 파일. 경로는 기동할 때 정하고(환경변수 VOICE_ALIASES · 설정의 voiceAliases),
+   내용은 부를 때마다 파일이 바뀌었는지 보고 다시 읽습니다 — 매일 도는 작업이 고쳐도
+   서버를 다시 띄울 필요가 없습니다(voice-feedback.js makeAliasStore). */
+const VOICE_ALIASES_FILE = (process.env.VOICE_ALIASES || '').trim()
+  ? path.resolve(process.env.VOICE_ALIASES.trim())
+  : path.join(__dirname, 'voice-aliases.json');
+const voiceAliases = VOICE.makeAliasStore(VOICE_ALIASES_FILE, msg => {
+  console.log('  ⚠ 음성 별칭 사전을 못 읽었습니다 (' + msg + ') — 지난번에 읽은 것을 그대로 내보냅니다.');
+});
+function handleVoiceAliases(res) {
+  const a = voiceAliases();
+  if (!a) return send(res, 503, { ok: false, reason: '별칭 사전을 읽지 못했습니다 — 잠시 뒤에 다시 물어 주세요' });
+  /* 앱은 몇 시간에 한 번 묻고 version 이 같으면 그대로 씁니다. 한 시간은 캐시해도 됩니다 —
+     누구에게나 같은 내용이고, 사람에 대한 것이 하나도 없습니다. */
+  return send(res, 200, { ok: true, version: a.version, aliases: a.aliases },
+              { 'Cache-Control': 'public, max-age=3600' });
+}
+
 async function handleApi(req, res, url) {
   const reqIp = clientIp(req);
   const p = url.pathname.replace(/^\/api/, '') || '/';
@@ -997,6 +1082,9 @@ async function handleApi(req, res, url) {
   /* 앱 안 「의견 보내기」 — 로그인은 **있으면 묶고, 없어도 받습니다.** 그래서 아래
      로그인 관문(401)보다 앞에 둡니다. 자세한 것은 handleFeedback. */
   if (p === '/feedback' && method === 'POST') return handleFeedback(req, res, reqIp);
+  /* 헬스 「누르고 말하기」 — 고침은 의견과 같이 로그인 없이도, 사전은 누구나. handleVoiceFeedback. */
+  if (p === '/voice/feedback' && method === 'POST') return handleVoiceFeedback(req, res, reqIp);
+  if (p === '/voice/aliases' && method === 'GET') return handleVoiceAliases(res);
 
   /* 계정 만들기 — 페어링 비밀이 필요합니다.
      이 서버는 주인 것이지 공개 가입 서비스가 아닙니다. 비밀을 아는 사람만
@@ -2318,11 +2406,12 @@ if (require.main === module) {
      세션은 쓰일 때만 지워졌어서, 앱을 지운 폰의 세션과 거기 묶인 앱 알림 기기 행이
      90일이 지나도 끝없이 남았습니다(처리방침의 보관 기간과 어긋남). 기기 행은 세션을
      지우면 cascade 로 같이 지워집니다. unref — 이 타이머 때문에 서버가 안 꺼지면 안 됩니다. */
-  /* 보관 기간(1년)이 지난 의견과 붙인 화면도 같은 때 지웁니다 — 처리방침에 적은
+  /* 보관 기간(1년)이 지난 의견과 붙인 화면(「누르고 말하기」 고침도)도 같은 때 지웁니다 — 처리방침에 적은
      "1년" 을 지키는 곳이 여기입니다. 서버를 몇 달 안 껐다 켜도 하루 한 번은 돕니다. */
   const pruneDaily = () => {
     try { api.pruneExpiredSessions(); } catch (e) { console.error('만료된 로그인 정리 실패:', e.message); }
     try { api.pruneOldFeedback(); } catch (e) { console.error('오래된 의견 정리 실패:', e.message); }
+    try { api.pruneOldVoiceFeedback(); } catch (e) { console.error('오래된 음성 고침 정리 실패:', e.message); }
   };
   pruneDaily();
   setInterval(pruneDaily, 24 * 3600 * 1000).unref();

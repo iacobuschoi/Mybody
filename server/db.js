@@ -8,6 +8,9 @@
  * 지우는 길은 셋입니다 — 탈퇴(deleteMe), 1년 보관 기간(pruneOldFeedback), 그리고 운영자가
  * 앱 안 「의견함」에서 직접 지우는 것(deleteFeedback). 읽었다고 저절로 지우지는 않습니다
  * (읽음 표시만). 처리방침의 "1년" 은 가장 오래 두는 기간이라, 먼저 지우는 것은 어긋나지 않습니다.
+ *
+ * 헬스 「누르고 말하기」 의 고침(voice_feedback)도 같은 규칙입니다 — 검사는
+ * server/voice-feedback.js, 지우는 길은 탈퇴(deleteMe)와 1년(pruneOldVoiceFeedback).
  * ========================================================================== */
 'use strict';
 const { DatabaseSync } = require('node:sqlite');
@@ -15,6 +18,7 @@ const crypto = require('node:crypto');
 const path = require('node:path');
 const fs = require('node:fs');
 const FEEDBACK = require('./feedback.js');
+const VOICE = require('./voice-feedback.js');
 
 /* 운영자의 「가입자 목록」 한 번에 싣는 최대 사람 수(operatorListUsers). 넘으면 새 가입부터 이만큼만 —
    total 은 그래도 전체 수라 앱이 "더 있다" 를 압니다. 응답 하나가 끝없이 커지지 않게. */
@@ -201,6 +205,27 @@ function open(file) {
     );
     CREATE INDEX IF NOT EXISTS idx_feedback_user ON feedback(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_feedback_created ON feedback(created_at);
+    /* 헬스 「누르고 말하기」 를 고친 것 (POST /api/voice/feedback · server/voice-feedback.js).
+     *
+     * 의견(feedback)과 같은 약속입니다: user_id 가 NULL 이면 로그인 없이 보낸 것, 로그인했으면
+     * 그 계정에 묶여 **탈퇴하면 같이 지워지고**(외래키 연쇄 + deleteMe 가 한 번 더), 보낸 곳의
+     * 주소(IP)는 저장하지 않고, 1년이 지나면 지웁니다(pruneOldVoiceFeedback).
+     * heard · chosen 은 검사를 마친 세트 묶음의 JSON 글자입니다 — 묶음 안 칸이 앱 판마다
+     * 늘 수 있어서 표를 쪼개지 않습니다. 소리 파일은 받지도 두지도 않습니다.
+     * done_at 은 주인이 "이건 사전에 반영했다" 고 표시한 때(tools/voice-feedback.js --mark-done). */
+    CREATE TABLE IF NOT EXISTS voice_feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      created_at TEXT NOT NULL,
+      user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+      app_version TEXT,
+      platform TEXT,
+      transcript TEXT NOT NULL,
+      heard TEXT NOT NULL,
+      chosen TEXT NOT NULL,
+      done_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_voice_feedback_user ON voice_feedback(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_voice_feedback_created ON voice_feedback(created_at);
     CREATE INDEX IF NOT EXISTS idx_push_devices_user ON push_devices(user_id, updated_at);
     CREATE INDEX IF NOT EXISTS idx_push_devices_session ON push_devices(session_token);
     CREATE INDEX IF NOT EXISTS idx_push_user ON push_subs(user_id);
@@ -644,7 +669,20 @@ function makeApi(db) {
     deleteFeedbackOf: db.prepare('DELETE FROM feedback WHERE user_id=?'),
     pruneFeedbackImages: db.prepare(
       'DELETE FROM feedback_images WHERE feedback_id IN (SELECT id FROM feedback WHERE created_at < ?)'),
-    pruneFeedback: db.prepare('DELETE FROM feedback WHERE created_at < ?')
+    pruneFeedback: db.prepare('DELETE FROM feedback WHERE created_at < ?'),
+
+    /* --- 누르고 말하기 고침 --- */
+    insertVoiceFeedback: db.prepare(
+      'INSERT INTO voice_feedback (created_at,user_id,app_version,platform,transcript,heard,chosen) VALUES (?,?,?,?,?,?,?)'),
+    countVoiceFeedbackOf: db.prepare('SELECT COUNT(*) c FROM voice_feedback WHERE user_id=? AND created_at >= ?'),
+    countVoiceFeedbackAll: db.prepare('SELECT COUNT(*) c FROM voice_feedback WHERE created_at >= ?'),
+    /* 새것부터. done 이 1 이면 처리한 것까지, since 는 ISO(UTC) 시각, limit -1 은 전부(SQLite). */
+    listVoiceFeedback: db.prepare(
+      'SELECT * FROM voice_feedback WHERE (? = 1 OR done_at IS NULL) AND created_at >= ? ' +
+      'ORDER BY created_at DESC, id DESC LIMIT ?'),
+    markVoiceFeedbackDone: db.prepare('UPDATE voice_feedback SET done_at=? WHERE id=? AND done_at IS NULL'),
+    deleteVoiceFeedbackOf: db.prepare('DELETE FROM voice_feedback WHERE user_id=?'),
+    pruneVoiceFeedback: db.prepare('DELETE FROM voice_feedback WHERE created_at < ?')
   };
 
   /* 프로필 사진 검사.
@@ -925,7 +963,8 @@ function makeApi(db) {
        탈퇴는 "이제 없다" 여야 하고, 그 말에 예외를 두지 않습니다.
        **보낸 의견과 붙인 화면도** 여기서 직접 지웁니다. 외래키로도 연쇄되지만, 화면
        캡처에는 몸 숫자가 찍혀 있을 수 있어서 연쇄 설정 하나에 기대지 않습니다
-       (처리방침: "계정을 지우면 보낸 의견도 함께 지워집니다"). 로그인 없이 보낸
+       (처리방침: "계정을 지우면 보낸 의견도 함께 지워집니다"). 「누르고 말하기」 를 고친
+       것(voice_feedback)도 같은 이유로 직접 지웁니다. 로그인 없이 보낸
        의견은 계정과 이어져 있지 않아 여기서 찾을 수 없고, 1년 뒤에 지워집니다. */
     deleteMe(uid) {
       q.deleteOcrOf.run(uid);
@@ -933,6 +972,7 @@ function makeApi(db) {
       try {
         q.deleteFeedbackImagesOf.run(uid);
         q.deleteFeedbackOf.run(uid);
+        q.deleteVoiceFeedbackOf.run(uid);
         q.deleteUser.run(uid);
         db.exec('COMMIT');
       } catch (e) {
@@ -1338,6 +1378,49 @@ function makeApi(db) {
         throw e;
       }
     },
+    /* --- 누르고 말하기 고침 ------------------------------------------------
+     * 검사는 server/voice-feedback.js 의 parseVoiceFeedback 이 끝낸 값만 받습니다.
+     * ------------------------------------------------------------------- */
+    addVoiceFeedback(userId, v) {
+      const r = q.insertVoiceFeedback.run(nowISO(), userId || null, v.appVersion || null, v.platform || null,
+                                          v.transcript, JSON.stringify(v.heard || []), JSON.stringify(v.chosen || []));
+      return Number(r.lastInsertRowid);
+    },
+    /** since(ISO) 이후 이 사람이 보낸 개수. userId 가 없으면 서버 전체. */
+    countVoiceFeedbackSince(userId, since) {
+      const s = str(since);
+      return userId ? q.countVoiceFeedbackOf.get(userId, s).c : q.countVoiceFeedbackAll.get(s).c;
+    },
+    /** 노트북 도구용 목록 — 새것부터. limit 이 없으면 전부. heard · chosen 은 풀어서. */
+    voiceFeedbackList({ since = '', limit = null, includeDone = false } = {}) {
+      const lim = Number.isSafeInteger(limit) && limit > 0 ? limit : -1;
+      const arr = s => { try { const a = JSON.parse(s); return Array.isArray(a) ? a : []; } catch (e) { return []; } };
+      return q.listVoiceFeedback.all(includeDone ? 1 : 0, str(since), lim).map(r => ({
+        id: Number(r.id), createdAt: r.created_at, userId: r.user_id || null,
+        appVersion: r.app_version || null, platform: r.platform || null,
+        transcript: r.transcript || '', heard: arr(r.heard), chosen: arr(r.chosen), doneAt: r.done_at || null
+      }));
+    },
+    /** 처리함 표시. 이미 표시한 것은 그 시각을 그대로 둡니다. 바뀐 개수를 돌려줍니다. */
+    markVoiceFeedbackDone(ids) {
+      const at = nowISO();
+      let n = 0;
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        for (const id of ids || []) n += Number(q.markVoiceFeedbackDone.run(at, Number(id)).changes) || 0;
+        db.exec('COMMIT');
+      } catch (e) {
+        try { db.exec('ROLLBACK'); } catch {}
+        throw e;
+      }
+      return n;
+    },
+    /** 보관 기간(기본 1년)이 지난 고침을 지웁니다. 지운 수를 돌려줍니다 — 의견 정리와 같은 때(server.js). */
+    pruneOldVoiceFeedback(days = VOICE.KEEP_DAYS) {
+      const cutoff = new Date(Date.now() - Number(days) * 86400000).toISOString();
+      return Number(q.pruneVoiceFeedback.run(cutoff).changes) || 0;
+    },
+
     /** 보관 기간(기본 1년)이 지난 의견과 그 사진을 지웁니다. 지운 의견 수를 돌려줍니다.
      *  서버가 뜰 때와 하루 한 번 부릅니다(server.js) — 처리방침에 적은 "1년" 을 지키는 곳. */
     pruneOldFeedback(days = FEEDBACK.KEEP_DAYS) {
