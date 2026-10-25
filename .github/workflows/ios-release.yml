@@ -637,6 +637,32 @@ jobs:
           fi
           rm -rf "$x"
 
+      # 올리기 전에 결과물을 열어서 봅니다 — 판 이름 · 번호 · 번들 ID 가 틀리면 여기서 멈춥니다.
+      - name: 결과물 검사
+        run: |
+          ipa=$(ls "$RUNNER_TEMP"/ipa/*.ipa | head -1)
+          d="$RUNNER_TEMP/ipa-x"; rm -rf "$d"; mkdir -p "$d"; unzip -q "$ipa" -d "$d"
+          app=$(ls -d "$d"/Payload/*.app | head -1); pl="$app/Info.plist"
+          get() { /usr/libexec/PlistBuddy -c "Print :$1" "$pl" 2>/dev/null || echo ""; }
+          bid=$(get CFBundleIdentifier); ver=$(get CFBundleShortVersionString); bn=$(get CFBundleVersion)
+          echo "$bid · $ver ($bn) · iOS $(get MinimumOSVersion)+ · 비면제암호화=$(get ITSAppUsesNonExemptEncryption)"
+          v="${{ github.event.inputs.version }}"; v="${v#v}"
+          [ "$bid" = "$BUNDLE_ID" ] || { echo "번들 ID 가 다릅니다: $bid"; exit 1; }
+          [ "$bn" = "$(git rev-list --count HEAD)" ] || { echo "빌드 번호가 어긋납니다: $bn"; exit 1; }
+          if [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then [ "$ver" = "$v" ] || { echo "판 이름이 어긋납니다: $ver"; exit 1; }; fi
+          [ -f "$app/PrivacyInfo.xcprivacy" ] || { echo "PrivacyInfo.xcprivacy 가 없습니다"; exit 1; }
+          echo "권한 문구:"; /usr/libexec/PlistBuddy -c 'Print' "$pl" | grep -E '^\s*NS[A-Za-z]+UsageDescription' || true
+          echo "서명:"; codesign -dv --verbose=2 "$app" 2>&1 | grep -E 'Authority|TeamIdentifier|Identifier='
+          echo "권한(entitlements):"; codesign -d --entitlements :- "$app" 2>/dev/null | grep -E '<key>' || true
+          codesign -dv --verbose=2 "$app" 2>&1 | grep -q 'Authority=Apple Distribution' || { echo "배포 인증서로 서명되지 않았습니다"; exit 1; }
+          rm -rf "$d"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-${{ github.run_number }}
+          path: ${{ runner.temp }}/ipa/*.ipa
+          retention-days: 30
+
       - name: TestFlight 에 올리기
         env:
           KEY_ID: ${{ secrets.ASC_KEY_ID }}
