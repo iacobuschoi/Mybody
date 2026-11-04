@@ -72,6 +72,8 @@ def make():
     mac.screen_release = lambda r: (held.discard(r), SCREEN_CALLS.append(("release", r)))
     mac.screens_view = lambda: {r: r not in held for r in ("main", "desk")}
     mac.room_in_use = lambda s: ROOM["in_use"]
+    mac.volume_get = lambda: {"v": 50, "muted": False}
+    mac.volume_set = lambda v: {"v": int(v), "muted": False}
     ROOM["in_use"] = False
     mac.displays_asleep = lambda: DISPLAY["asleep"]
     mac.change_volume = lambda d: 50

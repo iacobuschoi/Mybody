@@ -5,6 +5,7 @@
                         → 답은 맥 스피커가 아니라 폰으로(글 · 폰이 소리로 읽음)
         두 화면 보기 → /screen/<i>.jpg (바뀐 게 없으면 304)
         화면 끄기 · 켜기 → /screen_off · /screen_on (끄기는 deskctl sleep 과 같은 길 — hand-mouse 도 함께, 켜기도 hand-mouse 함께)
+        옆면 레버 → /volume {"v": 0~100} (지금 값은 GET /state 의 volume)
         화면 하나만 → /screen_main_off · /screen_main_on · /screen_desk_off · /screen_desk_on (상태는 GET /state 의 screens)
         핸드마우스 → /handmouse_on · /handmouse_off (상태는 GET /state 의 handmouse — 버튼으로 끈 동안은 화면을 켜도 안 켬)
         터치 → /input  클릭 · 두 번 · 오른쪽 · 스크롤 · 끌기 · 글자 입력
@@ -393,7 +394,7 @@ class Phone:
                     wait = min(float((q.get("wait") or ["0"])[0] or 0), 55)
                     return self._json(ph.notices.since(seq, wait))
                 if u.path == "/state":
-                    return self._json(ph.desk.phone_state())
+                    return self._json({**ph.desk.phone_state(), "page": PAGE_BUILD})
                 self._send(404, b"not found")
 
             def do_POST(self):
@@ -428,6 +429,14 @@ class Phone:
                     if u.path in ("/screen_main_off", "/screen_main_on", "/screen_desk_off", "/screen_desk_on"):
                         _, role, what = u.path[1:].split("_")  # 화면 하나만 (주인 11월 5일 0:25)
                         return self._json({"r": ph.desk.screen_one(role, what == "on", "폰")})
+                    if u.path == "/volume":                   # 옆면 레버 — {"v": 0~100}, 지금 기본 출력 장치의 음량
+                        try:
+                            v = json.loads(body or b"{}")["v"]
+                            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                                raise ValueError
+                        except (ValueError, KeyError, TypeError):
+                            return self._send(400, "v 는 0~100".encode())
+                        return self._json({"volume": ph.desk.volume_set(v)})
                     if u.path == "/handmouse_on":             # 「핸드마우스」 버튼 — 책상 탭과 같은 길 (주인 10월 25일)
                         return self._json({"r": ph.desk.handmouse_on("폰")})
                     if u.path == "/handmouse_off":
@@ -451,7 +460,15 @@ html,body{margin:0;height:100%;background:#0d1117;color:#e6edf3;font-family:syst
 #top{display:flex;gap:6px;padding:6px;background:#161b22;align-items:center}
 #top button{flex:1;padding:10px 4px;border:1px solid #30363d;border-radius:8px;background:#21262d;color:#e6edf3;font-size:15px}
 #top button.on{background:#2ea043;border-color:#2ea043}
-#view{position:absolute;top:52px;bottom:var(--bot);left:0;right:0;overflow:hidden;touch-action:none;background:#000}
+#quick{display:flex;gap:6px;padding:0 6px 6px;background:#161b22;height:44px}
+#quick button{flex:1;border:1px solid #30363d;border-radius:8px;background:#21262d;color:#8b949e;font-size:14px}
+#quick button.on{color:#e6edf3;border-color:#2ea043}#quick button b{font-weight:600}#quick button.on b{color:#3fb950}
+#lever{position:absolute;top:96px;bottom:var(--bot);right:0;width:52px;background:#161b22;border-left:1px solid #30363d;touch-action:none;user-select:none;-webkit-user-select:none;display:flex;flex-direction:column;align-items:center;padding:6px 0 10px;z-index:5}
+#volText{font-size:15px;font-weight:600;height:24px;line-height:24px}
+#track{flex:1;width:26px;margin-top:6px;border-radius:13px;background:#21262d;border:1px solid #30363d;position:relative;overflow:hidden}
+#fill{position:absolute;left:0;right:0;bottom:0;background:#1f6feb}
+#lever.drag #track{border-color:#58a6ff}#lever.muted #fill{background:#6e7681}
+#view{position:absolute;top:96px;bottom:var(--bot);left:0;right:52px;overflow:hidden;touch-action:none;background:#000}
 #view.zoom{overflow:auto;touch-action:pan-x pan-y}
 #scr{display:block;width:100%;height:100%;object-fit:contain;user-select:none;-webkit-user-drag:none}
 #view.zoom #scr{width:200%;height:auto;object-fit:fill}
@@ -466,7 +483,7 @@ html,body{margin:0;height:100%;background:#0d1117;color:#e6edf3;font-family:syst
 #talk.wait{background:#6e7681}
 #reply{font-size:15px;line-height:1.45;max-height:30vh;overflow:auto;margin-bottom:6px;white-space:pre-wrap}
 #reply .h{color:#8b949e;font-size:13px}
-#chat{position:absolute;top:52px;bottom:var(--bot);left:0;right:0;overflow:auto;padding:12px;display:none}
+#chat{position:absolute;top:96px;bottom:var(--bot);left:0;right:52px;overflow:auto;padding:12px;display:none}
 #chat .m{margin:8px 0;padding:10px 12px;border-radius:12px;max-width:90%;white-space:pre-wrap;line-height:1.45}
 #chat .me{background:#1f6feb33;margin-left:auto}
 #chat .ai{background:#21262d}
@@ -475,15 +492,18 @@ html,body{margin:0;height:100%;background:#0d1117;color:#e6edf3;font-family:syst
 #chat .need b{color:#e3b341}
 </style></head><body>
 <div id="top"><button data-s="0" class="on">주 화면</button><button data-s="1">세로 모니터</button><button data-s="c">비서</button></div>
+<div id="quick"><button id="scrm">주 화면 <b>…</b></button><button id="scrd">세로 화면 <b>…</b></button></div>
+<div id="lever" title="맥 음량"><div id="volText">…</div><div id="track"><div id="fill" style="height:0"></div></div></div>
 <div id="view"><img id="scr" alt=""></div>
 <div id="chat"></div>
 <div id="bar">
  <div id="reply"></div>
- <div id="tools"><button id="zoom">확대</button><button id="drag">끌기</button><button id="rclick">오른쪽 클릭</button><button id="soff">화면 끄기</button><button id="son">화면 켜기</button><button id="scrm" data-role="main">주 화면 …</button><button id="scrd" data-role="desk">세로 화면 …</button><button id="hm">핸드마우스 …</button><span id="st"></span></div>
+ <div id="tools"><button id="zoom">확대</button><button id="drag">끌기</button><button id="rclick">오른쪽 클릭</button><button id="soff">화면 끄기</button><button id="son">화면 켜기</button><button id="hm">핸드마우스 …</button><span id="st"></span></div>
  <div id="keys"><input id="txt" placeholder="글 입력"><button id="ask">비서에게</button><button id="typ">맥에 입력</button><button data-k="enter">⏎</button><button data-k="delete">⌫</button></div>
  <button id="talk">누르고 말하기</button>
 </div>
 <script>
+const BUILD='__BUILD__';
 const T=new URLSearchParams(location.search).get('t')||'';
 const H={'X-Desk-Token':T};
 const $=id=>document.getElementById(id);
@@ -542,11 +562,29 @@ $('son').onclick=()=>{$('st').textContent='켜는 중…';fetch('/screen_on',{me
 let hmOn=null;
 function hmDraw(on){hmOn=on;$('hm').textContent='핸드마우스 '+(on===true?'켜짐':on===false?'꺼짐':'모름');$('hm').classList.toggle('on',on===true)}
 let scrOn={};
-function scrDraw(s){scrOn=s;[['scrm','main','주 화면'],['scrd','desk','세로 화면']].forEach(([id,r,n])=>{const on=s[r];$(id).textContent=n+' '+(on===true?'켜짐':on===false?'꺼짐':'모름');$(id).classList.toggle('on',on===true)})}
-function scrPost(b){const role=b.dataset.role,want=scrOn[role]===false;$('st').textContent=want?'켜는 중…':'끄는 중…';
- fetch('/screen_'+role+(want?'_on':'_off'),{method:'POST',headers:H}).then(r=>r.json()).then(()=>fetch('/state',{headers:H})).then(r=>r.json()).then(s=>{if(s.screens)scrDraw(s.screens);$('st').textContent=''}).catch(()=>$('st').textContent='연결 안 됨')}
-$('scrm').onclick=()=>scrPost($('scrm'));$('scrd').onclick=()=>scrPost($('scrd'));
-function hmPoll(){fetch('/state',{headers:H}).then(r=>r.json()).then(s=>{if(s.handmouse)hmDraw(s.handmouse.on);if(s.screens)scrDraw(s.screens)}).catch(()=>{}).finally(()=>setTimeout(hmPoll,3000))}
+const SCR=[['scrm','main'],['scrd','desk']];
+function scrDraw(s){scrOn=s;SCR.forEach(([id,r])=>{const on=s[r];$(id).querySelector('b').textContent=on===true?'켜짐':on===false?'꺼짐':'모름';$(id).classList.toggle('on',on===true)})}
+function scrPost(id,role){const b=$(id),want=scrOn[role]===false;b.disabled=true;b.querySelector('b').textContent=want?'켜는 중…':'끄는 중…';
+ fetch('/screen_'+role+(want?'_on':'_off'),{method:'POST',headers:H}).then(()=>fetch('/state',{headers:H})).then(r=>r.json()).then(s=>{if(s.screens)scrDraw(s.screens)}).catch(()=>{scrDraw(scrOn);$('st').textContent='연결 안 됨'}).finally(()=>b.disabled=false)}
+SCR.forEach(([id,r])=>$(id).onclick=()=>scrPost(id,r));
+// 옆면 레버 = 맥 음량. 끈 거리만큼 바뀜(누르기만 하면 안 바뀜). 요청은 한 번에 하나, 끄는 동안 쌓이지 않고 마지막 값만 보냄
+let volNow=null,volMuted=false,volDrag=null,volSending=false,volNext=null;
+function volDraw(){$('fill').style.height=(volNow===null?0:volNow)+'%';$('volText').textContent=volNow===null?'…':volMuted?'음소거':volNow;$('lever').classList.toggle('muted',volMuted)}
+function volSend(v){if(volSending){volNext=v;return}volSending=true;
+ fetch('/volume',{method:'POST',headers:H,body:JSON.stringify({v})}).then(r=>r.json()).then(r=>{if(r.volume&&r.volume.v!=null&&volDrag===null&&volNext===null){volNow=r.volume.v;volMuted=r.volume.muted;volDraw()}}).catch(()=>{$('st').textContent='연결 안 됨'}).finally(()=>{volSending=false;if(volNext!==null){const n=volNext;volNext=null;volSend(n)}})}
+const L=$('lever');
+L.addEventListener('pointerdown',e=>{if(volNow===null)return;e.preventDefault();e.stopPropagation();L.setPointerCapture(e.pointerId);volDrag={y:e.clientY,v:volNow,h:$('track').offsetHeight||1,sent:volNow};L.classList.add('drag')});
+L.addEventListener('pointermove',e=>{if(!volDrag)return;e.preventDefault();e.stopPropagation();
+ const v=Math.max(0,Math.min(100,Math.round(volDrag.v+(volDrag.y-e.clientY)/volDrag.h*100)));
+ if(v!==volNow){volNow=v;volMuted=volMuted&&v===0;volDraw()}
+ if(v!==volDrag.sent){volDrag.sent=v;volSend(v)}});
+const volEnd=e=>{if(!volDrag)return;e.stopPropagation();volDrag=null;L.classList.remove('drag')};
+L.addEventListener('pointerup',volEnd);L.addEventListener('pointercancel',volEnd);
+function recording(){return $('talk').classList.contains('rec')}
+function hmPoll(){fetch('/state',{headers:H}).then(r=>r.json()).then(s=>{
+ if(s.page&&s.page!==BUILD&&!recording()&&volDrag===null)return location.reload();   // 맥의 페이지가 바뀜 — 앱을 다시 안 열어도 새 화면으로
+ if(s.handmouse)hmDraw(s.handmouse.on);if(s.screens)scrDraw(s.screens);
+ if(s.volume&&s.volume.v!=null&&volDrag===null&&!volSending&&volNext===null){volNow=s.volume.v;volMuted=s.volume.muted;volDraw()}}).catch(()=>{}).finally(()=>setTimeout(hmPoll,3000))}
 $('hm').onclick=()=>{const want=hmOn!==true;$('hm').textContent=want?'켜는 중…':'끄는 중…';
  fetch(want?'/handmouse_on':'/handmouse_off',{method:'POST',headers:H}).then(()=>$('st').textContent='').catch(()=>$('st').textContent='연결 안 됨')};
 hmPoll();
@@ -588,3 +626,5 @@ document.addEventListener('mouseup',end);
 loop();
 </script></body></html>
 """
+PAGE_BUILD = hashlib.blake2b(PAGE.encode(), digest_size=6).hexdigest()
+PAGE = PAGE.replace("__BUILD__", PAGE_BUILD)

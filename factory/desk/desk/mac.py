@@ -192,6 +192,20 @@ def sound(name: str = "Glass") -> None:
     subprocess.Popen(["afplay", f"{SOUNDS}/{name}.aiff"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def volume_get() -> dict:
+    """지금 기본 출력 장치의 음량 — {"v": 0~100, "muted": bool}. 장치가 음량 조절을 안 받으면 v 는 None"""
+    a = _run(["osascript", "-e", "set s to get volume settings", "-e",
+              "return (output volume of s as text) & \",\" & (output muted of s as text)"]).split(",")
+    return {"v": int(a[0]) if a[0].isdigit() else None, "muted": len(a) > 1 and a[1] == "true"}
+
+
+def volume_set(v: float) -> dict:
+    """맥 음량을 v(0~100)로. 올리면 음소거도 풂"""
+    v = max(0, min(100, int(round(v))))
+    _run(["osascript", "-e", f"set volume output volume {v}" + (" without output muted" if v > 0 else "")])
+    return volume_get()
+
+
 def change_volume(delta: int) -> int:
     out = _run(["osascript", "-e",
                 f"set v to (output volume of (get volume settings)) + {delta}\n"

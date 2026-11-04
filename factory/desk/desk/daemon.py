@@ -587,7 +587,11 @@ class Desk:
 
     def phone_state(self) -> dict:
         b = self.board.get()
-        return {"mode": self.mode, "heard": b.get("heard", ""), "reply": b.get("reply", ""), "handmouse": self.handmouse_view(), "screens": mac.screens_view()}
+        return {"mode": self.mode, "heard": b.get("heard", ""), "reply": b.get("reply", ""), "handmouse": self.handmouse_view(), "screens": mac.screens_view(), "volume": mac.volume_get()}
+
+    def volume_set(self, v: float) -> dict:
+        """폰 앱 옆면 레버 — 지금 기본 출력 장치(넷플릭스 소리가 나가는 곳). 비서 목소리는 [tts] device · volume 이 따로 정함"""
+        return mac.volume_set(v)
 
     # ── 끼어들기 (desk/bargein.py) ─────────────────────────────────────────
     def _speech_stop(self, text: str) -> bool:

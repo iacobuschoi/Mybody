@@ -87,6 +87,10 @@ class FakeDesk:
         self.last = ("off", why)
         return "ok"
 
+    def volume_set(self, v):
+        self.vol = v
+        return {"v": int(v), "muted": False}
+
     def screen_one(self, role, on, why=""):
         self.one = (role, on, why)
         return "ok"
@@ -130,6 +134,19 @@ class Server(unittest.TestCase):
         self.assertEqual(self.p.desk.one, ("desk", False, "폰"))
         self.assertEqual(self.req("/screen_main_on", b"")[0], 200)
         self.assertEqual(self.p.desk.one, ("main", True, "폰"))
+
+    def test_volume_route(self):
+        self.assertEqual(self.req("/volume", b'{"v":30}', tok=False)[0], 401)
+        c, b = self.req("/volume", b'{"v":30}')
+        self.assertEqual((c, json.loads(b)["volume"]["v"]), (200, 30))
+        for bad in (b"{}", b'{"v":"x"}', b'{"v":true}', b"nope"):
+            self.assertEqual(self.req("/volume", bad)[0], 400, bad)
+
+    def test_state_says_page_build_so_old_pages_reload(self):
+        s = json.loads(self.req("/state")[1])
+        self.assertEqual(s["page"], phone.PAGE_BUILD)
+        self.assertIn(f"const BUILD='{phone.PAGE_BUILD}'", phone.PAGE)
+        self.assertNotIn("__BUILD__", phone.PAGE)
 
     def test_apk_without_token(self):
         phone.APK = os.path.join(self.tmp, "a.apk")
