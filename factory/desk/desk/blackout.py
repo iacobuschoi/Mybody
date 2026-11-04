@@ -14,6 +14,9 @@ DDC(모니터 전원 대기 · 밝기 0)는 이 맥에선 안 됩니다 — M1 �
 폰 앱이 넣는 클릭 · 글자(desk/phone.py)는 PHONE_TAG 를 달고 오므로 「진짜 입력」으로 치지 않습니다 — 폰으로 조작해도
 방 화면은 검은 채. 마우스 움직임만으로는 깨지 않습니다(손 마우스 · 책상 흔들림).
 부모(deskd)가 죽으면 같이 끝나 화면이 돌아옵니다.
+
+--only main|desk: 그 화면 하나만 검게(주인 11월 5일 0:25 — 넷플릭스 볼 때 세로 모니터만 끄기). 맥을 깨어 있게 잡지 않고 입력도 안 봄 —
+다른 화면을 쓰는 중이니 키보드를 눌러도 안 돌아옴. 다시 켜기는 버튼 · 폰 · deskctl · 말. 화면 연결은 그대로라 창이 옮겨 가지 않음.
 """
 from __future__ import annotations
 
@@ -31,10 +34,22 @@ def _displays(Q) -> list[int]:
     return list(ids[:n])
 
 
-def black(Q) -> int:
+def role_displays(Q, role: str | None) -> list[int]:
+    """main = 주 화면 · desk = 주 화면이 아닌 화면 중 가장 오른쪽(desk/deskwin.py 의 책상 화면). None = 모두. 없으면 빈 목록"""
+    ids = _displays(Q)
+    if role is None:
+        return ids
+    main = Q.CGMainDisplayID()
+    if role == "main":
+        return [main]
+    rest = [d for d in ids if d != main]
+    return [max(rest, key=lambda d: Q.CGDisplayBounds(d).origin.x)] if rest else []
+
+
+def black(Q, role: str | None = None) -> int:
     z = [0.0, 0.0]
     n = 0
-    for d in _displays(Q):
+    for d in role_displays(Q, role):
         if Q.CGSetDisplayTransferByTable(d, 2, z, z, z) == 0:
             n += 1
     return n
@@ -69,9 +84,17 @@ def _watch_input(Q) -> None:
 def main(argv: list[str]) -> int:
     import Quartz as Q
     parent = int(argv[argv.index("--parent") + 1]) if "--parent" in argv else os.getppid()
-    caf = subprocess.Popen(["caffeinate", "-d", "-w", str(os.getpid())],
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    print(f"black {black(Q)}", flush=True)
+    only = argv[argv.index("--only") + 1] if "--only" in argv else None
+    caf = None if only else subprocess.Popen(["caffeinate", "-d", "-w", str(os.getpid())],
+                                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    def finish() -> None:
+        Q.CGDisplayRestoreColorSyncSettings()
+        if caf:
+            caf.terminate()
+        os._exit(0)
+
+    print(f"black {black(Q, only)}", flush=True)
 
     def keep() -> None:
         while True:
@@ -80,20 +103,17 @@ def main(argv: list[str]) -> int:
                 os.kill(parent, 0)
             except OSError:
                 break
-            black(Q)
-        Q.CGDisplayRestoreColorSyncSettings()
-        caf.terminate()
-        os._exit(0)
+            black(Q, only)
+        finish()
 
     def stdin_gone() -> None:                      # deskd 가 파이프를 닫으면(끝나면) 바로 끝
         sys.stdin.read()
-        Q.CGDisplayRestoreColorSyncSettings()
-        caf.terminate()
-        os._exit(0)
+        finish()
 
     threading.Thread(target=keep, daemon=True).start()
     threading.Thread(target=stdin_gone, daemon=True).start()
-    _watch_input(Q)
+    if not only:
+        _watch_input(Q)
     while True:
         time.sleep(3600)
 

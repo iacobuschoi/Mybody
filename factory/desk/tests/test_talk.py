@@ -7,11 +7,12 @@ import unittest
 import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from desk import stt  # noqa: E402
+from desk import mac, stt  # noqa: E402
 from desk.brain import Brain  # noqa: E402
 from desk.talk import PushToTalk  # noqa: E402
 from desk.vad import Cut  # noqa: E402
-from tests.test_daemon import clap, feed, make, silence  # noqa: E402
+from desk.router import route  # noqa: E402
+from tests.test_daemon import CALLS, ROOM, SCREEN_CALLS, clap, feed, make, silence  # noqa: E402
 
 SR = 16000
 
@@ -297,6 +298,86 @@ class FistOnly(unittest.TestCase):
         self.assertTrue(d.mic_blocked)
         d._mic_check(tone(0.03), now)
         self.assertFalse(d.mic_blocked)
+
+
+    def test_idle_sleep_waits_while_netflix_or_keyboard_in_use(self):
+        """상시 듣기가 꺼져 있으면 넷플릭스 소리로 활동을 알 수 없음 — 재생 · 입력 중에는 15분이 지나도 안 끔"""
+        d = self.d
+        d.voice.busy = d.brain.busy = lambda: False
+        d.last_activity = time.time() - d.cfg["idle_minutes"] * 60 - 1
+        ROOM["in_use"] = True
+        feed(d, np.zeros(480, np.float32))
+        time.sleep(0.2)
+        self.assertEqual(d.mode, "awake")
+        ROOM["in_use"] = False
+        feed(d, np.zeros(480, np.float32))
+        time.sleep(0.2)
+        self.assertEqual(d.mode, "awake")                 # 1분 뒤에 다시 봄
+        d.last_activity = time.time() - d.cfg["idle_minutes"] * 60 - 1
+        feed(d, np.zeros(480, np.float32))
+        time.sleep(0.2)
+        self.assertEqual(d.mode, "sleep")
+
+
+class OneScreen(unittest.TestCase):
+    """화면 하나만 끄고 켜기 (주인 11월 5일 0:25)"""
+
+    def setUp(self):
+        self.d = make()
+        self.d.wake("test")
+        time.sleep(0.1)
+        SCREEN_CALLS.clear()
+        CALLS.clear()
+
+    def test_off_and_on_leave_everything_else_alone(self):
+        d = self.d
+        self.assertEqual(d.screen_one("desk", False), "ok")
+        self.assertEqual(d.board.get()["screens"], {"main": True, "desk": False})
+        self.assertEqual(d.mode, "awake")
+        self.assertNotIn("cameras_off", CALLS)
+        self.assertNotIn("display_off", CALLS)
+        self.assertEqual(d.screen_one("desk", True), "ok")
+        self.assertEqual(d.board.get()["screens"], {"main": True, "desk": True})
+        self.assertEqual(SCREEN_CALLS, [("hold", "desk"), ("release", "desk")])
+
+    def test_turning_one_on_during_whole_off_keeps_other_off(self):
+        d = self.d
+        d.mode = "sleep"
+        kept = []
+        real = mac.display_on
+        mac.display_on = lambda keep=(): kept.append(keep)
+        try:
+            self.assertEqual(d.screen_one("main", True, "폰"), "ok")
+        finally:
+            mac.display_on = real
+        self.assertEqual(d.mode, "awake")
+        self.assertEqual(kept, [("desk",)])
+        self.assertEqual(SCREEN_CALLS, [("hold", "desk")])
+        self.assertEqual(d.screen_one("desk", False), "ok")   # 깨어 있으니 이제 그냥 듦
+
+    def test_off_during_whole_off_does_nothing(self):
+        d = self.d
+        d.mode = "sleep"
+        self.assertEqual(d.screen_one("desk", False), "이미 꺼져 있음")
+        self.assertEqual(SCREEN_CALLS, [])
+
+    def test_unknown_screen_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.d.screen_one("left", False)
+
+    def test_voice_words(self):
+        self.assertEqual(route("세로 화면 꺼").kind, "screen_desk_off")
+        self.assertEqual(route("세로 모니터 켜 줘").kind, "screen_desk_on")
+        self.assertEqual(route("주 화면 꺼").kind, "screen_main_off")
+        self.assertEqual(route("티비 화면 켜").kind, "screen_main_on")
+        self.assertEqual(route("화면 꺼").kind, "sleep")     # 전체 끄기는 그대로
+        self.assertEqual(route("다시 들어", muted=True).kind, "unmute")
+
+    def test_voice_turns_screen_off(self):
+        d = self.d
+        d.handle("세로 화면 꺼", direct=True)
+        self.assertEqual(SCREEN_CALLS, [("hold", "desk")])
+        self.assertIn("세로 화면을 껐어요.", d.voice.said)
 
 
 if __name__ == "__main__":

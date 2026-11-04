@@ -87,6 +87,10 @@ class FakeDesk:
         self.last = ("off", why)
         return "ok"
 
+    def screen_one(self, role, on, why=""):
+        self.one = (role, on, why)
+        return "ok"
+
 
 class Server(unittest.TestCase):
     @classmethod
@@ -119,6 +123,13 @@ class Server(unittest.TestCase):
         self.assertEqual(json.loads(b)["reply"], "네.")
         c, b = self.req("/talk", b"\x00\x01" * 1600)
         self.assertEqual(json.loads(b)["heard"], "들은 말")
+
+    def test_one_screen_routes(self):
+        self.assertEqual(self.req("/screen_desk_off", b"", tok=False)[0], 401)
+        self.assertEqual(self.req("/screen_desk_off", b"")[0], 200)
+        self.assertEqual(self.p.desk.one, ("desk", False, "폰"))
+        self.assertEqual(self.req("/screen_main_on", b"")[0], 200)
+        self.assertEqual(self.p.desk.one, ("main", True, "폰"))
 
     def test_apk_without_token(self):
         phone.APK = os.path.join(self.tmp, "a.apk")

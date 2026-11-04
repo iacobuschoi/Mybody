@@ -124,6 +124,7 @@ cd ~/lab/desk && .venv/bin/python -m desk calibrate   # 박수를 쳐 보고 ★
 키 만료(기본 180일)가 오면 앱이 다시 로그인 화면을 띄움 — 관리 화면(login.tailscale.com/admin/machines)에서 desk-phone 「Disable key expiry」로 끌 수 있음.
 - **누르고 말하기** = 왼손 주먹 말과 같은 길(같은 세션 · CLAUDE.md · 권한, `[음성·주먹]`). 답은 맥 스피커가 아니라 폰에서 글 · 소리로
 - **주 화면 · 세로 모니터** 실시간 보기, 탭 = 클릭 · 두 번 = 더블클릭 · 길게 = 오른쪽 클릭 · 끌기 = 스크롤, 글자 입력
+- **「주 화면」 · 「세로 화면」** 버튼 — 화면 하나만 끄고 켬(`/screen_main_off` 등). 책상 탭에도 같은 버튼, `deskctl screen_desk_off|screen_desk_on|screen_main_off|screen_main_on`, 말로 "세로 화면 꺼 · 켜". 감마로 검게 하는 것이라 **백라이트는 켜진 채**이고(이 맥에서 DDC 안 됨 — `desk/blackout.py`), 재생 · 소리 · 창은 그대로. 「화면 켜기」와 박수로 깨우기는 꺼 둔 화면도 함께 켬. deskd 를 다시 켜면 꺼 둔 화면이 돌아옴
 - **「화면 끄기」 · 「화면 켜기」** 버튼 — 맥 화면과 hand-mouse 카메라를 함께 끄고 켬(`/screen_off` · `/screen_on`). 앱 화면은 맥이 주므로(WebView) 앱을 다시 설치하지 않아도 새 버튼이 보임
 - 테일넷(100.64.0.0/10) · 127.0.0.1 에만 열고 열쇠(`~/.config/desk/phone_token`)가 맞아야 받음. funnel 안 씀
 - 빌드(JDK 17 · Android SDK · NDK 26 · Go · gomobile): `phone-app/build.sh` → `~/.local/share/desk/desk-phone.apk`, 설치 링크 `http://100.83.32.36:7071/app.apk`(테일넷 안에서만).

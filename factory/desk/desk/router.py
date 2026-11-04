@@ -15,6 +15,10 @@ LOCAL_MAX_CHARS = 14   # 공백 · 문장부호를 뺀 글자 수
 
 # 순서가 중요합니다 — "그만 들어" 는 mute, "그만" 은 stop.
 PATTERNS: list[tuple[str, str]] = [
+    ("screen_desk_off", r"(세로|책상|옆|비서)(화면|모니터)(꺼|끄)"),   # "화면꺼"(전체) 보다 먼저
+    ("screen_desk_on",  r"(세로|책상|옆|비서)(화면|모니터)(켜|키)"),
+    ("screen_main_off", r"(주|큰|메인|티비|tv)(화면|모니터)(꺼|끄)"),
+    ("screen_main_on",  r"(주|큰|메인|티비|tv)(화면|모니터)(켜|키)"),
     ("unmute", r"^(다시들어|다시들어줘|일어나|듣기시작|다시시작|들어줘)"),
     ("mute",   r"(조용히|듣지마|그만들어|음소거|귀닫아|잠깐듣지마)"),
     ("sleep",  r"(잘게|자자|잘자|화면꺼|모니터꺼|꺼줘$|끝내자|퇴근|오늘은끝|이제쉴게|쉬자)"),
@@ -26,6 +30,7 @@ PATTERNS: list[tuple[str, str]] = [
     ("time",   r"^(지금)?몇시(야|니|예요|에요)?$"),
 ]
 _COMPILED = [(k, re.compile(p)) for k, p in PATTERNS]
+UNMUTE = dict(_COMPILED)["unmute"]
 
 # "빠른 모드" · "하이쿠로 바꿔" · "정확한 모드로 해 줘" — 모델 이름(model_settings.SPEECH)과 바꾸라는 말이 함께 있어야
 # ("소넷 써 봤어?" 같은 말은 Claude 로)
@@ -50,7 +55,7 @@ def route(text: str, muted: bool = False) -> Action:
         return Action("ignore")
     if muted:
         # 조용히 모드에서는 "다시 들어" 류만 받습니다. 나머지 말은 아무 데도 가지 않습니다.
-        if len(n) <= LOCAL_MAX_CHARS and _COMPILED[0][1].search(n):
+        if len(n) <= LOCAL_MAX_CHARS and UNMUTE.search(n):
             return Action("unmute", t)
         return Action("ignore", t)
     if len(n) <= LOCAL_MAX_CHARS:

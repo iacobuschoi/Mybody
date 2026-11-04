@@ -51,6 +51,8 @@ PHONE_LOCAL = {"mute": "조용히 모드로 바꿨어요.", "unmute": "다시 �
                "model": "모델을 바꿨어요. 다음 말부터 적용돼요."}
 
 
+SCREEN_NAMES = {"main": "주 화면", "desk": "세로 화면"}
+
 class Desk:
     def __init__(self, cfg: dict):
         self.cfg = cfg
@@ -90,6 +92,7 @@ class Desk:
         self.talk_on = bool(tk.get("enabled", True))
         # False 면 주먹 없이 한 말은 자르지도 받아쓰지도 않음 — 로컬 명령 · Claude · 끼어들기 · 받아쓰기 입력 모두 (주인 11월 5일 0:20)
         self.always_on = bool(cfg["listen"].get("always_on", True))
+        self._screens: dict[str, bool] = {}          # 책상 탭에 보낸 화면별 켜짐
         self.talk_sound = tk.get("sound", "Morse")
         self.ptt = PushToTalk(sr=sr, **tk)          # 왼손 주먹 = 비서에게 말하기 (desk/talk.py)
         self._verifying = False                       # 얼굴 보는 중엔 박수를 더 받지 않음
@@ -143,6 +146,34 @@ class Desk:
         else:
             mode = sub or ("speaking" if self.voice.busy() else "thinking" if self.brain.busy() else "idle")
         self.board.set(mode=mode)
+        self._screens_check()
+
+    def _screens_check(self) -> None:
+        view = mac.screens_view()
+        if view != self._screens:
+            self._screens = view
+            self.board.set(screens=view)
+
+    def screen_one(self, role: str, on: bool, why: str = "버튼") -> str:
+        """화면 하나만 끄고 켬(버튼 · 폰 · deskctl · 말, 주인 11월 5일 0:25). 전체 끄기(screen_off · 박수)와 따로 — hand-mouse · 상태는 그대로.
+        전체가 꺼진 동안 한 화면을 켜면, 그 화면만 돌아오게 깨우고 다른 화면은 꺼 둠."""
+        if role not in SCREEN_NAMES:
+            raise ValueError(f"모르는 화면: {role}")
+        why = why or "버튼"
+        if self.mode == "sleep":
+            if not on:
+                return "이미 꺼져 있음"
+            other = "desk" if role == "main" else "main"
+            mac.screen_hold(other)                     # 먼저 잡아 두어야 깨울 때 깜빡이지 않음
+            self.screen_on(why, keep=(other,))
+        elif on:
+            mac.screen_release(role)
+        else:
+            mac.screen_hold(role)
+        log.info("%s %s (%s)", SCREEN_NAMES[role], "켬" if on else "끔", why)
+        self.board.log("screen", f"{SCREEN_NAMES[role]} {'켬' if on else '끔'} ({why})")
+        self._screens_check()
+        return "ok"
 
     def wake(self, why: str = "clap", greeting: str = "시스템을 시작합니다.") -> str:
         why = why or "deskctl"                         # /api/wake 는 빈 글을 넘김
@@ -268,7 +299,7 @@ class Desk:
             return "이미 꺼져 있음"
         return self.sleep(why)
 
-    def screen_on(self, why: str = "버튼") -> str:
+    def screen_on(self, why: str = "버튼", keep: tuple[str, ...] = ()) -> str:
         """「화면 켜기」 버튼(책상 탭 · 폰) · deskctl screen_on — 인사 · 브리핑 없이 화면을 켜고 hand-mouse 도 같이 켬(끄기의 짝).
         이미 켜져 있어도 카메라는 다시 확인(hand-mouse on 은 켜져 있으면 그대로)."""
         why = why or "버튼"
@@ -280,7 +311,7 @@ class Desk:
             self.seg.reset()
             mac.sound("Tink")
         self.last_activity = time.time()
-        mac.display_on()
+        mac.display_on(keep)
         self._cameras_on(why)
         self.board.log("wake", why)
         self._show()
@@ -480,6 +511,14 @@ class Desk:
             self.mute()
         elif k == "sleep":
             self.sleep("voice")
+        elif k.startswith("screen_"):
+            _, role, what = k.split("_")
+            self.screen_one(role, what == "on", "말")
+            said = f"{SCREEN_NAMES[role]}을 {'켰어요' if what == 'on' else '껐어요'}."
+            if phone:
+                phone(said, "")
+                return
+            self.voice.say(said)
         elif k == "stop":
             self.stop()
         elif k == "brief":
@@ -548,7 +587,7 @@ class Desk:
 
     def phone_state(self) -> dict:
         b = self.board.get()
-        return {"mode": self.mode, "heard": b.get("heard", ""), "reply": b.get("reply", ""), "handmouse": self.handmouse_view()}
+        return {"mode": self.mode, "heard": b.get("heard", ""), "reply": b.get("reply", ""), "handmouse": self.handmouse_view(), "screens": mac.screens_view()}
 
     # ── 끼어들기 (desk/bargein.py) ─────────────────────────────────────────
     def _speech_stop(self, text: str) -> bool:
@@ -981,6 +1020,11 @@ class Desk:
     def _sleep_if_idle(self) -> None:
         if self.mode == "awake" and time.time() - self.last_activity > self.cfg["idle_minutes"] * 60 \
                 and not self.voice.busy() and not self.brain.busy() and not self.seg.in_speech:
+            idle_s = self.cfg["idle_minutes"] * 60
+            if not self.always_on and mac.room_in_use(idle_s):
+                # 상시 듣기를 끄면 말로는 활동을 알 수 없음 — 넷플릭스를 보거나 키보드를 쓰는 중에 화면을 끄지 않게. 1분 뒤 다시 봄
+                self.last_activity = time.time() - idle_s + 60
+                return
             threading.Thread(target=self.sleep, args=("idle",), daemon=True).start()
             self.last_activity = time.time()
 
@@ -1018,6 +1062,10 @@ class Desk:
                            "unmute": self.unmute, "stop": self.stop,
                            "screen_on": self.screen_on, "screen_off": self.screen_off,
                            "handmouse_on": self.handmouse_on, "handmouse_off": self.handmouse_off,
+                           "screen_main_off": lambda why="": self.screen_one("main", False, why),
+                           "screen_main_on": lambda why="": self.screen_one("main", True, why),
+                           "screen_desk_off": lambda why="": self.screen_one("desk", False, why),
+                           "screen_desk_on": lambda why="": self.screen_one("desk", True, why),
                            "say": self.remote_say, "show": self.show,
                            "enroll": self.enroll, "face": self.face_test,
                            "tts": self.tts_view, "tts_test": self.tts_test, "tts_save": self.tts_save,

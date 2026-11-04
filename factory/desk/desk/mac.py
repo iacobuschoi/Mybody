@@ -24,13 +24,67 @@ _blackout_lock = threading.Lock()
 on_real_input = None                            # 검은 화면 중 진짜 키보드 · 클릭이 오면 부를 것(deskd 가 넣음)
 
 
+_holds: dict[str, subprocess.Popen] = {}        # 화면 하나만 검게 들고 있는 desk.blackout --only — main · desk
+
+
 def blackout_on() -> bool:
     return _blackout is not None and _blackout.poll() is None
 
 
-def display_on() -> None:
-    """화면을 켭니다 — 검은 화면(blackout)을 거두고, 진짜로 잠든 화면이면 `caffeinate -u`(사용자가 뭔가 했다고 알림)로 깨움."""
+def _end_hold(p: subprocess.Popen) -> None:
+    if p.poll() is None:
+        p.stdin.close()                             # stdin 이 닫히면 감마를 되돌리고 끝남
+        try:
+            p.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            p.kill()
+
+
+def screen_hold(role: str) -> None:
+    """화면 하나만 끔(검게). 백라이트는 켜진 채 — desk/blackout.py"""
+    import os
+    import sys
+    with _blackout_lock:
+        p = _holds.get(role)
+        if p is not None and p.poll() is None:
+            return
+        here = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        _holds[role] = subprocess.Popen([sys.executable, "-m", "desk.blackout", "--parent", str(os.getpid()), "--only", role],
+                                        cwd=here, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL, text=True)
+
+
+def screen_release(role: str) -> None:
+    with _blackout_lock:
+        p = _holds.pop(role, None)
+    if p is not None:
+        _end_hold(p)
+
+
+def screens_view() -> dict[str, bool]:
+    """화면별 켜짐 — 전체 끄기(blackout) 중이면 둘 다 False"""
+    whole = blackout_on()
+    with _blackout_lock:
+        return {r: not whole and not (r in _holds and _holds[r].poll() is None) for r in ("main", "desk")}
+
+
+def room_in_use(idle_s: float) -> bool:
+    """키보드 · 마우스를 idle_s 안에 썼거나 영상 · 소리를 재생 중(넷플릭스 — WebKit Media Playback)이면 True. 모르면 False"""
+    try:
+        import Quartz as Q
+        if Q.CGEventSourceSecondsSinceLastEventType(Q.kCGEventSourceStateHIDSystemState, Q.kCGAnyInputEventType) < idle_s:
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return "Media Playback" in _run(["pmset", "-g", "assertions"])
+
+
+def display_on(keep: tuple[str, ...] = ()) -> None:
+    """화면을 켭니다 — 검은 화면(blackout)을 거두고, 진짜로 잠든 화면이면 `caffeinate -u`(사용자가 뭔가 했다고 알림)로 깨움.
+    화면별로 꺼 둔 것도 함께 켬(어느 길로 켜도 돌아오게). keep 에 적은 화면만 꺼 둔 채."""
     global _blackout
+    for role in [r for r in _holds if r not in keep]:
+        screen_release(role)
     with _blackout_lock:
         p, _blackout = _blackout, None
     if p is not None and p.poll() is None:

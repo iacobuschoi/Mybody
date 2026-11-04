@@ -57,11 +57,22 @@ class FakeBrain:
         return ("<IGNORE>" in text and (None, "")) or ("네, 가계부 시험을 돌렸어요.", "네, 가계부 시험을 돌렸어요.")
 
 
+SCREEN_CALLS: list = []
+ROOM = {"in_use": False}
+
+
 def make():
     CALLS.clear()
     for name in ["display_on", "display_off", "open_dashboard", "keep_system_awake", "cameras_off", "cameras_on"]:
         setattr(mac, name, (lambda n: (lambda *a, **k: CALLS.append(n)))(name))
     mac.sound = lambda *a, **k: None
+    SCREEN_CALLS.clear()
+    held = set()
+    mac.screen_hold = lambda r: (held.add(r), SCREEN_CALLS.append(("hold", r)))
+    mac.screen_release = lambda r: (held.discard(r), SCREEN_CALLS.append(("release", r)))
+    mac.screens_view = lambda: {r: r not in held for r in ("main", "desk")}
+    mac.room_in_use = lambda s: ROOM["in_use"]
+    ROOM["in_use"] = False
     mac.displays_asleep = lambda: DISPLAY["asleep"]
     mac.change_volume = lambda d: 50
     mac.Voice = FakeVoice
