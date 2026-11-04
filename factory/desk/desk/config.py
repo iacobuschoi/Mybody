@@ -26,7 +26,8 @@ DEFAULTS: dict = {
         "off_guard_s": 5.0,         # 화면을 켠 직후 이 초 동안은 안 끔
     },
     "clap": {},                     # ClapConfig 값 덮어쓰기 (rise_db · min_centroid_hz · max_gap_s …)
-    "listen": {"end_silence_s": 0.8, "min_utt_s": 0.3, "max_utt_s": 20.0,   # min_utt_s: 0.4 는 "응" · "꺼" 같은 짧은 말을 버림(10월 2일)
+    "listen": {"always_on": True,           # False = 왼손 주먹 · 폰 앱으로 한 말만 받음(주먹 없는 말은 받아쓰지 않고, 끼어들기도 끔)
+               "end_silence_s": 0.8, "min_utt_s": 0.3, "max_utt_s": 20.0,   # min_utt_s: 0.4 는 "응" · "꺼" 같은 짧은 말을 버림(10월 2일)
                "echo_s": 0.2,               # 스피커 소리가 그친 뒤 이만큼만 귀를 닫음(예전엔 말 꼬리 0.5초 내내 닫아 이어 한 말 앞이 잘림)
                "hold_silence_s": 2.0,       # 받아쓴 끝이 조사 · 접속사("…이랑", "그리고")면 이만큼까지 더 기다림. 0 = 끔
                "vad_level": -1,             # webrtcvad 0~3, -1 = 끔(말소리 대역 크기로만 — desk/vad.py)

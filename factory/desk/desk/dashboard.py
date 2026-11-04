@@ -46,6 +46,7 @@ header{display:flex;align-items:baseline;gap:24px;flex-wrap:wrap}
 #date{color:var(--dim);font-size:30px}
 #state{margin-left:auto;display:flex;align-items:center;gap:12px;font-size:32px;font-weight:600}
 #dot{width:22px;height:22px;border-radius:50%;background:var(--dim)}
+.idle #dot{background:var(--acc)}
 .listening #dot{background:var(--acc);box-shadow:0 0 0 0 var(--acc);animation:p 1.6s infinite}
 .thinking #dot{background:var(--warn)}.speaking #dot{background:#7aa2f7}.muted #dot{background:var(--bad)}
 @keyframes p{0%{box-shadow:0 0 0 0 rgba(86,212,193,.6)}70%{box-shadow:0 0 0 18px rgba(86,212,193,0)}100%{box-shadow:0 0 0 0 rgba(86,212,193,0)}}
@@ -144,7 +145,7 @@ body.sleep #offBtn{display:none}body:not(.sleep) #onBtn{display:none}
  <div id="vMsg"></div></div></div>
 <footer>명령 예: "브리핑" · "조용히" · "다시 들어" · "화면 꺼"(또는 박수 두 번) · "멈춰" · "빠른 모드" · 그 밖의 말은 Claude 에게</footer>
 <script>
-const S={sleep:"자는 중",listening:"듣는 중",thinking:"생각 중",speaking:"말하는 중",muted:"조용히 모드"};
+const S={sleep:"자는 중",idle:"대기 중",listening:"듣는 중",thinking:"생각 중",speaking:"말하는 중",muted:"조용히 모드"};
 const W="일월화수목금토";
 function tick(){const d=new Date();clock.textContent=d.toTimeString().slice(0,5);date.textContent=`${d.getMonth()+1}월 ${d.getDate()}일 ${W[d.getDay()]}요일`}
 setInterval(tick,1000);tick();

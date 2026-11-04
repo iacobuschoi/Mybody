@@ -11,7 +11,7 @@ from desk import stt  # noqa: E402
 from desk.brain import Brain  # noqa: E402
 from desk.talk import PushToTalk  # noqa: E402
 from desk.vad import Cut  # noqa: E402
-from tests.test_daemon import feed, make  # noqa: E402
+from tests.test_daemon import clap, feed, make, silence  # noqa: E402
 
 SR = 16000
 
@@ -133,6 +133,46 @@ class DaemonTalk(unittest.TestCase):
         self.assertGreater(len(cut.audio) / SR, 1.5)
         self.assertTrue(d.utt_q.empty())
 
+    def test_listening_label_only_while_fist_is_closed(self):
+        """책상 탭 「듣는 중」은 주먹을 쥔 동안만. 평소 상시 듣기는 「대기 중」(idle) (주인 11월 5일 0:02)"""
+        d = self.d
+        mode = lambda: d.board.get()["mode"]  # noqa: E731
+        d._show()
+        self.assertEqual(mode(), "idle")
+        d.talk("start")
+        self.assertEqual(mode(), "listening")
+        d._show()                                         # 0.5초마다 도는 갱신이 되돌리지 않음
+        self.assertEqual(mode(), "listening")
+        d._show("thinking")                               # 앞선 말의 답을 만들기 시작해도 쥔 동안은 듣는 중
+        self.assertEqual(mode(), "listening")
+        d.talk("end")
+        time.sleep(d.ptt.tail_s + 0.05)
+        feed(d, np.zeros(480, np.float32))
+        d._show()
+        self.assertEqual(mode(), "idle")
+        d.utt_q.get_nowait()
+
+    def test_listening_label_after_cancel_and_in_other_modes(self):
+        d = self.d
+        mode = lambda: d.board.get()["mode"]  # noqa: E731
+        d.talk("start")
+        d.ptt.cancel()
+        d._show()
+        self.assertEqual(mode(), "idle")
+        d._show("thinking")                               # 주먹 없으면 생각 중 · 말하는 중은 그대로
+        self.assertEqual(mode(), "thinking")
+        d.mode = "muted"
+        d._show()
+        self.assertEqual(mode(), "muted")
+        d.talk("start")                                   # 조용히 모드에서도 주먹 말은 받으므로 듣는 중
+        self.assertEqual(mode(), "listening")
+        d.ptt.cancel()
+        d._show()
+        self.assertEqual(mode(), "muted")
+        d.mode = "sleep"
+        d._show()
+        self.assertEqual(mode(), "sleep")
+
     def test_hold_after_restart_resumes_with_heard_speech(self):
         """쥔 사이 deskd 가 다시 켜짐 — start 없이 hold 가 오면 상시 듣기가 받던 말부터 이어 녹음"""
         d = self.d
@@ -178,6 +218,85 @@ class DaemonTalk(unittest.TestCase):
         d.voice.said.clear()
         d._talked(Cut(np.zeros(SR // 2, np.float32), True, -1, 0, now - 0.5, now, direct=True), "")
         self.assertEqual(d.voice.said, [])               # 잠깐 쥐었다 편 건 조용히
+
+
+
+class FistOnly(unittest.TestCase):
+    """[listen] always_on = false — 주먹 · 폰 · 박수 · deskctl 만 (주인 11월 5일 0:20)"""
+
+    def setUp(self):
+        self.d = make()
+        self.d.always_on = False
+        self.d.wake("test")
+        time.sleep(0.1)
+        self.d.voice.said.clear()
+        self.handled = []
+        real = self.d.handle
+        self.d.handle = lambda text, **k: (self.handled.append(text), real(text, **k))
+
+    def test_config_default_keeps_always_on(self):
+        self.assertTrue(make().always_on)
+
+    def test_speech_without_fist_is_not_cut_or_barged(self):
+        d = self.d
+        d.barge.feed = lambda *a: self.fail("끼어들기를 듣고 있음")
+        feed(d, tone(2.0))
+        feed(d, np.zeros(SR, np.float32))
+        self.assertFalse(d.seg.in_speech)
+        self.assertTrue(d.utt_q.empty())
+        self.assertFalse(d._owner_talking())
+        self.assertEqual(self.handled, [])
+
+    def test_fist_still_records_and_marks_owner_talking(self):
+        d = self.d
+        feed(d, np.zeros(SR, np.float32))
+        self.assertEqual(d.talk("start"), "ok")
+        self.assertTrue(d._owner_talking())
+        feed(d, tone(1.0))
+        d.talk("end")
+        time.sleep(d.ptt.tail_s + 0.05)
+        feed(d, np.zeros(480, np.float32))
+        self.assertTrue(d.utt_q.get_nowait().direct)
+        self.assertFalse(d._owner_talking())
+
+    def test_fist_cuts_speaker(self):
+        d = self.d
+        cuts = []
+        d._cut = lambda heard, timing="": cuts.append(heard)
+        d.voice.busy = lambda: True
+        self.assertEqual(d.talk("start"), "ok")
+        self.assertEqual(cuts, ["왼손 주먹"])
+
+    def test_hold_after_restart_starts_recording(self):
+        d = self.d
+        self.assertEqual(d.talk("hold"), "ok")
+        self.assertTrue(d.ptt.active)
+
+    def test_claps_still_turn_off_and_wake(self):
+        d = self.d
+        d._changed_at = 0                                 # 켠 직후 보호 시간은 지남
+        feed(d, np.concatenate([silence(1.0), clap(), silence(0.3), clap(), silence(1.5)]))
+        time.sleep(0.2)
+        self.assertEqual(d.mode, "sleep")
+        feed(d, np.concatenate([silence(1.0), clap(), silence(0.3), clap(), silence(1.5)]))
+        self.assertEqual(d.mode, "awake")
+
+    def test_idle_sleep_still_runs(self):
+        d = self.d
+        d.last_activity = time.time() - d.cfg["idle_minutes"] * 60 - 1
+        d.voice.busy = d.brain.busy = lambda: False
+        feed(d, np.zeros(480, np.float32))
+        time.sleep(0.2)
+        self.assertEqual(d.mode, "sleep")
+
+    def test_mic_check_does_not_depend_on_listening(self):
+        d = self.d
+        now = time.time()
+        d._mic_heard = now - 7
+        d._mic_check(np.zeros(480, np.float32), now)
+        self.assertTrue(d.mic_blocked)
+        d._mic_check(tone(0.03), now)
+        self.assertFalse(d.mic_blocked)
 
 
 if __name__ == "__main__":

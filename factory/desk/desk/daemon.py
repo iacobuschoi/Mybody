@@ -88,6 +88,8 @@ class Desk:
         self.dictation = Dictation(cfg.get("dictate", {}))   # 주먹 쥐고 말하기 → 초점이 있는 글 칸 (desk/dictate.py)
         tk = cfg.get("talk", {})
         self.talk_on = bool(tk.get("enabled", True))
+        # False 면 주먹 없이 한 말은 자르지도 받아쓰지도 않음 — 로컬 명령 · Claude · 끼어들기 · 받아쓰기 입력 모두 (주인 11월 5일 0:20)
+        self.always_on = bool(cfg["listen"].get("always_on", True))
         self.talk_sound = tk.get("sound", "Morse")
         self.ptt = PushToTalk(sr=sr, **tk)          # 왼손 주먹 = 비서에게 말하기 (desk/talk.py)
         self._verifying = False                       # 얼굴 보는 중엔 박수를 더 받지 않음
@@ -131,9 +133,16 @@ class Desk:
 
     # ── 상태 바꾸기 ────────────────────────────────────────────────────────
     def _show(self, sub: str | None = None) -> None:
-        m = {"sleep": "sleep", "muted": "muted"}.get(self.mode)
-        self.board.set(mode=m or sub or ("speaking" if self.voice.busy() else
-                                         "thinking" if self.brain.busy() else "listening"))
+        """「듣는 중」은 왼손 주먹을 쥔 동안만 — 상시 듣기는 켜져 있어도 평소 표시는 「대기 중」(주인 11월 5일 0:02)"""
+        if self.mode == "sleep":
+            mode = "sleep"
+        elif self.ptt.active:                          # 주먹 녹음은 조용히 모드에서도 받음
+            mode = "listening"
+        elif self.mode == "muted":
+            mode = "muted"
+        else:
+            mode = sub or ("speaking" if self.voice.busy() else "thinking" if self.brain.busy() else "idle")
+        self.board.set(mode=mode)
 
     def wake(self, why: str = "clap", greeting: str = "시스템을 시작합니다.") -> str:
         why = why or "deskctl"                         # /api/wake 는 빈 글을 넘김
@@ -657,7 +666,7 @@ class Desk:
                 self.ptt.start(prefix=pre)
                 log.info("주먹 녹음 이어 받음 (쥔 사이 다시 켜짐, 앞 %.1f초)", 0 if pre is None else len(pre) / self.sr)
                 self.board.log("talk", "왼손 주먹 — 이어 듣는 중")
-                self._show("listening")
+                self._show()
                 return "ok"
             self.ptt.hold()
             return "ok"
@@ -681,7 +690,7 @@ class Desk:
         mac.sound(self.talk_sound)                  # 듣는 중이라는 짧은 소리
         log.info("주먹 말하기 시작")
         self.board.log("talk", "왼손 주먹 — 듣는 중")
-        self._show("listening")
+        self._show()
         return "ok"
 
     def _talked(self, cut: Cut, text: str) -> None:
@@ -927,6 +936,9 @@ class Desk:
         if self.mode == "awake" or self.mode == "muted":
             if self._feed_talk(x):                   # 왼손 주먹으로 녹음 중 — 상시 듣기 자르개에는 안 넣음
                 return
+            if not self.always_on:                   # 말 끊기는 주먹 · 폰 · deskctl stop 으로 (talk("start") 가 _cut)
+                self._sleep_if_idle()
+                return
             # 스피커에서 소리가 나는 동안(+되울림 echo_s)만 말하는 중 — 합성 기다림 · 끝난 뒤 꼬리에는 듣기
             speaking = self.voice.sounding(self.echo_s) and time.time() - self._barged_at > 1.0   # 끊은 직후는 아님
             lead = (self.barge.voice_s() if self._deaf and not speaking and self.barge_on
@@ -964,6 +976,9 @@ class Desk:
                 self._spk.clear()
             for cut in self.seg.feed_cuts(feed):
                 self._queue_cut(cut)
+        self._sleep_if_idle()
+
+    def _sleep_if_idle(self) -> None:
         if self.mode == "awake" and time.time() - self.last_activity > self.cfg["idle_minutes"] * 60 \
                 and not self.voice.busy() and not self.brain.busy() and not self.seg.in_speech:
             threading.Thread(target=self.sleep, args=("idle",), daemon=True).start()

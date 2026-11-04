@@ -35,6 +35,7 @@ off_guard_s = 5.0                 # 화면을 켠 직후 이 초 동안은 안 �
 # max_gap_s = 0.8                 # 박수 사이 최대 간격
 
 [listen]
+always_on = true                  # false = 왼손 주먹 · 폰 앱으로 한 말만 받음. 주먹 없는 말은 받아쓰지 않고 끼어들기도 끔(말 끊기는 주먹으로)
 end_silence_s = 0.8               # 말이 끝났다고 보는 침묵
 hold_silence_s = 2.0              # 받아쓴 끝이 조사 · 접속사("…이랑", "그리고")면 이만큼까지 더 기다림. 0 = 끔(end_silence_s 만)
 min_utt_s = 0.4
