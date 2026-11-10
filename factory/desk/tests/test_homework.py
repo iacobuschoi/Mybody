@@ -73,6 +73,14 @@ class Textbook(unittest.TestCase):
         got = hw.find_problem(lay, doc, "3.4")
         self.assertNotIn("Chapter 4", got.text)
 
+    def test_answers_page_and_soft_hyphen(self):
+        lay, doc = self.load(False)
+        for n in ("3.2", "3.3", "4.1"):
+            self.assertNotEqual(hw.find_problem(lay, doc, n).clips[0].page, len(lay.lines) - 1, n)   # 책 끝 답 목록이 아님
+        # Hibbeler 의 「\u00ad11–39.」 — 글꼴이 그리지 않는 soft hyphen 이 번호 앞에 붙어 있었음(가짜 PDF 로는 못 만들어 글로 검사)
+        self.assertTrue(hw._label("11.39").match("\u00ad11–39. The 50-mm-diameter shaft"))
+        self.assertTrue(hw.GENERIC.match("\u00ad11–39. The shaft"))
+
     def test_missing_problem(self):
         lay, doc = self.load(False)
         self.assertIsNone(hw.find_problem(lay, doc, "9.9"))

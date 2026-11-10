@@ -64,4 +64,10 @@ def make(path, two_column_problems=False):
     y = _body(p, 60, y + 10, "Problems", 14, bold=True)
     y = _body(p, 60, y + 6, "4.1  Use nodal analysis to find v1 in the circuit.", 10)
     y = _body(p, 60, y + 6, "4.2  Use mesh analysis to find i2.", 10)
+    # 책 끝 답 목록 — 「3.2」 「3.3」 이 같은 들여쓰기로 늘어섬(문제로 집으면 안 됨)
+    p = doc.new_page()
+    _body(p, 60, 30, "Answers to Selected Problems", 7)
+    for i, n in enumerate(("3.1", "3.2", "3.3", "3.4", "4.1", "4.2")):
+        _body(p, 60, 60 + i * 14, n, 9, bold=True)
+        _body(p, 120, 60 + i * 14, "I = 2 A", 9)
     doc.save(path)
