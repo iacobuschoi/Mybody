@@ -34,7 +34,7 @@ PY=$(command -v python3.12 || command -v python3.13 || command -v python3.11 || 
 [ -d "$VENV" ] || "$PY" -m venv "$VENV"
 "$VENV/bin/pip" install -q --upgrade pip
 "$VENV/bin/pip" install -q numpy sounddevice webrtcvad-wheels mlx-whisper pyobjc-framework-Quartz pyobjc-framework-ApplicationServices \
-  opencv-python-headless pyobjc-framework-AVFoundation pypdf \
+  opencv-python-headless pyobjc-framework-AVFoundation pypdf pymupdf \
   supertonic     # 얼굴 인증(맥 안에서만) · 카메라 이름으로 고르기 · 신경망 목소리(맥 안에서, 키 · 결제 없음)
 
 say_ "마이크 · 스피커 고르기"
