@@ -124,6 +124,22 @@ class Study:
         self.db = self._load()
         from .coursechat import CourseChat, claude_json
         self.chat = CourseChat(self, runner=chat_runner or claude_json)   # 과목 비서(미리 읽기 · 과목별 세션)
+        if background and auto_hw:
+            self._catch_up()
+
+    def _catch_up(self) -> None:
+        """이 기능 전에 넣은 과제(hw 칸이 아예 없음) 가운데 과목에 교과서가 있고 문제 번호가 보이는 것 — 새로 올린 것처럼 한 번 만듦"""
+        from . import homework as hw
+        with self.lock:
+            books = {f["course"] for f in self.db["files"] if f.get("kind") == "textbook"}
+            todo = [f["id"] for f in self.db["files"] if f.get("kind") == "assignment" and "hw" not in f
+                    and f["course"] in books]
+        for fid in todo:
+            f = self._file(fid)
+            if hw.parse_numbers(self._hw_text(f)):
+                log.info("강의자료: 예전에 넣은 과제 %s 의 문제지 · 해설지를 만듦", f["name"])
+                f["hw"] = {"text": ""}
+                self.run_hw(fid, "all")
 
     # ── 저장 ──────────────────────────────────────────────────────────────
     def _load(self) -> dict:
@@ -486,8 +502,10 @@ class Study:
             books = [x for x in same if x.get("kind") == "textbook"]
         h = f.get("hw") or {}
         text = self._hw_text(f)
-        mode = h.get("mode") or ("numbers" if hw.numbers_only(text) else "full")
         nums = h.get("numbers") or hw.parse_numbers(text)
+        # 저절로: 번호만 나열됐거나, 공지 글에 섞여 있어도 교과서가 있으면 일단 번호 모드 — 교과서에서 절반도 못 찾으면 아래에서 전체 모드로
+        auto = not h.get("mode")
+        mode = h.get("mode") or ("numbers" if hw.numbers_only(text) or (nums and books) else "full")
         if mode == "numbers" and not nums:
             mode = "full"
         if h.get("textbook"):
@@ -538,6 +556,13 @@ class Study:
                         break
                 if not got:
                     problems.append({"num": n, "error": "교과서에서 이 문제를 못 찾았어요. 오른쪽 「과제」 칸에 쪽 번호를 적고 다시 만들어 주세요."})
+            found = sum(1 for p in problems if not p.get("error"))
+            if auto and not hw.numbers_only(text) and found < max(1, (len(nums) + 1) // 2):
+                mode, problems = "full", None              # 과제 글의 번호가 교과서 문제가 아니었음 — 과제 글 그대로 풂
+                skip = ("read", "find", "crop", "sheet") + (("solve", "solution") if what == "sheet" else ())
+                with self.lock:
+                    self._file(fid)["hw"]["mode_used"] = "full"
+        if mode == "numbers":
             prog("crop", 0, "그림 · 표 · 예제를 잘라 오는 중", save=True)
             for i, pr in enumerate(problems):
                 prog("crop", i / len(problems), f"문제 {pr['num']} 의 그림 · 예제를 잘라 오는 중")

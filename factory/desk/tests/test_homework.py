@@ -179,6 +179,43 @@ class Flow(unittest.TestCase):
         code, img, ct = self.S.handle("GET", f"/study/page/{f['id']}/1.jpg", {"v": ["sheet"], "w": ["600"]}, None)
         self.assertEqual((code, ct), (200, "image/jpeg"))
 
+    def test_numbers_inside_announcement_use_textbook(self):
+        # 조교 공지 글 안에 번호가 섞인 과제(실제 HW4 모양) — 교과서에 있으면 번호 모드
+        text = ("[고체역학 II] HW4 · Due Friday 안녕하세요, 조교입니다. 네 번째 과제를 아래와 같이 공지해 드립니다. "
+                "대상 문제 (교재): 3장: 3-2, 3-3 제출 기한: 11월 13일 (금)")
+        f = self.S.add_text_assignment(self.c, "HW4", text)
+        h = self.S._file(f["id"])["hw"]
+        self.assertEqual(h["mode_used"], "numbers")
+        self.assertEqual([p["page"] for p in h["problems"]], [3, 3])
+        self.assertEqual(h["problems"][0]["label"], "3.2")
+
+    def test_numbers_not_in_textbook_fall_back_to_full(self):
+        text = ("Write a report about Section 7.5 and 8.2 of the lecture with your own experiment design, "
+                "explain the data you will collect and the expected results in two pages.")
+        f = self.S.add_text_assignment(self.c, "보고서", text)
+        h = self.S._file(f["id"])["hw"]
+        self.assertEqual(h["mode_used"], "full")
+        self.assertEqual(h["job"]["state"], "done")
+        self.assertFalse(h.get("sheet"))
+        self.assertTrue(self.S.out_path(f["id"], "solution").exists())
+
+    def test_old_assignment_is_made_once_at_start(self):
+        f = self.S.add_text_assignment(self.c, "HW4", "3.2")
+        self.S._file(f["id"]).pop("hw")                        # 기능 전에 넣은 과제처럼
+        self.S._save()
+        calls = []
+        again = study.Study(self.root, background=True, auto_hw=True, solver=lambda p, pr: calls.append(1) or "")
+        import time
+        for _ in range(100):
+            if (again._file(f["id"]).get("hw") or {}).get("job", {}).get("state") in ("done", "error"):
+                break
+            time.sleep(0.1)
+        self.assertEqual(again._file(f["id"])["hw"]["job"]["state"], "done")
+        self.assertEqual(calls, [1])
+        third = study.Study(self.root, background=True, auto_hw=True, solver=lambda p, pr: calls.append(1) or "")
+        time.sleep(0.5)
+        self.assertEqual(calls, [1])                           # 한 번만
+
     def test_no_textbook_tells_owner(self):
         c2 = self.S.save_course({"name": "빈 과목"})["id"]
         f = self.S.add_text_assignment(c2, "HW1", "1.1, 1.2")

@@ -195,7 +195,7 @@ def build_layout(path: str, progress=None) -> Layout:
                 spans = [s for s in ln.get("spans", []) if s.get("text", "").strip()]
                 if not spans:
                     continue
-                text = "".join(s["text"] for s in ln["spans"]).strip()
+                text = "".join(s["text"] for s in ln["spans"]).replace("\u00ad", "").strip()   # 보이지 않는 줄표(soft hyphen) — 「11–39.」 앞에 붙어 번호를 못 찾았음
                 big = max(spans, key=lambda s: len(s["text"]))
                 size = round(float(big["size"]), 1)
                 bold = bool(big.get("flags", 0) & 16) or "bold" in big.get("font", "").lower()
@@ -229,10 +229,11 @@ def load_layout(path: str, cache: Path) -> Layout | None:
 
 
 # ── 교과서에서 문제 · 그림 찾기 ──────────────────────────────────────────────
-LEAD = r"(?:[*•●■▪◆#†]\s*)?(?:(?:P|Problem|PROBLEM)\s*)?"   # 「Prob. 2–10」 은 그림 캡션이라 뺌
+LEAD = r"[\u00ad\u200b\ufeff]*(?:[*•●■▪◆#†]\s*)?(?:(?:P|Problem|PROBLEM)\s*)?"   # 「Prob. 2–10」 은 그림 캡션이라 뺌
 GENERIC = re.compile(rf"^{LEAD}(\d{{1,2}}){SEP}(\d{{1,3}})(?!\d)(?![.\-–]\d)(?=[\s.:)\]]|$)")
 PROBLEMS_HEAD = re.compile(r"^(?:Problems|PROBLEMS|Exercises|EXERCISES|Homework Problems|Problem Set|"
                            r"Review Questions|연습\s*문제|장\s*말\s*문제)\b")
+ANSWERS_HEAD = re.compile(r"^(?:Answers?\s+to\b|ANSWERS?\b|Answers\s*$|Solutions?\s+to\s+Selected|해답|정답)")
 CHAPTER_HEAD = re.compile(r"^(?:Chapter|CHAPTER)\s+\d+|^제\s*\d+\s*장")
 
 
@@ -296,6 +297,11 @@ def _body_lines(lay: Layout, p: int, col):
     return sorted(out, key=lambda l: (round(l.y0, 0), l.x0))
 
 
+def _stray(segs, taken) -> bool:
+    """다음 쪽 머리의 쪽 번호 한 줄 같은 것 — 이어진 문제 글이 아님"""
+    return bool(segs) and len(taken) == 1 and len(taken[0].text) <= 8
+
+
 def _flow(lay: Layout, start: Line, stop, max_segments: int = 3, doc=None, max_gap: float = 0) -> list:
     """start 줄부터 stop(줄) 이 참인 줄 바로 앞까지 — 단 끝이면 다음 단 · 다음 쪽으로 이어 감. → [(쪽, 단, 줄들)]"""
     p = start.page
@@ -309,7 +315,7 @@ def _flow(lay: Layout, start: Line, stop, max_segments: int = 3, doc=None, max_g
         taken = []
         for l in rows:
             if (taken or not first) and stop(l, col):
-                if taken:
+                if taken and not _stray(segs, taken):
                     segs.append((p, col, taken))
                 return segs
             if max_gap and taken and l.y0 - taken[-1].y1 > max_gap and doc is not None and not any(
@@ -320,7 +326,7 @@ def _flow(lay: Layout, start: Line, stop, max_segments: int = 3, doc=None, max_g
             if first and not taken and l is not start and l.y0 < start.y0 - 1:
                 continue
             taken.append(l)
-        if taken:
+        if taken and not _stray(segs, taken):
             segs.append((p, col, taken))
         first = False
         if two and col[0] < 1:                          # 왼쪽 단이 끝남 → 같은 쪽 오른쪽 단
@@ -387,6 +393,7 @@ def find_problem(lay: Layout, doc, num: str, page_hint: int | None = None, regio
     lab = _label(num)
     region = region if region is not None else _problems_region(lay)
     chapters = chapters if chapters is not None else page_chapters(lay)
+    answers = [any(ANSWERS_HEAD.match(l.text) for l in pl) for pl in lay.lines]
     c, n = (int(x) for x in num.split("."))
     sib = {f"{c}.{n - 1}", f"{c}.{n + 1}"}
     best, best_s = None, -1e9
@@ -412,6 +419,10 @@ def find_problem(lay: Layout, doc, num: str, page_hint: int | None = None, regio
             rest = lab.sub("", l.text, count=1).strip(" .:)")
             if rest and len(rest) <= 3:
                 s -= 3                                  # 「1.5 m」 같은 그림 속 치수
+            elif len(rest) >= 12:
+                s += 1                                  # 번호 뒤에 문제 글이 이어짐
+            if answers[p]:
+                s -= 6                                  # 책 끝 「Answers to Selected Problems」 의 답 목록
             if chapters[p] == c:
                 s += 2                                  # 그 장 안의 쪽
             elif chapters[p]:
