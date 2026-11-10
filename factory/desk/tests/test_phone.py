@@ -228,11 +228,13 @@ class Server(unittest.TestCase):
         src = open(phone.__file__, encoding="utf-8").read()
         study_src = open(study.__file__, encoding="utf-8").read()
         self.assertIn("/study/list", paths)                      # 강의자료 길도 실제로 뽑히는지
-        for p in paths - {"/screen", "/study/file"}:              # /screen/<i>.jpg · /study/file/<id>.pdf 는 아래 따로
+        for p in paths - {"/screen", "/study/file", "/study/page", "/study/out"}:   # 정규식 길은 아래 따로
             if p in ("/screen_main_", "/screen_desk_"):
                 continue
             self.assertIn(f'"{p}"', study_src if p.startswith("/study/") else src, p)
         self.assertIn(r"/study/file/(f-", study_src)
+        self.assertIn(r"/study/page/(f-", study_src)            # 쪽 그림 · 문제지 · 해설지
+        self.assertIn(r"/study/out/(f-", study_src)
 
     def test_talk_ends_only_on_release(self):
         page = phone.PAGE

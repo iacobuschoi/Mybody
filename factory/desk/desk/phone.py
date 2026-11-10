@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import secrets
+import shutil
 import subprocess
 import threading
 import time
@@ -33,6 +34,7 @@ from urllib.parse import parse_qs, urlparse
 import numpy as np
 
 from .study import MAX_PDF, Study
+from .usage import view as usage_view
 from .web import WEB, WEB_BUILD, WEB_JS
 
 log = logging.getLogger("deskd")
@@ -359,6 +361,16 @@ class Phone:
 
             def _study(self, method: str, u, body: bytes | None):
                 code, out, ctype = ph.study.handle(method, u.path, parse_qs(u.query), body)
+                if isinstance(out, Path):                       # 큰 PDF — 통째로 메모리에 올리지 않고 1MB 씩 흘려 보냄
+                    size = out.stat().st_size
+                    self.send_response(code)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Content-Length", str(size))
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    with open(out, "rb") as fh:
+                        shutil.copyfileobj(fh, self.wfile, 1024 * 1024)
+                    return None
                 if ctype:
                     return self._send(code, out, ctype)
                 return self._json(out, code)
@@ -422,7 +434,7 @@ class Phone:
                     wait = min(float((q.get("wait") or ["0"])[0] or 0), 55)
                     return self._json(ph.notices.since(seq, wait))
                 if u.path == "/state":
-                    return self._json({**ph.desk.phone_state(), "page": PAGE_BUILD, "web": WEB_BUILD})
+                    return self._json({**ph.desk.phone_state(), "usage": usage_view(), "page": PAGE_BUILD, "web": WEB_BUILD})
                 if u.path.startswith("/study/"):                # 강의자료 탭 (desk/study.py)
                     return self._study("GET", u, None)
                 self._send(404, b"not found")
