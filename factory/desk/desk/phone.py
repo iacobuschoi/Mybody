@@ -9,6 +9,8 @@
         화면 하나만 → /screen_main_off · /screen_main_on · /screen_desk_off · /screen_desk_on (상태는 GET /state 의 screens)
         핸드마우스 → /handmouse_on · /handmouse_off (상태는 GET /state 의 handmouse — 버튼으로 끈 동안은 화면을 켜도 안 켬)
         터치 → /input  클릭 · 두 번 · 오른쪽 · 스크롤 · 끌기 · 글자 입력
+    브라우저(연구실 · 노트북) ──테일넷──▶ /web  같은 길을 큰 화면 · 마우스 · 키보드로 (desk/web.py)
+                                         /study/…  강의자료 탭 (desk/study.py)
 
 테일넷 주소(100.64.0.0/10)와 127.0.0.1 에만 열고, 공개 인터넷(funnel)에는 내지 않습니다.
 그래도 열쇠(~/.config/desk/phone_token)가 맞아야 받습니다 — 테일넷에 다른 기기가 붙어도 못 씀.
@@ -21,6 +23,7 @@ import json
 import logging
 import os
 import secrets
+import shutil
 import subprocess
 import threading
 import time
@@ -29,6 +32,10 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import numpy as np
+
+from .study import MAX_PDF, Study
+from .usage import view as usage_view
+from .web import WEB, WEB_BUILD, WEB_JS
 
 log = logging.getLogger("deskd")
 
@@ -273,12 +280,21 @@ class Notices:
 class Phone:
     """desk: ask(text) -> dict · hear(pcm16) -> str 를 가진 것(deskd 의 Desk)"""
 
-    def __init__(self, desk, port: int = 7071, token_file: str = TOKEN_FILE):
+    def __init__(self, desk, port: int = 7071, token_file: str = TOKEN_FILE, study_dir: str | None = None):
         self.desk, self.port = desk, port
+        self.study_dir = study_dir
+        self._study: Study | None = None
         self.token = token(token_file)
         self.servers: list[ThreadingHTTPServer] = []
         self._hash: dict[int, str] = {}
         self.notices = Notices()
+
+    @property
+    def study(self) -> Study:
+        """강의자료 — 처음 쓸 때 폴더를 엶(시험에서 집 폴더를 안 만들게)"""
+        if self._study is None:
+            self._study = Study(self.study_dir) if self.study_dir else Study()
+        return self._study
 
     def watch(self, board, every_s: float = 5) -> None:
         """상태판의 작업 현황(agents)을 보고 알림을 만듦"""
@@ -300,6 +316,9 @@ class Phone:
                 self._bind(h)
             return
         self._bind("127.0.0.1")
+        # 강의자료를 켤 때 바로 엶 — 기능 전에 넣은 과제의 문제지 · 해설지를 만들고(Study._catch_up),
+        # 과목 비서 미리 읽기가 탭을 열기 전부터 돌게. (시험은 hosts 를 주므로 여기 안 옴 → 집 폴더를 안 만듦)
+        threading.Thread(target=lambda: self.study, daemon=True, name="study-open").start()
 
         def loop():
             while True:
@@ -343,6 +362,22 @@ class Phone:
             def _json(self, obj, code: int = 200):
                 self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json")
 
+            def _study(self, method: str, u, body: bytes | None):
+                code, out, ctype = ph.study.handle(method, u.path, parse_qs(u.query), body)
+                if isinstance(out, Path):                       # 큰 PDF — 통째로 메모리에 올리지 않고 1MB 씩 흘려 보냄
+                    size = out.stat().st_size
+                    self.send_response(code)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Content-Length", str(size))
+                    self.send_header("Cache-Control", "no-store")
+                    self.end_headers()
+                    with open(out, "rb") as fh:
+                        shutil.copyfileobj(fh, self.wfile, 1024 * 1024)
+                    return None
+                if ctype:
+                    return self._send(code, out, ctype)
+                return self._json(out, code)
+
             def _ok(self) -> bool:
                 if not allowed_peer(self.client_address[0]):
                     self._send(403, b"tailnet only")
@@ -367,6 +402,14 @@ class Phone:
                         return self._send(404, b"no apk")
                     return self._send(200, data, "application/vnd.android.package-archive",
                                       {"Content-Disposition": 'attachment; filename="desk-phone.apk"'})
+                if u.path == "/web":                          # 비서 웹(연구실 브라우저) — HTML 엔 비밀이 없어 열쇠 없이, 요청마다 열쇠 검사 (주인 11월 9일)
+                    if not allowed_peer(self.client_address[0]):
+                        return self._send(403, b"tailnet only")
+                    return self._send(200, WEB.encode(), "text/html; charset=utf-8")
+                if u.path == "/web.js":                       # 비서 웹의 스크립트 — 논문 정리 웹의 CSP 가 인라인 스크립트를 막아서 파일로
+                    if not allowed_peer(self.client_address[0]):
+                        return self._send(403, b"tailnet only")
+                    return self._send(200, WEB_JS.encode(), "text/javascript; charset=utf-8")
                 if not self._ok():
                     return
                 q = parse_qs(u.query)
@@ -394,15 +437,22 @@ class Phone:
                     wait = min(float((q.get("wait") or ["0"])[0] or 0), 55)
                     return self._json(ph.notices.since(seq, wait))
                 if u.path == "/state":
-                    return self._json({**ph.desk.phone_state(), "page": PAGE_BUILD})
+                    return self._json({**ph.desk.phone_state(), "usage": usage_view(), "page": PAGE_BUILD, "web": WEB_BUILD})
+                if u.path.startswith("/study/"):                # 강의자료 탭 (desk/study.py)
+                    return self._study("GET", u, None)
                 self._send(404, b"not found")
 
             def do_POST(self):
                 if not self._ok():
                     return
                 u = urlparse(self.path)
+                if int(self.headers.get("Content-Length") or 0) > MAX_PDF + 1024:
+                    self.close_connection = True                # 읽지 않은 본문이 다음 요청으로 섞이지 않게
+                    return self._json({"error": "200MB 보다 큰 파일은 못 올려요."}, 413)
                 body = self._body()
                 try:
+                    if u.path.startswith("/study/"):            # 강의자료 탭 (desk/study.py)
+                        return self._study("POST", u, body)
                     if u.path == "/ask":                      # 글로 — {"text": ...} 또는 그냥 글
                         try:
                             text = json.loads(body).get("text", "")

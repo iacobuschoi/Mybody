@@ -131,6 +131,17 @@ cd ~/lab/desk && .venv/bin/python -m desk calibrate   # 박수를 쳐 보고 ★
 - 빌드(JDK 17 · Android SDK · NDK 26 · Go · gomobile): `phone-app/build.sh` → `~/.local/share/desk/desk-phone.apk`, 설치 링크 `http://100.83.32.36:7071/app.apk`(테일넷 안에서만).
   같은 서명 열쇠(`~/.config/desk/phone-app.keystore`)로 빌드해야 폰에서 덮어 설치됨. 끄기: config `[phone] enabled = false`
 
+## 비서 웹 (연구실 · 노트북 브라우저)
+
+**논문 정리 웹 안에 합쳐 둠** — `https://desktop-il9c3if.tail0a8f8f.ts.net:8443/desk/web` (논문 정리 웹 머리줄의 「비서 · 강의자료」).
+그 사이트 비밀번호로 로그인하면 됨(Tailscale 필요 없음). 논문 정리 웹 서버(`~/lab/paper_organizer/server/desk.js`)가 로그인을 본 뒤
+`/desk/…` 를 이 맥의 7071 로 넘기며 폰 열쇠를 서버에서 붙임 — 브라우저엔 열쇠가 가지 않음.
+- 왼쪽: 비서와 대화(글 · 말하기) · 주인 확인 알림 / 오른쪽: 맥 화면 보기 · 클릭 · 두 번 · 오른쪽(우클릭) · 휠 · 끌기 · 글자 · 화면 · 핸드마우스 · 음량
+- **강의자료 탭**: 과목별 PDF · 공부 상태(안 봄 · 보는 중 · 다 봄 · 다시 볼 것) · 메모 · 쪽 표시 · 시험 날짜(D-day) · 범위 · 할 일 · 모든 자료 본문 검색 · 「비서에게」(자료 경로를 붙여 /ask). 데이터 `~/lab/study-data/`(`desk/study.py`), 지운 자료는 `trash/`
+- 페이지는 `desk/web.py` 의 `/web`(HTML) + `/web.js`(스크립트 — 논문 정리 웹의 CSP 가 인라인 스크립트를 막아서 파일로). 어느 자리에서 열려도 같은 자리로 요청(`B`)
+- 테일넷에서 바로 열기도 됨: `http://100.83.32.36:7071/web` (이때는 열쇠를 한 번 넣음)
+- Funnel 길은 요청마다 약 2.5초 — 맥 화면 보기는 느림. 강의자료 · 대화는 쓸 만함
+
 ## 알아둘 것
 
 - **왼손 주먹 쥐고 말하기** = 비서에게(누르고 말하기). 쥐는 순간 "똑" 소리 · 녹음, 펴는 순간 침묵을 기다리지 않고

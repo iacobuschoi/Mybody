@@ -8,7 +8,7 @@ import unittest
 import urllib.request
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-from desk import phone  # noqa: E402
+from desk import phone, study, web  # noqa: E402
 from tests.test_daemon import make  # noqa: E402
 
 
@@ -172,6 +172,69 @@ class Server(unittest.TestCase):
         c, b = self.req("/screen_on", b"")
         self.assertEqual((c, json.loads(b)["r"], self.p.desk.last), (200, "ok", ("on", "폰")))
         self.assertEqual(self.req("/screen_off", b"", tok=False)[0], 401)
+
+    def test_web_page_without_token_but_api_needs_it(self):
+        # 비서 웹: HTML 은 열쇠 없이(주소창에 열쇠를 안 남기려고), 그 안의 요청은 여전히 열쇠가 있어야 함
+        c, b = self.req("/web", tok=False)
+        page = b.decode()
+        self.assertEqual(c, 200)
+        self.assertIn("책상 비서", page)
+        self.assertNotIn(self.p.token, page)                     # 페이지에 열쇠가 박히지 않음
+        self.assertIn("'X-Desk-Token':T", web.WEB_JS)                  # 요청마다 열쇠를 실어 보냄
+        self.assertEqual(self.req("/ask", b'{"text":"x"}', tok=False)[0], 401)
+
+    def test_web_script_is_a_file_not_inline(self):
+        # 논문 정리 웹(/desk/web) 의 CSP 는 script-src 'self' — 인라인 스크립트는 안 돌아감 (11월 10일)
+        self.assertNotRegex(web.WEB, r"<script>[^<]")
+        self.assertIn('<script src="web.js"></script>', web.WEB)
+        c, b = self.req("/web.js", tok=False)
+        self.assertEqual(c, 200)
+        self.assertEqual(b.decode(), web.WEB_JS)
+        self.assertIn("fetch(B+path", web.WEB_JS)                # 어느 자리에서 열려도 같은 자리로 요청
+
+    def test_web_build_in_state_so_old_pages_reload(self):
+        s = json.loads(self.req("/state")[1])
+        self.assertEqual(s["web"], web.WEB_BUILD)
+        self.assertIn(f"const BUILD='{web.WEB_BUILD}'", web.WEB_JS)
+        self.assertNotIn("__BUILD__", web.WEB + web.WEB_JS)
+
+    def test_web_script_parses(self):
+        # 같은 이름을 두 번 선언하면(const S) 스크립트 전체가 안 돌아 열쇠 화면조차 안 뜸 — 11월 10일 강의자료 탭에서 실제로 남
+        import re
+        import shutil
+        import subprocess
+        node = shutil.which("node") or "/opt/homebrew/bin/node"
+        if not os.path.exists(node):
+            self.skipTest("node 없음")
+        js = web.WEB_JS
+        path = os.path.join(self.tmp, "web.js")
+        open(path, "w", encoding="utf-8").write(js)
+        r = subprocess.run([node, "--check", path], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_web_names_every_mode(self):
+        # 상태 이름이 빠지면 머리줄에 영어 그대로(sleep) 뜸 — daemon 의 모든 mode 를 한국어로
+        import re
+        src = open(os.path.join(os.path.dirname(phone.__file__), "daemon.py"), encoding="utf-8").read()
+        modes = set(re.findall(r'self\.mode = "([a-z_]+)"', src))
+        self.assertTrue(modes)
+        for m in modes:
+            self.assertRegex(web.WEB_JS, rf"\b{m}:'", m)
+
+    def test_web_page_routes_exist(self):
+        # 페이지가 부르는 길이 서버에 다 있어야 함(없는 길이면 버튼이 조용히 안 됨)
+        import re
+        paths = set(re.findall(r"['`](/[a-z_]+(?:/[a-z_]+)?)", web.WEB_JS))
+        src = open(phone.__file__, encoding="utf-8").read()
+        study_src = open(study.__file__, encoding="utf-8").read()
+        self.assertIn("/study/list", paths)                      # 강의자료 길도 실제로 뽑히는지
+        for p in paths - {"/screen", "/study/file", "/study/page", "/study/out"}:   # 정규식 길은 아래 따로
+            if p in ("/screen_main_", "/screen_desk_"):
+                continue
+            self.assertIn(f'"{p}"', study_src if p.startswith("/study/") else src, p)
+        self.assertIn(r"/study/file/(f-", study_src)
+        self.assertIn(r"/study/page/(f-", study_src)            # 쪽 그림 · 문제지 · 해설지
+        self.assertIn(r"/study/out/(f-", study_src)
 
     def test_talk_ends_only_on_release(self):
         page = phone.PAGE
