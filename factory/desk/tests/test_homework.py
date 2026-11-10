@@ -128,6 +128,22 @@ class Textbook(unittest.TestCase):
         self.assertIn("For the circuit", text)                 # 교과서 글이 벡터로 옮겨짐(그림이 아님)
         self.assertIn("Figure 3.4", text)
         self.assertIn("못 찾음", text)
+        self.assertLess(os.path.getsize(out), 1_000_000)        # 한글 글꼴을 통째로 넣어 5MB 가 되던 것
+
+    def test_big_sheet_falls_back_to_images(self):
+        lay, doc = self.load(False)
+        got = hw.find_problem(lay, doc, "3.2")
+        from pathlib import Path
+        old = hw.SHEET_MAX
+        try:
+            hw.SHEET_MAX = 1                                   # 벡터 문제지가 「너무 큼」
+            out = Path(self.d) / "r.pdf"
+            hw.build_sheet(out, "HW", "s", [{"num": "3.2", "page": 3, "clips": got.clips, "refs": []}], doc)
+        finally:
+            hw.SHEET_MAX = old
+        pg = pymupdf.open(str(out))[0]
+        self.assertTrue(pg.get_images())                       # 그림으로 넣음
+        self.assertNotIn("For the circuit", pg.get_text())
 
     def test_layout_cache_roundtrip(self):
         lay, _ = self.load(False)
@@ -180,8 +196,11 @@ class Flow(unittest.TestCase):
         self.assertIn("풀이 3.2", sol)
         self.assertIn("문제 3.3", sol)
         self.assertGreater(f["hw"]["sheet_pages"], 0)
-        # 해설을 쓰는 Claude 에게 문제지 · 수업자료 · 교과서 경로를 줌
+        # 해설을 쓰는 Claude 에게 문제마다 잘라 낸 그림(JPEG) · 수업자료 · 교과서 경로를 줌 — 큰 문제지 PDF 는 못 열었음(HW4)
         self.assertIn("-sheet.pdf", self.prompts[0])
+        self.assertRegex(self.prompts[0], r"그림\(문제\): \S+-solve/q0-0\.jpg")
+        self.assertRegex(self.prompts[0], r"그림\(그림 3\.4\): \S+\.jpg")
+        self.assertIn("짐작해서", self.prompts[0])
         self.assertIn(self.tb["id"], self.prompts[0])
         # 문제지 쪽 그림
         code, img, ct = self.S.handle("GET", f"/study/page/{f['id']}/1.jpg", {"v": ["sheet"], "w": ["600"]}, None)

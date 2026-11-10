@@ -639,7 +639,10 @@ def _h(s: str) -> str:
     return _html.escape(str(s))
 
 
-def build_sheet(out: Path, title: str, sub: str, problems: list, tb_doc) -> None:
+SHEET_MAX = 8 * 1024 * 1024        # 벡터로 옮긴 문제지가 이보다 크면(교과서 쪽의 큰 그림을 통째로 끌고 옴) 그림으로 다시
+
+
+def build_sheet(out: Path, title: str, sub: str, problems: list, tb_doc, raster: bool = False) -> None:
     """problems: [{num, page, clips:[Clip], refs:[{kind,num,page,clips,approx}], missing:[str]} | {num, error}]"""
     import pymupdf
     doc = pymupdf.open()
@@ -668,7 +671,12 @@ def build_sheet(out: Path, title: str, sub: str, problems: list, tb_doc) -> None
 
     def put(clip: Clip, x: float, y: float, scale: float):
         w, h = size_of(clip, scale)
-        state["page"].show_pdf_page(pymupdf.Rect(x, y, x + w, y + h), _doc(tb_doc, clip), clip.page, clip=pymupdf.Rect(clip.rect))
+        r = pymupdf.Rect(x, y, x + w, y + h)
+        if raster:                                        # 잘라 낸 부분만 JPEG 로 — Hibbeler 3쪽 문제지가 벡터로는 20MB
+            pix = _doc(tb_doc, clip)[clip.page].get_pixmap(clip=pymupdf.Rect(clip.rect), dpi=200)
+            state["page"].insert_image(r, stream=pix.tobytes("jpeg", jpg_quality=85))
+        else:
+            state["page"].show_pdf_page(r, _doc(tb_doc, clip), clip.page, clip=pymupdf.Rect(clip.rect))
         state["page"].draw_rect(pymupdf.Rect(x - 2, y - 2, x + w + 2, y + h + 2), color=(0.82, 0.82, 0.82), width=0.5)
         return h
 
@@ -745,8 +753,20 @@ def build_sheet(out: Path, title: str, sub: str, problems: list, tb_doc) -> None
             state["y"] += 22
         state["y"] += 8
     tmp = out.with_suffix(".tmp.pdf")
+    _subset(doc)
     doc.save(str(tmp), garbage=3, deflate=True)
+    if not raster and tmp.stat().st_size > SHEET_MAX:
+        tmp.unlink()
+        return build_sheet(out, title, sub, problems, tb_doc, raster=True)
     os.replace(tmp, out)
+
+
+def _subset(doc) -> None:
+    """한글 대체 글꼴(Droid Sans Fallback, 약 5MB)을 통째로 넣지 않고 쓴 글자만 — 문제지 하나가 5MB 가 되던 것"""
+    try:
+        doc.subset_fonts()
+    except Exception:  # noqa: BLE001 — 줄이기에 실패해도 PDF 는 맞음(크기만 큼). 로그에 남김
+        log.exception("과제: 글꼴 줄이기 실패")
 
 
 def _ref_label(r: dict) -> str:
@@ -813,15 +833,16 @@ def build_solution(out: Path, title: str, sub: str, sol_html: str, problems: lis
         for i, pr in enumerate(problems):
             body.append(f"<h2>문제 {_h(pr.get('label') or pr['num'])}</h2>")
             for j, c in enumerate(pr.get("clips") or []):
-                name = f"p{i}-{j}.png"
+                name = f"p{i}-{j}.jpg"
                 pix = _doc(tb_doc, c)[c.page].get_pixmap(clip=pymupdf.Rect(c.rect), dpi=170)
-                pix.save(str(img_dir / name))
+                (img_dir / name).write_bytes(pix.tobytes("jpeg", jpg_quality=85))
                 w = min(500, (c.rect[2] - c.rect[0]) * 1.0)
                 body.append(f"<div class='prob'><img src='{name}' width='{int(w)}'/></div>")
             for r in pr.get("refs") or []:
                 for j, c in enumerate(r.get("clips") or []):
-                    name = f"p{i}-r{len(body)}-{j}.png"
-                    _doc(tb_doc, c)[c.page].get_pixmap(clip=pymupdf.Rect(c.rect), dpi=150).save(str(img_dir / name))
+                    name = f"p{i}-r{len(body)}-{j}.jpg"
+                    pix = _doc(tb_doc, c)[c.page].get_pixmap(clip=pymupdf.Rect(c.rect), dpi=150)
+                    (img_dir / name).write_bytes(pix.tobytes("jpeg", jpg_quality=85))
                     w = min(380, (c.rect[2] - c.rect[0]) * 0.85)
                     body.append(f"<div class='src'>{_ref_label(r)}</div><div class='prob'><img src='{name}' width='{int(w)}'/></div>")
             sec = secs.get(pr["num"])
@@ -847,7 +868,14 @@ def build_solution(out: Path, title: str, sub: str, sol_html: str, problems: lis
         if n > 400:
             break                                       # 끝나지 않는 배치(깨진 html) 막기
     w.close()
-    os.replace(tmp, out)
+    import pymupdf as _p
+    d = _p.open(str(tmp))
+    _subset(d)
+    tmp2 = out.with_suffix(".tmp2.pdf")
+    d.save(str(tmp2), garbage=3, deflate=True)
+    d.close()
+    tmp.unlink()
+    os.replace(tmp2, out)
 
 
 def text_pdf(text: str, title: str) -> bytes:
@@ -861,8 +889,27 @@ def text_pdf(text: str, title: str) -> bytes:
 
 
 # ── Claude 로 해설 쓰기 ─────────────────────────────────────────────────────
+def problem_images(problems: list, tb_doc, out_dir: Path) -> dict:
+    """문제마다 문제 조각 · 참조 그림을 작은 JPEG 로 — Claude 가 Read 로 직접 봄.
+    (문제지 PDF 를 주었더니 「파일이 너무 커서 그림을 못 열었다」 며 하중 배치를 짐작해 풀었음 — 11월 11일 HW4)"""
+    import pymupdf
+    out_dir.mkdir(parents=True, exist_ok=True)
+    got = {}
+    for i, pr in enumerate(problems or []):
+        paths = []
+        items = [(c, "문제") for c in pr.get("clips") or []] + \
+            [(c, f"{KIND_KO.get(r['kind'], '')} {r['num']}") for r in pr.get("refs") or [] for c in r.get("clips") or []]
+        for j, (c, what) in enumerate(items):
+            pix = _doc(tb_doc, c)[c.page].get_pixmap(clip=pymupdf.Rect(c.rect), dpi=160)
+            p = out_dir / f"q{i}-{j}.jpg"
+            p.write_bytes(pix.tobytes("jpeg", jpg_quality=85))
+            paths.append((what, str(p)))
+        got[pr["num"]] = paths
+    return got
+
+
 def solve_prompt(course: str, title: str, mode: str, sheet: str | None, assignment_pdf: str,
-                 problems: list | None, lectures: list, textbooks: list) -> str:
+                 problems: list | None, lectures: list, textbooks: list, images: dict | None = None) -> str:
     lec = "\n".join(f"- 「{n}」 PDF {p} · 쪽별 본문(JSON 배열) {t}" for n, p, t in lectures) or "- (없음)"
     tbs = "\n".join(f"- 「{n}」 PDF {p} · 쪽별 본문(JSON 배열) {t}" for n, p, t in textbooks) or "- (없음)"
     if mode == "numbers" and problems:
@@ -872,11 +919,13 @@ def solve_prompt(course: str, title: str, mode: str, sheet: str | None, assignme
                 lst.append(f"- 문제 {pr['num']}: 교과서에서 못 찾음. 교과서 본문 JSON 을 Grep 해서 직접 찾아 풀 것. 못 찾으면 그렇다고 쓸 것.")
                 continue
             refs = ", ".join(f"{KIND_KO[r['kind']]} {r['num']}(교과서 {r['page']}쪽)" for r in pr.get("refs", []) if r.get("clips"))
-            lst.append(f"- 문제 {pr['num']} (교과서 {pr['page']}쪽){' · 참조: ' + refs if refs else ''}\n  뽑은 글: "
-                       + pr.get("text", "").replace("\n", " ")[:1500])
-        what = (f"문제지 PDF: {sheet}\n(문제지에 교과서에서 잘라 온 문제 본문과 문제가 가리키는 그림 · 표 · 예제가 들어 있다. "
-                f"뽑은 글은 수식이 깨져 있을 수 있으니 **문제지 PDF 를 Read 로 직접 보고** 숫자 · 그림을 확인할 것.)\n"
-                "문제 목록:\n" + "\n".join(lst))
+            pics = "\n".join(f"  그림({w}): {p}" for w, p in (images or {}).get(pr["num"], []))
+            lst.append(f"- 문제 {pr.get('label') or pr['num']} (section data-num=\"{pr['num']}\", 교과서 {pr['page']}쪽)"
+                       f"{' · 참조: ' + refs if refs else ''}\n{pics}\n  뽑은 글: " + pr.get("text", "").replace("\n", " ")[:1500])
+        what = ("문제마다 교과서에서 잘라 온 문제 본문 · 그림 · 표 · 예제를 JPEG 로 준다. 뽑은 글은 수식 · 첨자가 깨져 있으니 "
+                "**각 그림 파일을 Read 로 반드시 직접 보고** 치수 · 하중 · 지지 조건을 그림에서 읽을 것. 그림을 못 봤으면 짐작해서 "
+                "풀지 말고 그 문제는 「그림을 못 봐서 풀지 않음」 이라고만 쓸 것.\n"
+                f"(같은 내용의 문제지 PDF: {sheet})\n문제 목록:\n" + "\n".join(lst))
         fmt = ("문제마다 정확히 하나씩, 문제 목록 순서대로 <section data-num=\"3.2\"> … </section> 로 감싼다"
                "(data-num 은 위 번호 그대로). section 안에 문제 번호 제목은 쓰지 않는다(따로 붙임).")
     else:

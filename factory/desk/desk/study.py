@@ -370,6 +370,7 @@ class Study:
             (self.root / "text" / f"{fid}.json").unlink(missing_ok=True)
             (self.root / "text" / f"{fid}.layout.json").unlink(missing_ok=True)
             shutil.rmtree(self.root / "cache" / fid, ignore_errors=True)
+            shutil.rmtree(self.root / "out" / f"{fid}-solve", ignore_errors=True)
             for kind in ("sheet", "solution"):
                 out = self.root / "out" / f"{fid}-{kind}.pdf"
                 if out.exists():
@@ -615,9 +616,12 @@ class Study:
 
         def tri(x):
             return (x["name"], str(R / "files" / f"{x['id']}.pdf"), str(R / "text" / f"{x['id']}.json"))
+        solve_dir = R / "out" / f"{fid}-solve"
+        shutil.rmtree(solve_dir, ignore_errors=True)
+        images = hw.problem_images(problems, docs, solve_dir) if problems else None
         prompt = hw.solve_prompt(course, f["name"], mode, str(sheet_path) if problems else None,
                                  str(R / "files" / f"{fid}.pdf"), problems, [tri(x) for x in lectures],
-                                 [tri(x) for x in books])
+                                 [tri(x) for x in books], images)
         expect = 90 + 75 * (len(problems) if problems else 4)      # 대략 걸리는 초 — 진행률 추산용
 
         def tick(sec):
