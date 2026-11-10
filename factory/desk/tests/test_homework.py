@@ -212,7 +212,8 @@ class Flow(unittest.TestCase):
         self.S._file(f["id"]).pop("hw")                        # 기능 전에 넣은 과제처럼
         self.S._save()
         calls = []
-        again = study.Study(self.root, background=True, auto_hw=True, solver=lambda p, pr: calls.append(1) or "")
+        again = study.Study(self.root, background=True, auto_hw=True, solver=lambda p, pr: calls.append(1) or "",
+                            chat_runner=lambda *a, **k: {"result": "정리"})   # 진짜 Claude 를 부르지 않게
         import time
         for _ in range(100):
             if (again._file(f["id"]).get("hw") or {}).get("job", {}).get("state") in ("done", "error"):
@@ -220,7 +221,8 @@ class Flow(unittest.TestCase):
             time.sleep(0.1)
         self.assertEqual(again._file(f["id"])["hw"]["job"]["state"], "done")
         self.assertEqual(calls, [1])
-        third = study.Study(self.root, background=True, auto_hw=True, solver=lambda p, pr: calls.append(1) or "")
+        third = study.Study(self.root, background=True, auto_hw=True, solver=lambda p, pr: calls.append(1) or "",
+                            chat_runner=lambda *a, **k: {"result": "정리"})
         time.sleep(0.5)
         self.assertEqual(calls, [1])                           # 한 번만
 

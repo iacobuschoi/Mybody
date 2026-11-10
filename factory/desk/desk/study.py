@@ -124,8 +124,12 @@ class Study:
         self.db = self._load()
         from .coursechat import CourseChat, claude_json
         self.chat = CourseChat(self, runner=chat_runner or claude_json)   # 과목 비서(미리 읽기 · 과목별 세션)
+        # 저절로 미리 읽기(진짜 Claude 사용량)는 진짜 자료 폴더에서만 — 시험의 임시 폴더에서는 가짜를 꽂았을 때만
+        self.chat_auto = background and (chat_runner is not None or self.root == Path(os.path.expanduser(DATA_DIR)))
         if background and auto_hw:
             self._catch_up()
+            for c in list(self.db["courses"]) if self.chat_auto else []:   # 기능 전에 올린 자료도 미리 읽게(읽은 것은 건너뜀)
+                self.chat.schedule(c["id"])
 
     def _catch_up(self) -> None:
         """이 기능 전에 넣은 과제(hw 칸이 아예 없음) 가운데 과목에 교과서가 있고 문제 번호가 보이는 것 — 새로 올린 것처럼 한 번 만듦"""
@@ -295,7 +299,7 @@ class Study:
             self._save()
             auto = f.get("kind") == "assignment" and self.auto_hw and not (f.get("hw") or {}).get("sheet")
             cid = f["course"]
-        if self.background:
+        if self.chat_auto:
             self.chat.schedule(cid)                          # 과목 비서가 새 자료를 미리 읽음 (주인 11월 10일 20:51)
         if auto:
             self.run_hw(fid, "all")                          # 과제를 넣으면 문제지 · 해설지를 저절로 (주인 11월 10일)
@@ -339,7 +343,7 @@ class Study:
                 f["hw"] = {"text": "", "job": {"state": "idle", "pct": 0, "msg": ""}}
             f.update(new)
             self._save()
-            if self.background and {"kind", "name", "course"} & new.keys():
+            if self.chat_auto and {"kind", "name", "course"} & new.keys():
                 self.chat.schedule(f["course"])
             return f
 
@@ -372,7 +376,7 @@ class Study:
                     shutil.move(str(out), str(self.root / "trash" / f"{stamp}-{fid}-{kind}.pdf"))
             self.db["files"].remove(f)
             self._save()
-            if self.background:
+            if self.chat_auto:
                 self.chat.schedule(f["course"])
 
     def import_dir(self, course: str, folder: str, pattern: str = "*.pdf") -> list[dict]:

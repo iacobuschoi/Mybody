@@ -316,6 +316,9 @@ class Phone:
                 self._bind(h)
             return
         self._bind("127.0.0.1")
+        # 강의자료를 켤 때 바로 엶 — 기능 전에 넣은 과제의 문제지 · 해설지를 만들고(Study._catch_up),
+        # 과목 비서 미리 읽기가 탭을 열기 전부터 돌게. (시험은 hosts 를 주므로 여기 안 옴 → 집 폴더를 안 만듦)
+        threading.Thread(target=lambda: self.study, daemon=True, name="study-open").start()
 
         def loop():
             while True:
